@@ -1,0 +1,44 @@
+{
+  "name": "starpeace-online-client",
+  "version": "0.1.0",
+  "description": "TypeScript web client for Starpeace Online - A browser-based multiplayer tycoon/simulation game",
+  "main": "dist/server/server.js",
+  "scripts": {
+    "build:server": "tsc",
+    "build:client": "esbuild src/client/client.ts --bundle --outfile=public/client.js --format=iife",
+    "build": "npm run build:server && npm run build:client",
+    "start": "node dist/server/server.js",
+    "dev": "npm run build && npm start"
+  },
+  "keywords": [
+    "starpeace",
+    "online",
+    "game",
+    "multiplayer",
+    "tycoon",
+    "simulation",
+    "websocket",
+    "typescript"
+  ],
+  "author": "",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/starpeace-online-client.git"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "dependencies": {
+    "node-fetch": "^2.7.0",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "@types/node-fetch": "^2.6.12",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.27.2",
+    "typescript": "^5.9.3"
+  }
+}

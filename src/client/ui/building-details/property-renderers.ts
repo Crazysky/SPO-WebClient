@@ -1,0 +1,567 @@
+/**
+ * Property Renderers
+ *
+ * Functions to render different property types into HTML elements.
+ */
+
+import {
+  PropertyType,
+  PropertyDefinition,
+  formatCurrency,
+  formatPercentage,
+  formatNumber,
+} from '../../../shared/building-details';
+import { BuildingPropertyValue } from '../../../shared/types';
+
+/**
+ * Get color class based on value
+ */
+function getColorClass(value: number, colorCode?: string): string {
+  if (colorCode === 'positive') return 'text-success';
+  if (colorCode === 'negative') return 'text-error';
+  if (colorCode === 'neutral') return 'text-muted';
+  if (colorCode === 'auto') {
+    if (value > 0) return 'text-success';
+    if (value < 0) return 'text-error';
+    return 'text-muted';
+  }
+  return '';
+}
+
+/**
+ * Render a text property
+ */
+export function renderTextProperty(value: string): HTMLElement {
+  const span = document.createElement('span');
+  span.className = 'property-value property-text';
+  span.textContent = value || '-';
+  return span;
+}
+
+/**
+ * Render a number property
+ */
+export function renderNumberProperty(
+  value: string,
+  definition: PropertyDefinition
+): HTMLElement {
+  const span = document.createElement('span');
+  span.className = 'property-value property-number';
+
+  const num = parseFloat(value);
+  if (isNaN(num)) {
+    span.textContent = value || '0';
+  } else {
+    span.textContent = formatNumber(num, definition.unit);
+    const colorClass = getColorClass(num, definition.colorCode);
+    if (colorClass) span.classList.add(colorClass);
+  }
+
+  return span;
+}
+
+/**
+ * Render a currency property
+ */
+export function renderCurrencyProperty(
+  value: string,
+  definition: PropertyDefinition
+): HTMLElement {
+  const span = document.createElement('span');
+  span.className = 'property-value property-currency';
+
+  const num = parseFloat(value);
+  span.textContent = formatCurrency(num);
+
+  const colorClass = getColorClass(num, definition.colorCode);
+  if (colorClass) span.classList.add(colorClass);
+
+  return span;
+}
+
+/**
+ * Render a percentage property
+ */
+export function renderPercentageProperty(
+  value: string,
+  definition: PropertyDefinition
+): HTMLElement {
+  const span = document.createElement('span');
+  span.className = 'property-value property-percentage';
+
+  const num = parseFloat(value);
+  span.textContent = formatPercentage(num);
+
+  const colorClass = getColorClass(num, definition.colorCode);
+  if (colorClass) span.classList.add(colorClass);
+
+  return span;
+}
+
+/**
+ * Render a ratio property (current/max)
+ */
+export function renderRatioProperty(
+  value: string,
+  maxValue: string | undefined
+): HTMLElement {
+  const container = document.createElement('div');
+  container.className = 'property-value property-ratio';
+
+  const current = parseFloat(value) || 0;
+  const max = maxValue ? parseFloat(maxValue) || 0 : 0;
+  const percentage = max > 0 ? (current / max) * 100 : 0;
+
+  // Progress bar
+  const bar = document.createElement('div');
+  bar.className = 'ratio-bar';
+  bar.innerHTML = `
+    <div class="ratio-fill" style="width: ${Math.min(100, percentage)}%"></div>
+  `;
+
+  // Text
+  const text = document.createElement('span');
+  text.className = 'ratio-text';
+  text.textContent = max > 0 ? `${current}/${max}` : `${current}`;
+
+  container.appendChild(bar);
+  container.appendChild(text);
+
+  return container;
+}
+
+/**
+ * Render a boolean property
+ */
+export function renderBooleanProperty(value: string): HTMLElement {
+  const span = document.createElement('span');
+  span.className = 'property-value property-boolean';
+
+  const isTrue = value === '1' || value.toLowerCase() === 'yes' || value.toLowerCase() === 'true';
+  span.textContent = isTrue ? 'Yes' : 'No';
+  span.classList.add(isTrue ? 'text-success' : 'text-muted');
+
+  return span;
+}
+
+/**
+ * Render a property row (label + value)
+ */
+export function renderPropertyRow(
+  definition: PropertyDefinition,
+  propertyValue: BuildingPropertyValue,
+  maxValue?: string,
+  onSliderChange?: (value: number) => void
+): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'property-row';
+
+  // Label
+  const label = document.createElement('div');
+  label.className = 'property-label';
+  label.textContent = definition.displayName;
+  if (definition.tooltip) {
+    label.title = definition.tooltip;
+  }
+  row.appendChild(label);
+
+  // Value
+  let valueElement: HTMLElement;
+
+  switch (definition.type) {
+    case PropertyType.TEXT:
+      valueElement = renderTextProperty(propertyValue.value);
+      break;
+
+    case PropertyType.NUMBER:
+      valueElement = renderNumberProperty(propertyValue.value, definition);
+      break;
+
+    case PropertyType.CURRENCY:
+      valueElement = renderCurrencyProperty(propertyValue.value, definition);
+      break;
+
+    case PropertyType.PERCENTAGE:
+      valueElement = renderPercentageProperty(propertyValue.value, definition);
+      break;
+
+    case PropertyType.RATIO:
+      valueElement = renderRatioProperty(propertyValue.value, maxValue);
+      break;
+
+    case PropertyType.BOOLEAN:
+      valueElement = renderBooleanProperty(propertyValue.value);
+      break;
+
+    case PropertyType.SLIDER:
+      valueElement = renderSliderProperty(
+        propertyValue.value,
+        definition,
+        onSliderChange
+      );
+      break;
+
+    default:
+      valueElement = renderTextProperty(propertyValue.value);
+  }
+
+  row.appendChild(valueElement);
+  return row;
+}
+
+/**
+ * Render a slider property (for editable values)
+ */
+export function renderSliderProperty(
+  value: string,
+  definition: PropertyDefinition,
+  onChange?: (value: number) => void
+): HTMLElement {
+  const container = document.createElement('div');
+  container.className = 'property-slider-container';
+
+  const num = parseFloat(value) || 0;
+  const min = definition.min ?? 0;
+  const max = definition.max ?? 300;
+  const step = definition.step ?? 5;
+
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.className = 'property-slider';
+  slider.min = min.toString();
+  slider.max = max.toString();
+  slider.step = step.toString();
+  slider.value = num.toString();
+
+  const valueDisplay = document.createElement('span');
+  valueDisplay.className = 'slider-value';
+  valueDisplay.textContent = definition.unit ? `${num}${definition.unit}` : num.toString();
+
+  // Update display while dragging
+  slider.oninput = () => {
+    const newVal = parseFloat(slider.value);
+    valueDisplay.textContent = definition.unit ? `${newVal}${definition.unit}` : newVal.toString();
+  };
+
+  // Handle value change - use multiple events for cross-browser compatibility
+  const handleChange = () => {
+    const newVal = parseFloat(slider.value);
+    if (onChange) {
+      onChange(newVal);
+    }
+  };
+
+  // Multiple events to ensure it fires across different browsers and input methods
+  slider.onchange = handleChange;
+  slider.addEventListener('change', handleChange);
+  slider.addEventListener('mouseup', handleChange);
+  slider.addEventListener('touchend', handleChange);
+
+  container.appendChild(slider);
+  container.appendChild(valueDisplay);
+  return container;
+}
+
+
+/**
+ * Render a group of properties
+ * Indexed properties with the same countProperty are grouped into nested tabs
+ */
+export function renderPropertyGroup(
+  properties: BuildingPropertyValue[],
+  definitions: PropertyDefinition[],
+  onPropertyChange?: (propertyName: string, value: number) => void
+): HTMLElement {
+  const container = document.createElement('div');
+  container.className = 'property-group';
+
+  // Create a map for quick lookup
+  const valueMap = new Map<string, string>();
+  for (const prop of properties) {
+    valueMap.set(prop.name, prop.value);
+  }
+
+  // Track rendered properties to avoid duplicates
+  const renderedProperties = new Set<string>();
+
+  for (const def of definitions) {
+    const suffix = def.indexSuffix || '';
+    
+    if (def.indexed && def.countProperty) {
+      // Find all values for this indexed property with the same base name
+      const indexedValues: BuildingPropertyValue[] = [];
+      
+      for (const prop of properties) {
+        // Match base name with suffix (escape dots in regex)
+        const escapedSuffix = suffix.replace(/\./g, '\\.');
+        const regex = new RegExp(`^${def.rdoName}(\\d+)${escapedSuffix}$`);
+        const match = prop.name.match(regex);
+        
+        if (match) {
+          indexedValues.push(prop);
+          renderedProperties.add(prop.name);
+        }
+      }
+
+      // Only render if we have values
+      if (indexedValues.length > 0) {
+        // For indexed properties with single value, render as simple property rows
+        if (indexedValues.length === 1) {
+          for (const indexedValue of indexedValues) {
+            const itemDef: PropertyDefinition = {
+              ...def,
+              displayName: `${def.displayName}`,
+              indexed: false,
+            };
+            
+            // Get max value if it's a ratio type
+            let maxValue: string | undefined;
+            if (def.type === PropertyType.RATIO && def.maxProperty) {
+              const maxPropName = `${def.maxProperty}${indexedValue.index ?? 0}${suffix}`;
+              maxValue = valueMap.get(maxPropName);
+              if (maxValue) {
+                renderedProperties.add(maxPropName);
+              }
+            }
+            
+            const row = renderPropertyRow(
+              itemDef,
+              indexedValue,
+              maxValue,
+              onPropertyChange ? (val) => onPropertyChange(indexedValue.name, val) : undefined
+            );
+            
+            container.appendChild(row);
+          }
+        } else {
+          // Multiple values: render as grouped section with sub-items
+          const groupContainer = document.createElement('div');
+          groupContainer.className = 'indexed-property-group';
+          
+          const groupLabel = document.createElement('div');
+          groupLabel.className = 'property-group-label';
+          groupLabel.textContent = def.displayName;
+          groupContainer.appendChild(groupLabel);
+          
+          const itemsContainer = document.createElement('div');
+          itemsContainer.className = 'indexed-items-list';
+          
+          for (const indexedValue of indexedValues) {
+            const itemDef: PropertyDefinition = {
+              ...def,
+              displayName: `${def.displayName} ${indexedValue.index ?? ''}`,
+              indexed: false,
+            };
+            
+            // Get max value if it's a ratio type
+            let maxValue: string | undefined;
+            if (def.type === PropertyType.RATIO && def.maxProperty) {
+              const maxPropName = `${def.maxProperty}${indexedValue.index ?? 0}${suffix}`;
+              maxValue = valueMap.get(maxPropName);
+              if (maxValue) {
+                renderedProperties.add(maxPropName);
+              }
+            }
+            
+            const row = renderPropertyRow(
+              itemDef,
+              indexedValue,
+              maxValue,
+              onPropertyChange ? (val) => onPropertyChange(indexedValue.name, val) : undefined
+            );
+            
+            itemsContainer.appendChild(row);
+          }
+          
+          groupContainer.appendChild(itemsContainer);
+          container.appendChild(groupContainer);
+        }
+      }
+    } else if (def.indexed && !def.countProperty) {
+      // Fixed index range
+      const indexedValues: BuildingPropertyValue[] = [];
+      
+      for (let i = 0; i <= (def.indexMax || 9); i++) {
+        const propName = `${def.rdoName}${i}${suffix}`;
+        const value = valueMap.get(propName);
+        
+        if (value) {
+          indexedValues.push({ name: propName, value, index: i });
+          renderedProperties.add(propName);
+        }
+      }
+
+      if (indexedValues.length > 0) {
+        // Render each as property row
+        for (const indexedValue of indexedValues) {
+          const itemDef: PropertyDefinition = {
+            ...def,
+            displayName: `${def.displayName} ${indexedValue.index ?? ''}`,
+            indexed: false,
+          };
+          
+          // Get max value if it's a ratio type
+          let maxValue: string | undefined;
+          if (def.type === PropertyType.RATIO && def.maxProperty) {
+            const maxPropName = `${def.maxProperty}${indexedValue.index ?? 0}${suffix}`;
+            maxValue = valueMap.get(maxPropName);
+            if (maxValue) {
+              renderedProperties.add(maxPropName);
+            }
+          }
+          
+          const row = renderPropertyRow(
+            itemDef,
+            indexedValue,
+            maxValue,
+            onPropertyChange ? (val) => onPropertyChange(indexedValue.name, val) : undefined
+          );
+          
+          container.appendChild(row);
+        }
+      }
+    } else {
+      // Regular property (non-indexed)
+      const value = valueMap.get(def.rdoName);
+      
+      if (value !== undefined) {
+        // Check if we should hide empty values
+        if (def.hideEmpty && (!value || value.trim() === '' || value === '0')) {
+          continue;
+        }
+        
+        renderedProperties.add(def.rdoName);
+        
+        const propValue: BuildingPropertyValue = {
+          name: def.rdoName,
+          value: value,
+        };
+        
+        // Get max value if it's a ratio type
+        let maxValue: string | undefined;
+        if (def.type === PropertyType.RATIO && def.maxProperty) {
+          maxValue = valueMap.get(def.maxProperty);
+          if (maxValue) {
+            renderedProperties.add(def.maxProperty);
+          }
+        }
+        
+        const row = renderPropertyRow(
+          def,
+          propValue,
+          maxValue,
+          onPropertyChange ? (val) => onPropertyChange(def.rdoName, val) : undefined
+        );
+        
+        container.appendChild(row);
+      }
+    }
+  }
+
+  // Render any unmatched properties (fallback for debugging)
+  for (const prop of properties) {
+    if (!renderedProperties.has(prop.name)) {
+      // Skip internal/metadata properties
+      if (prop.name.startsWith('_') || prop.name === 'ObjectId' || prop.name === 'SecurityId') {
+        continue;
+      }
+      
+      const fallbackDef: PropertyDefinition = {
+        rdoName: prop.name,
+        displayName: prop.name,
+        type: PropertyType.TEXT,
+      };
+      
+      const row = renderPropertyRow(fallbackDef, prop);
+      container.appendChild(row);
+    }
+  }
+
+  return container;
+}
+
+
+
+/**
+ * Render indexed properties as nested tabs
+ * Each index becomes a tab, containing all properties for that index
+ */
+function renderIndexedPropertyTabs(
+  indices: number[],
+  definitions: PropertyDefinition[],
+  valueMap: Map<string, BuildingPropertyValue>,
+  onPropertyChange?: (propertyName: string, value: number) => void
+): HTMLElement {
+  const container = document.createElement('div');
+  container.className = 'indexed-tabs-container';
+
+  // Create tabs navigation
+  const tabsNav = document.createElement('div');
+  tabsNav.className = 'nested-tabs-nav';
+
+  // Create tabs content container
+  const tabsContent = document.createElement('div');
+  tabsContent.className = 'nested-tabs-content';
+
+  indices.forEach((rdoIndex, displayIndex) => {
+    // Try to get a name for this tab from the first TEXT property
+    const nameProperty = definitions.find(d => d.type === PropertyType.TEXT);
+    let tabLabel = `#${displayIndex}`;
+    if (nameProperty) {
+      const namePv = valueMap.get(`${nameProperty.rdoName}${rdoIndex}`);
+      if (namePv?.value) {
+        tabLabel = namePv.value;
+      }
+    }
+
+    // Tab button
+    const tabBtn = document.createElement('button');
+    tabBtn.className = 'nested-tab-btn' + (displayIndex === 0 ? ' active' : '');
+    tabBtn.textContent = tabLabel;
+    tabBtn.dataset.index = displayIndex.toString();
+
+    // Tab content pane
+    const tabPane = document.createElement('div');
+    tabPane.className = 'nested-tab-pane' + (displayIndex === 0 ? ' active' : '');
+    tabPane.dataset.index = displayIndex.toString();
+
+    // Render all properties for this index
+    for (const def of definitions) {
+      const propName = `${def.rdoName}${rdoIndex}`;
+      const pv = valueMap.get(propName);
+      if (pv) {
+        const maxName = def.maxProperty ? `${def.maxProperty}${rdoIndex}` : undefined;
+        const maxVal = maxName ? valueMap.get(maxName)?.value : undefined;
+
+        const row = renderPropertyRow(
+          def,
+          pv,
+          maxVal,
+          def.editable && onPropertyChange
+            ? (val) => onPropertyChange(propName, val)
+            : undefined
+        );
+        tabPane.appendChild(row);
+      }
+    }
+
+    // Click handler for tab
+    tabBtn.onclick = () => {
+      // Deactivate all tabs
+      tabsNav.querySelectorAll('.nested-tab-btn').forEach(btn => btn.classList.remove('active'));
+      tabsContent.querySelectorAll('.nested-tab-pane').forEach(pane => pane.classList.remove('active'));
+
+      // Activate clicked tab
+      tabBtn.classList.add('active');
+      tabPane.classList.add('active');
+    };
+
+    tabsNav.appendChild(tabBtn);
+    tabsContent.appendChild(tabPane);
+  });
+
+  container.appendChild(tabsNav);
+  container.appendChild(tabsContent);
+
+  return container;
+}

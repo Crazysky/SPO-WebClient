@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Starpeace Online</title>
+
+    <!-- Google Fonts - Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Design System -->
+    <link rel="stylesheet" href="design-system.css">
+
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            background: radial-gradient(ellipse at top, #1e293b 0%, #0f172a 50%, #020617 100%);
+        }
+
+        /* Header */
+        header {
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            border-bottom: 1px solid var(--glass-border);
+            padding: var(--space-3) var(--space-6);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: var(--z-sticky);
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+        }
+
+        .header-title h1 {
+            margin: 0;
+            font-size: var(--text-xl);
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary-blue-light), var(--primary-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-version {
+            font-size: var(--text-xs);
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            font-size: var(--text-sm);
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        /* Main Container */
+        #main-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Login Panel */
+        #login-panel {
+            width: 420px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--glass-border);
+            display: flex;
+            flex-direction: column;
+            padding: var(--space-8);
+            gap: var(--space-6);
+            overflow-y: auto;
+        }
+
+        .login-section {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-4);
+        }
+
+        .section-title {
+            font-size: var(--text-sm);
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+            margin-bottom: var(--space-2);
+        }
+
+        .credentials-card {
+            background: var(--surface-elevated);
+            border-radius: var(--radius-lg);
+            padding: var(--space-6);
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-4);
+        }
+
+        .world-list {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-3);
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .world-card {
+            background: var(--surface-elevated);
+            border: 2px solid transparent;
+            border-radius: var(--radius-lg);
+            padding: var(--space-4);
+            cursor: pointer;
+            transition: all var(--transition-base);
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-2);
+        }
+
+        .world-card:hover {
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 12px rgba(74, 144, 226, 0.5);
+            background: var(--bg-tertiary);
+        }
+
+        .world-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .world-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: var(--text-base);
+        }
+
+        .world-stats {
+            display: flex;
+            gap: var(--space-3);
+            font-size: var(--text-sm);
+            color: var(--text-tertiary);
+        }
+
+        .company-list {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-3);
+        }
+
+        .company-card {
+            background: var(--surface-elevated);
+            border: 2px solid transparent;
+            border-radius: var(--radius-lg);
+            padding: var(--space-4);
+            cursor: pointer;
+            transition: all var(--transition-base);
+        }
+
+        .company-card:hover {
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 12px rgba(74, 144, 226, 0.5);
+            background: var(--bg-tertiary);
+        }
+
+        .company-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: var(--space-2);
+        }
+
+        .company-stats {
+            display: flex;
+            gap: var(--space-4);
+            font-size: var(--text-sm);
+            color: var(--text-tertiary);
+        }
+
+        /* Game Panel */
+        #game-panel {
+            flex: 1;
+            display: none;
+            background: transparent;
+            position: relative;
+        }
+
+        /* Console Output */
+        #console-wrapper {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: auto;
+            max-height: 300px;
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            border-top: 1px solid var(--glass-border);
+            display: flex;
+            flex-direction: column;
+            z-index: var(--z-dropdown);
+            transition: all var(--transition-base);
+        }
+
+        #console-wrapper.collapsed {
+            max-height: 40px;
+        }
+
+        #console-header {
+            padding: var(--space-3) var(--space-4);
+            background: rgba(0, 0, 0, 0.3);
+            font-size: var(--text-sm);
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        #console-header:hover {
+            background: rgba(0, 0, 0, 0.4);
+        }
+
+        .console-controls {
+            display: flex;
+            gap: var(--space-2);
+        }
+
+        .console-toggle {
+            color: var(--text-tertiary);
+            transition: transform var(--transition-base);
+        }
+
+        #console-wrapper.collapsed .console-toggle {
+            transform: rotate(180deg);
+        }
+
+        #console-output {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--space-4);
+            font-family: var(--font-mono);
+            font-size: var(--text-sm);
+            color: var(--success);
+            min-height: 150px;
+        }
+
+        #console-wrapper.collapsed #console-output {
+            display: none;
+        }
+
+        .console-line {
+            margin-bottom: var(--space-1);
+            opacity: 0.9;
+        }
+
+        .console-line:last-child {
+            opacity: 1;
+        }
+
+        /* Spinner animation */
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--glass-border);
+            border-top-color: var(--primary-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: var(--space-2);
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-title">
+            <h1>STARPEACE ONLINE</h1>
+            <span class="header-version">Protocol V1</span>
+        </div>
+        <div id="toolbar-container"></div>
+        <div id="status-indicator" class="status-indicator">
+            <span class="status-dot"></span>
+            <span>Online</span>
+        </div>
+    </header>
+
+    <div id="main-container">
+
+        <!-- Left Sidebar: Login & Worlds -->
+        <div id="login-panel">
+            <div class="login-section">
+                <div class="section-title">Authentication</div>
+                <div class="credentials-card">
+                    <input type="text" id="inp-username" class="input" placeholder="Username">
+                    <input type="password" id="inp-password" class="input" placeholder="Password">
+                    <button id="btn-connect" class="btn btn-primary">Connect to Starpeace</button>
+                </div>
+            </div>
+
+            <div class="login-section" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+                <div class="section-title">Select World</div>
+                <div id="world-list" class="world-list" style="flex: 1; justify-content: flex-start;">
+                </div>
+            </div>
+
+            <div class="login-section hidden" id="company-section" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+                <div class="section-title">Select Company</div>
+                <div id="company-list" class="company-list" style="flex: 1; max-height: none;">
+                </div>
+            </div>
+        </div>
+
+        <!-- Main View: Game Area -->
+        <div id="game-panel">
+            <!-- Canvas et overlays seront ajoutés ici par le JS -->
+        </div>
+
+    </div>
+
+    <!-- Debug Console -->
+    <div id="console-wrapper" class="collapsed">
+        <div id="console-header">
+            <span>Protocol Log</span>
+            <div class="console-controls">
+                <button class="btn-icon" id="btn-clear-console" title="Clear">✕</button>
+                <span class="console-toggle">▲</span>
+            </div>
+        </div>
+        <div id="console-output"></div>
+    </div>
+
+    <!-- Application Script -->
+    <script src="client.js"></script>
+
+    <script>
+        // Console toggle functionality
+        const consoleWrapper = document.getElementById('console-wrapper');
+        const consoleHeader = document.getElementById('console-header');
+        const clearBtn = document.getElementById('btn-clear-console');
+
+        consoleHeader.addEventListener('click', (e) => {
+            if (e.target !== clearBtn && !clearBtn.contains(e.target)) {
+                consoleWrapper.classList.toggle('collapsed');
+            }
+        });
+
+        clearBtn.addEventListener('click', () => {
+            document.getElementById('console-output').innerHTML = '';
+        });
+    </script>
+</body>
+</html>
