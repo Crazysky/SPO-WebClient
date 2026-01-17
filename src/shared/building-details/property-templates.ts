@@ -8,8 +8,7 @@
 import { start } from 'repl';
 import { BuildingTemplate, PropertyGroup } from './property-definitions';
 import {
-  OVERVIEW_GROUP,
-  WORKFORCE_SMALL_GROUP,
+  OVERVIEW_GROUP,  
   WORKFORCE_GROUP,
   SUPPLIES_GROUP,
   SERVICES_GROUP,
@@ -91,7 +90,6 @@ export const TRADE: BuildingTemplate = {
     OVERVIEW_GROUP,
     TRADE_GROUP,
     SUPPLIES_GROUP,
-    WORKFORCE_SMALL_GROUP,
     UPGRADE_GROUP,
     FINANCES_GROUP,
   ],
@@ -297,7 +295,20 @@ function collectGroupPropertyNamesStructured(
 ): void {
   for (const prop of group.properties) {
     const suffix = prop.indexSuffix || '';
-    
+
+    // Handle WORKFORCE_TABLE type specially
+    if (prop.type === 'WORKFORCE_TABLE') {
+      // Add all workforce properties for 3 worker classes (0, 1, 2)
+      for (let i = 0; i < 3; i++) {
+        regularProperties.add(`Workers${i}`);
+        regularProperties.add(`WorkersMax${i}`);
+        regularProperties.add(`WorkersK${i}`);
+        regularProperties.add(`Salaries${i}`);
+        regularProperties.add(`WorkForcePrice${i}`);
+      }
+      continue;
+    }
+
     if (prop.indexed && prop.countProperty) {
       // Indexed property with count - add to structured map
       countProperties.add(prop.countProperty);

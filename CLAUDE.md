@@ -394,6 +394,17 @@ Provide:
     - Added `additionalParams` field to WsReqBuildingSetProperty for context-specific data (MetaFluid, indices)
     - Client UI automatically extracts current salary values when updating one salary (RDOSetSalaries requires all 3)
     - **Bug Fix:** Fixed salary property mapping - uses `Salaries0/1/2` (not `srvSalaries`)
+  - **Workforce Table Redesign (January 2026):**
+    - Restructured Workforce tab to display as 4-column table (Label | Executives | Professionals | Workers)
+    - Added new PropertyType: `WORKFORCE_TABLE` for specialized workforce rendering
+    - Server-side: Modified `getBuildingDetails()` to handle WORKFORCE_TABLE type and populate workforce properties
+    - Client-side: Created `renderWorkforceTable()` function in property-renderers.ts
+    - Table rows: Jobs (Workers/WorkersMax ratio), Work Force Quality (%), Salaries (editable input)
+    - Salary display: WorkForcePrice in currency (from server) + editable percentage input (0-250%)
+    - Empty cells when WorkersMax = 0 for cleaner display
+    - Modal width increased from 500px to 650px for better table readability
+    - Replaced slider controls with number input fields for direct salary percentage entry
+    - CSS fix: Removed `display: flex` from table cells to maintain proper column alignment
 
 ## Session Context for AI Agent
 

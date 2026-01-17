@@ -13,11 +13,16 @@ import { PropertyGroup, PropertyType, PropertyDefinition, TableColumn } from './
 
 export const CONNECTION_COLUMNS: TableColumn[] = [
   { rdoSuffix: 'cnxFacilityName', label: 'Facility', type: PropertyType.TEXT, width: '30%' },
-  { rdoSuffix: 'cnxCompanyName', label: 'Company', type: PropertyType.TEXT, width: '20%' },
+  { rdoSuffix: 'cnxCreatedBy', label: 'Owner', type: PropertyType.TEXT, width: '20%' },
+  { rdoSuffix: 'cnxCompanyName', label: 'Company', type: PropertyType.TEXT, width: '30%' },
   { rdoSuffix: 'cnxNfPrice', label: 'Price', type: PropertyType.CURRENCY, width: '15%' },
+  { rdoSuffix: 'OverPriceCnxInfo', label: 'Overpaid', type: PropertyType.CURRENCY, width: '15%' },
   { rdoSuffix: 'cnxQuality', label: 'Quality', type: PropertyType.PERCENTAGE, width: '10%' },
   { rdoSuffix: 'LastValueCnxInfo', label: 'Last', type: PropertyType.TEXT, width: '15%' },
-  { rdoSuffix: 'ConnectedCnxInfo', label: 'Status', type: PropertyType.BOOLEAN, width: '10%' },
+  { rdoSuffix: 'tCostCnxInfo', label: 'T. Cost', type: PropertyType.BOOLEAN, width: '10%' },
+  // Coordinates of the supplier - act as a shortcut for map.
+  { rdoSuffix: 'cnxYPos', label: 'Coord. Y', type: PropertyType.NUMBER, width: '10%' },
+  { rdoSuffix: 'cnxXPos', label: 'Coord. X', type: PropertyType.NUMBER, width: '10%' },
 ];
 
 // =============================================================================
@@ -42,43 +47,9 @@ export const OVERVIEW_GROUP: PropertyGroup = {
 // =============================================================================
 // WORKFORCE GROUP (For buildings with employees)
 // =============================================================================
-
-const WORKER_CLASS_PROPERTIES = (classIndex: number, className: string): PropertyDefinition[] => [
-  {
-    rdoName: `Workers${classIndex}`,
-    displayName: `${className} Workers`,
-    type: PropertyType.RATIO,
-    maxProperty: `WorkersMax${classIndex}`,
-  },
-  {
-    rdoName: `Salaries${classIndex}`,
-    displayName: `${className} Salary`,
-    type: PropertyType.SLIDER,
-    editable: true,
-    min: 0,
-    max: 300,
-    step: 5,
-    unit: '%',
-  },
-  {
-    rdoName: `SalaryValues${classIndex === 1 ? '' : classIndex.toString()}`,
-    displayName: `${className} Salary Value`,
-    type: PropertyType.CURRENCY,
-    hideEmpty: true,
-  },
-  {
-    rdoName: `WorkForcePrice${classIndex}`,
-    displayName: `${className} Labor Cost`,
-    type: PropertyType.CURRENCY,
-    hideEmpty: true,
-  },
-  {
-    rdoName: `MinSalaries${classIndex}`,
-    displayName: `${className} Min Salary`,
-    type: PropertyType.PERCENTAGE,
-    hideEmpty: true,
-  },
-];
+// Workforce table - displays all worker classes in a 4-column table
+// Columns: Label | Executives | Professionals | Workers
+// Rows: Jobs (ratio), Work Force Quality (%), Salaries (editable %)
 
 export const WORKFORCE_GROUP: PropertyGroup = {
   id: 'workforce',
@@ -87,22 +58,11 @@ export const WORKFORCE_GROUP: PropertyGroup = {
   order: 10,
   special: 'workforce',
   properties: [
-    ...WORKER_CLASS_PROPERTIES(0, 'Low Class'),
-    ...WORKER_CLASS_PROPERTIES(1, 'Middle Class'),
-    ...WORKER_CLASS_PROPERTIES(2, 'High Class'),
-  ],
-};
-
-// Simplified workforce for small buildings (only middle & high class)
-export const WORKFORCE_SMALL_GROUP: PropertyGroup = {
-  id: 'workforce',
-  name: 'Workforce',
-  icon: 'W',
-  order: 10,
-  special: 'workforce',
-  properties: [
-    ...WORKER_CLASS_PROPERTIES(1, 'Middle Class'),
-    ...WORKER_CLASS_PROPERTIES(2, 'High Class'),
+    {
+      rdoName: 'WorkforceTable',
+      displayName: 'Workforce Overview',
+      type: PropertyType.WORKFORCE_TABLE,
+    },
   ],
 };
 
@@ -117,10 +77,10 @@ export const SUPPLIES_GROUP: PropertyGroup = {
   order: 20,
   special: 'supplies',
   properties: [
-    { rdoName: 'MetaFluid', displayName: 'Resource Type', type: PropertyType.TEXT },
-    { rdoName: 'FluidValue', displayName: 'Current Stock', type: PropertyType.TEXT },
+    { rdoName: 'MetaFluid', displayName: 'Product', type: PropertyType.TEXT },
+    { rdoName: 'FluidValue', displayName: 'Last Value', type: PropertyType.TEXT },
     { rdoName: 'LastCostPerc', displayName: 'Cost %', type: PropertyType.PERCENTAGE },
-    { rdoName: 'minK', displayName: 'Min K', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'minK', displayName: 'Min Quality', type: PropertyType.NUMBER, hideEmpty: true },
     { rdoName: 'MaxPrice', displayName: 'Max Price', type: PropertyType.SLIDER, editable: true, min: 0, max: 1000 },
     { rdoName: 'QPSorted', displayName: 'Sort by Q/P', type: PropertyType.TEXT, hideEmpty: true },
     { rdoName: 'cnxCount', displayName: 'Connections', type: PropertyType.NUMBER },
@@ -203,7 +163,7 @@ export const UPGRADE_GROUP: PropertyGroup = {
     { rdoName: 'MaxUpgrade', displayName: 'Max Level', type: PropertyType.NUMBER },
     { rdoName: 'NextUpgCost', displayName: 'Upgrade Cost', type: PropertyType.CURRENCY },
     { rdoName: 'Upgrading', displayName: 'Upgrading', type: PropertyType.BOOLEAN },
-    { rdoName: 'Pending', displayName: 'Pending', type: PropertyType.BOOLEAN, hideEmpty: true },
+    { rdoName: 'Pending', displayName: 'Pending', type: PropertyType.NUMBER, hideEmpty: true },
   ],
 };
 
@@ -232,9 +192,9 @@ export const ADVERTISEMENT_GROUP: PropertyGroup = {
   icon: 'A',
   order: 25,
   properties: [
-    { rdoName: 'cInput', displayName: 'Input Type', type: PropertyType.TEXT, indexed: true,indexSuffix: '.0', countProperty: 'cInputCount' },
-    { rdoName: 'cInputSup', displayName: 'Supply', type: PropertyType.NUMBER, indexed: true },
-    { rdoName: 'cInputDem', displayName: 'Demand', type: PropertyType.NUMBER, indexed: true },
+    { rdoName: 'cInput', displayName: 'Services', type: PropertyType.TEXT, indexed: true,indexSuffix: '.0', countProperty: 'cInputCount' },
+    { rdoName: 'cInputSup', displayName: 'Receiving', type: PropertyType.NUMBER, indexed: true },
+    { rdoName: 'cInputDem', displayName: 'Requesting', type: PropertyType.NUMBER, indexed: true },
     { rdoName: 'cInputRatio', displayName: 'Ratio', type: PropertyType.PERCENTAGE, indexed: true },
     { rdoName: 'cInputMax', displayName: 'Max', type: PropertyType.NUMBER, indexed: true },
     { rdoName: 'cEditable', displayName: 'Editable', type: PropertyType.BOOLEAN, indexed: true },

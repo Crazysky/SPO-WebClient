@@ -136,7 +136,7 @@ export class BuildingDetailsPanel {
     // Set initial position if not set
     if (this.posX === 0 && this.posY === 0) {
       const rect = this.container.getBoundingClientRect();
-      this.posX = (rect.width - 500) / 2;
+      this.posX = (rect.width - 650) / 2;
       this.posY = 80;
     }
 

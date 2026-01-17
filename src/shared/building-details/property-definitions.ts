@@ -29,6 +29,8 @@ export enum PropertyType {
   CONNECTION = 'CONNECTION',
   /** Boolean yes/no display */
   BOOLEAN = 'BOOLEAN',
+  /** Workforce table (3 columns: Executives, Professionals, Workers) */
+  WORKFORCE_TABLE = 'WORKFORCE_TABLE',
 }
 
 /**

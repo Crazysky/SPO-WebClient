@@ -2546,10 +2546,36 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
 		for (const group of template.groups) {
 		  const groupValues: BuildingPropertyValue[] = [];
-		  
+
 		  for (const prop of group.properties) {
 			const suffix = prop.indexSuffix || '';
-			
+
+			// Handle WORKFORCE_TABLE type specially
+			if (prop.type === 'WORKFORCE_TABLE') {
+			  // Add all workforce properties for 3 worker classes (0, 1, 2)
+			  for (let i = 0; i < 3; i++) {
+				const workerProps = [
+				  `Workers${i}`,
+				  `WorkersMax${i}`,
+				  `WorkersK${i}`,
+				  `Salaries${i}`,
+				  `WorkForcePrice${i}`,
+				];
+
+				for (const propName of workerProps) {
+				  const value = allValues.get(propName);
+				  if (value) {
+					groupValues.push({
+					  name: propName,
+					  value: value,
+					  index: i,
+					});
+				  }
+				}
+			  }
+			  continue;
+			}
+
 			if (prop.indexed && prop.countProperty) {
 			  // Handle indexed properties using the count value
 			  const count = countValues.get(prop.countProperty) || 0;

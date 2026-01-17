@@ -264,6 +264,154 @@ export function renderSliderProperty(
 
 
 /**
+ * Render workforce table (3 worker classes × multiple properties)
+ * Format: Label | Executives | Professionals | Workers
+ * Rows: Jobs, Work Force Quality, Salaries (editable)
+ */
+export function renderWorkforceTable(
+  properties: BuildingPropertyValue[],
+  onPropertyChange?: (propertyName: string, value: number) => void
+): HTMLElement {
+  const table = document.createElement('table');
+  table.className = 'workforce-table';
+
+  // Create value map for easy lookup
+  const valueMap = new Map<string, string>();
+  for (const prop of properties) {
+    valueMap.set(prop.name, prop.value);
+  }
+
+  // Helper to get value or default
+  const getValue = (name: string): string => valueMap.get(name) || '0';
+  const getNumValue = (name: string): number => parseFloat(getValue(name)) || 0;
+
+  // Table header
+  const thead = document.createElement('thead');
+  thead.innerHTML = `
+    <tr>
+      <th class="workforce-label-col"></th>
+      <th class="workforce-class-col">Executives</th>
+      <th class="workforce-class-col">Professionals</th>
+      <th class="workforce-class-col">Workers</th>
+    </tr>
+  `;
+  table.appendChild(thead);
+
+  // Table body
+  const tbody = document.createElement('tbody');
+
+  // Row 1: Jobs (Workers/WorkersMax ratio)
+  const jobsRow = document.createElement('tr');
+  jobsRow.innerHTML = `<td class="workforce-label">Jobs</td>`;
+  for (let i = 0; i < 3; i++) {
+    const workers = getNumValue(`Workers${i}`);
+    const workersMax = getNumValue(`WorkersMax${i}`);
+    const td = document.createElement('td');
+    td.className = 'workforce-value';
+
+    // If WorkersMax is 0, leave cell empty
+    if (workersMax === 0) {
+      td.textContent = '';
+    } else {
+      td.textContent = `${workers}/${workersMax}`;
+    }
+    jobsRow.appendChild(td);
+  }
+  tbody.appendChild(jobsRow);
+
+  // Row 2: Work Force Quality (WorkersK percentage)
+  const qualityRow = document.createElement('tr');
+  qualityRow.innerHTML = `<td class="workforce-label">Work Force Quality</td>`;
+  for (let i = 0; i < 3; i++) {
+    const workersMax = getNumValue(`WorkersMax${i}`);
+    const quality = getNumValue(`WorkersK${i}`);
+    const td = document.createElement('td');
+    td.className = 'workforce-value';
+
+    // If WorkersMax is 0, leave cell empty
+    if (workersMax === 0) {
+      td.textContent = '';
+    } else {
+      td.textContent = formatPercentage(quality);
+    }
+    qualityRow.appendChild(td);
+  }
+  tbody.appendChild(qualityRow);
+
+  // Row 3: Salaries (WorkForcePrice with editable Salaries% input)
+  const salariesRow = document.createElement('tr');
+  salariesRow.innerHTML = `<td class="workforce-label">Salaries</td>`;
+
+  for (let i = 0; i < 3; i++) {
+    const workersMax = getNumValue(`WorkersMax${i}`);
+    const workforcePrice = getNumValue(`WorkForcePrice${i}`);
+    const salaryPercent = getNumValue(`Salaries${i}`);
+
+    const td = document.createElement('td');
+    td.className = 'workforce-value workforce-salary-cell';
+
+    // Only populate cell if WorkersMax > 0
+    if (workersMax > 0) {
+      // Display: $value from server
+      const priceSpan = document.createElement('span');
+      priceSpan.className = 'workforce-salary-price';
+      priceSpan.textContent = formatCurrency(workforcePrice);
+      td.appendChild(priceSpan);
+
+      // Editable input for salary percentage
+      const inputContainer = document.createElement('div');
+      inputContainer.className = 'workforce-salary-input';
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'salary-input';
+      input.min = '0';
+      input.max = '250';
+      input.step = '1';
+      input.value = salaryPercent.toString();
+      input.setAttribute('value', salaryPercent.toString());
+
+      const percentLabel = document.createElement('span');
+      percentLabel.className = 'percent-label';
+      percentLabel.textContent = '%';
+
+      // Handle value change
+      const handleChange = () => {
+        let newVal = parseFloat(input.value);
+
+        // Validate range
+        if (isNaN(newVal)) newVal = 0;
+        if (newVal < 0) newVal = 0;
+        if (newVal > 250) newVal = 250;
+
+        // Update input if corrected
+        if (newVal !== parseFloat(input.value)) {
+          input.value = newVal.toString();
+        }
+
+        if (onPropertyChange) {
+          onPropertyChange(`Salaries${i}`, newVal);
+        }
+      };
+
+      input.addEventListener('change', handleChange);
+      input.addEventListener('blur', handleChange);
+
+      inputContainer.appendChild(input);
+      inputContainer.appendChild(percentLabel);
+      td.appendChild(inputContainer);
+    }
+
+    // Always append the cell (empty or populated)
+    salariesRow.appendChild(td);
+  }
+  tbody.appendChild(salariesRow);
+
+  table.appendChild(tbody);
+  return table;
+}
+
+/**
  * Render a group of properties
  * Indexed properties with the same countProperty are grouped into nested tabs
  */
@@ -285,8 +433,24 @@ export function renderPropertyGroup(
   const renderedProperties = new Set<string>();
 
   for (const def of definitions) {
+    // Handle WORKFORCE_TABLE type specially
+    if (def.type === PropertyType.WORKFORCE_TABLE) {
+      const workforceTable = renderWorkforceTable(properties, onPropertyChange);
+      container.appendChild(workforceTable);
+
+      // Mark all workforce properties as rendered
+      for (let i = 0; i < 3; i++) {
+        renderedProperties.add(`Workers${i}`);
+        renderedProperties.add(`WorkersMax${i}`);
+        renderedProperties.add(`WorkersK${i}`);
+        renderedProperties.add(`Salaries${i}`);
+        renderedProperties.add(`WorkForcePrice${i}`);
+      }
+      continue;
+    }
+
     const suffix = def.indexSuffix || '';
-    
+
     if (def.indexed && def.countProperty) {
       // Find all values for this indexed property with the same base name
       const indexedValues: BuildingPropertyValue[] = [];

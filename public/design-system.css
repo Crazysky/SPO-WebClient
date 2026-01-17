@@ -428,7 +428,7 @@ body {
 
 .building-details-panel {
   position: absolute;
-  width: 500px;
+  width: 650px;
   max-height: 600px;
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
@@ -842,4 +842,125 @@ body {
   padding: var(--space-4);
   text-align: center;
   color: var(--text-muted);
+}
+
+/* =============================================================================
+   WORKFORCE TABLE
+   ============================================================================= */
+
+.workforce-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface-base);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.workforce-table thead {
+  background: var(--surface-elevated);
+}
+
+.workforce-table th {
+  padding: var(--space-3);
+  text-align: center;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--glass-border);
+}
+
+.workforce-table th.workforce-label-col {
+  width: 25%;
+  text-align: left;
+  padding-left: var(--space-4);
+}
+
+.workforce-table th.workforce-class-col {
+  width: 25%;
+}
+
+.workforce-table tbody tr {
+  border-bottom: 1px solid var(--glass-border);
+  transition: background-color var(--transition-fast);
+}
+
+.workforce-table tbody tr:hover {
+  background: var(--surface-elevated);
+}
+
+.workforce-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.workforce-table td {
+  padding: var(--space-3);
+  text-align: center;
+  font-size: var(--text-sm);
+}
+
+.workforce-table td.workforce-label {
+  text-align: left;
+  font-weight: 500;
+  padding-left: var(--space-4);
+  color: var(--text-primary);
+}
+
+.workforce-table td.workforce-value {
+  color: var(--text-secondary);
+}
+
+/* Salary cell with price and input */
+.workforce-salary-cell {
+  padding: var(--space-2) var(--space-3);
+  vertical-align: middle;
+}
+
+.workforce-salary-cell > * {
+  display: block;
+  margin: 0 auto;
+}
+
+.workforce-salary-cell .workforce-salary-price {
+  margin-bottom: var(--space-1);
+}
+
+.workforce-salary-price {
+  font-weight: 600;
+  color: var(--success-green);
+  font-size: var(--text-sm);
+}
+
+.workforce-salary-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.workforce-salary-input .salary-input {
+  width: 60px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--surface-elevated);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  text-align: center;
+  transition: all var(--transition-fast);
+}
+
+.workforce-salary-input .salary-input:hover {
+  border-color: var(--primary-blue);
+}
+
+.workforce-salary-input .salary-input:focus {
+  outline: none;
+  border-color: var(--primary-blue);
+  box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+}
+
+.workforce-salary-input .percent-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-weight: 500;
 }
