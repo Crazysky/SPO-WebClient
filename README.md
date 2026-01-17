@@ -104,11 +104,40 @@ See [CLAUDE.md](CLAUDE.md) for detailed development guidelines, architecture dec
 - PascalCase for classes/interfaces
 - JSDoc comments for public APIs
 
+### Git Workflow
+
+**Branch Naming:**
+- `feature/<description>` - New features
+- `fix/<description>` - Bug fixes
+- `docs/<description>` - Documentation updates
+
+**Commit Messages:**
+Follow conventional commits format:
+```
+<type>: <short summary>
+
+<detailed description if needed>
+```
+
+Types: `feat`, `fix`, `docs`, `refactor`, `perf`, `style`, `test`, `chore`, `build`
+
+**Example:**
+```bash
+git commit -m "feat: add building search functionality"
+```
+
+See [CLAUDE.md](CLAUDE.md) for complete Git nomenclature policy.
+
 ### Contributing
-1. Keep changes focused and small
-2. Follow existing code patterns
-3. Remove debug logs before committing
-4. Test thoroughly before submitting
+
+1. **Branch from main:** Create feature/fix branches from latest main
+2. **Keep changes focused:** One feature/fix per branch
+3. **Follow code patterns:** Match existing codebase style
+4. **Remove debug logs:** Clean up console.log statements before committing
+5. **Test thoroughly:** Verify all functionality works as expected
+6. **Update documentation:** Keep CLAUDE.md and README.md in sync
+7. **Descriptive commits:** Use conventional commit format
+8. **Pull requests:** Include clear description and reference issues if applicable
 
 ## License
 
