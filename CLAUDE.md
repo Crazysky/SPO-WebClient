@@ -66,6 +66,81 @@ src/
 - **After bugs are fixed:** Remove all debug `console.log` statements that are not critical for production diagnostics
 - Keep only essential logs (errors, warnings, important state changes)
 
+### Git Nomenclature Policy
+**Consistent naming ensures clear project history for all developers.**
+
+#### Branch Naming
+- **Feature branches:** `feature/<short-description>` (e.g., `feature/building-search`, `feature/rankings-ui`)
+- **Bug fixes:** `fix/<issue-description>` (e.g., `fix/road-collision-detection`, `fix/login-timeout`)
+- **Hotfixes:** `hotfix/<critical-issue>` (e.g., `hotfix/crash-on-startup`)
+- **Refactoring:** `refactor/<area>` (e.g., `refactor/rdo-protocol`, `refactor/renderer`)
+- **Documentation:** `docs/<topic>` (e.g., `docs/api-reference`, `docs/setup-guide`)
+- **Experiments:** `experiment/<name>` (e.g., `experiment/webgl-renderer`)
+
+#### Commit Message Format
+```
+<type>: <short summary> (max 72 chars)
+
+<optional detailed description>
+- Bullet points for multiple changes
+- Reference issues if applicable (#123)
+
+<optional footer>
+Co-Authored-By: Name <email@example.com>
+```
+
+**Commit Types:**
+- `feat:` New feature (e.g., `feat: add building search UI`)
+- `fix:` Bug fix (e.g., `fix: road collision detection checking wrong tiles`)
+- `refactor:` Code restructuring without behavior change (e.g., `refactor: extract RDO parser into separate module`)
+- `perf:` Performance improvement (e.g., `perf: cache facility dimensions on server`)
+- `docs:` Documentation only (e.g., `docs: update README with new features`)
+- `style:` Code style/formatting (e.g., `style: fix indentation in renderer.ts`)
+- `test:` Adding or updating tests (e.g., `test: add unit tests for RDO parser`)
+- `chore:` Maintenance tasks (e.g., `chore: update dependencies`, `chore: add .gitignore`)
+- `build:` Build system changes (e.g., `build: migrate from esbuild to vite`)
+
+**Examples of Good Commit Messages:**
+```
+feat: add building details panel with editable properties
+
+Implements template-based building details system with:
+- Dynamic tab generation based on building type
+- Slider controls for prices and salaries
+- Real-time RDO protocol updates
+- Sparkline graphs for revenue history
+
+Closes #42
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
+```
+
+```
+fix: prevent building placement on roads
+
+Fixed collision detection that was checking 2 tiles instead of 1.
+Roads now correctly occupy only their exact tile coordinates.
+```
+
+```
+docs: update CLAUDE.md with building details implementation
+
+Added comprehensive documentation for:
+- Template system architecture
+- RDO protocol format examples
+- Client/server API endpoints
+```
+
+#### Tag Naming (Releases)
+- **Semantic versioning:** `v<major>.<minor>.<patch>` (e.g., `v0.1.0`, `v1.0.0`)
+- **Pre-release:** `v<version>-alpha.<number>` or `v<version>-beta.<number>` (e.g., `v0.1.0-alpha.1`)
+- **Release candidates:** `v<version>-rc.<number>` (e.g., `v1.0.0-rc.1`)
+
+#### Pull Request Naming
+- Follow same format as commit messages
+- Include issue reference if applicable
+- Example: `feat: implement building search menu (#45)`
+
 ## Workflow for Feature Implementation
 
 ### 1. Questions Phase (if needed)
@@ -90,6 +165,20 @@ Provide:
 - **UI interactions** to test (e.g., "Click Build menu, select category")
 - **Expected behavior** vs. what was broken before
 - **Known limitations** if any
+
+### 5. Completion & Documentation Phase (MANDATORY)
+**After each task completion, ALWAYS:**
+1. **Verify completion** - Ask user: "Has this request been fulfilled 100%? Are there any issues or missing elements?"
+2. **Update documentation** - If task is complete:
+   - Update **CLAUDE.md** Project Backlog section with implementation details
+   - Update **README.md** if user-facing features were added
+   - Document any new APIs, configuration changes, or architectural decisions
+3. **Git commit** - Create a descriptive commit following the Git nomenclature policy (see below)
+
+**Documentation Standards:**
+- CLAUDE.md: Technical implementation details, architecture decisions, backlog status updates
+- README.md: User-facing features, setup instructions, usage examples
+- Keep both files in sync - any feature in README should have corresponding details in CLAUDE.md
 
 ## Project Backlog
 
@@ -141,6 +230,22 @@ Provide:
 - **Tasks:** Implement caching layer in gateway, TTL strategy, cache invalidation
 
 ### CODE
+#### Project Organization & Git Setup
+- **Status:** ✅ COMPLETED (January 2026)
+- **Goal:** Clean up project structure and establish Git repository with proper configuration
+- **Implementation:**
+  - Created [.gitignore](.gitignore) - Excludes build artifacts (dist/, node_modules/, public/client.js), logs, IDE configs, temporary files
+  - Created [.gitattributes](.gitattributes) - Forces LF line endings for source code, marks binary files appropriately
+  - Created [README.md](README.md) - Professional documentation with features, tech stack, installation instructions, project structure
+  - Updated [package.json](package.json) - Added proper metadata (description, keywords, repository URL, engines requirements)
+  - Removed temporary files (nul, tmpclaude-3e1f-cwd)
+  - **Git repository initialized:**
+    - Initial commit (95e840c): 43 files, 17,294 lines
+    - Repository URL: https://github.com/Crazysky/SPO-WebClient
+    - Successfully pushed to GitHub
+  - **Build verification:** Clean compilation (server: 5 JS files, client: 168KB bundle)
+  - **Git nomenclature policy:** Added comprehensive guidelines for branches, commits, tags, and PRs
+
 #### Code Cleanup & Production Readiness
 - **Status:** ✅ COMPLETED (January 2026)
 - **Goal:** Remove debug logs and prepare codebase for production
@@ -291,8 +396,12 @@ Provide:
 3. Implement changes following code style rules
 4. Remove debug logs after testing
 5. Provide clear verification steps
-6. Always code, comment and respond in english.
-7. Update CLAUDE.md whenever you finish a tasks.
+6. Always code, comment and respond in English
+7. **MANDATORY:** After EVERY task completion:
+   - Ask user: "Has this request been fulfilled 100%?"
+   - Update CLAUDE.md with implementation details
+   - Update README.md if user-facing features were added
+   - Create commit following Git nomenclature policy
 
 ### What You Should NOT Do
 - Do not implement features from backlog unless asked
