@@ -2839,10 +2839,14 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
   /**
    * Set a building property value
-   * Used for editable properties like salaries, prices
+   * Used for editable properties like salaries, prices, input demands, etc.
    *
-   * Protocol: C sel <CurrBlock> call <RDOCommand> "*" "#0","#<value>";
-   * Example: C sel 100575368 call RDOSetPrice "*" "#0","#500";
+   * RDO Command Formats:
+   * - RDOSetPrice: 2 args -> index of srvPrices (e.g., #0), new value
+   * - RDOSetSalaries: 3 args -> Salaries0 value, Salaries1 value, Salaries2 value
+   * - RDOSetCompanyInputDemand: 2 args -> index of cInput, new ratio (cInputDem * 100 / cInputMax) without %
+   * - RDOSetInputMaxPrice: 2 args -> MetaFluid value, new MaxPrice value
+   * - RDOSetInputMinK: 2 args -> MetaFluid value, new minK value
    *
    * Note: CurrBlock is the building's block ID, NOT the worldId
    */
@@ -2850,7 +2854,8 @@ private handlePush(socketName: string, packet: RdoPacket) {
     x: number,
     y: number,
     propertyName: string,
-    value: string
+    value: string,
+    additionalParams?: Record<string, string>
   ): Promise<{ success: boolean; newValue: string }> {
     console.log(`[BuildingDetails] Setting ${propertyName}=${value} at (${x}, ${y})`);
 
@@ -2886,10 +2891,12 @@ private handlePush(socketName: string, packet: RdoPacket) {
         throw new Error('Construction socket unavailable');
       }
 
+      // Build the RDO command arguments based on the command type
+      const rdoArgs = this.buildRdoCommandArgs(propertyName, value, additionalParams);
+
       // Send SetProperty command via construction service
-      // Format: C sel <CurrBlock> call <RDOCommand> "*" "#0","#<value>";
       // The sel on CurrBlock is persistent (no closure needed)
-      const setCmd = `C sel ${currBlock} call ${propertyName} "*" "#0","#${value}";`;
+      const setCmd = `C sel ${currBlock} call ${propertyName} "*" ${rdoArgs};`;
       socket.write(setCmd);
       console.log(`[BuildingDetails] Sent: ${setCmd}`);
 
@@ -2901,8 +2908,8 @@ private handlePush(socketName: string, packet: RdoPacket) {
       try {
         await this.cacherSetObject(verifyObjectId, x, y);
 
-        // Extract property name from RDO command (e.g., "RDOSetPrice" -> "srvPrices0")
-        const propertyToRead = this.mapRdoCommandToPropertyName(propertyName);
+        // Extract property name from RDO command for verification
+        const propertyToRead = this.mapRdoCommandToPropertyName(propertyName, additionalParams);
         const readValues = await this.cacherGetPropertyList(verifyObjectId, [propertyToRead]);
         const newValue = readValues[0] || value;
 
@@ -2919,17 +2926,107 @@ private handlePush(socketName: string, packet: RdoPacket) {
   }
 
   /**
-   * Map RDO command name to property name for reading back values
-   * Example: "RDOSetPrice" -> "srvPrices0"
+   * Build RDO command arguments based on command type
+   *
+   * Examples:
+   * - RDOSetPrice(index=0, value=220) -> "#0","#220"
+   * - RDOSetSalaries(sal0=100, sal1=120, sal2=150) -> "#100","#120","#150"
+   * - RDOSetCompanyInputDemand(index=0, ratio=75) -> "#0","#75"
+   * - RDOSetInputMaxPrice(metaFluid=5, maxPrice=500) -> "#5","#500"
+   * - RDOSetInputMinK(metaFluid=5, minK=10) -> "#5","#10"
    */
-  private mapRdoCommandToPropertyName(rdoCommand: string): string {
-    const mapping: Record<string, string> = {
-      'RDOSetPrice': 'srvPrices0',
-      'RDOSetSalary': 'srvSalaries0',
-      // Add more mappings as needed
-    };
+  private buildRdoCommandArgs(
+    rdoCommand: string,
+    value: string,
+    additionalParams?: Record<string, string>
+  ): string {
+    const params = additionalParams || {};
 
-    return mapping[rdoCommand] || rdoCommand.replace('RDOSet', 'srv');
+    switch (rdoCommand) {
+      case 'RDOSetPrice': {
+        // Args: index of srvPrices (e.g., #0), new value
+        const index = params.index || '0';
+        return `"#${index}","#${value}"`;
+      }
+
+      case 'RDOSetSalaries': {
+        // Args: Salaries0, Salaries1, Salaries2 (all 3 values required)
+        const sal0 = params.salary0 || value;
+        const sal1 = params.salary1 || value;
+        const sal2 = params.salary2 || value;
+        return `"#${sal0}","#${sal1}","#${sal2}"`;
+      }
+
+      case 'RDOSetCompanyInputDemand': {
+        // Args: index of cInput, new ratio (cInputDem * 100 / cInputMax) without %
+        const index = params.index || '0';
+        return `"#${index}","#${value}"`;
+      }
+
+      case 'RDOSetInputMaxPrice': {
+        // Args: MetaFluid value, new MaxPrice value
+        const metaFluid = params.metaFluid;
+        if (!metaFluid) {
+          throw new Error('RDOSetInputMaxPrice requires metaFluid parameter');
+        }
+        return `"#${metaFluid}","#${value}"`;
+      }
+
+      case 'RDOSetInputMinK': {
+        // Args: MetaFluid value, new minK value
+        const metaFluid = params.metaFluid;
+        if (!metaFluid) {
+          throw new Error('RDOSetInputMinK requires metaFluid parameter');
+        }
+        return `"#${metaFluid}","#${value}"`;
+      }
+
+      default:
+        // Fallback: single value parameter
+        return `"#${value}"`;
+    }
+  }
+
+  /**
+   * Map RDO command name to property name for reading back values
+   *
+   * Examples:
+   * - RDOSetPrice(index=0) -> "srvPrices0"
+   * - RDOSetSalaries -> "srvSalaries0" (returns first salary)
+   * - RDOSetInputMaxPrice(metaFluid=5) -> "MaxPrice" (needs sub-object access)
+   */
+  private mapRdoCommandToPropertyName(
+    rdoCommand: string,
+    additionalParams?: Record<string, string>
+  ): string {
+    const params = additionalParams || {};
+
+    switch (rdoCommand) {
+      case 'RDOSetPrice': {
+        const index = params.index || '0';
+        return `srvPrices${index}`;
+      }
+
+      case 'RDOSetSalaries': {
+        const index = params.index || '0';
+        return `srvSalaries${index}`;
+      }
+
+      case 'RDOSetCompanyInputDemand': {
+        const index = params.index || '0';
+        return `cInputDem${index}`;
+      }
+
+      case 'RDOSetInputMaxPrice':
+        return 'MaxPrice';
+
+      case 'RDOSetInputMinK':
+        return 'minK';
+
+      default:
+        // Fallback: try to infer from command name
+        return rdoCommand.replace('RDOSet', 'srv');
+    }
   }
 
 

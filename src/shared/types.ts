@@ -711,6 +711,8 @@ export interface WsReqBuildingSetProperty extends WsMessage {
   y: number;
   propertyName: string;
   value: string;
+  /** Additional parameters required by some RDO commands (e.g., index, metaFluid, salary0, salary1, salary2) */
+  additionalParams?: Record<string, string>;
 }
 
 /**

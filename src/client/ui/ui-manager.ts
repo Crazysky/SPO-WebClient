@@ -114,7 +114,7 @@ export class UIManager {
    */
   public showBuildingDetailsPanel(
     details: BuildingDetailsResponse,
-    onPropertyChange?: (propertyName: string, value: string) => Promise<void>,
+    onPropertyChange?: (propertyName: string, value: string, additionalParams?: Record<string, string>) => Promise<void>,
     onNavigateToBuilding?: (x: number, y: number) => void
   ) {
     if (this.buildingDetailsPanel) {

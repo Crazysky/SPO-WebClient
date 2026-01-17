@@ -6,14 +6,12 @@ A modern TypeScript web client for Starpeace Online, a browser-based multiplayer
 
 This project provides a web-based client that communicates with legacy Starpeace Online game servers using a custom RDO (Remote Data Objects) protocol via WebSocket gateway.
 
-## Features
-
-- **Real-time Multiplayer:** Connect to persistent game worlds with other players
+## SPO Web Client Features
 - **Building Management:** Place, manage, and customize buildings with detailed property controls
-- **Map Rendering:** HTML5 Canvas-based map visualization with roads, buildings, and zones
-- **Chat System:** In-game chat with other players
-- **Building Details:** Comprehensive building information panels with editable properties
-- **Placement Validation:** Client-side collision detection for roads, buildings, and zones
+- **Map Rendering:** HTML5 Canvas-based map visualization with roads, buildings, and zones : 2D view, basic implementation.
+- **Chat System:** In-game chat with other players, change channels
+- **Building Details:** Get building details and settings - basic implementation.
+- **Placement Validation:** Client-side collision detection for roads, buildings, and zones (zone is to be implemented)
 
 ## Tech Stack
 

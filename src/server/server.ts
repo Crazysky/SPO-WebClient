@@ -601,7 +601,13 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, msg
         console.log(`[Gateway] Setting building property ${req.propertyName}=${req.value} at (${req.x}, ${req.y})`);
 
         try {
-          const result = await session.setBuildingProperty(req.x, req.y, req.propertyName, req.value);
+          const result = await session.setBuildingProperty(
+            req.x,
+            req.y,
+            req.propertyName,
+            req.value,
+            req.additionalParams
+          );
 
           const response: WsRespBuildingSetProperty = {
             type: WsMessageType.RESP_BUILDING_SET_PROPERTY,

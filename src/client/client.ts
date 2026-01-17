@@ -603,8 +603,8 @@ export class StarpeaceClient {
       const details = await this.requestBuildingDetails(x, y, visualClass || '0');
       if (details) {
         // Show BuildingDetailsPanel with full details
-        this.ui.showBuildingDetailsPanel(details, async (propertyName, value) => {
-          await this.setBuildingProperty(x, y, propertyName, value);
+        this.ui.showBuildingDetailsPanel(details, async (propertyName, value, additionalParams) => {
+          await this.setBuildingProperty(x, y, propertyName, value, additionalParams);
         });
       } else {
         // Fallback: create minimal details from BuildingFocusInfo
@@ -625,8 +625,8 @@ export class StarpeaceClient {
           timestamp: Date.now()
         };
         // Also provide callback for fallback case
-        this.ui.showBuildingDetailsPanel(fallbackDetails, async (propertyName, value) => {
-          await this.setBuildingProperty(x, y, propertyName, value);
+        this.ui.showBuildingDetailsPanel(fallbackDetails, async (propertyName, value, additionalParams) => {
+          await this.setBuildingProperty(x, y, propertyName, value, additionalParams);
         });
       }
 
@@ -699,25 +699,25 @@ export class StarpeaceClient {
 
   /**
    * Set a building property value for editable properties
+   * propertyName is now the RDO command name (e.g., 'RDOSetPrice', 'RDOSetSalaries')
    */
   public async setBuildingProperty(
     x: number,
     y: number,
     propertyName: string,
-    value: string
+    value: string,
+    additionalParams?: Record<string, string>
   ): Promise<boolean> {
     this.ui.log('Building', `Setting ${propertyName}=${value} at (${x}, ${y})`);
 
     try {
-      // Map property name to RDO command
-      const rdoCommand = this.mapPropertyNameToRdoCommand(propertyName);
-
       const req: WsReqBuildingSetProperty = {
         type: WsMessageType.REQ_BUILDING_SET_PROPERTY,
         x,
         y,
-        propertyName: rdoCommand, // ← Utilise le nom de commande RDO au lieu du nom de propriété
-        value
+        propertyName, // This is now the RDO command name
+        value,
+        additionalParams
       };
 
       const response = await this.sendRequest(req) as WsRespBuildingSetProperty;
@@ -733,22 +733,6 @@ export class StarpeaceClient {
       this.ui.log('Error', `Failed to set property: ${err.message}`);
       return false;
     }
-  }
-
-  /**
-   * Map property display name to RDO command name
-   */
-  private mapPropertyNameToRdoCommand(propertyName: string): string {
-    const mapping: Record<string, string> = {
-      // Price properties
-      'srvPrices0': 'RDOSetPrice',
-      'srvPrices1': 'RDOSetPrice',
-      'srvPrices2': 'RDOSetPrice',
-      // Add other mappings as needed
-      // Example: 'srvSalaries0': 'RDOSetSalary',
-    };
-
-    return mapping[propertyName] || propertyName;
   }
 
   // =========================================================================

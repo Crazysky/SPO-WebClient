@@ -374,13 +374,25 @@ Provide:
   - Sparkline graphs for revenue history
   - Generic template fallback for unknown building types
 - **API endpoints:** REQ_BUILDING_DETAILS / RESP_BUILDING_DETAILS, REQ_BUILDING_SET_PROPERTY / RESP_BUILDING_SET_PROPERTY
-- **Bug Fixes (January 2026):**
+- **Bug Fixes & Improvements (January 2026):**
   - Fixed slider onChange callback initialization in BuildingDetailsPanel constructor
   - Fixed WebSocket message type mismatch (REQBUILDINGSETPROPERTY → REQ_BUILDING_SET_PROPERTY)
   - Fixed RDO protocol to use building's CurrBlock ID instead of worldId
   - Fixed UI logging methods (logBuilding/logError → log with source parameter)
   - Added multiple event listeners (mouseup, change, touchend) for reliable slider updates
-  - Property mapping: client property names (srvPrices0) → RDO commands (RDOSetPrice)
+  - **RDO Command Refactor (January 2026):**
+    - Refactored `setBuildingProperty()` to support multi-argument RDO commands
+    - Added `buildRdoCommandArgs()` to build command-specific argument strings
+    - Added `mapRdoCommandToPropertyName()` for verification after updates
+    - Implemented proper argument formatting for all RDO commands:
+      - **RDOSetPrice:** 2 args (price index, new value)
+      - **RDOSetSalaries:** 3 args (salary0, salary1, salary2 - all required)
+      - **RDOSetCompanyInputDemand:** 2 args (input index, demand ratio without %)
+      - **RDOSetInputMaxPrice:** 2 args (MetaFluid ID, new max price)
+      - **RDOSetInputMinK:** 2 args (MetaFluid ID, new minK value)
+    - Client-side automatic mapping: property names (srvPrices0) → RDO commands with params
+    - Added `additionalParams` field to WsReqBuildingSetProperty for context-specific data (MetaFluid, indices)
+    - Client UI automatically extracts current salary values when updating one salary (RDOSetSalaries requires all 3)
 
 ## Session Context for AI Agent
 
