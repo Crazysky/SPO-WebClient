@@ -385,14 +385,15 @@ Provide:
     - Added `buildRdoCommandArgs()` to build command-specific argument strings
     - Added `mapRdoCommandToPropertyName()` for verification after updates
     - Implemented proper argument formatting for all RDO commands:
-      - **RDOSetPrice:** 2 args (price index, new value)
-      - **RDOSetSalaries:** 3 args (salary0, salary1, salary2 - all required)
-      - **RDOSetCompanyInputDemand:** 2 args (input index, demand ratio without %)
-      - **RDOSetInputMaxPrice:** 2 args (MetaFluid ID, new max price)
-      - **RDOSetInputMinK:** 2 args (MetaFluid ID, new minK value)
-    - Client-side automatic mapping: property names (srvPrices0) → RDO commands with params
+      - **RDOSetPrice:** 2 args (price index, new value) → `"#0","#220"`
+      - **RDOSetSalaries:** 3 args (Salaries0, Salaries1, Salaries2 - all required) → `"#100","#120","#150"`
+      - **RDOSetCompanyInputDemand:** 2 args (input index, demand ratio without %) → `"#0","#75"`
+      - **RDOSetInputMaxPrice:** 2 args (MetaFluid ID, new max price) → `"#5","#500"`
+      - **RDOSetInputMinK:** 2 args (MetaFluid ID, new minK value) → `"#5","#10"`
+    - Client-side automatic mapping: property names (srvPrices0, Salaries2) → RDO commands with params
     - Added `additionalParams` field to WsReqBuildingSetProperty for context-specific data (MetaFluid, indices)
     - Client UI automatically extracts current salary values when updating one salary (RDOSetSalaries requires all 3)
+    - **Bug Fix:** Fixed salary property mapping - uses `Salaries0/1/2` (not `srvSalaries`)
 
 ## Session Context for AI Agent
 

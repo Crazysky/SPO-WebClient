@@ -330,11 +330,11 @@ export class BuildingDetailsPanel {
 	 *
 	 * Examples:
 	 * - srvPrices0 → { rdoCommand: 'RDOSetPrice', params: { index: '0' } }
-	 * - srvSalaries0 → { rdoCommand: 'RDOSetSalaries', params: { index: '0' } }
+	 * - Salaries0 → { rdoCommand: 'RDOSetSalaries', params: { salary0: '100', salary1: '100', salary2: '150' } }
 	 * - MaxPrice → { rdoCommand: 'RDOSetInputMaxPrice', params: { metaFluid: '?' } }
 	 */
 	private mapPropertyToRdoCommand(propertyName: string, value: number): { rdoCommand: string; params: Record<string, string> } {
-	  // Check for indexed properties (e.g., srvPrices0, srvSalaries1)
+	  // Check for indexed properties (e.g., srvPrices0, Salaries1)
 	  const indexMatch = propertyName.match(/^(\w+?)(\d+)$/);
 
 	  if (indexMatch) {
@@ -346,7 +346,7 @@ export class BuildingDetailsPanel {
 		  case 'srvPrices':
 			return { rdoCommand: 'RDOSetPrice', params: { index } };
 
-		  case 'srvSalaries':
+		  case 'Salaries':
 			// For salaries, we need all 3 values (0, 1, 2)
 			// We'll fetch current values from the details
 			const salaryParams = this.getSalaryParams(parseInt(index), value);
@@ -381,6 +381,7 @@ export class BuildingDetailsPanel {
 	/**
 	 * Get all 3 salary values for RDOSetSalaries command
 	 * When one salary is changed, we need to send all 3 values
+	 * Format: { salary0: '100', salary1: '100', salary2: '150' }
 	 */
 	private getSalaryParams(changedIndex: number, newValue: number): Record<string, string> {
 	  const params: Record<string, string> = {};
@@ -389,7 +390,7 @@ export class BuildingDetailsPanel {
 	  const workforceGroup = this.currentDetails?.groups['workforce'];
 	  if (workforceGroup) {
 		for (let i = 0; i < 3; i++) {
-		  const propName = `srvSalaries${i}`;
+		  const propName = `Salaries${i}`;
 		  const prop = workforceGroup.find(p => p.name === propName);
 		  const currentValue = prop ? parseInt(prop.value) : 100;
 

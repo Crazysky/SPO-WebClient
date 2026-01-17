@@ -2992,7 +2992,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
    *
    * Examples:
    * - RDOSetPrice(index=0) -> "srvPrices0"
-   * - RDOSetSalaries -> "srvSalaries0" (returns first salary)
+   * - RDOSetSalaries(salary0=100, salary1=120, salary2=150) -> "Salaries0" (returns first salary for verification)
    * - RDOSetInputMaxPrice(metaFluid=5) -> "MaxPrice" (needs sub-object access)
    */
   private mapRdoCommandToPropertyName(
@@ -3007,10 +3007,9 @@ private handlePush(socketName: string, packet: RdoPacket) {
         return `srvPrices${index}`;
       }
 
-      case 'RDOSetSalaries': {
-        const index = params.index || '0';
-        return `srvSalaries${index}`;
-      }
+      case 'RDOSetSalaries':
+        // Return first salary for verification (all 3 are updated together)
+        return 'Salaries0';
 
       case 'RDOSetCompanyInputDemand': {
         const index = params.index || '0';
