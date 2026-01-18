@@ -3,7 +3,7 @@
  * Refonte avec nouveau design glassmorphism
  */
 
-import { WorldInfo, CompanyInfo } from '../../shared/types';
+import { WorldInfo, CompanyInfo, WORLD_ZONES } from '../../shared/types';
 
 export class LoginUI {
   private uiLoginPanel: HTMLElement;
@@ -11,9 +11,10 @@ export class LoginUI {
   private uiCompanySection: HTMLElement;
   private uiCompanyList: HTMLElement;
   private uiStatus: HTMLElement;
+  private currentZonePath: string = WORLD_ZONES[0].path; // Default to BETA
 
   // Callbacks
-  private onDirectoryConnect: ((username: string, password: string) => void) | null = null;
+  private onDirectoryConnect: ((username: string, password: string, zonePath?: string) => void) | null = null;
   private onWorldSelect: ((worldName: string) => void) | null = null;
   private onCompanySelect: ((companyId: string) => void) | null = null;
 
@@ -30,7 +31,7 @@ export class LoginUI {
   /**
    * Définit le callback pour la connexion au Directory
    */
-  public setOnDirectoryConnect(callback: (username: string, password: string) => void) {
+  public setOnDirectoryConnect(callback: (username: string, password: string, zonePath?: string) => void) {
     this.onDirectoryConnect = callback;
   }
 
@@ -90,7 +91,31 @@ export class LoginUI {
     this.showWorldListLoading('Connecting to directory...');
 
     if (this.onDirectoryConnect) {
-      this.onDirectoryConnect(username, password);
+      this.onDirectoryConnect(username, password, this.currentZonePath);
+    }
+  }
+
+  /**
+   * Change la zone et recharge la liste des serveurs
+   */
+  private changeZone(zonePath: string) {
+    this.currentZonePath = zonePath;
+
+    // Update active tab styling
+    document.querySelectorAll('.zone-tab').forEach(tab => {
+      tab.classList.remove('active');
+      if (tab.getAttribute('data-zone-path') === zonePath) {
+        tab.classList.add('active');
+      }
+    });
+
+    // Reload world list for this zone
+    const username = (document.getElementById('inp-username') as HTMLInputElement)?.value;
+    const password = (document.getElementById('inp-password') as HTMLInputElement)?.value;
+
+    if (username && password && this.onDirectoryConnect) {
+      this.showWorldListLoading('Loading worlds...');
+      this.onDirectoryConnect(username, password, zonePath);
     }
   }
 
@@ -106,33 +131,79 @@ export class LoginUI {
       authSection.style.display = 'none';
     }
 
+    // Create zone tabs
+    const zoneTabs = document.createElement('div');
+    zoneTabs.className = 'zone-tabs';
+
+    WORLD_ZONES.forEach(zone => {
+      const tab = document.createElement('button');
+      tab.className = 'zone-tab';
+      tab.textContent = zone.name;
+      tab.setAttribute('data-zone-path', zone.path);
+
+      if (zone.path === this.currentZonePath) {
+        tab.classList.add('active');
+      }
+
+      tab.onclick = () => this.changeZone(zone.path);
+      zoneTabs.appendChild(tab);
+    });
+
+    this.uiWorldList.appendChild(zoneTabs);
+
     if (worlds.length === 0) {
-      this.uiWorldList.innerHTML = '<div style="padding: var(--space-6); text-align: center; color: var(--text-muted); font-style: italic;">No worlds available</div>';
+      const emptyMsg = document.createElement('div');
+      emptyMsg.style.cssText = 'padding: var(--space-6); text-align: center; color: var(--text-muted); font-style: italic;';
+      emptyMsg.textContent = 'No worlds available';
+      this.uiWorldList.appendChild(emptyMsg);
       return;
     }
 
-    worlds.forEach(w => {
-      const card = document.createElement('div');
-      card.className = 'world-card';
-      card.innerHTML = `
-        <div class="world-header">
-          <div class="world-name">${w.name}</div>
-          ${this.getWorldStatusBadge(w)}
-        </div>
-        <div class="world-stats">
-          <span>📅 ${w.date || 'N/A'}</span>
-          <span>👥 ${w.investors || 0} investors</span>
-          <span>🟢 ${w.online || w.players || 0} online</span>
-          <span>🌍 ${w.population || 0} population</span>
-        </div>
-      `;
-      card.onclick = () => {
-        if (this.onWorldSelect) {
-          this.onWorldSelect(w.name);
-        }
-      };
-      this.uiWorldList.appendChild(card);
-    });
+    // Separate online and offline worlds
+    const onlineWorlds = worlds.filter(w => w.running3 === true);
+    const offlineWorlds = worlds.filter(w => w.running3 !== true);
+
+    // Render online worlds first
+    if (onlineWorlds.length > 0) {
+      onlineWorlds.forEach(w => {
+        const card = document.createElement('div');
+        card.className = 'world-card';
+        card.innerHTML = `
+          <div class="world-header">
+            <div class="world-name">${w.name}</div>
+            ${this.getWorldStatusBadge(w)}
+          </div>
+          <div class="world-stats">
+            <span>📅 ${w.date || 'N/A'}</span>
+            <span>👥 ${w.investors || 0} investors</span>
+            <span>🟢 ${w.online || w.players || 0} online</span>
+            <span>🌍 ${w.population || 0} population</span>
+          </div>
+        `;
+        card.onclick = () => {
+          if (this.onWorldSelect) {
+            this.onWorldSelect(w.name);
+          }
+        };
+        this.uiWorldList.appendChild(card);
+      });
+    }
+
+    // Render offline worlds
+    if (offlineWorlds.length > 0) {
+      offlineWorlds.forEach(w => {
+        const card = document.createElement('div');
+        card.className = 'world-card world-card-offline';
+        card.innerHTML = `
+          <div class="world-header">
+            <div class="world-name">${w.name}</div>
+            <span class="badge badge-error">Offline</span>
+          </div>
+        `;
+        // No onclick for offline worlds - they cannot be selected
+        this.uiWorldList.appendChild(card);
+      });
+    }
   }
 
   /**
@@ -269,12 +340,20 @@ export class LoginUI {
    * Shows loading state in world list
    */
   public showWorldListLoading(message: string) {
+    // Save existing zone tabs if they exist
+    const existingTabs = this.uiWorldList.querySelector('.zone-tabs');
+
     this.uiWorldList.innerHTML = `
       <div style="display: flex; align-items: center; justify-content: center; padding: var(--space-6); color: var(--text-muted); font-style: italic;">
         <span class="spinner"></span>
         ${message}
       </div>
     `;
+
+    // Restore tabs at the top if they existed
+    if (existingTabs) {
+      this.uiWorldList.insertBefore(existingTabs, this.uiWorldList.firstChild);
+    }
   }
 
   /**
