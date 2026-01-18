@@ -449,6 +449,23 @@ export function renderPropertyGroup(
       continue;
     }
 
+    // Handle UPGRADE_ACTIONS type specially
+    if (def.type === PropertyType.UPGRADE_ACTIONS) {
+      // Note: We'll pass the callback through the container's dataset
+      // The building-details-panel will set up the actual handler
+      const actionsElement = renderUpgradeActions(properties);
+      container.appendChild(actionsElement);
+
+      // Mark upgrade properties as rendered
+      renderedProperties.add('UpgradeLevel');
+      renderedProperties.add('MaxUpgrade');
+      renderedProperties.add('NextUpgCost');
+      renderedProperties.add('Upgrading');
+      renderedProperties.add('Pending');
+      renderedProperties.add('UpgradeActions');
+      continue;
+    }
+
     const suffix = def.indexSuffix || '';
 
     if (def.indexed && def.countProperty) {
@@ -644,6 +661,81 @@ export function renderPropertyGroup(
   return container;
 }
 
+/**
+ * Render upgrade action controls
+ * Shows buttons for downgrade, start upgrade (with count input), and stop upgrade
+ */
+export function renderUpgradeActions(
+  properties: BuildingPropertyValue[],
+  onAction?: (action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE', count?: number) => void
+): HTMLElement {
+  const container = document.createElement('div');
+  container.className = 'upgrade-actions-container';
+
+  // Get current upgrade state
+  const valueMap = new Map<string, string>();
+  for (const prop of properties) {
+    valueMap.set(prop.name, prop.value);
+  }
+
+  const isUpgrading = valueMap.get('Upgrading') === '1' || valueMap.get('Upgrading')?.toLowerCase() === 'yes';
+  const currentLevel = parseInt(valueMap.get('UpgradeLevel') || '0');
+  const maxLevel = parseInt(valueMap.get('MaxUpgrade') || '0');
+
+  // Downgrade button
+  const downgradeBtn = document.createElement('button');
+  downgradeBtn.className = 'upgrade-action-btn downgrade-btn';
+  downgradeBtn.textContent = 'Downgrade (-1)';
+  downgradeBtn.disabled = currentLevel <= 0;
+  downgradeBtn.onclick = () => {
+    if (onAction) {
+      onAction('DOWNGRADE');
+    }
+  };
+  container.appendChild(downgradeBtn);
+
+  // Start upgrade controls (input + button)
+  const upgradeContainer = document.createElement('div');
+  upgradeContainer.className = 'upgrade-input-container';
+
+  const upgradeInput = document.createElement('input');
+  upgradeInput.type = 'number';
+  upgradeInput.className = 'upgrade-count-input';
+  upgradeInput.min = '1';
+  upgradeInput.max = Math.max(1, maxLevel - currentLevel).toString();
+  upgradeInput.value = '1';
+  upgradeInput.disabled = currentLevel >= maxLevel;
+
+  const upgradeBtn = document.createElement('button');
+  upgradeBtn.className = 'upgrade-action-btn upgrade-btn';
+  upgradeBtn.textContent = 'Start Upgrade';
+  upgradeBtn.disabled = currentLevel >= maxLevel;
+  upgradeBtn.onclick = () => {
+    const count = parseInt(upgradeInput.value) || 1;
+    if (onAction && count > 0) {
+      onAction('START_UPGRADE', count);
+    }
+  };
+
+  upgradeContainer.appendChild(upgradeInput);
+  upgradeContainer.appendChild(upgradeBtn);
+  container.appendChild(upgradeContainer);
+
+  // Stop upgrade button (only shown when upgrading)
+  if (isUpgrading) {
+    const stopBtn = document.createElement('button');
+    stopBtn.className = 'upgrade-action-btn stop-upgrade-btn';
+    stopBtn.textContent = 'Stop Upgrade';
+    stopBtn.onclick = () => {
+      if (onAction) {
+        onAction('STOP_UPGRADE');
+      }
+    };
+    container.appendChild(stopBtn);
+  }
+
+  return container;
+}
 
 
 /**

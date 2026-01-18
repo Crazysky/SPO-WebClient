@@ -115,13 +115,15 @@ export class UIManager {
   public showBuildingDetailsPanel(
     details: BuildingDetailsResponse,
     onPropertyChange?: (propertyName: string, value: string, additionalParams?: Record<string, string>) => Promise<void>,
-    onNavigateToBuilding?: (x: number, y: number) => void
+    onNavigateToBuilding?: (x: number, y: number) => void,
+    onUpgradeAction?: (action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE', count?: number) => Promise<void>
   ) {
     if (this.buildingDetailsPanel) {
       // Update options with callbacks
       const options = (this.buildingDetailsPanel as any).options;
       options.onPropertyChange = onPropertyChange;
       options.onNavigateToBuilding = onNavigateToBuilding;
+      options.onUpgradeAction = onUpgradeAction;
       this.buildingDetailsPanel.show(details);
     }
   }

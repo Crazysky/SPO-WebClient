@@ -164,6 +164,7 @@ export const UPGRADE_GROUP: PropertyGroup = {
     { rdoName: 'NextUpgCost', displayName: 'Upgrade Cost', type: PropertyType.CURRENCY },
     { rdoName: 'Upgrading', displayName: 'Upgrading', type: PropertyType.BOOLEAN },
     { rdoName: 'Pending', displayName: 'Pending', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'UpgradeActions', displayName: 'Actions', type: PropertyType.UPGRADE_ACTIONS },
   ],
 };
 

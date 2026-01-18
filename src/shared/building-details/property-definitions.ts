@@ -31,6 +31,8 @@ export enum PropertyType {
   BOOLEAN = 'BOOLEAN',
   /** Workforce table (3 columns: Executives, Professionals, Workers) */
   WORKFORCE_TABLE = 'WORKFORCE_TABLE',
+  /** Upgrade action controls (downgrade, start upgrade, stop upgrade buttons) */
+  UPGRADE_ACTIONS = 'UPGRADE_ACTIONS',
 }
 
 /**

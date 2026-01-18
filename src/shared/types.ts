@@ -164,6 +164,10 @@ export enum WsMessageType {
   REQ_BUILDING_SET_PROPERTY = 'REQ_BUILDING_SET_PROPERTY',
   RESP_BUILDING_SET_PROPERTY = 'RESP_BUILDING_SET_PROPERTY',
 
+  // Building Upgrades
+  REQ_BUILDING_UPGRADE = 'REQ_BUILDING_UPGRADE',
+  RESP_BUILDING_UPGRADE = 'RESP_BUILDING_UPGRADE',
+
 }
 
 export interface WsMessage {
@@ -736,4 +740,26 @@ export interface WsRespBuildingSetProperty extends WsMessage {
   success: boolean;
   propertyName: string;
   newValue: string;
+}
+
+/**
+ * Request to upgrade/downgrade a building
+ */
+export interface WsReqBuildingUpgrade extends WsMessage {
+  type: WsMessageType.REQ_BUILDING_UPGRADE;
+  x: number;
+  y: number;
+  action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE';
+  /** Number of levels to upgrade (only for START_UPGRADE) */
+  count?: number;
+}
+
+/**
+ * Response after upgrade action
+ */
+export interface WsRespBuildingUpgrade extends WsMessage {
+  type: WsMessageType.RESP_BUILDING_UPGRADE;
+  success: boolean;
+  action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE';
+  message?: string;
 }

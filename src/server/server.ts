@@ -52,6 +52,9 @@ import {
   WsRespBuildingDetails,
   WsReqBuildingSetProperty,
   WsRespBuildingSetProperty,
+  // Building Upgrades
+  WsReqBuildingUpgrade,
+  WsRespBuildingUpgrade,
 } from '../shared/types';
 
 /**
@@ -689,6 +692,39 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, msg
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
             errorMessage: err.message || 'Failed to set property',
+            code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      case WsMessageType.REQ_BUILDING_UPGRADE: {
+        const req = msg as WsReqBuildingUpgrade;
+        console.log(`[Gateway] Building upgrade action: ${req.action} at (${req.x}, ${req.y}), count: ${req.count || 'N/A'}`);
+
+        try {
+          const result = await session.upgradeBuildingAction(
+            req.x,
+            req.y,
+            req.action,
+            req.count
+          );
+
+          const response: WsRespBuildingUpgrade = {
+            type: WsMessageType.RESP_BUILDING_UPGRADE,
+            wsRequestId: msg.wsRequestId,
+            success: result.success,
+            action: req.action,
+            message: result.message
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: any) {
+          console.error('[Gateway] Failed to perform upgrade action:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: err.message || 'Failed to perform upgrade action',
             code: ErrorCodes.ERROR_AccessDenied
           };
           ws.send(JSON.stringify(errorResp));

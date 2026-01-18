@@ -20,6 +20,7 @@ export interface BuildingDetailsPanelOptions {
   onClose?: () => void;
   onPropertyChange?: (propertyName: string, value: string, additionalParams?: Record<string, string>) => Promise<void>;
   onNavigateToBuilding?: (x: number, y: number) => void;
+  onUpgradeAction?: (action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE', count?: number) => Promise<void>;
 }
 
 export class BuildingDetailsPanel {
@@ -429,6 +430,11 @@ export class BuildingDetailsPanel {
 		this.handlePropertyChange.bind(this) // ← FIX: Bind callback
 	  );
 	  this.contentContainer.appendChild(propsEl);
+
+	  // Wire up upgrade action buttons if this is the upgrade tab
+	  if (group.id === 'upgrade') {
+		this.wireUpgradeActions();
+	  }
 	}
 
 	/**
@@ -527,6 +533,48 @@ export class BuildingDetailsPanel {
 	  }
 
 	  return params;
+	}
+
+	/**
+	 * Wire up upgrade action button handlers
+	 * Attaches click handlers to upgrade/downgrade buttons in the DOM
+	 */
+	private wireUpgradeActions(): void {
+	  if (!this.contentContainer || !this.currentDetails) return;
+
+	  // Find all upgrade action buttons
+	  const downgradeBtn = this.contentContainer.querySelector('.downgrade-btn') as HTMLButtonElement;
+	  const upgradeBtn = this.contentContainer.querySelector('.upgrade-btn') as HTMLButtonElement;
+	  const stopBtn = this.contentContainer.querySelector('.stop-upgrade-btn') as HTMLButtonElement;
+	  const upgradeInput = this.contentContainer.querySelector('.upgrade-count-input') as HTMLInputElement;
+
+	  // Downgrade button
+	  if (downgradeBtn) {
+		downgradeBtn.onclick = async () => {
+		  if (this.options.onUpgradeAction) {
+			await this.options.onUpgradeAction('DOWNGRADE');
+		  }
+		};
+	  }
+
+	  // Upgrade button
+	  if (upgradeBtn && upgradeInput) {
+		upgradeBtn.onclick = async () => {
+		  const count = parseInt(upgradeInput.value) || 1;
+		  if (this.options.onUpgradeAction && count > 0) {
+			await this.options.onUpgradeAction('START_UPGRADE', count);
+		  }
+		};
+	  }
+
+	  // Stop upgrade button
+	  if (stopBtn) {
+		stopBtn.onclick = async () => {
+		  if (this.options.onUpgradeAction) {
+			await this.options.onUpgradeAction('STOP_UPGRADE');
+		  }
+		};
+	  }
 	}
 
 

@@ -1311,6 +1311,44 @@ private parseSegments(rawLines: string[]): MapSegment[] {
     }
   }
 
+  /**
+   * Wrapper for building upgrade actions (WebSocket API)
+   * Maps WebSocket action names to internal action names
+   */
+  public async upgradeBuildingAction(
+    x: number,
+    y: number,
+    action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE',
+    count?: number
+  ): Promise<{ success: boolean, message?: string }> {
+    // Map WebSocket action names to internal action names
+    let internalAction: 'START' | 'STOP' | 'DOWN';
+    switch (action) {
+      case 'START_UPGRADE':
+        internalAction = 'START';
+        break;
+      case 'STOP_UPGRADE':
+        internalAction = 'STOP';
+        break;
+      case 'DOWNGRADE':
+        internalAction = 'DOWN';
+        break;
+      default:
+        return { success: false, message: `Unknown action: ${action}` };
+    }
+
+    const result = await this.manageConstruction(x, y, internalAction, count || 1);
+
+    if (result.status === 'OK') {
+      const actionMsg = action === 'DOWNGRADE' ? 'Building downgraded' :
+                        action === 'START_UPGRADE' ? `Upgrade started (${count} level${count !== 1 ? 's' : ''})` :
+                        'Upgrade stopped';
+      return { success: true, message: actionMsg };
+    } else {
+      return { success: false, message: result.error || 'Operation failed' };
+    }
+  }
+
   public async executeRdo(serviceName: string, packetData: Partial<RdoPacket>): Promise<string> {
     if (!this.sockets.has(serviceName)) {
       throw new Error(`Service ${serviceName} not connected`);

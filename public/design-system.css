@@ -964,3 +964,110 @@ body {
   color: var(--text-secondary);
   font-weight: 500;
 }
+
+/* =============================================================================
+   UPGRADE ACTIONS
+   ============================================================================= */
+
+.upgrade-actions-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-3);
+}
+
+.upgrade-input-container {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.upgrade-count-input {
+  width: 80px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  text-align: center;
+  transition: border-color var(--transition-fast);
+}
+
+.upgrade-count-input:hover:not(:disabled) {
+  border-color: var(--primary-blue);
+}
+
+.upgrade-count-input:focus {
+  outline: none;
+  border-color: var(--primary-blue);
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
+}
+
+.upgrade-count-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.upgrade-action-btn {
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface-elevated);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.upgrade-action-btn:hover:not(:disabled) {
+  background: var(--primary-blue-dark);
+  border-color: var(--primary-blue);
+  transform: translateY(-1px);
+}
+
+.upgrade-action-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.upgrade-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.upgrade-action-btn.downgrade-btn {
+  background: var(--error);
+  border-color: var(--error);
+}
+
+.upgrade-action-btn.downgrade-btn:hover:not(:disabled) {
+  background: #DC2626;
+  border-color: #DC2626;
+}
+
+.upgrade-action-btn.upgrade-btn {
+  flex: 1;
+  background: var(--success);
+  border-color: var(--success);
+}
+
+.upgrade-action-btn.upgrade-btn:hover:not(:disabled) {
+  background: #059669;
+  border-color: #059669;
+}
+
+.upgrade-action-btn.stop-upgrade-btn {
+  background: var(--warning);
+  border-color: var(--warning);
+}
+
+.upgrade-action-btn.stop-upgrade-btn:hover:not(:disabled) {
+  background: #D97706;
+  border-color: #D97706;
+}

@@ -46,6 +46,9 @@ import {
   WsReqBuildingSetProperty,
   WsRespBuildingSetProperty,
   BuildingDetailsResponse,
+  // Building Upgrades
+  WsReqBuildingUpgrade,
+  WsRespBuildingUpgrade,
 } from '../shared/types';
 import { getErrorMessage } from '../shared/error-codes';
 import { UIManager } from './ui/ui-manager';
@@ -605,9 +608,16 @@ export class StarpeaceClient {
       const details = await this.requestBuildingDetails(x, y, visualClass || '0');
       if (details) {
         // Show BuildingDetailsPanel with full details
-        this.ui.showBuildingDetailsPanel(details, async (propertyName, value, additionalParams) => {
-          await this.setBuildingProperty(x, y, propertyName, value, additionalParams);
-        });
+        this.ui.showBuildingDetailsPanel(
+          details,
+          async (propertyName, value, additionalParams) => {
+            await this.setBuildingProperty(x, y, propertyName, value, additionalParams);
+          },
+          undefined, // onNavigateToBuilding
+          async (action, count) => {
+            await this.upgradeBuildingAction(x, y, action, count);
+          }
+        );
       } else {
         // Fallback: create minimal details from BuildingFocusInfo
         const fallbackDetails: BuildingDetailsResponse = {
@@ -627,9 +637,16 @@ export class StarpeaceClient {
           timestamp: Date.now()
         };
         // Also provide callback for fallback case
-        this.ui.showBuildingDetailsPanel(fallbackDetails, async (propertyName, value, additionalParams) => {
-          await this.setBuildingProperty(x, y, propertyName, value, additionalParams);
-        });
+        this.ui.showBuildingDetailsPanel(
+          fallbackDetails,
+          async (propertyName, value, additionalParams) => {
+            await this.setBuildingProperty(x, y, propertyName, value, additionalParams);
+          },
+          undefined, // onNavigateToBuilding
+          async (action, count) => {
+            await this.upgradeBuildingAction(x, y, action, count);
+          }
+        );
       }
 
       this.ui.log('Building', `Focused: ${response.building.buildingName}`);
@@ -733,6 +750,44 @@ export class StarpeaceClient {
       }
     } catch (err: any) {
       this.ui.log('Error', `Failed to set property: ${err.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Upgrade or downgrade a building
+   */
+  public async upgradeBuildingAction(
+    x: number,
+    y: number,
+    action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE',
+    count?: number
+  ): Promise<boolean> {
+    const actionName = action === 'DOWNGRADE' ? 'Downgrading' :
+                       action === 'START_UPGRADE' ? `Starting ${count} upgrade(s)` :
+                       'Stopping upgrade';
+    this.ui.log('Building', `${actionName} at (${x}, ${y})`);
+
+    try {
+      const req: WsReqBuildingUpgrade = {
+        type: WsMessageType.REQ_BUILDING_UPGRADE,
+        x,
+        y,
+        action,
+        count
+      };
+
+      const response = await this.sendRequest(req) as WsRespBuildingUpgrade;
+
+      if (response.success) {
+        this.ui.log('Building', response.message || 'Upgrade action completed');
+        return true;
+      } else {
+        this.ui.log('Error', response.message || 'Failed to perform upgrade action');
+        return false;
+      }
+    } catch (err: any) {
+      this.ui.log('Error', `Failed to perform upgrade action: ${err.message}`);
       return false;
     }
   }
