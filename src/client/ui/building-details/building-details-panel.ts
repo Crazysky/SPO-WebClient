@@ -537,51 +537,31 @@ export class BuildingDetailsPanel {
 
 	/**
 	 * Wire up upgrade action button handlers
-	 * Attaches click handlers to spinner buttons (+/-) and stop button
+	 * Simplified interface: VALIDATE button and Downgrade button only
 	 */
 	private wireUpgradeActions(): void {
 	  if (!this.contentContainer || !this.currentDetails) return;
 
 	  // Find all upgrade action elements
-	  const decreaseBtn = this.contentContainer.querySelector('.decrease-btn') as HTMLButtonElement;
-	  const increaseBtn = this.contentContainer.querySelector('.increase-btn') as HTMLButtonElement;
-	  const stopBtn = this.contentContainer.querySelector('.stop-upgrade-btn') as HTMLButtonElement;
-	  const upgradeInput = this.contentContainer.querySelector('.upgrade-count-input') as HTMLInputElement;
+	  const validateBtn = this.contentContainer.querySelector('.upgrade-validate-btn') as HTMLButtonElement;
+	  const downgradeBtn = this.contentContainer.querySelector('.downgrade-btn') as HTMLButtonElement;
+	  const qtyInput = this.contentContainer.querySelector('.upgrade-qty-input') as HTMLInputElement;
 
-	  // Decrease button (-) - Downgrade
-	  if (decreaseBtn) {
-		decreaseBtn.onclick = async () => {
+	  // Validate button - Start Upgrade with specified quantity
+	  if (validateBtn && qtyInput) {
+		validateBtn.onclick = async () => {
+		  const count = parseInt(qtyInput.value) || 1;
+		  if (this.options.onUpgradeAction && count > 0) {
+			await this.options.onUpgradeAction('START_UPGRADE', count);
+		  }
+		};
+	  }
+
+	  // Downgrade button (-) - Downgrade by 1
+	  if (downgradeBtn) {
+		downgradeBtn.onclick = async () => {
 		  if (this.options.onUpgradeAction) {
 			await this.options.onUpgradeAction('DOWNGRADE');
-		  }
-		};
-	  }
-
-	  // Increase button (+) - Start Upgrade
-	  if (increaseBtn && upgradeInput) {
-		increaseBtn.onclick = async () => {
-		  const count = parseInt(upgradeInput.value) || 1;
-		  if (this.options.onUpgradeAction && count > 0) {
-			await this.options.onUpgradeAction('START_UPGRADE', count);
-		  }
-		};
-	  }
-
-	  // Input change - Start Upgrade with new count
-	  if (upgradeInput) {
-		upgradeInput.onchange = async () => {
-		  const count = parseInt(upgradeInput.value) || 1;
-		  if (this.options.onUpgradeAction && count > 0) {
-			await this.options.onUpgradeAction('START_UPGRADE', count);
-		  }
-		};
-	  }
-
-	  // Stop upgrade button
-	  if (stopBtn) {
-		stopBtn.onclick = async () => {
-		  if (this.options.onUpgradeAction) {
-			await this.options.onUpgradeAction('STOP_UPGRADE');
 		  }
 		};
 	  }

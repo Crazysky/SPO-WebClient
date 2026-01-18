@@ -966,7 +966,7 @@ body {
 }
 
 /* =============================================================================
-   UPGRADE ACTIONS (Compact Design)
+   UPGRADE ACTIONS (Simplified Design)
    ============================================================================= */
 
 .upgrade-actions-container {
@@ -979,23 +979,13 @@ body {
   margin-top: var(--space-3);
 }
 
-/* Level Row: "Level: X/Y" or "Level: X(+N)/Y" */
-.upgrade-level-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+/* Level text: "Level X/Y" or "Level X(+N)/Y" */
+.upgrade-level-text {
   font-size: var(--text-base);
-}
-
-.upgrade-level-label {
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.upgrade-level-value {
   color: var(--text-primary);
   font-weight: 600;
   font-family: var(--font-mono);
+  margin-bottom: var(--space-2);
 }
 
 .upgrade-pending {
@@ -1004,62 +994,21 @@ body {
   margin-left: 2px;
 }
 
-/* Control Row: "Upgrade: -[input]+ (Cost: $X)" */
-.upgrade-control-row {
+/* Upgrade row: Upgrade [qty] [+] [VALIDATE] */
+.upgrade-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
 
-.upgrade-control-label {
+.upgrade-label {
   color: var(--text-secondary);
   font-weight: 500;
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
+  min-width: 70px;
 }
 
-/* Spinner buttons (+/-) */
-.upgrade-spinner-btn {
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  background: var(--surface-elevated);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: var(--text-lg);
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.upgrade-spinner-btn:hover:not(:disabled) {
-  background: var(--primary-blue-dark);
-  border-color: var(--primary-blue);
-  transform: scale(1.05);
-}
-
-.upgrade-spinner-btn:active:not(:disabled) {
-  transform: scale(0.95);
-}
-
-.upgrade-spinner-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.upgrade-spinner-btn.decrease-btn {
-  color: var(--error);
-}
-
-.upgrade-spinner-btn.increase-btn {
-  color: var(--success);
-}
-
-/* Count input (between +/- buttons) */
-.upgrade-count-input {
+.upgrade-qty-input {
   width: 60px;
   height: 32px;
   padding: var(--space-1) var(--space-2);
@@ -1073,50 +1022,126 @@ body {
   transition: border-color var(--transition-fast);
 }
 
-.upgrade-count-input:hover:not(:disabled) {
+.upgrade-qty-input:hover:not(:disabled) {
   border-color: var(--primary-blue);
 }
 
-.upgrade-count-input:focus {
+.upgrade-qty-input:focus {
   outline: none;
   border-color: var(--primary-blue);
   box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
 }
 
-.upgrade-count-input:disabled {
+.upgrade-qty-input:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* Cost display */
-.upgrade-cost-display {
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  font-family: var(--font-mono);
-  margin-left: var(--space-2);
+.upgrade-increment-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: var(--surface-elevated);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--success);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-/* Stop Upgrading button */
-.upgrade-action-btn.stop-upgrade-btn {
-  width: 100%;
-  padding: var(--space-3) var(--space-4);
-  background: var(--warning);
-  border: 1px solid var(--warning);
+.upgrade-increment-btn:hover:not(:disabled) {
+  background: var(--success);
+  border-color: var(--success);
+  color: var(--text-primary);
+  transform: scale(1.05);
+}
+
+.upgrade-increment-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.upgrade-increment-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.upgrade-validate-btn {
+  padding: var(--space-2) var(--space-4);
+  background: var(--primary-blue);
+  border: 1px solid var(--primary-blue);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-fast);
-  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-.upgrade-action-btn.stop-upgrade-btn:hover {
-  background: #D97706;
-  border-color: #D97706;
+.upgrade-validate-btn:hover:not(:disabled) {
+  background: var(--primary-blue-dark);
+  border-color: var(--primary-blue-dark);
   transform: translateY(-1px);
 }
 
-.upgrade-action-btn.stop-upgrade-btn:active {
+.upgrade-validate-btn:active:not(:disabled) {
   transform: translateY(0);
+}
+
+.upgrade-validate-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Downgrade row: Downgrade [-] */
+.downgrade-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.downgrade-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: var(--text-sm);
+  min-width: 70px;
+}
+
+.downgrade-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: var(--surface-elevated);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--error);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.downgrade-btn:hover:not(:disabled) {
+  background: var(--error);
+  border-color: var(--error);
+  color: var(--text-primary);
+  transform: scale(1.05);
+}
+
+.downgrade-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.downgrade-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }

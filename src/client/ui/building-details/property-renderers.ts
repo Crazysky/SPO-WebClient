@@ -663,7 +663,7 @@ export function renderPropertyGroup(
 
 /**
  * Render upgrade action controls
- * Compact design: Level X/Y, Upgrade +/-[count] (Cost: $X), Stop Upgrading button
+ * Simple design: Level display, Upgrade [qty][+][validate], Downgrade [-]
  */
 export function renderUpgradeActions(
   properties: BuildingPropertyValue[],
@@ -681,115 +681,84 @@ export function renderUpgradeActions(
   const isUpgrading = valueMap.get('Upgrading') === '1' || valueMap.get('Upgrading')?.toLowerCase() === 'yes';
   const currentLevel = parseInt(valueMap.get('UpgradeLevel') || '0');
   const maxLevel = parseInt(valueMap.get('MaxUpgrade') || '0');
-  const upgradeCost = parseFloat(valueMap.get('NextUpgCost') || '0');
   const pending = parseInt(valueMap.get('Pending') || '0');
 
   // Level display: "Level X/Y" or "Level X(+N)/Y" if upgrading
-  const levelRow = document.createElement('div');
-  levelRow.className = 'upgrade-level-row';
-
-  const levelLabel = document.createElement('span');
-  levelLabel.className = 'upgrade-level-label';
-  levelLabel.textContent = 'Level:';
-
-  const levelValue = document.createElement('span');
-  levelValue.className = 'upgrade-level-value';
+  const levelText = document.createElement('div');
+  levelText.className = 'upgrade-level-text';
   if (isUpgrading && pending > 0) {
-    levelValue.innerHTML = `${currentLevel}<span class="upgrade-pending">(+${pending})</span>/${maxLevel}`;
+    levelText.innerHTML = `Level ${currentLevel}<span class="upgrade-pending">(+${pending})</span>/${maxLevel}`;
   } else {
-    levelValue.textContent = `${currentLevel}/${maxLevel}`;
+    levelText.textContent = `Level ${currentLevel}/${maxLevel}`;
   }
+  container.appendChild(levelText);
 
-  levelRow.appendChild(levelLabel);
-  levelRow.appendChild(levelValue);
-  container.appendChild(levelRow);
+  // Upgrade row: Upgrade [qty] [+] [VALIDATE]
+  const upgradeRow = document.createElement('div');
+  upgradeRow.className = 'upgrade-row';
 
-  // Upgrade/Downgrade controls or Stop button
-  if (isUpgrading) {
-    // Show "Stop Upgrading" button when upgrade is in progress
-    const stopBtn = document.createElement('button');
-    stopBtn.className = 'upgrade-action-btn stop-upgrade-btn';
-    stopBtn.textContent = 'Stop Upgrading';
-    stopBtn.onclick = () => {
-      if (onAction) {
-        onAction('STOP_UPGRADE');
-      }
-    };
-    container.appendChild(stopBtn);
-  } else {
-    // Show Upgrade controls: +/- [input] (Cost: $X)
-    const upgradeRow = document.createElement('div');
-    upgradeRow.className = 'upgrade-control-row';
+  const upgradeLabel = document.createElement('span');
+  upgradeLabel.className = 'upgrade-label';
+  upgradeLabel.textContent = 'Upgrade';
 
-    const upgradeLabel = document.createElement('span');
-    upgradeLabel.className = 'upgrade-control-label';
-    upgradeLabel.textContent = 'Upgrade:';
+  const qtyInput = document.createElement('input');
+  qtyInput.type = 'number';
+  qtyInput.className = 'upgrade-qty-input';
+  qtyInput.min = '1';
+  qtyInput.max = Math.max(1, maxLevel - currentLevel).toString();
+  qtyInput.value = '1';
+  qtyInput.disabled = currentLevel >= maxLevel;
 
-    // Decrease button (-)
-    const decreaseBtn = document.createElement('button');
-    decreaseBtn.className = 'upgrade-spinner-btn decrease-btn';
-    decreaseBtn.textContent = '-';
-    decreaseBtn.disabled = currentLevel <= 0;
+  const incrementBtn = document.createElement('button');
+  incrementBtn.className = 'upgrade-increment-btn';
+  incrementBtn.textContent = '+';
+  incrementBtn.disabled = currentLevel >= maxLevel;
+  incrementBtn.onclick = () => {
+    const current = parseInt(qtyInput.value) || 1;
+    const max = parseInt(qtyInput.max);
+    if (current < max) {
+      qtyInput.value = (current + 1).toString();
+    }
+  };
 
-    // Count input
-    const countInput = document.createElement('input');
-    countInput.type = 'number';
-    countInput.className = 'upgrade-count-input';
-    countInput.min = '1';
-    countInput.max = Math.max(1, maxLevel - currentLevel).toString();
-    countInput.value = '1';
-    countInput.disabled = currentLevel >= maxLevel;
+  const validateBtn = document.createElement('button');
+  validateBtn.className = 'upgrade-validate-btn';
+  validateBtn.textContent = 'VALIDATE';
+  validateBtn.disabled = currentLevel >= maxLevel;
+  validateBtn.onclick = () => {
+    const count = parseInt(qtyInput.value) || 1;
+    if (onAction && count > 0 && currentLevel < maxLevel) {
+      onAction('START_UPGRADE', count);
+    }
+  };
 
-    // Increase button (+)
-    const increaseBtn = document.createElement('button');
-    increaseBtn.className = 'upgrade-spinner-btn increase-btn';
-    increaseBtn.textContent = '+';
-    increaseBtn.disabled = currentLevel >= maxLevel;
+  upgradeRow.appendChild(upgradeLabel);
+  upgradeRow.appendChild(qtyInput);
+  upgradeRow.appendChild(incrementBtn);
+  upgradeRow.appendChild(validateBtn);
+  container.appendChild(upgradeRow);
 
-    // Cost display
-    const costDisplay = document.createElement('span');
-    costDisplay.className = 'upgrade-cost-display';
+  // Downgrade row: Downgrade [-]
+  const downgradeRow = document.createElement('div');
+  downgradeRow.className = 'downgrade-row';
 
-    // Function to update cost display
-    const updateCostDisplay = () => {
-      const count = parseInt(countInput.value) || 1;
-      const totalCost = upgradeCost * count;
-      costDisplay.textContent = `(Cost: ${formatCurrency(totalCost)})`;
-    };
+  const downgradeLabel = document.createElement('span');
+  downgradeLabel.className = 'downgrade-label';
+  downgradeLabel.textContent = 'Downgrade';
 
-    // Event handlers for spinner buttons
-    decreaseBtn.onclick = () => {
-      if (currentLevel > 0 && onAction) {
-        onAction('DOWNGRADE');
-      }
-    };
+  const downgradeBtn = document.createElement('button');
+  downgradeBtn.className = 'downgrade-btn';
+  downgradeBtn.textContent = '-';
+  downgradeBtn.disabled = currentLevel <= 0;
+  downgradeBtn.onclick = () => {
+    if (onAction && currentLevel > 0) {
+      onAction('DOWNGRADE');
+    }
+  };
 
-    increaseBtn.onclick = () => {
-      const count = parseInt(countInput.value) || 1;
-      if (currentLevel < maxLevel && onAction && count > 0) {
-        onAction('START_UPGRADE', count);
-      }
-    };
-
-    // Update cost when input changes
-    countInput.oninput = updateCostDisplay;
-    countInput.onchange = () => {
-      const count = parseInt(countInput.value) || 1;
-      if (count > 0 && onAction) {
-        onAction('START_UPGRADE', count);
-      }
-    };
-
-    // Initial cost display
-    updateCostDisplay();
-
-    upgradeRow.appendChild(upgradeLabel);
-    upgradeRow.appendChild(decreaseBtn);
-    upgradeRow.appendChild(countInput);
-    upgradeRow.appendChild(increaseBtn);
-    upgradeRow.appendChild(costDisplay);
-    container.appendChild(upgradeRow);
-  }
+  downgradeRow.appendChild(downgradeLabel);
+  downgradeRow.appendChild(downgradeBtn);
+  container.appendChild(downgradeRow);
 
   return container;
 }
