@@ -159,6 +159,13 @@ export const UPGRADE_GROUP: PropertyGroup = {
   icon: 'U',
   order: 40,
   properties: [
+    // Hidden properties needed by UPGRADE_ACTIONS component (not rendered as rows)
+    { rdoName: 'UpgradeLevel', displayName: 'Current Level', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'MaxUpgrade', displayName: 'Max Level', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'NextUpgCost', displayName: 'Upgrade Cost', type: PropertyType.CURRENCY, hideEmpty: true },
+    { rdoName: 'Upgrading', displayName: 'Upgrading', type: PropertyType.BOOLEAN, hideEmpty: true },
+    { rdoName: 'Pending', displayName: 'Pending', type: PropertyType.NUMBER, hideEmpty: true },
+    // Main UI component
     { rdoName: 'UpgradeActions', displayName: 'Actions', type: PropertyType.UPGRADE_ACTIONS },
   ],
 };

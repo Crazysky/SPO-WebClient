@@ -604,13 +604,22 @@ export function renderPropertyGroup(
     } else {
       // Regular property (non-indexed)
       const value = valueMap.get(def.rdoName);
-      
+
       if (value !== undefined) {
-        // Check if we should hide empty values
-        if (def.hideEmpty && (!value || value.trim() === '' || value === '0')) {
+        // Skip rendering property rows with hideEmpty flag (but keep them available in properties array)
+        // Exception: upgrade properties are needed by UPGRADE_ACTIONS component
+        const isUpgradeProperty = ['UpgradeLevel', 'MaxUpgrade', 'NextUpgCost', 'Upgrading', 'Pending'].includes(def.rdoName);
+
+        if (def.hideEmpty && !isUpgradeProperty && (!value || value.trim() === '' || value === '0')) {
           continue;
         }
-        
+
+        // Don't render property rows for upgrade properties (they're used by UPGRADE_ACTIONS)
+        if (isUpgradeProperty) {
+          renderedProperties.add(def.rdoName);
+          continue;
+        }
+
         renderedProperties.add(def.rdoName);
         
         const propValue: BuildingPropertyValue = {
