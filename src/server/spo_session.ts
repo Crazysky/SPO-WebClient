@@ -1221,7 +1221,7 @@ private parseSegments(rawLines: string[]): MapSegment[] {
       const targetId = props[1]; // ObjectId (RDO ID for the building)
       console.log(`[Construction] Building found: Block=${currBlock}, ObjectId=${targetId}`);
 
-      // Step 2: Check RDOAcceptCloning (must be 255 = available)
+      // Step 2: Check RDOAcceptCloning (must be available: 1=existing building, 255=empty zone)
       const initialCloning = await this.sendRdoRequest('construction', {
         verb: RdoVerb.SEL,
         targetId: currBlock,
@@ -1232,10 +1232,12 @@ private parseSegments(rawLines: string[]): MapSegment[] {
       const cloningInt = parseInt(cloningValue, 10);
       console.log(`[Construction] RDOAcceptCloning initial value: ${cloningInt}`);
 
-      if (cloningInt !== 255) {
+      // Valid values: 1 (existing building), 255 (empty zone)
+      // Invalid: -1 (locked/busy)
+      if (cloningInt !== 1 && cloningInt !== 255) {
         return {
           status: 'ERROR',
-          error: `Block not ready (RDOAcceptCloning=${cloningInt}, expected 255). Zone may be busy.`
+          error: `Block not available (RDOAcceptCloning=${cloningInt}). Zone may be locked or busy.`
         };
       }
 

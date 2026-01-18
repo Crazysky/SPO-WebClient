@@ -159,11 +159,6 @@ export const UPGRADE_GROUP: PropertyGroup = {
   icon: 'U',
   order: 40,
   properties: [
-    { rdoName: 'UpgradeLevel', displayName: 'Current Level', type: PropertyType.NUMBER },
-    { rdoName: 'MaxUpgrade', displayName: 'Max Level', type: PropertyType.NUMBER },
-    { rdoName: 'NextUpgCost', displayName: 'Upgrade Cost', type: PropertyType.CURRENCY },
-    { rdoName: 'Upgrading', displayName: 'Upgrading', type: PropertyType.BOOLEAN },
-    { rdoName: 'Pending', displayName: 'Pending', type: PropertyType.NUMBER, hideEmpty: true },
     { rdoName: 'UpgradeActions', displayName: 'Actions', type: PropertyType.UPGRADE_ACTIONS },
   ],
 };
