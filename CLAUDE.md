@@ -527,6 +527,15 @@ Provide:
     - Modal width increased from 500px to 650px for better table readability
     - Replaced slider controls with number input fields for direct salary percentage entry
     - CSS fix: Removed `display: flex` from table cells to maintain proper column alignment
+  - **Refresh System Redesign (January 2026):**
+    - **Removed EVENT_BUILDING_REFRESH mechanism:** Deprecated automatic push-based refresh from server
+    - **Added manual refresh button:** Circular refresh icon (↻) in panel header next to close button
+    - **Automatic refresh on tab switch:** Data refreshes when switching between tabs (Overview, Workforce, etc.)
+    - **Automatic refresh after updates:** Panel refreshes immediately after property changes (salaries, prices)
+    - **On-demand architecture:** Refresh callback (`onRefresh`) provided by client, triggers re-fetch of building details
+    - **Visual feedback:** Refresh button shows disabled state and rotation animation while loading
+    - **CSS styling:** Added `.header-buttons` container, `.header-refresh-btn` with hover/disabled/active states
+    - **Benefits:** User control, better performance (only refreshes when needed), cleaner code, no disruption to user input
 
 ## Session Context for AI Agent
 

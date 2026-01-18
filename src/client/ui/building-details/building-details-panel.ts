@@ -21,6 +21,7 @@ export interface BuildingDetailsPanelOptions {
   onPropertyChange?: (propertyName: string, value: string, additionalParams?: Record<string, string>) => Promise<void>;
   onNavigateToBuilding?: (x: number, y: number) => void;
   onUpgradeAction?: (action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE', count?: number) => Promise<void>;
+  onRefresh?: () => Promise<void>;
 }
 
 export class BuildingDetailsPanel {
@@ -123,9 +124,22 @@ export class BuildingDetailsPanel {
       </div>
     `;
 
+    const buttonContainer = document.createElement('div');
+    buttonContainer.className = 'header-buttons';
+
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'header-refresh-btn';
+    refreshBtn.innerHTML = '↻';
+    refreshBtn.title = 'Refresh current tab';
+    refreshBtn.onclick = async (e) => {
+      e.stopPropagation();
+      await this.handleManualRefresh();
+    };
+
     const closeBtn = document.createElement('button');
     closeBtn.className = 'header-close-btn';
     closeBtn.innerHTML = 'X';
+    closeBtn.title = 'Close';
     closeBtn.onclick = (e) => {
       e.stopPropagation();
       this.hide();
@@ -134,8 +148,11 @@ export class BuildingDetailsPanel {
       }
     };
 
+    buttonContainer.appendChild(refreshBtn);
+    buttonContainer.appendChild(closeBtn);
+
     header.appendChild(titleContainer);
-    header.appendChild(closeBtn);
+    header.appendChild(buttonContainer);
 
     // Drag handlers
     header.onmousedown = (e) => this.startDrag(e);
@@ -212,6 +229,29 @@ export class BuildingDetailsPanel {
       this.renderContentSmart();
     } else {
       this.renderContent();
+    }
+  }
+
+  /**
+   * Handle manual refresh button click
+   * Triggers refresh callback provided by parent
+   */
+  private async handleManualRefresh(): Promise<void> {
+    if (this.options.onRefresh) {
+      const refreshBtn = this.header?.querySelector('.header-refresh-btn') as HTMLButtonElement;
+      if (refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.style.opacity = '0.5';
+      }
+
+      try {
+        await this.options.onRefresh();
+      } finally {
+        if (refreshBtn) {
+          refreshBtn.disabled = false;
+          refreshBtn.style.opacity = '1';
+        }
+      }
     }
   }
 
@@ -364,10 +404,16 @@ export class BuildingDetailsPanel {
       if (!hasData) btn.classList.add('tab-empty');
       btn.innerHTML = `<span class="tab-icon">${group.icon || ''}</span><span class="tab-label">${group.name}</span>`;
 
-      btn.onclick = () => {
+      btn.onclick = async () => {
+        const previousTab = this.currentTab;
         this.currentTab = group.id;
         this.renderTabs(sortedGroups);
         this.renderTabContent();
+
+        // Auto-refresh when switching to a new tab
+        if (previousTab !== group.id && this.options.onRefresh) {
+          await this.options.onRefresh();
+        }
       };
 
       this.tabsNav.appendChild(btn);
@@ -440,8 +486,9 @@ export class BuildingDetailsPanel {
 	/**
 	 * Handle property change from slider
 	 * Converts RDO property name to RDO command with appropriate parameters
+	 * Automatically refreshes data after successful update
 	 */
-	private handlePropertyChange(propertyName: string, value: number, additionalParams?: Record<string, string>): void {
+	private async handlePropertyChange(propertyName: string, value: number, additionalParams?: Record<string, string>): Promise<void> {
 	  if (!this.options.onPropertyChange) return;
 
 	  // Extract RDO command and parameters from property name
@@ -450,7 +497,13 @@ export class BuildingDetailsPanel {
 	  // Merge with any additional params provided
 	  const finalParams = { ...params, ...additionalParams };
 
-	  this.options.onPropertyChange(rdoCommand, value.toString(), finalParams);
+	  // Send property change
+	  await this.options.onPropertyChange(rdoCommand, value.toString(), finalParams);
+
+	  // Auto-refresh after property update
+	  if (this.options.onRefresh) {
+	    await this.options.onRefresh();
+	  }
 	}
 
 	/**

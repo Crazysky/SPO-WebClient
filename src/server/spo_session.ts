@@ -594,7 +594,7 @@ private parseBuildingFocusResponse(payload: string, x: number, y: number): Build
         cleaned = cleaned.substring(1);
     }
     
-    console.log(`[Session] Cleaned building payload (first 100 chars):`, cleaned.substring(0, 100));
+    // console.log(`[Session] Cleaned building payload (first 100 chars):`, cleaned.substring(0, 100));
     
     // Split by the special separator "-:"
     const sections = cleaned.split('-:');
@@ -680,7 +680,7 @@ private parseBuildingFocusResponse(payload: string, x: number, y: number): Build
     ? sections[2].trim().replace(/:$/, '') // Remove trailing ':'
     : '';
   
-  console.log(`[Session] Parsed building:`, {
+  /*console.log(`[Session] Parsed building:`, {
     id: buildingId,
     name: buildingName,
     owner: ownerName,
@@ -688,7 +688,7 @@ private parseBuildingFocusResponse(payload: string, x: number, y: number): Build
     revenue: revenue,
     detailsLength: detailsText.length,
     hintsLength: hintsText.length
-  });
+  });*/
   
   return {
     buildingId: buildingId.replace(/[%#@]/g, ''), // Remove '%', '#', '@' prefixes
@@ -2629,14 +2629,14 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
       // Fetch indexed properties
       if (indexedProps.length > 0) {
-        console.log(`[BuildingDetails] Fetching indexed properties: ${indexedProps.join(', ')}`);
+        //console.log(`[BuildingDetails] Fetching indexed properties: ${indexedProps.join(', ')}`);
         for (let i = 0; i < indexedProps.length; i += BATCH_SIZE) {
           const batch = indexedProps.slice(i, i + BATCH_SIZE);
           const values = await this.cacherGetPropertyList(tempObjectId, batch);
 
           for (let j = 0; j < batch.length; j++) {
             const value = j < values.length ? values[j] : '';
-            console.log(`[BuildingDetails] ${batch[j]} = "${value}"`);
+            //console.log(`[BuildingDetails] ${batch[j]} = "${value}"`);
             if (value && value.trim() && value !== 'error') {
               allValues.set(batch[j], value);
             }

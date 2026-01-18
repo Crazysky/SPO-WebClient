@@ -481,6 +481,14 @@ body {
   opacity: 0.9;
 }
 
+/* Header buttons container */
+.header-buttons {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.header-refresh-btn,
 .header-close-btn {
   background: rgba(255, 255, 255, 0.2);
   border: none;
@@ -492,10 +500,23 @@ body {
   transition: all var(--transition-base);
   font-size: var(--text-lg);
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
+.header-refresh-btn:hover,
 .header-close-btn:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+.header-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.header-refresh-btn:active:not(:disabled) {
+  transform: rotate(180deg);
 }
 
 /* Building Details Tabs */

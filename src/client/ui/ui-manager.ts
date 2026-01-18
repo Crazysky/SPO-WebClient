@@ -116,7 +116,8 @@ export class UIManager {
     details: BuildingDetailsResponse,
     onPropertyChange?: (propertyName: string, value: string, additionalParams?: Record<string, string>) => Promise<void>,
     onNavigateToBuilding?: (x: number, y: number) => void,
-    onUpgradeAction?: (action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE', count?: number) => Promise<void>
+    onUpgradeAction?: (action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE', count?: number) => Promise<void>,
+    onRefresh?: () => Promise<void>
   ) {
     if (this.buildingDetailsPanel) {
       // Update options with callbacks
@@ -124,6 +125,7 @@ export class UIManager {
       options.onPropertyChange = onPropertyChange;
       options.onNavigateToBuilding = onNavigateToBuilding;
       options.onUpgradeAction = onUpgradeAction;
+      options.onRefresh = onRefresh;
       this.buildingDetailsPanel.show(details);
     }
   }

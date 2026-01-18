@@ -298,21 +298,11 @@ export class StarpeaceClient {
         break;
 
       case WsMessageType.EVENT_BUILDING_REFRESH:
-        const refreshEvent = msg as WsEventBuildingRefresh;
-
-        if (this.currentFocusedBuilding &&
-            this.currentFocusedBuilding.buildingId === refreshEvent.building.buildingId) {
-          this.currentFocusedBuilding = refreshEvent.building;
-          // Re-request details with stored visualClass
-          const refreshX = refreshEvent.building.x;
-          const refreshY = refreshEvent.building.y;
-          const refreshVisualClass = this.currentFocusedVisualClass || '0';
-          this.requestBuildingDetails(refreshX, refreshY, refreshVisualClass).then(details => {
-            if (details) {
-              this.ui.updateBuildingDetailsPanel(details);
-            }
-          });
-        }
+        // Deprecated: Automatic refresh removed in favor of manual/on-demand refresh
+        // Refresh is now triggered by:
+        // 1. Manual refresh button click
+        // 2. Tab switch
+        // 3. After property value change
         break;
 
         case WsMessageType.EVENT_TYCOON_UPDATE:
@@ -616,12 +606,21 @@ export class StarpeaceClient {
           undefined, // onNavigateToBuilding
           async (action, count) => {
             await this.upgradeBuildingAction(x, y, action, count);
+          },
+          async () => {
+            // Refresh callback: re-fetch building details
+            const refreshedDetails = await this.requestBuildingDetails(x, y, visualClass || '0');
+            if (refreshedDetails) {
+              this.ui.updateBuildingDetailsPanel(refreshedDetails);
+            }
           }
         );
       } else {
         // Fallback: create minimal details from BuildingFocusInfo
         const fallbackDetails: BuildingDetailsResponse = {
           buildingId: response.building.buildingId || '',
+          buildingName: response.building.buildingName || 'Building',
+          ownerName: response.building.ownerName || 'Unknown',
           x,
           y,
           visualClass: visualClass || '0',
@@ -645,6 +644,13 @@ export class StarpeaceClient {
           undefined, // onNavigateToBuilding
           async (action, count) => {
             await this.upgradeBuildingAction(x, y, action, count);
+          },
+          async () => {
+            // Refresh callback for fallback mode
+            const refreshedDetails = await this.requestBuildingDetails(x, y, visualClass || '0');
+            if (refreshedDetails) {
+              this.ui.updateBuildingDetailsPanel(refreshedDetails);
+            }
           }
         );
       }
