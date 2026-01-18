@@ -4,6 +4,12 @@ import {
   RdoAction,
   RDO_CONSTANTS
 } from '../shared/types';
+import {
+  RdoValue,
+  RdoParser,
+  RdoCommand,
+  RdoTypePrefix
+} from '../shared/rdo-types';
 
 /**
  * RDO Protocol Engine
@@ -304,11 +310,15 @@ export class RdoProtocol {
 
   /**
    * Format typed token with proper quoting per RDO spec
+   * Uses RdoValue/RdoParser for consistent type handling
    */
   private static formatTypedToken(val: string): string {
     // If already fully formatted with quotes and type prefix, return as-is
-    if ((val.startsWith('"#') || val.startsWith('"%') || val.startsWith('"@') || val.startsWith('"$')) && val.endsWith('"')) {
-      return val;
+    if (val.startsWith('"') && val.endsWith('"')) {
+      const extracted = RdoParser.extract(val);
+      if (extracted.prefix) {
+        return val; // Already properly formatted
+      }
     }
 
     // Strip any existing outer quotes for re-processing
@@ -318,31 +328,32 @@ export class RdoProtocol {
     }
 
     // If already has type prefix but no quotes, wrap it
-    if (cleaned.startsWith('#') || cleaned.startsWith('%') || cleaned.startsWith('@') || cleaned.startsWith('$')) {
+    const knownPrefixes = Object.values(RdoTypePrefix) as string[];
+    if (knownPrefixes.includes(cleaned.charAt(0))) {
       return `"${cleaned}"`;
     }
 
-    // Determine type and format
+    // Determine type and format using RdoValue
     if (/^-?\d+$/.test(cleaned)) {
-      return `"#${cleaned}"`;
+      return RdoValue.int(parseInt(cleaned, 10)).format();
     }
 
     // Otherwise -> String
-    return `"%${cleaned}"`;
+    return RdoValue.string(cleaned).format();
   }
 
   /**
    * Strip outer quotes and optionally type prefix from parsed tokens
+   * Uses RdoParser for consistent extraction
    */
   private static stripTypedToken(token: string): string {
-    let cleaned = token.trim();
-    
-    // Remove outer quotes
-    if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
-      cleaned = cleaned.substring(1, cleaned.length - 1);
+    const extracted = RdoParser.extract(token);
+    // Return the full string with prefix (e.g., "#42", "%hello")
+    // This preserves type information for downstream processing
+    if (extracted.prefix) {
+      return extracted.prefix + extracted.value;
     }
-
-    return cleaned;
+    return extracted.value;
   }
   
 	

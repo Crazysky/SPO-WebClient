@@ -41,6 +41,12 @@ import {
   collectTemplatePropertyNamesStructured,
 } from '../shared/building-details';
 import { RdoFramer, RdoProtocol } from './rdo';
+import {
+  RdoValue,
+  RdoParser,
+  RdoCommand,
+  rdoArgs
+} from '../shared/rdo-types';
 
 export class StarpeaceSession extends EventEmitter {
   private sockets: Map<string, net.Socket> = new Map();
@@ -355,7 +361,11 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
   // 8. SetLanguage - CLIENT sends this as PUSH command (no RID)
   const socket = this.sockets.get('world');
   if (socket) {
-    const setLangCmd = `C sel ${this.worldContextId} call SetLanguage "*" "%0";`;
+    const setLangCmd = RdoCommand.sel(this.worldContextId!)
+      .call('SetLanguage')
+      .push()
+      .args(RdoValue.int(0))
+      .build();
     socket.write(setLangCmd);
     console.log(`[Session] Sent SetLanguage push command`);
     // Small delay for server to process
@@ -448,7 +458,10 @@ public async selectCompany(companyId: string): Promise<void> {
   // 4. ClientAware - Notify ready (first call)
   const socket = this.sockets.get('world');
   if (socket) {
-    const clientAwareCmd = `C sel ${this.worldContextId} call ClientAware "*" ;`;
+    const clientAwareCmd = RdoCommand.sel(this.worldContextId!)
+      .call('ClientAware')
+      .push()
+      .build();
     socket.write(clientAwareCmd);
     console.log(`[Session] Sent ClientAware #1`);
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -480,7 +493,10 @@ public async selectCompany(companyId: string): Promise<void> {
 
   // 7. Second ClientAware
   if (socket) {
-    const clientAwareCmd2 = `C sel ${this.worldContextId} call ClientAware "*" ;`;
+    const clientAwareCmd2 = RdoCommand.sel(this.worldContextId!)
+      .call('ClientAware')
+      .push()
+      .build();
     socket.write(clientAwareCmd2);
     console.log(`[Session] Sent ClientAware #2`);
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -549,8 +565,11 @@ public async selectCompany(companyId: string): Promise<void> {
 
 	  const socket = this.sockets.get('world');
 	  if (socket) {
-		// CORRECTION: Add '#' prefix when sending (currentFocusedBuildingId is stored without it)
-		const unfocusCmd = `C sel ${this.worldContextId} call UnfocusObject "*" "#${this.currentFocusedBuildingId}";`;
+		const unfocusCmd = RdoCommand.sel(this.worldContextId!)
+		  .call('UnfocusObject')
+		  .push()
+		  .args(RdoValue.int(parseInt(this.currentFocusedBuildingId)))
+		  .build();
 		socket.write(unfocusCmd);
 		console.log('[Session] Sent UnfocusObject push command');
 	  }
@@ -866,7 +885,14 @@ private extractRevenue(line: string): string {
     // Logon to World (no request ID - push command with separator "*")
     const socket = this.sockets.get('construction');
     if (socket && this.worldId) {
-      const logonCmd = `C sel ${this.worldId} call RDOLogonClient "*" "%${this.cachedUsername}","%${this.cachedPassword}";`;
+      const logonCmd = RdoCommand.sel(this.worldId)
+        .call('RDOLogonClient')
+        .push()
+        .args(
+          RdoValue.string(this.cachedUsername!),
+          RdoValue.string(this.cachedPassword!)
+        )
+        .build();
       socket.write(logonCmd);
       console.log(`[Construction] Sent RDOLogonClient`);
       // Small delay to let server process logon
@@ -1232,15 +1258,25 @@ private parseSegments(rawLines: string[]): MapSegment[] {
       let actionCmd = '';
       switch (action) {
         case 'START':
-          actionCmd = `C sel ${targetId} call RDOStartUpgrades "*" "#${count}";`;
+          actionCmd = RdoCommand.sel(targetId)
+            .call('RDOStartUpgrades')
+            .push()
+            .args(RdoValue.int(count))
+            .build();
           console.log(`[Construction] Starting ${count} upgrade(s)...`);
           break;
         case 'STOP':
-          actionCmd = `C sel ${targetId} call RDOStopUpgrade "*";`;
+          actionCmd = RdoCommand.sel(targetId)
+            .call('RDOStopUpgrade')
+            .push()
+            .build();
           console.log(`[Construction] Stopping upgrade...`);
           break;
         case 'DOWN':
-          actionCmd = `C sel ${targetId} call RDODowngrade "*";`;
+          actionCmd = RdoCommand.sel(targetId)
+            .call('RDODowngrade')
+            .push()
+            .build();
           console.log(`[Construction] Downgrading building...`);
           break;
         default:
@@ -1955,13 +1991,17 @@ private handlePush(socketName: string, packet: RdoPacket) {
    */
   public async setChatTypingStatus(isTyping: boolean): Promise<void> {
     if (!this.worldContextId) throw new Error('Not logged into world');
-    
-    const status = isTyping ? '1' : '0';
-    
+
+    const status = isTyping ? 1 : 0;
+
     // Send as push command (no await needed)
     const socket = this.sockets.get('world');
     if (socket) {
-      const cmd = `C sel ${this.worldContextId} call MsgCompositionChanged "*" "#${status}";`;
+      const cmd = RdoCommand.sel(this.worldContextId!)
+        .call('MsgCompositionChanged')
+        .push()
+        .args(RdoValue.int(status))
+        .build();
       socket.write(cmd);
     }
   }
@@ -2977,6 +3017,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
   /**
    * Build RDO command arguments based on command type
+   * Uses RdoValue for type-safe argument formatting
    *
    * Examples:
    * - RDOSetPrice(index=0, value=220) -> "#0","#220"
@@ -2991,26 +3032,32 @@ private handlePush(socketName: string, packet: RdoPacket) {
     additionalParams?: Record<string, string>
   ): string {
     const params = additionalParams || {};
+    const args: RdoValue[] = [];
 
     switch (rdoCommand) {
       case 'RDOSetPrice': {
         // Args: index of srvPrices (e.g., #0), new value
-        const index = params.index || '0';
-        return `"#${index}","#${value}"`;
+        const index = parseInt(params.index || '0', 10);
+        const price = parseInt(value, 10);
+        args.push(RdoValue.int(index), RdoValue.int(price));
+        break;
       }
 
       case 'RDOSetSalaries': {
         // Args: Salaries0, Salaries1, Salaries2 (all 3 values required)
-        const sal0 = params.salary0 || value;
-        const sal1 = params.salary1 || value;
-        const sal2 = params.salary2 || value;
-        return `"#${sal0}","#${sal1}","#${sal2}"`;
+        const sal0 = parseInt(params.salary0 || value, 10);
+        const sal1 = parseInt(params.salary1 || value, 10);
+        const sal2 = parseInt(params.salary2 || value, 10);
+        args.push(RdoValue.int(sal0), RdoValue.int(sal1), RdoValue.int(sal2));
+        break;
       }
 
       case 'RDOSetCompanyInputDemand': {
         // Args: index of cInput, new ratio (cInputDem * 100 / cInputMax) without %
-        const index = params.index || '0';
-        return `"#${index}","#${value}"`;
+        const index = parseInt(params.index || '0', 10);
+        const ratio = parseInt(value, 10);
+        args.push(RdoValue.int(index), RdoValue.int(ratio));
+        break;
       }
 
       case 'RDOSetInputMaxPrice': {
@@ -3019,7 +3066,8 @@ private handlePush(socketName: string, packet: RdoPacket) {
         if (!metaFluid) {
           throw new Error('RDOSetInputMaxPrice requires metaFluid parameter');
         }
-        return `"#${metaFluid}","#${value}"`;
+        args.push(RdoValue.int(parseInt(metaFluid, 10)), RdoValue.int(parseInt(value, 10)));
+        break;
       }
 
       case 'RDOSetInputMinK': {
@@ -3028,13 +3076,18 @@ private handlePush(socketName: string, packet: RdoPacket) {
         if (!metaFluid) {
           throw new Error('RDOSetInputMinK requires metaFluid parameter');
         }
-        return `"#${metaFluid}","#${value}"`;
+        args.push(RdoValue.int(parseInt(metaFluid, 10)), RdoValue.int(parseInt(value, 10)));
+        break;
       }
 
       default:
         // Fallback: single value parameter
-        return `"#${value}"`;
+        args.push(RdoValue.int(parseInt(value, 10)));
+        break;
     }
+
+    // Format all arguments and join with commas
+    return args.map(arg => arg.format()).join(',');
   }
 
   /**

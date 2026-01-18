@@ -183,10 +183,49 @@ Provide:
 ## Project Backlog
 
 ### CORE
+#### RDO Protocol Type System
+- **Status:** ✅ COMPLETED (January 2026)
+- **Goal:** Implement type-safe handling of RDO protocol values and commands
+- **Implementation:**
+  - **Module:** [src/shared/rdo-types.ts](src/shared/rdo-types.ts) - Core type system with RdoValue, RdoParser, RdoCommand classes
+  - **Documentation:** [doc/rdo_typing_system.md](doc/rdo_typing_system.md) - Comprehensive guide with examples and migration patterns
+  - **RDO Type Prefixes:**
+    - `#` (OrdinalId) → Integer values
+    - `$` (StringId) → Short string identifiers
+    - `^` (VariantId) → Variant type
+    - `!` (SingleId) → Float (single precision)
+    - `@` (DoubleId) → Double (double precision)
+    - `%` (OLEStringId) → Wide string (most common)
+    - `*` (VoidId) → Void/no return value
+  - **RdoValue API:** Fluent API for creating typed values
+    - `RdoValue.int(42)` → `"#42"`
+    - `RdoValue.string("hello")` → `"%hello"`
+    - `RdoValue.float(3.14)` → `"!3.14"`
+  - **RdoParser API:** Extract values from RDO formatted strings
+    - `RdoParser.extract("#42")` → `{ prefix: '#', value: '42' }`
+    - `RdoParser.getValue("#42")` → `'42'`
+    - `RdoParser.asInt("#42")` → `42`
+  - **RdoCommand API:** Builder pattern for constructing commands
+    - `RdoCommand.sel(id).call('Method').push().args(...).build()`
+    - Replaces manual string template construction
+    - Type-safe argument handling
+  - **Helper Functions:**
+    - `rdoArgs()` - Convert mixed values to RdoValue array with auto-detection
+  - **Integration:**
+    - Updated [src/server/rdo.ts](src/server/rdo.ts) - formatTypedToken/stripTypedToken use RdoValue/RdoParser
+    - Migrated [src/server/spo_session.ts](src/server/spo_session.ts) - All manual RDO commands now use RdoCommand builder
+    - Commands migrated: SetLanguage, ClientAware, UnfocusObject, RDOLogonClient, RDOStartUpgrades, RDOStopUpgrade, RDODowngrade, MsgCompositionChanged, buildRdoCommandArgs (all building property setters)
+- **Benefits:**
+  - Type safety: TypeScript compiler catches type mismatches
+  - Readability: Self-documenting code (`RdoValue.int(42)` vs `"#42"`)
+  - Maintainability: Centralized type handling, single source of truth
+  - Debugging: Better error messages, preserved type information
+
 #### RDO Starpeace Online Protocol Refactor
 - **Status:** Deferred (implement all features first)
 - **Goal:** Optimize network protocol for better performance
 - **Blocker:** All game features must be working before refactoring
+- **Note:** Type system foundation completed (January 2026)
 
 #### Download key client files from update.starpeaceonline.com
 - **Status:** ✅ COMPLETED (January 2026)
