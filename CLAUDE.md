@@ -37,9 +37,25 @@ src/
 └── shared/ # Shared types & config
 ├── building-details/ # Building property definitions & templates
 ├── types.ts # All TypeScript interfaces
+├── rdo-types.ts # RDO protocol type system (RdoValue, RdoParser, RdoCommand)
 ├── config.ts # Server configuration
 └── logger.ts # Logging utility
 
+
+### RDO Protocol Type System
+The project uses a type-safe system for handling RDO protocol data:
+
+- **RdoValue** - Fluent API for creating typed values with proper prefixes
+  - `RdoValue.int(42)` → `"#42"` (OrdinalId)
+  - `RdoValue.string("hello")` → `"%hello"` (OLEStringId)
+  - `RdoValue.float(3.14)` → `"!3.14"` (SingleId)
+- **RdoParser** - Extract and parse typed values from RDO strings
+  - `RdoParser.getValue("#42")` → `'42'`
+  - `RdoParser.asInt("#42")` → `42`
+- **RdoCommand** - Builder pattern for constructing commands
+  - `RdoCommand.sel(id).call('Method').push().args(...).build()`
+- **Documentation:** [doc/rdo_typing_system.md](doc/rdo_typing_system.md)
+- **Examples:** [doc/rdo_typing_examples.ts](doc/rdo_typing_examples.ts)
 
 ### Key Commands
 - **Development:** `npm run dev` (starts Vite dev server + backend)
@@ -54,6 +70,7 @@ src/
 - **Naming:** camelCase for variables/methods, PascalCase for classes/interfaces
 - **Comments:** Add JSDoc for public methods; inline comments for complex logic only
 - **Error handling:** Always use try-catch for async operations; log errors with context
+- **RDO Protocol:** Always use `RdoValue`, `RdoParser`, and `RdoCommand` from [src/shared/rdo-types.ts](src/shared/rdo-types.ts) for type-safe RDO operations (never use manual string concatenation with type prefixes)
 
 ### Changes Policy
 - **Small, focused changes** - one feature/fix per implementation
