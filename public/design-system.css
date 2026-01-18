@@ -966,7 +966,7 @@ body {
 }
 
 /* =============================================================================
-   UPGRADE ACTIONS
+   UPGRADE ACTIONS (Compact Design)
    ============================================================================= */
 
 .upgrade-actions-container {
@@ -979,15 +979,90 @@ body {
   margin-top: var(--space-3);
 }
 
-.upgrade-input-container {
+/* Level Row: "Level: X/Y" or "Level: X(+N)/Y" */
+.upgrade-level-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+}
+
+.upgrade-level-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.upgrade-level-value {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.upgrade-pending {
+  color: var(--success);
+  font-weight: 700;
+  margin-left: 2px;
+}
+
+/* Control Row: "Upgrade: -[input]+ (Cost: $X)" */
+.upgrade-control-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
 
+.upgrade-control-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: var(--text-base);
+}
+
+/* Spinner buttons (+/-) */
+.upgrade-spinner-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: var(--surface-elevated);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.upgrade-spinner-btn:hover:not(:disabled) {
+  background: var(--primary-blue-dark);
+  border-color: var(--primary-blue);
+  transform: scale(1.05);
+}
+
+.upgrade-spinner-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.upgrade-spinner-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.upgrade-spinner-btn.decrease-btn {
+  color: var(--error);
+}
+
+.upgrade-spinner-btn.increase-btn {
+  color: var(--success);
+}
+
+/* Count input (between +/- buttons) */
 .upgrade-count-input {
-  width: 80px;
-  padding: var(--space-2) var(--space-3);
+  width: 60px;
+  height: 32px;
+  padding: var(--space-1) var(--space-2);
   background: var(--bg-secondary);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
@@ -1013,61 +1088,35 @@ body {
   cursor: not-allowed;
 }
 
-.upgrade-action-btn {
-  padding: var(--space-2) var(--space-4);
-  background: var(--surface-elevated);
-  border: 1px solid var(--glass-border);
+/* Cost display */
+.upgrade-cost-display {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  margin-left: var(--space-2);
+}
+
+/* Stop Upgrading button */
+.upgrade-action-btn.stop-upgrade-btn {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: var(--warning);
+  border: 1px solid var(--warning);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: var(--text-sm);
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-fast);
-  white-space: nowrap;
+  text-align: center;
 }
 
-.upgrade-action-btn:hover:not(:disabled) {
-  background: var(--primary-blue-dark);
-  border-color: var(--primary-blue);
+.upgrade-action-btn.stop-upgrade-btn:hover {
+  background: #D97706;
+  border-color: #D97706;
   transform: translateY(-1px);
 }
 
-.upgrade-action-btn:active:not(:disabled) {
+.upgrade-action-btn.stop-upgrade-btn:active {
   transform: translateY(0);
-}
-
-.upgrade-action-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.upgrade-action-btn.downgrade-btn {
-  background: var(--error);
-  border-color: var(--error);
-}
-
-.upgrade-action-btn.downgrade-btn:hover:not(:disabled) {
-  background: #DC2626;
-  border-color: #DC2626;
-}
-
-.upgrade-action-btn.upgrade-btn {
-  flex: 1;
-  background: var(--success);
-  border-color: var(--success);
-}
-
-.upgrade-action-btn.upgrade-btn:hover:not(:disabled) {
-  background: #059669;
-  border-color: #059669;
-}
-
-.upgrade-action-btn.stop-upgrade-btn {
-  background: var(--warning);
-  border-color: var(--warning);
-}
-
-.upgrade-action-btn.stop-upgrade-btn:hover:not(:disabled) {
-  background: #D97706;
-  border-color: #D97706;
 }

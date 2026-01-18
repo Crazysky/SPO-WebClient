@@ -537,29 +537,39 @@ export class BuildingDetailsPanel {
 
 	/**
 	 * Wire up upgrade action button handlers
-	 * Attaches click handlers to upgrade/downgrade buttons in the DOM
+	 * Attaches click handlers to spinner buttons (+/-) and stop button
 	 */
 	private wireUpgradeActions(): void {
 	  if (!this.contentContainer || !this.currentDetails) return;
 
-	  // Find all upgrade action buttons
-	  const downgradeBtn = this.contentContainer.querySelector('.downgrade-btn') as HTMLButtonElement;
-	  const upgradeBtn = this.contentContainer.querySelector('.upgrade-btn') as HTMLButtonElement;
+	  // Find all upgrade action elements
+	  const decreaseBtn = this.contentContainer.querySelector('.decrease-btn') as HTMLButtonElement;
+	  const increaseBtn = this.contentContainer.querySelector('.increase-btn') as HTMLButtonElement;
 	  const stopBtn = this.contentContainer.querySelector('.stop-upgrade-btn') as HTMLButtonElement;
 	  const upgradeInput = this.contentContainer.querySelector('.upgrade-count-input') as HTMLInputElement;
 
-	  // Downgrade button
-	  if (downgradeBtn) {
-		downgradeBtn.onclick = async () => {
+	  // Decrease button (-) - Downgrade
+	  if (decreaseBtn) {
+		decreaseBtn.onclick = async () => {
 		  if (this.options.onUpgradeAction) {
 			await this.options.onUpgradeAction('DOWNGRADE');
 		  }
 		};
 	  }
 
-	  // Upgrade button
-	  if (upgradeBtn && upgradeInput) {
-		upgradeBtn.onclick = async () => {
+	  // Increase button (+) - Start Upgrade
+	  if (increaseBtn && upgradeInput) {
+		increaseBtn.onclick = async () => {
+		  const count = parseInt(upgradeInput.value) || 1;
+		  if (this.options.onUpgradeAction && count > 0) {
+			await this.options.onUpgradeAction('START_UPGRADE', count);
+		  }
+		};
+	  }
+
+	  // Input change - Start Upgrade with new count
+	  if (upgradeInput) {
+		upgradeInput.onchange = async () => {
 		  const count = parseInt(upgradeInput.value) || 1;
 		  if (this.options.onUpgradeAction && count > 0) {
 			await this.options.onUpgradeAction('START_UPGRADE', count);
