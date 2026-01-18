@@ -1,0 +1,42 @@
+/** @type {import('jest').Config} */
+module.exports = {
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  roots: ['<rootDir>/src'],
+  testMatch: ['**/*.test.ts', '**/*.test.js'],
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
+  collectCoverageFrom: [
+    'src/**/*.ts',
+    '!src/**/*.test.ts',
+    '!src/**/__fixtures__/**',
+    '!src/**/*.d.ts',
+    '!src/client/**/*', // Exclude client-side code for now
+  ],
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov', 'html'],
+  coverageThreshold: {
+    global: {
+      lines: 60,
+      functions: 60,
+      branches: 60,
+      statements: 60
+    }
+  },
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '^@shared/(.*)$': '<rootDir>/src/shared/$1',
+    '^@server/(.*)$': '<rootDir>/src/server/$1',
+    '^@client/(.*)$': '<rootDir>/src/client/$1',
+  },
+  transform: {
+    '^.+\\.tsx?$': ['ts-jest', {
+      tsconfig: {
+        module: 'commonjs',
+        esModuleInterop: true,
+        allowSyntheticDefaultImports: true
+      }
+    }]
+  },
+  testTimeout: 10000,
+  verbose: true
+};

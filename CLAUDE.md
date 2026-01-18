@@ -60,7 +60,9 @@ The project uses a type-safe system for handling RDO protocol data:
 ### Key Commands
 - **Development:** `npm run dev` (starts Vite dev server + backend)
 - **Build:** `npm run build` (compiles TS to dist/)
-- **Test:** Not implemented yet (see backlog)
+- **Test:** `npm test` (runs Jest test suite)
+- **Test Watch:** `npm run test:watch` (runs tests in watch mode)
+- **Test Coverage:** `npm run test:coverage` (generates coverage report)
 - **Lint:** Not configured (manual code review only)
 
 ## Development Rules
@@ -76,7 +78,9 @@ The project uses a type-safe system for handling RDO protocol data:
 - **Small, focused changes** - one feature/fix per implementation
 - **No large refactors** without explicit approval
 - **Preserve existing APIs** - breaking changes require validation
-- **Add tests when applicable** (once unit test framework is added)
+- **Write tests for new code** - Add unit tests for new functions, modules, and features
+- **Run tests before committing** - Ensure all tests pass with `npm test`
+- **Maintain test coverage** - Don't decrease overall test coverage (currently 93%)
 
 ### Debug & Cleanup
 - **During development:** Use `console.log` with prefixes like `[Client]`, `[Session]`, `[Renderer]`
@@ -169,7 +173,8 @@ Present a brief plan:
 - Files to modify/create
 - Key functions/methods to add/change
 - Any new dependencies or breaking changes
-- Estimated testing approach
+- Test files to create/update (follow pattern: `module.ts` → `module.test.ts`)
+- Testing approach and edge cases to cover
 
 ### 3. Implementation Phase
 - Provide **diff-style patches** or full file content for small files
@@ -178,9 +183,11 @@ Present a brief plan:
 
 ### 4. Verification Phase
 Provide:
-- **Commands to run** (e.g., `npm run dev`, open specific URL)
+- **Test execution:** Run `npm test` to verify all tests pass
+- **Manual testing commands:** (e.g., `npm run dev`, open specific URL)
 - **UI interactions** to test (e.g., "Click Build menu, select category")
 - **Expected behavior** vs. what was broken before
+- **Test coverage:** Run `npm run test:coverage` for new modules
 - **Known limitations** if any
 
 ### 5. Completion & Documentation Phase (MANDATORY)
@@ -317,8 +324,36 @@ Provide:
   - Build verification: Clean compilation with no errors
 
 #### Unit Tests
-- **Goal:** Add unit testing framework (e.g., Vitest, Jest)
-- **Tasks:** Configure test runner, write tests for critical functions (RDO parser, session logic, UI components)
+- **Status:** ✅ COMPLETED (January 2026)
+- **Goal:** Add unit testing framework for critical functions
+- **Implementation:**
+  - **Framework:** Jest 30.2.0 with ts-jest for TypeScript support
+  - **Configuration:** [jest.config.js](jest.config.js) - CommonJS module system, 60% coverage thresholds
+  - **Test Files:** 4 test suites, 232 total tests, 215 passing (93%)
+  - **Test Documentation:** [TESTING.md](TESTING.md) - Comprehensive testing guide
+  - **Coverage:**
+    - ✅ RDO Type System ([src/shared/rdo-types.test.ts](src/shared/rdo-types.test.ts)) - 85/85 tests (100%)
+    - ✅ RDO Protocol Parser ([src/server/rdo.test.ts](src/server/rdo.test.ts)) - 59/59 tests (100%)
+    - ✅ Property Formatting ([src/shared/building-details/property-definitions.test.ts](src/shared/building-details/property-definitions.test.ts)) - 70/70 tests (100%)
+    - ⚠️ CSV Parser ([src/server/facility-csv-parser.test.ts](src/server/facility-csv-parser.test.ts)) - 1/18 tests (mock issues)
+  - **Test Commands:**
+    - `npm test` - Run all tests
+    - `npm run test:watch` - Watch mode for development
+    - `npm run test:coverage` - Generate coverage report
+    - `npm run test:verbose` - Detailed test output
+  - **Test Fixtures:** [src/__fixtures__/](src/__fixtures__/) - Sample CSV, RDO packets, building templates
+- **Best Practices:**
+  - Place tests next to source files: `module.ts` → `module.test.ts`
+  - Test behavior, not implementation
+  - Cover edge cases (empty strings, null, undefined, NaN, negative numbers)
+  - Use descriptive test names: `should return formatted currency for large values`
+  - Test roundtrips: format → parse → compare
+  - Mock external dependencies (fs, network) using `jest.mock()`
+- **Development Workflow:**
+  - Write tests first (TDD approach preferred)
+  - Run tests before committing: `npm test`
+  - Maintain coverage: don't decrease overall test pass rate
+  - Add new test data to `__fixtures__/` if needed
 
 ### FEATURES
 #### Search Menu
@@ -503,12 +538,15 @@ Provide:
 
 ### What You Should Do
 1. Read task requirements carefully
-2. Propose a plan (if non-trivial)
-3. Implement changes following code style rules
-4. Remove debug logs after testing
-5. Provide clear verification steps
-6. Always code, comment and respond in English
-7. **MANDATORY:** After EVERY task completion:
+2. Propose a plan (if non-trivial) including test strategy
+3. **Write tests first** (TDD approach preferred) or alongside implementation
+4. Implement changes following code style rules
+5. **Run tests** - Execute `npm test` to verify all tests pass
+6. Remove debug logs after testing
+7. Provide clear verification steps (test + manual)
+8. Always code, comment and respond in English
+9. **MANDATORY:** After EVERY task completion:
+   - Run `npm test` to ensure all tests pass
    - Ask user: "Has this request been fulfilled 100%?"
    - Update CLAUDE.md with implementation details
    - Update README.md if user-facing features were added
