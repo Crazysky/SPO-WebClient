@@ -32,5 +32,8 @@ nul
 # Downloaded cache files (regenerated on server start)
 BuildingClasses/*.BIN
 
+# Image proxy cache (images downloaded from game server)
+cache/images/
+
 # Claude AI context (optional - remove if you want to track this)
 .claude/

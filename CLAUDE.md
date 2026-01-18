@@ -301,6 +301,31 @@ Provide:
   - Tile-by-tile cost calculation
 - **Tasks:** Implement road drawing mode, segment creation logic, cost calculation, RDO build road calls
 
+#### Building Menu Image Proxy
+- **Status:** ✅ COMPLETED (January 2026)
+- **Goal:** Fix building category and facility icons not displaying due to CORS/Referer blocking
+- **Implementation:**
+  - **Server-side image proxy** ([src/server/server.ts](src/server/server.ts:72-179))
+    - New HTTP endpoint: `/proxy-image?url=<encoded_url>`
+    - Downloads images from game server and serves them locally
+    - Persistent cache in `cache/images/` directory
+    - Preserves original filenames for debugging (e.g., `MapPGIFoodStore64x32x0.gif`)
+    - Supports GIF, PNG, JPEG formats
+  - **URL conversion utility** ([src/server/spo_session.ts](src/server/spo_session.ts:51-69))
+    - `convertToProxyUrl()` method converts remote URLs to local proxy URLs
+    - Applied in `parseBuildingCategories()` (line 2247) for category icons
+    - Applied in `parseBuildingFacilities()` (line 2388) for building icons
+  - **Client-side URL handling** ([src/client/ui/build-menu-ui.ts](src/client/ui/build-menu-ui.ts:437-452))
+    - Updated `normalizeImagePath()` to recognize proxy URLs (`/proxy-image`)
+    - Proxy URLs bypass external domain prefix logic
+    - Legacy fallback maintained for non-proxied paths
+  - **Git configuration:** Added `cache/images/` to .gitignore (images regenerated on demand)
+- **Benefits:**
+  - Images display correctly without CORS errors
+  - Reduced load on game server (cached locally)
+  - Original filenames preserved for debugging
+  - Transparent to client code (automatic URL conversion)
+
 #### Building Placement Validation
 - **Status:** ✅ COMPLETED (January 2026)
 - **Goal:** Prevent invalid building placement with client-side validation
@@ -322,6 +347,12 @@ Provide:
 - **Bug Fixes:**
   - Fixed road collision detection that was checking 2 slots instead of 1
   - Roads now correctly occupy only their exact tile coordinates
+  - **Coordinate synchronization fix (January 2026):**
+    - Fixed 1-tile offset issue where sent coordinates didn't match visual preview
+    - Changed click handler ([src/client/renderer.ts](src/client/renderer.ts:618)) to use `placementPreview.x/y` instead of `Math.floor(mouseWorldX/Y)`
+    - Updated `getPlacementCoordinates()` method to return preview coordinates directly
+    - Ensures coordinates sent to server **always** match the visual preview shown to player
+    - Coordinates represent bottom-left corner (closest to 0,0) of building footprint
 
 #### Map Rendering Improvements
 - **Status:** ✅ COMPLETED (January 2026)

@@ -69,9 +69,75 @@ const PUBLIC_DIR = path.join(__dirname, '../../public');
 // Initialize Facility Dimensions Cache
 const facilityDimensionsCache = new FacilityDimensionsCache();
 
-// 1. HTTP Server for Static Files
-const server = http.createServer((req, res) => {
+// Image proxy cache directory
+const IMAGE_CACHE_DIR = path.join(__dirname, '../../cache/images');
+if (!fs.existsSync(IMAGE_CACHE_DIR)) {
+  fs.mkdirSync(IMAGE_CACHE_DIR, { recursive: true });
+}
+
+/**
+ * Proxy image from remote server to avoid CORS/Referer blocking
+ */
+async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<void> {
+  try {
+    // Extract filename from URL (keep original name for debugging)
+    const urlParts = imageUrl.split('/');
+    const filename = urlParts[urlParts.length - 1] || 'unknown.gif';
+    const cachedPath = path.join(IMAGE_CACHE_DIR, filename);
+
+    // Check if already cached
+    if (fs.existsSync(cachedPath)) {
+      const content = fs.readFileSync(cachedPath);
+      const ext = path.extname(filename).toLowerCase();
+      const contentType = ext === '.gif' ? 'image/gif' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/gif';
+
+      res.writeHead(200, { 'Content-Type': contentType });
+      res.end(content);
+      return;
+    }
+
+    // Download from remote server
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Cache the image
+    fs.writeFileSync(cachedPath, buffer);
+
+    const ext = path.extname(filename).toLowerCase();
+    const contentType = ext === '.gif' ? 'image/gif' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/gif';
+
+    res.writeHead(200, { 'Content-Type': contentType });
+    res.end(buffer);
+  } catch (error) {
+    console.error(`[ImageProxy] Failed to fetch ${imageUrl}:`, error);
+    res.writeHead(404);
+    res.end('Image not found');
+  }
+}
+
+// 1. HTTP Server for Static Files + Image Proxy
+const server = http.createServer(async (req, res) => {
   const safePath = req.url === '/' ? '/index.html' : req.url || '/index.html';
+
+  // Image proxy endpoint: /proxy-image?url=<encoded_url>
+  if (safePath.startsWith('/proxy-image?')) {
+    const urlParams = new URLSearchParams(safePath.split('?')[1]);
+    const imageUrl = urlParams.get('url');
+
+    if (!imageUrl) {
+      res.writeHead(400);
+      res.end('Missing url parameter');
+      return;
+    }
+
+    await proxyImage(imageUrl, res);
+    return;
+  }
 
   // Basic security check to prevent directory traversal
   if (safePath.includes('..')) {

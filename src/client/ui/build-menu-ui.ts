@@ -435,16 +435,19 @@ export class BuildMenuUI {
    * Normalize image path to absolute URL
    */
   private normalizeImagePath(path: string): string {
-    const BASE_IMAGE_URL = 'http://www.starpeaceonline.com/five/0/visual/voyager/Build/';
-    
+    // If path is a proxy URL (starts with /proxy-image), return as-is (local proxy)
+    if (path.startsWith('/proxy-image')) {
+      return path;
+    }
+
     // If path is already absolute (starts with http:// or https://), return as-is
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return path;
     }
-    
-    // If path starts with '/', remove it to avoid double slashes
+
+    // Legacy fallback: for old non-proxied paths
+    const BASE_IMAGE_URL = 'http://www.starpeaceonline.com/five/0/visual/voyager/Build/';
     const cleanPath = path.startsWith('/') ? path.substring(1) : path;
-    
     return BASE_IMAGE_URL + cleanPath;
   }
   /**

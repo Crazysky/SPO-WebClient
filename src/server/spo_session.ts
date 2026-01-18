@@ -48,6 +48,26 @@ export class StarpeaceSession extends EventEmitter {
   private phase: SessionPhase = SessionPhase.DISCONNECTED;
   private requestIdCounter: number = 1000;
 
+  /**
+   * Convert remote image URL to local proxy URL
+   * Keeps original filename for debugging
+   */
+  private convertToProxyUrl(remoteUrl: string): string {
+    if (!remoteUrl || remoteUrl.startsWith('/proxy-image')) {
+      return remoteUrl;
+    }
+
+    // If it's a relative path, construct full URL
+    let fullUrl = remoteUrl;
+    if (remoteUrl.startsWith('/')) {
+      if (this.currentWorldInfo) {
+        fullUrl = `http://${this.currentWorldInfo.ip}${remoteUrl}`;
+      }
+    }
+
+    return `/proxy-image?url=${encodeURIComponent(fullUrl)}`;
+  }
+
   // Pending requests map
   private pendingRequests = new Map<number, {
     resolve: (msg: RdoPacket) => void;
@@ -2153,12 +2173,12 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
     const params = new URLSearchParams({
       Company: companyName,
-      
+      WorldName: this.currentWorldInfo.name,
       Cluster: '',
       Tycoon: this.cachedUsername
     });
 
-    const url = `http://${this.currentWorldInfo.ip}/five/0/visual/voyager/Build/KindList.asp?${params.toString()}`;
+    const url = `http://${this.currentWorldInfo.ip}/five/0/visual/voyager/Build/KindList.asp?${params.toString().replace(/\+/g, '%20')}`;
     console.log(`[BuildConstruction] Fetching categories from ${url}`);
 
     try {
@@ -2224,7 +2244,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
           cluster: urlParams.get('Cluster') || '',
           folder: urlParams.get('Folder') || '',
           tycoonLevel: parseInt(urlParams.get('TycoonLevel') || '0', 10),
-          iconPath
+          iconPath: this.convertToProxyUrl(iconPath)
         };
 
         console.log(`[BuildConstruction] Parsed category: ${category.kindName} (${category.kind})`);
@@ -2365,7 +2385,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
           area,
           description,
           zoneRequirement,
-          iconPath,
+          iconPath: this.convertToProxyUrl(iconPath),
           available
         };
 

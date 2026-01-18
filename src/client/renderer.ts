@@ -613,7 +613,9 @@ private getClickedBuilding(mouseX: number, mouseY: number): MapBuilding | null {
 
 		  // In placement mode, click anywhere to place building
 		  if (this.placementMode && this.placementPreview && this.onBuildingClick) {
-			this.onBuildingClick(Math.floor(this.mouseWorldX), Math.floor(this.mouseWorldY));
+			// Use the preview's stored coordinates (which are always the bottom-left corner, closest to 0,0)
+			// This ensures the sent coordinates match exactly what's shown in the preview
+			this.onBuildingClick(this.placementPreview.x, this.placementPreview.y);
 			return;
 		  }
 
@@ -992,13 +994,14 @@ private getClickedBuilding(mouseX: number, mouseY: number): MapBuilding | null {
   }
 
   /**
-   * Get current placement coordinates
+   * Get current placement coordinates (bottom-left corner, closest to 0,0)
    */
   public getPlacementCoordinates(): { x: number, y: number } | null {
     if (!this.placementMode || !this.placementPreview) return null;
+    // Return the preview's coordinates (already floored and representing bottom-left corner)
     return {
-      x: Math.floor(this.mouseWorldX),
-      y: Math.floor(this.mouseWorldY)
+      x: this.placementPreview.x,
+      y: this.placementPreview.y
     };
   }
 
