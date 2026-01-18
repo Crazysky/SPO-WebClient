@@ -96,8 +96,8 @@ export class StarpeaceClient {
    */
   private setupUICallbacks() {
     // LoginUI callbacks
-    this.ui.loginUI.setOnDirectoryConnect((username, password) => {
-      this.performDirectoryLogin(username, password);
+    this.ui.loginUI.setOnDirectoryConnect((username, password, zonePath) => {
+      this.performDirectoryLogin(username, password, zonePath);
     });
 
     this.ui.loginUI.setOnWorldSelect((worldName) => {
@@ -339,20 +339,22 @@ export class StarpeaceClient {
 
   // --- Actions ---
 
-  private async performDirectoryLogin(username: string, password: string) {
+  private async performDirectoryLogin(username: string, password: string, zonePath?: string) {
     this.storedUsername = username;
     this.storedPassword = password;
-    this.ui.log('Directory', 'Authenticating...');
+    const zoneDisplay = zonePath?.split('/').pop() || 'BETA';
+    this.ui.log('Directory', `Authenticating for ${zoneDisplay}...`);
 
     try {
       const req: WsReqConnectDirectory = {
         type: WsMessageType.REQ_CONNECT_DIRECTORY,
         username,
-        password
+        password,
+        zonePath
       };
 
       const resp = (await this.sendRequest(req)) as WsRespConnectSuccess;
-      this.ui.log('Directory', `Authentication Success. Found ${resp.worlds.length} world(s).`);
+      this.ui.log('Directory', `Authentication Success. Found ${resp.worlds.length} world(s) in ${zoneDisplay}.`);
       this.ui.loginUI.renderWorldList(resp.worlds);
       this.ui.loginUI.hideConnectButton();
     } catch (err: any) {

@@ -117,11 +117,39 @@
             gap: var(--space-4);
         }
 
+        .zone-tabs {
+            display: flex;
+            gap: var(--space-2);
+            margin-bottom: var(--space-4);
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .zone-tab {
+            padding: var(--space-3) var(--space-4);
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--text-secondary);
+            font-size: var(--text-sm);
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition-base);
+        }
+
+        .zone-tab:hover {
+            color: var(--text-primary);
+            background: var(--surface-elevated);
+        }
+
+        .zone-tab.active {
+            color: var(--primary-blue);
+            border-bottom-color: var(--primary-blue);
+        }
+
         .world-list {
             display: flex;
             flex-direction: column;
             gap: var(--space-3);
-            max-height: 400px;
             overflow-y: auto;
         }
 
@@ -141,6 +169,18 @@
             border-color: var(--primary-blue);
             box-shadow: 0 0 12px rgba(74, 144, 226, 0.5);
             background: var(--bg-tertiary);
+        }
+
+        .world-card-offline {
+            opacity: 0.5;
+            cursor: not-allowed;
+            filter: grayscale(100%);
+        }
+
+        .world-card-offline:hover {
+            border-color: transparent;
+            box-shadow: none;
+            background: var(--surface-elevated);
         }
 
         .world-header {

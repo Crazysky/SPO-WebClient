@@ -237,7 +237,7 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, msg
           return;
         }
 
-        const worlds = await session.connectDirectory(req.username, req.password);
+        const worlds = await session.connectDirectory(req.username, req.password, req.zonePath);
         const response: WsRespConnectSuccess = {
           type: WsMessageType.RESP_CONNECT_SUCCESS,
           wsRequestId: msg.wsRequestId,

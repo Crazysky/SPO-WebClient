@@ -143,7 +143,7 @@ export class StarpeaceSession extends EventEmitter {
    * 1. Authentication Check
    * 2. World List Retrieval
    */
-  public async connectDirectory(username: string, pass: string): Promise<WorldInfo[]> {
+  public async connectDirectory(username: string, pass: string, zonePath?: string): Promise<WorldInfo[]> {
     this.phase = SessionPhase.DIRECTORY_CONNECTED;
     this.cachedUsername = username;
     this.cachedPassword = pass;
@@ -153,8 +153,8 @@ export class StarpeaceSession extends EventEmitter {
     await this.performDirectoryAuth(username, pass);
 
     // PHASE 2: Ephemeral world retrieval
-    console.log('[Session] Directory Phase 2: Fetching Worlds...');
-    const worlds = await this.performDirectoryQuery();
+    console.log(`[Session] Directory Phase 2: Fetching Worlds from ${zonePath || 'Root/Areas/Asia/Worlds'}...`);
+    const worlds = await this.performDirectoryQuery(zonePath);
     return worlds;
   }
 
@@ -199,7 +199,7 @@ export class StarpeaceSession extends EventEmitter {
   /**
    * Helper Phase 2: OpenSession -> QueryKey -> EndSession
    */
-  private async performDirectoryQuery(): Promise<WorldInfo[]> {
+  private async performDirectoryQuery(zonePath?: string): Promise<WorldInfo[]> {
     const socket = await this.createSocket('directory_query', 'www.starpeaceonline.com', RDO_PORTS.DIRECTORY);
     try {
       // 1. Resolve & Open NEW Session
@@ -210,10 +210,11 @@ export class StarpeaceSession extends EventEmitter {
       });
       const sessionId = this.parsePropertyResponse(sessionPacket.payload || '', 'RDOOpenSession');
 
-      // 2. Query Worlds
+      // 2. Query Worlds - Use provided zonePath or default to BETA (Asia/Worlds)
+      const worldPath = zonePath || 'Root/Areas/Asia/Worlds';
       const queryPacket = await this.sendRdoRequest('directory_query', {
         verb: RdoVerb.SEL, targetId: sessionId, action: RdoAction.CALL, member: 'RDOQueryKey',
-        args: [DIRECTORY_QUERY.ROOT_PATH, DIRECTORY_QUERY.QUERY_BLOCK]
+        args: [worldPath, DIRECTORY_QUERY.QUERY_BLOCK]
       });
       const resValue = this.parsePropertyResponse(queryPacket.payload || '', 'res');
       const worlds = this.parseDirectoryResult(resValue);
@@ -1770,6 +1771,8 @@ private handlePush(socketName: string, packet: RdoPacket) {
       const population = parseInt(data.get(`general/population${i}`) || '0', 10);
       const investors = parseInt(data.get(`general/investors${i}`) || '0', 10);
       const online = parseInt(data.get(`general/online${i}`) || '0', 10);
+      const runningStr = data.get(`interface/running${i}`) || '';
+      const running3 = runningStr.toLowerCase() === 'true';
 
       if (port === 0) continue;
 
@@ -1782,7 +1785,8 @@ private handlePush(socketName: string, packet: RdoPacket) {
         online: online,
         players: online,  // online and players are the same
         mapSizeX: 0,
-        mapSizeY: 0
+        mapSizeY: 0,
+        running3: running3
       });
     }
 

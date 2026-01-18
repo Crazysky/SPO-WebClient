@@ -73,8 +73,19 @@ export interface RdoPacket {
   payload?: string;
 }
 
+export interface WorldZone {
+  id: string;
+  name: string;
+  path: string;
+}
+
+export const WORLD_ZONES: WorldZone[] = [
+  { id: 'beta', name: 'BETA', path: 'Root/Areas/Asia/Worlds' },
+  { id: 'free', name: 'Free Space', path: 'Root/Areas/America/Worlds' },
+  { id: 'restricted', name: 'Restricted Space', path: 'Root/Areas/Europe/Worlds' }
+];
+
 export const DIRECTORY_QUERY = {
-  ROOT_PATH: "Root/Areas/Asia/Worlds",
   QUERY_BLOCK: `General/Population
 General/Investors
 General/Online
@@ -166,6 +177,7 @@ export interface WsReqConnectDirectory extends WsMessage {
   type: WsMessageType.REQ_CONNECT_DIRECTORY;
   username: string;
   password: string;
+  zonePath?: string;  // Optional zone path (defaults to BETA if not specified)
 }
 
 export interface WsReqLoginWorld extends WsMessage {
@@ -287,6 +299,7 @@ export interface WorldInfo {
   investors?: number;    // Investors count
   online?: number;       // Online count (same as players typically)
   date?: string;         // Server date
+  running3?: boolean;    // Server online status (Interface/Running3)
 }
 
 export enum SessionPhase {
