@@ -55,6 +55,9 @@ import {
   // Building Upgrades
   WsReqBuildingUpgrade,
   WsRespBuildingUpgrade,
+  // Building Rename
+  WsReqRenameFacility,
+  WsRespRenameFacility,
 } from '../shared/types';
 
 /**
@@ -725,6 +728,34 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, msg
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
             errorMessage: err.message || 'Failed to perform upgrade action',
+            code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      case WsMessageType.REQ_RENAME_FACILITY: {
+        const req = msg as WsReqRenameFacility;
+        console.log(`[Gateway] Rename facility at (${req.x}, ${req.y}) to: "${req.newName}"`);
+
+        try {
+          const result = await session.renameFacility(req.x, req.y, req.newName);
+
+          const response: WsRespRenameFacility = {
+            type: WsMessageType.RESP_RENAME_FACILITY,
+            wsRequestId: msg.wsRequestId,
+            success: result.success,
+            newName: req.newName,
+            message: result.message
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: any) {
+          console.error('[Gateway] Failed to rename facility:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: err.message || 'Failed to rename facility',
             code: ErrorCodes.ERROR_AccessDenied
           };
           ws.send(JSON.stringify(errorResp));

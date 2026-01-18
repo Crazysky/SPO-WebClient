@@ -537,6 +537,56 @@ Provide:
     - **CSS styling:** Added `.header-buttons` container, `.header-refresh-btn` with hover/disabled/active states
     - **Benefits:** User control, better performance (only refreshes when needed), cleaner code, no disruption to user input
 
+#### Building Rename Feature
+- **Status:** ✅ COMPLETED (January 2026)
+- **Goal:** Allow players to rename their buildings directly from the building details panel
+- **Implementation:**
+  - **UI Components:** [src/client/ui/building-details/building-details-panel.ts](src/client/ui/building-details/building-details-panel.ts)
+    - Added pencil icon (✎) button next to building name in panel header
+    - Inline edit mode: Click button → name becomes input field with ✓/✕ buttons
+    - Keyboard support: Enter = confirm, Escape = cancel
+    - State tracking: `isRenameMode` prevents multiple simultaneous edits
+    - Smart UI update: Updates `currentDetails.buildingName` after successful rename
+  - **WebSocket Protocol:** [src/shared/types.ts](src/shared/types.ts)
+    - Message types: `REQ_RENAME_FACILITY` / `RESP_RENAME_FACILITY`
+    - Request: `{ x, y, newName }` - Building coordinates and new name
+    - Response: `{ success, newName, message }` - Rename result
+  - **Server-side:** [src/server/spo_session.ts](src/server/spo_session.ts:1354-1401)
+    - `renameFacility(x, y, newName)` method
+    - Uses already-focused building ID when available (optimization)
+    - Auto-connects to Construction Service (port 7001) if not already connected
+    - RDO protocol: `C sel <CurrBlock> set Name="%<newName>";`
+    - Proper string formatting: `%${newName}` for OLEString type
+  - **Gateway Handler:** [src/server/server.ts](src/server/server.ts:735-761)
+    - `REQ_RENAME_FACILITY` message handler
+    - Calls `session.renameFacility()` and returns WebSocket response
+    - Error handling with proper error codes
+  - **Client Integration:** [src/client/client.ts](src/client/client.ts:812-836)
+    - `renameFacility(x, y, newName)` method sends WebSocket request
+    - UI log messages for user feedback
+    - Error handling with descriptive messages
+  - **CSS Styling:** [public/design-system.css](public/design-system.css:800-868)
+    - `.rename-btn` - Subtle pencil icon with hover effects
+    - `.rename-input` - Styled input field with blue focus border
+    - `.rename-confirm-btn` / `.rename-cancel-btn` - Green/red action buttons
+    - `.header-title-wrapper` - Flexbox layout for name + rename button
+- **Features:**
+  - One-click rename access from building details panel
+  - Inline editing with confirm/cancel controls
+  - Keyboard shortcuts (Enter/Escape)
+  - Automatic focus/selection of current name
+  - Prevents empty names and unchanged names
+  - Uses existing focused building (no re-focus overhead)
+  - Auto-connects to Construction Service if needed
+- **RDO Protocol Format:** `C <RID> sel <CurrBlock> set Name="%<newName>";`
+- **API Endpoints:** REQ_RENAME_FACILITY / RESP_RENAME_FACILITY
+- **Benefits:**
+  - Quick building renaming without separate menu
+  - Professional inline-edit UX pattern
+  - Proper RDO SET command formatting
+  - Socket reuse optimization (no redundant focus calls)
+  - Automatic service connection management
+
 ## Session Context for AI Agent
 
 ### What You Should Know

@@ -797,6 +797,76 @@ body {
   text-decoration: none;
 }
 
+/* Rename UI Styles */
+.header-title-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rename-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+  opacity: 0.6;
+}
+
+.rename-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.rename-input {
+  background: var(--surface-base);
+  border: 1px solid var(--primary-blue);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  font-weight: 600;
+  padding: 4px 8px;
+  outline: none;
+  min-width: 200px;
+}
+
+.rename-confirm-btn,
+.rename-cancel-btn {
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 8px;
+  transition: all 0.2s ease;
+  margin-left: 4px;
+}
+
+.rename-confirm-btn {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.rename-confirm-btn:hover {
+  background: var(--success);
+  color: white;
+}
+
+.rename-cancel-btn {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.rename-cancel-btn:hover {
+  background: var(--error);
+  color: white;
+}
+
 .cell-facility a:hover {
   text-decoration: underline;
 }

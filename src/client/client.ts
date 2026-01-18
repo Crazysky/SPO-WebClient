@@ -49,6 +49,9 @@ import {
   // Building Upgrades
   WsReqBuildingUpgrade,
   WsRespBuildingUpgrade,
+  // Building Rename
+  WsReqRenameFacility,
+  WsRespRenameFacility,
 } from '../shared/types';
 import { getErrorMessage } from '../shared/error-codes';
 import { UIManager } from './ui/ui-manager';
@@ -613,6 +616,10 @@ export class StarpeaceClient {
             if (refreshedDetails) {
               this.ui.updateBuildingDetailsPanel(refreshedDetails);
             }
+          },
+          async (newName) => {
+            // Rename callback
+            await this.renameFacility(x, y, newName);
           }
         );
       } else {
@@ -651,6 +658,10 @@ export class StarpeaceClient {
             if (refreshedDetails) {
               this.ui.updateBuildingDetailsPanel(refreshedDetails);
             }
+          },
+          async (newName) => {
+            // Rename callback
+            await this.renameFacility(x, y, newName);
           }
         );
       }
@@ -794,6 +805,35 @@ export class StarpeaceClient {
       }
     } catch (err: any) {
       this.ui.log('Error', `Failed to perform upgrade action: ${err.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Rename a facility (building)
+   */
+  public async renameFacility(x: number, y: number, newName: string): Promise<boolean> {
+    this.ui.log('Building', `Renaming building at (${x}, ${y}) to "${newName}"`);
+
+    try {
+      const req: WsReqRenameFacility = {
+        type: WsMessageType.REQ_RENAME_FACILITY,
+        x,
+        y,
+        newName
+      };
+
+      const response = await this.sendRequest(req) as WsRespRenameFacility;
+
+      if (response.success) {
+        this.ui.log('Building', `Building renamed to "${response.newName}"`);
+        return true;
+      } else {
+        this.ui.log('Error', response.message || 'Failed to rename building');
+        return false;
+      }
+    } catch (err: any) {
+      this.ui.log('Error', `Failed to rename building: ${err.message}`);
       return false;
     }
   }

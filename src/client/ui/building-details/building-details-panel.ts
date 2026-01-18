@@ -22,6 +22,7 @@ export interface BuildingDetailsPanelOptions {
   onNavigateToBuilding?: (x: number, y: number) => void;
   onUpgradeAction?: (action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE', count?: number) => Promise<void>;
   onRefresh?: () => Promise<void>;
+  onRename?: (newName: string) => Promise<void>;
 }
 
 export class BuildingDetailsPanel {
@@ -44,6 +45,9 @@ export class BuildingDetailsPanel {
 
   // Track focused/editing elements to avoid disrupting user input
   private activeFocusedElement: HTMLElement | null = null;
+
+  // Rename mode state
+  private isRenameMode: boolean = false;
 
   constructor(container: HTMLElement, options: BuildingDetailsPanelOptions = {}) {
     this.container = container;
@@ -119,7 +123,10 @@ export class BuildingDetailsPanel {
     titleContainer.innerHTML = `
       <div class="header-icon">B</div>
       <div class="header-info">
-        <div class="header-title" id="bd-building-name">Building</div>
+        <div class="header-title-wrapper">
+          <div class="header-title" id="bd-building-name">Building</div>
+          <button class="rename-btn" id="bd-rename-btn" title="Rename building">✎</button>
+        </div>
         <div class="header-subtitle" id="bd-template-name">Loading...</div>
       </div>
     `;
@@ -154,8 +161,13 @@ export class BuildingDetailsPanel {
     header.appendChild(titleContainer);
     header.appendChild(buttonContainer);
 
-    // Drag handlers
-    header.onmousedown = (e) => this.startDrag(e);
+    // Drag handlers - but not on buttons
+    header.onmousedown = (e) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('button') && !target.closest('input')) {
+        this.startDrag(e);
+      }
+    };
 
     return header;
   }
@@ -256,6 +268,129 @@ export class BuildingDetailsPanel {
   }
 
   /**
+   * Setup rename button functionality
+   */
+  private setupRenameButton(): void {
+    const renameBtn = document.getElementById('bd-rename-btn');
+    if (!renameBtn) return;
+
+    renameBtn.onclick = (e) => {
+      e.stopPropagation();
+      this.enterRenameMode();
+    };
+  }
+
+  /**
+   * Enter rename mode - replace title with input field
+   */
+  private enterRenameMode(): void {
+    if (this.isRenameMode || !this.currentDetails) return;
+
+    this.isRenameMode = true;
+    const nameEl = document.getElementById('bd-building-name');
+    const renameBtn = document.getElementById('bd-rename-btn');
+
+    if (!nameEl) return;
+
+    const currentName = nameEl.textContent || '';
+    const wrapper = nameEl.parentElement;
+    if (!wrapper) return;
+
+    // Create input field
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'rename-input';
+    input.value = currentName;
+    input.id = 'bd-rename-input';
+
+    // Create confirm button
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'rename-confirm-btn';
+    confirmBtn.innerHTML = '✓';
+    confirmBtn.title = 'Confirm rename';
+
+    // Create cancel button
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'rename-cancel-btn';
+    cancelBtn.innerHTML = '✕';
+    cancelBtn.title = 'Cancel rename';
+
+    // Replace name with input + buttons
+    nameEl.style.display = 'none';
+    if (renameBtn) renameBtn.style.display = 'none';
+
+    wrapper.appendChild(input);
+    wrapper.appendChild(confirmBtn);
+    wrapper.appendChild(cancelBtn);
+
+    // Focus and select text
+    input.focus();
+    input.select();
+
+    // Confirm handler
+    const confirmRename = async () => {
+      const newName = input.value.trim();
+      if (newName && newName !== currentName && this.options.onRename) {
+        try {
+          await this.options.onRename(newName);
+          // Update local state
+          if (this.currentDetails) {
+            this.currentDetails.buildingName = newName;
+          }
+        } catch (err) {
+          console.error('[BuildingDetails] Failed to rename:', err);
+        }
+      }
+      this.exitRenameMode();
+    };
+
+    // Cancel handler
+    const cancelRename = () => {
+      this.exitRenameMode();
+    };
+
+    confirmBtn.onclick = (e) => {
+      e.stopPropagation();
+      confirmRename();
+    };
+
+    cancelBtn.onclick = (e) => {
+      e.stopPropagation();
+      cancelRename();
+    };
+
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        confirmRename();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelRename();
+      }
+    };
+  }
+
+  /**
+   * Exit rename mode - restore title display
+   */
+  private exitRenameMode(): void {
+    if (!this.isRenameMode) return;
+
+    this.isRenameMode = false;
+    const nameEl = document.getElementById('bd-building-name');
+    const renameBtn = document.getElementById('bd-rename-btn');
+    const input = document.getElementById('bd-rename-input');
+    const confirmBtn = document.querySelector('.rename-confirm-btn');
+    const cancelBtn = document.querySelector('.rename-cancel-btn');
+
+    if (nameEl) nameEl.style.display = '';
+    if (renameBtn) renameBtn.style.display = '';
+    if (input) input.remove();
+    if (confirmBtn) confirmBtn.remove();
+    if (cancelBtn) cancelBtn.remove();
+  }
+
+  /**
    * Render the full content
    */
   private renderContent(): void {
@@ -282,6 +417,9 @@ export class BuildingDetailsPanel {
       const date = new Date(details.timestamp);
       timestampEl.textContent = date.toLocaleTimeString();
     }
+
+    // Wire up rename button
+    this.setupRenameButton();
 
     // Render tabs
     this.renderTabs(template.groups);

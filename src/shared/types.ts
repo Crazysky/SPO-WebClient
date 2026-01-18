@@ -168,6 +168,10 @@ export enum WsMessageType {
   REQ_BUILDING_UPGRADE = 'REQ_BUILDING_UPGRADE',
   RESP_BUILDING_UPGRADE = 'RESP_BUILDING_UPGRADE',
 
+  // Building Rename
+  REQ_RENAME_FACILITY = 'REQ_RENAME_FACILITY',
+  RESP_RENAME_FACILITY = 'RESP_RENAME_FACILITY',
+
 }
 
 export interface WsMessage {
@@ -761,5 +765,25 @@ export interface WsRespBuildingUpgrade extends WsMessage {
   type: WsMessageType.RESP_BUILDING_UPGRADE;
   success: boolean;
   action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE';
+  message?: string;
+}
+
+/**
+ * Request to rename a facility
+ */
+export interface WsReqRenameFacility extends WsMessage {
+  type: WsMessageType.REQ_RENAME_FACILITY;
+  x: number;
+  y: number;
+  newName: string;
+}
+
+/**
+ * Response after rename action
+ */
+export interface WsRespRenameFacility extends WsMessage {
+  type: WsMessageType.RESP_RENAME_FACILITY;
+  success: boolean;
+  newName: string;
   message?: string;
 }

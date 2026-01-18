@@ -1351,6 +1351,56 @@ private parseSegments(rawLines: string[]): MapSegment[] {
     }
   }
 
+  /**
+   * Rename a facility (building)
+   * Uses RDO protocol: C sel <CurrBlock> set Name="%<newName>";
+   */
+  public async renameFacility(x: number, y: number, newName: string): Promise<{ success: boolean, message?: string }> {
+    try {
+      // Use currently focused building ID if coordinates match
+      let buildingId = this.currentFocusedBuildingId;
+
+      // If not focused or different coordinates, focus first
+      if (!buildingId ||
+          !this.currentFocusedCoords ||
+          this.currentFocusedCoords.x !== x ||
+          this.currentFocusedCoords.y !== y) {
+        console.log(`[Session] Building not focused, focusing at (${x}, ${y})`);
+        const focusInfo = await this.focusBuilding(x, y);
+        if (!focusInfo.buildingId) {
+          return { success: false, message: 'Could not find building at specified coordinates' };
+        }
+        buildingId = focusInfo.buildingId;
+      } else {
+        console.log(`[Session] Using already focused building ID: ${buildingId}`);
+      }
+
+      console.log(`[Session] Renaming building ${buildingId} to "${newName}"`);
+
+      // Ensure construction service is connected (handles building operations on port 7001)
+      if (!this.sockets.has('construction')) {
+        console.log('[Session] Construction service not connected, connecting now...');
+        await this.connectConstructionService();
+      }
+
+      // Send RDO SET command to Construction server (port 7001)
+      // Format: C sel <CurrBlock> set Name="%<newName>";
+      await this.sendRdoRequest('construction', {
+        verb: RdoVerb.SEL,
+        targetId: buildingId,
+        action: RdoAction.SET,
+        member: 'Name',
+        args: [`%${newName}`]  // Pass as string with % prefix for OLEString
+      });
+
+      console.log(`[Session] Building renamed successfully`);
+      return { success: true, message: 'Building renamed successfully' };
+    } catch (e: any) {
+      console.error(`[Session] Failed to rename building:`, e);
+      return { success: false, message: e.message || 'Failed to rename building' };
+    }
+  }
+
   public async executeRdo(serviceName: string, packetData: Partial<RdoPacket>): Promise<string> {
     if (!this.sockets.has(serviceName)) {
       throw new Error(`Service ${serviceName} not connected`);
