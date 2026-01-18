@@ -40,6 +40,9 @@ export class BuildingDetailsPanel {
 
   private options: BuildingDetailsPanelOptions;
 
+  // Track focused/editing elements to avoid disrupting user input
+  private activeFocusedElement: HTMLElement | null = null;
+
   constructor(container: HTMLElement, options: BuildingDetailsPanelOptions = {}) {
     this.container = container;
     this.options = options;
@@ -74,6 +77,32 @@ export class BuildingDetailsPanel {
     this.modal.appendChild(footer);
 
     this.container.appendChild(this.modal);
+
+    // Track focus events globally on the modal to detect active editing
+    this.setupFocusTracking();
+  }
+
+  /**
+   * Setup focus tracking to prevent refresh interference with user input
+   */
+  private setupFocusTracking(): void {
+    if (!this.modal) return;
+
+    // Track when user focuses on an input
+    this.modal.addEventListener('focusin', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+        this.activeFocusedElement = target;
+      }
+    });
+
+    // Clear tracking when user leaves the input
+    this.modal.addEventListener('focusout', (e) => {
+      const target = e.target as HTMLElement;
+      if (target === this.activeFocusedElement) {
+        this.activeFocusedElement = null;
+      }
+    });
   }
 
   /**
@@ -172,10 +201,17 @@ export class BuildingDetailsPanel {
 
   /**
    * Update the panel with new details
+   * Uses smart refresh to avoid disrupting user input
    */
   public update(details: BuildingDetailsResponse): void {
     this.currentDetails = details;
-    this.renderContent();
+
+    // If user is actively editing an input, defer full render
+    if (this.activeFocusedElement) {
+      this.renderContentSmart();
+    } else {
+      this.renderContent();
+    }
   }
 
   /**
@@ -211,6 +247,92 @@ export class BuildingDetailsPanel {
 
     // Render active tab content
     this.renderTabContent();
+  }
+
+  /**
+   * Smart refresh: Update only non-editable elements while user is editing
+   * This prevents disrupting user input during automatic refreshes
+   */
+  private renderContentSmart(): void {
+    if (!this.currentDetails || !this.contentContainer) return;
+
+    const details = this.currentDetails;
+    const template = getTemplateForVisualClass(details.visualClass);
+
+    // Update header (safe - user won't be editing these)
+    const nameEl = document.getElementById('bd-building-name');
+    const templateEl = document.getElementById('bd-template-name');
+    const coordsEl = document.getElementById('bd-coords');
+    const visualClassEl = document.getElementById('bd-visual-class');
+    const timestampEl = document.getElementById('bd-timestamp');
+
+    const nameValue = details.buildingName || template.name;
+
+    if (nameEl) nameEl.textContent = nameValue;
+    if (templateEl) templateEl.textContent = template.name;
+    if (coordsEl) coordsEl.textContent = `(${details.x}, ${details.y})`;
+    if (visualClassEl) visualClassEl.textContent = `VC: ${details.visualClass}`;
+    if (timestampEl) {
+      const date = new Date(details.timestamp);
+      timestampEl.textContent = date.toLocaleTimeString();
+    }
+
+    // Update read-only values in the content area without re-rendering inputs
+    this.updateReadOnlyValues();
+  }
+
+  /**
+   * Update only read-only (non-input) values in the current view
+   * Preserves all input elements to avoid disrupting user editing
+   */
+  private updateReadOnlyValues(): void {
+    if (!this.currentDetails || !this.contentContainer) return;
+
+    const details = this.currentDetails;
+    const template = getTemplateForVisualClass(details.visualClass);
+    const group = template.groups.find(g => g.id === this.currentTab);
+    if (!group) return;
+
+    // Update text/display values only
+    const textElements = this.contentContainer.querySelectorAll('.property-value:not(.property-slider-container)');
+
+    textElements.forEach((el) => {
+      const row = el.closest('.property-row');
+      if (!row) return;
+
+      // Skip if this row contains the focused element
+      if (row.contains(this.activeFocusedElement)) return;
+
+      const label = row.querySelector('.property-label');
+      if (!label) return;
+
+      const propertyName = label.textContent?.trim();
+      if (!propertyName) return;
+
+      // Find matching property definition
+      const propDef = group.properties.find(p => p.displayName === propertyName);
+      if (!propDef) return;
+
+      // Get updated value
+      const groupData = details.groups[group.id];
+      if (!groupData) return;
+
+      const propValue = groupData.find(p => p.name === propDef.rdoName);
+      if (!propValue) return;
+
+      // Update text content for read-only elements
+      if (el.classList.contains('property-text')) {
+        el.textContent = propValue.value || '-';
+      } else if (el.classList.contains('property-currency')) {
+        const num = parseFloat(propValue.value);
+        el.textContent = `$${num.toLocaleString()}`;
+      } else if (el.classList.contains('property-percentage')) {
+        const num = parseFloat(propValue.value);
+        el.textContent = `${num}%`;
+      } else if (el.classList.contains('property-number')) {
+        el.textContent = propValue.value;
+      }
+    });
   }
 
   /**
