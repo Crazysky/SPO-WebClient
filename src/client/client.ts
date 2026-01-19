@@ -168,7 +168,7 @@ export class StarpeaceClient {
       });
 
       this.ui.toolbarUI.setOnSearch(() => {
-        this.ui.log('Info', 'Search feature not yet implemented');
+        this.ui.showSearchMenu();
       });
 
       this.ui.toolbarUI.setOnCompanyMenu(() => {
@@ -252,6 +252,18 @@ export class StarpeaceClient {
     });
   }
 
+  /**
+   * Send message without Promise (for event-based responses like search menu)
+   */
+  private sendMessage(msg: Partial<WsMessage>): void {
+    if (!this.ws || !this.isConnected) {
+      console.error('[Client] Cannot send message: WebSocket not connected');
+      return;
+    }
+    console.log('[Client] Sending message (no Promise):', msg);
+    this.ws.send(JSON.stringify(msg));
+  }
+
   private handleMessage(msg: WsMessage) {
     // 1. Pending Requests
     if (msg.wsRequestId && this.pendingRequests.has(msg.wsRequestId)) {
@@ -332,6 +344,19 @@ export class StarpeaceClient {
       case WsMessageType.EVENT_RDO_PUSH:
         const pushData = (msg as any).rawPacket || msg;
         this.ui.log('Push', `Received: ${JSON.stringify(pushData).substring(0, 100)}...`);
+        break;
+
+      // Search Menu Responses
+      case WsMessageType.RESP_SEARCH_MENU_HOME:
+      case WsMessageType.RESP_SEARCH_MENU_TOWNS:
+      case WsMessageType.RESP_SEARCH_MENU_TYCOON_PROFILE:
+      case WsMessageType.RESP_SEARCH_MENU_PEOPLE:
+      case WsMessageType.RESP_SEARCH_MENU_PEOPLE_SEARCH:
+      case WsMessageType.RESP_SEARCH_MENU_RANKINGS:
+      case WsMessageType.RESP_SEARCH_MENU_RANKING_DETAIL:
+      case WsMessageType.RESP_SEARCH_MENU_BANKS:
+        console.log('[Client] Search menu response received:', msg.type);
+        this.ui.handleSearchMenuResponse(msg);
         break;
     }
   }
@@ -465,7 +490,7 @@ export class StarpeaceClient {
     this.uiGamePanel.style.flexDirection = 'column';
 
     // Initialize Game UI
-    this.ui.initGameUI(this.uiGamePanel);
+    this.ui.initGameUI(this.uiGamePanel, (msg) => this.sendMessage(msg));
     this.setupGameUICallbacks();
     this.ui.initTycoonStats(this.storedUsername);
     

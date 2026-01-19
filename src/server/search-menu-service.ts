@@ -1,0 +1,218 @@
+/**
+ * src/server/search-menu-service.ts
+ *
+ * Service for fetching and parsing legacy ASP search menu pages
+ */
+
+import http from 'http';
+import {
+  SearchMenuCategory,
+  TownInfo,
+  TycoonProfile,
+  RankingCategory,
+  RankingEntry
+} from '../shared/types.js';
+import {
+  parseHomePage,
+  parseTownsPage,
+  parseTycoonProfile,
+  parsePeopleSearchResults,
+  parseRankingsPage,
+  parseRankingDetail
+} from './search-menu-parser.js';
+
+export class SearchMenuService {
+  private interfaceServerHost: string;
+  private interfaceServerPort: number;
+  private worldName: string;
+  private tycoonName: string;
+  private companyName: string;
+  private daAddr: string;
+  private daPort: number;
+
+  constructor(
+    interfaceServerHost: string,
+    interfaceServerPort: number,
+    worldName: string,
+    tycoonName: string,
+    companyName: string,
+    daAddr: string,
+    daPort: number
+  ) {
+    this.interfaceServerHost = interfaceServerHost;
+    this.interfaceServerPort = interfaceServerPort;
+    this.worldName = worldName;
+    this.tycoonName = tycoonName;
+    this.companyName = companyName;
+    this.daAddr = daAddr;
+    this.daPort = daPort;
+  }
+
+  /**
+   * Fetch HTML content from ASP page
+   * Uses DAAddr (Directory Agent) for HTTP requests, not interface server
+   */
+  private async fetchPage(path: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const options = {
+        hostname: this.daAddr,
+        port: this.daPort,
+        path,
+        method: 'GET',
+        headers: {
+          'User-Agent': 'StarpeaceWebClient/1.0'
+        }
+      };
+
+      const req = http.request(options, (res) => {
+        let data = '';
+
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            resolve(data);
+          } else {
+            reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        reject(err);
+      });
+
+      req.setTimeout(10000, () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
+      });
+
+      req.end();
+    });
+  }
+
+  /**
+   * Convert image URLs to proxy URLs
+   * Images are served from DAAddr (Directory Agent), not interface server
+   */
+  private convertImageToProxy(imageUrl: string): string {
+    if (!imageUrl) return '';
+
+    // Already a proxy URL
+    if (imageUrl.startsWith('/proxy-image')) {
+      return imageUrl;
+    }
+
+    // Full URL from DA server
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+      return `/proxy-image?url=${encodeURIComponent(imageUrl)}`;
+    }
+
+    // Relative URL - construct full URL using DAAddr then proxy
+    const fullUrl = `http://${this.daAddr}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
+    return `/proxy-image?url=${encodeURIComponent(fullUrl)}`;
+  }
+
+  /**
+   * Get home page categories
+   */
+  async getHomePage(): Promise<SearchMenuCategory[]> {
+    const path = `/five/0/visual/voyager/new%20directory/DirectoryMain.asp?Tycoon=${encodeURIComponent(this.tycoonName)}&Company=${encodeURIComponent(this.companyName)}&WorldName=${encodeURIComponent(this.worldName)}&DAAddr=${this.daAddr}&DAPort=${this.daPort}&RIWS=`;
+
+    const html = await this.fetchPage(path);
+    const categories = parseHomePage(html);
+
+    // Convert icon URLs to proxy URLs
+    return categories.map(cat => ({
+      ...cat,
+      iconUrl: cat.iconUrl ? this.convertImageToProxy(cat.iconUrl) : undefined
+    }));
+  }
+
+  /**
+   * Get towns list
+   */
+  async getTowns(): Promise<TownInfo[]> {
+    const path = `/five/0/visual/voyager/new%20directory/Towns.asp?Tycoon=${encodeURIComponent(this.tycoonName)}&WorldName=${encodeURIComponent(this.worldName)}&RIWS=`;
+
+    const html = await this.fetchPage(path);
+    const baseUrl = `http://${this.daAddr}`;
+    const towns = parseTownsPage(html, baseUrl);
+
+    // Convert icon URLs to proxy URLs
+    return towns.map(town => ({
+      ...town,
+      iconUrl: this.convertImageToProxy(town.iconUrl)
+    }));
+  }
+
+  /**
+   * Get tycoon profile
+   */
+  async getTycoonProfile(tycoonName: string): Promise<TycoonProfile> {
+    const path = `/five/0/visual/voyager/new%20directory/RenderTycoon.asp?WorldName=${encodeURIComponent(this.worldName)}&Tycoon=${encodeURIComponent(tycoonName)}&RIWS=`;
+
+    const html = await this.fetchPage(path);
+    const baseUrl = `http://${this.daAddr}`;
+    const profile = parseTycoonProfile(html, baseUrl);
+
+    // Convert photo URL to proxy URL
+    return {
+      ...profile,
+      photoUrl: this.convertImageToProxy(profile.photoUrl)
+    };
+  }
+
+  /**
+   * Search for tycoons/people
+   */
+  async searchPeople(searchStr: string): Promise<string[]> {
+    const path = `/five/0/visual/voyager/new%20directory/foundtycoons.asp?WorldName=${encodeURIComponent(this.worldName)}&SearchStr=${encodeURIComponent(searchStr)}`;
+
+    const html = await this.fetchPage(path);
+    return parsePeopleSearchResults(html);
+  }
+
+  /**
+   * Get rankings tree
+   */
+  async getRankings(): Promise<RankingCategory[]> {
+    const path = `/five/0/visual/voyager/new%20directory/Rankings.asp?Tycoon=${encodeURIComponent(this.tycoonName)}&WorldName=${encodeURIComponent(this.worldName)}&RIWS=`;
+
+    const html = await this.fetchPage(path);
+    return parseRankingsPage(html);
+  }
+
+  /**
+   * Get ranking detail
+   */
+  async getRankingDetail(rankingPath: string): Promise<{ title: string; entries: RankingEntry[] }> {
+    const path = `/five/0/visual/voyager/new%20directory/ranking.asp?WorldName=${encodeURIComponent(this.worldName)}&Ranking=${encodeURIComponent(rankingPath)}&frame_Id=RankingView&frame_Class=HTMLView&frame_Align=client&frame_NoBorder=yes&RIWS=&LangId=0`;
+
+    const html = await this.fetchPage(path);
+    const baseUrl = `http://${this.daAddr}`;
+    const result = parseRankingDetail(html, baseUrl);
+
+    // Convert photo URLs to proxy URLs
+    return {
+      ...result,
+      entries: result.entries.map(entry => ({
+        ...entry,
+        photoUrl: entry.photoUrl ? this.convertImageToProxy(entry.photoUrl) : undefined
+      }))
+    };
+  }
+
+  /**
+   * Get banks list (usually empty)
+   */
+  async getBanks(): Promise<any[]> {
+    const path = `/five/0/visual/voyager/new%20directory/Banks.asp?WorldName=${encodeURIComponent(this.worldName)}&RIWS=`;
+
+    const html = await this.fetchPage(path);
+    // Banks page is usually empty, return empty array
+    return [];
+  }
+}

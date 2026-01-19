@@ -357,12 +357,46 @@ Provide:
 
 ### FEATURES
 #### Search Menu
-- **Goal:** Allow users to search for buildings, companies, players
-- **Tasks:** Implement search UI, backend search RDO calls, result rendering
-
-#### Rankings
-- **Goal:** Display player/company rankings (wealth, buildings, etc.)
-- **Tasks:** Implement ranking menu UI, fetch ranking data from server, pagination
+- **Status:** ✅ COMPLETED (January 2026)
+- **Goal:** Allow users to search for buildings, companies, players, and view rankings
+- **Implementation:**
+  - **Server-side modules:**
+    - `SearchMenuService` ([src/server/search-menu-service.ts](src/server/search-menu-service.ts)) - HTTP service fetching legacy ASP pages
+    - `search-menu-parser.ts` ([src/server/search-menu-parser.ts](src/server/search-menu-parser.ts)) - HTML parsing with cheerio for 6 page types
+    - Uses **DAAddr** (Directory Agent) retrieved from RDO session for HTTP requests (port 80)
+    - Image proxy integration: all images automatically converted to `/proxy-image` URLs
+  - **Client-side UI:**
+    - `SearchMenuPanel` ([src/client/ui/search-menu/search-menu-panel.ts](src/client/ui/search-menu/search-menu-panel.ts)) - Draggable modal panel
+    - Navigation system with back button and page history stack
+    - 7 page renderers: Home, Towns, Tycoon Profile, People, Rankings, Ranking Detail, Banks
+  - **WebSocket Protocol:** 8 message pairs (REQ/RESP) for all search menu operations
+  - **CSS Styling:** [public/search-menu-styles.css](public/search-menu-styles.css) - Glassmorphism design matching existing UI
+- **Features:**
+  - **Home Page:** Category grid (People, Towns, You, Rankings, Banks, Capitol-disabled)
+  - **Towns:** List with mayor, population, unemployment, quality of life, "Show in map" links
+  - **Tycoon Profile:** Photo, name, company, cash, ranking display
+  - **People Search:** Alphabetical index (A-Z) + search form
+  - **Rankings:** Hierarchical tree navigation (Companies, Tycoons, NTA, etc.)
+  - **Ranking Detail:** Top 3 podium with large photos + full ranking list
+  - **Banks:** Placeholder (usually empty on servers)
+- **Architecture Decisions:**
+  - **Two-server model:** Game server (RDO protocol) + Directory Agent (HTTP/ASP pages)
+  - **Event-based messaging:** Uses `sendMessage()` without Promise to allow responses to route through `handleSearchMenuResponse()`
+  - **Category ID mapping:** ASP filenames → IDs (Tycoons.asp → "Tycoons", not "People")
+- **Bug Fixes:**
+  - Fixed timeout issue: `fetchPage()` now uses `daAddr` instead of `interfaceServerHost`
+  - Fixed message routing: Created separate `sendMessage()` method without `wsRequestId` to bypass Promise system
+  - Fixed category click handlers: Updated switch/case to match actual ASP filenames (Tycoons, RenderTycoon)
+- **API Endpoints:** REQ/RESP pairs for HOME, TOWNS, TYCOON_PROFILE, PEOPLE, PEOPLE_SEARCH, RANKINGS, RANKING_DETAIL, BANKS
+- **Documentation:**
+  - [SEARCH_MENU_SIMULATION.md](SEARCH_MENU_SIMULATION.md) - Complete URL patterns and testing guide
+  - [SEARCH_MENU_FIX.md](SEARCH_MENU_FIX.md) - DAAddr configuration fix details
+- **Benefits:**
+  - No RDO protocol needed (uses existing HTTP server)
+  - Image caching via proxy reduces server load
+  - Draggable, resizable modal interface
+  - Consistent glassmorphism design
+  - Map integration for town navigation
 
 #### List of Buildings (Building Directory)
 - **Goal:** Provide users with a directory to manage owned buildings

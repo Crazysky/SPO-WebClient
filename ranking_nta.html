@@ -1,0 +1,106 @@
+
+
+<!-- Head -->
+
+<head>
+	<title>	Ranking</title>
+	<link rel="STYLESHEET" href="../voyager.css" type="text/css">
+</head>
+
+
+<!-- Scripts -->
+
+
+<script language="JScript" src="../includes/FrameButtons.js">
+</script>
+
+<script for="Document" languaje="JavaScript">
+
+	function onKindClick()
+	{
+		var td = getCell( event.srcElement );
+		if (td != null && td.tagName == "TD")
+			window.navigate( td.ref );
+	}
+
+	function onPageLoad()
+	{
+		
+		if (!document.all.picture1.complete)
+			document.all.picture1.src = "images/nopicture.jpg"
+			
+				if (!document.all.picture2.complete)
+					document.all.picture2.src = "images/nopicture.jpg"
+				
+					if (!document.all.picture3.complete)
+						document.all.picture3.src = "images/nopicture.jpg"
+				
+	}
+
+</script>
+
+
+<!-- Body -->
+
+<body background="images/topgradient.jpg" onLoad="onPageLoad()">
+	<table>
+		<tr>
+			<td width=60 align="center">
+				<img src="images/trophyIcon.gif" width=30 height=27>
+			</td>
+			<td valign="bottom">
+				<br>
+				<h2>NTA Ranking</h2>
+			</td>
+		</tr>
+	</table>
+	<center>
+		
+		<table>
+			<tr>
+				<td align="center">
+					<img id="picture1" src="/fivedata/userinfo/Shamba/Morpheus/largephoto.jpg" border="0" width=150 height=200><br>
+					<b>1. Morpheus</b>
+					<div class=label>
+					41510
+					</div>
+				</td>
+				
+				<td align="center">
+					<img id="picture2" src="/fivedata/userinfo/Shamba/Black Knight/largephoto.jpg" border="0" width=150 height=200><br>
+					<b>2. Black Knight</b>
+					<div class=label>
+					37736
+					</div>
+				</td>
+				
+				<td align="center">
+					<img id="picture3" src="/fivedata/userinfo/Shamba/Crazz/largephoto.jpg" border="0" width=150 height=200><br>
+					<b>3. Crazz</b>
+					<div class=label>
+					18868
+					</div>
+				</td>
+				
+			</tr>
+		</table>
+		<table style="margin-top: 20px">
+			
+					<td align="right" style="font: 10pt Arial; font-weight: bold; background-color: #365950; padding-left: 5px; padding-right: 5px">
+						4
+					</td>
+					
+					<td class=value style="font: 10pt Tahoma, Verdana, Arial; font-weight: bold; background-color: #666644; padding-left: 5px; padding-right: 5px">
+					danieleder
+					</td>
+					<td align="right" style="font: 10pt Tahoma, Verdana, Arial; color: #EEEEEE; background-color: #444444; padding-left: 5px; padding-right: 5px">
+					  1887
+					</td>
+					<td width=30>
+					</td>
+				
+		</table>
+		
+	</center>
+	<br><br>
+</body>

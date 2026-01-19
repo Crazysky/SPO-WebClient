@@ -1,0 +1,206 @@
+
+
+<html>
+
+<!-- Head -->
+
+<head>
+	<title>	Search </title>
+	<link rel="STYLESHEET" href="../voyager.css" type="text/css">
+</head>
+
+<script language="JScript">
+
+  
+	function getRow( element )
+	{
+		if (element.parentElement == null || element.parentElement.tagName == "TR")
+			return (element.parentElement)
+		else
+			return (getRow( element.parentElement ))
+	}
+	
+	function onItemMouseOver()
+	{
+		var row = getRow( event.srcElement );
+		// if ((row != null) && (event.fromElement != null) && (event.toElement != null) && (event.fromElement.parentElement != event.toElement.parentElement))
+		if (row != null) 
+		{
+			row.style.backgroundColor = 0xFFF8DC;
+			var text = document.all[row.textId];
+			if (text != null)
+				text.style.color = 0x000000;
+			else
+				alert( row.textId )
+		}
+	}
+	
+	function onItemMouseOut()
+	{
+		var row = getRow( event.srcElement );
+		//if ((row != null) && (event.fromElement != null) && (event.toElement != null) && (event.fromElement.parentElement != event.toElement.parentElement))
+		if (row != null) 
+		{
+			row.style.backgroundColor = "";
+			var text = document.all[row.textId];
+			if (text != null)
+				text.style.color = 0xFFF8DC;
+		}
+	}
+	
+	function onItemMouseClick()
+	{
+		var row = getRow( event.srcElement );
+		if (row != null)
+		  
+			navigate( row.dirHref );
+			
+	}
+
+
+  
+</script>
+
+
+
+
+<body style="margin-left: 12px">
+	
+	<div class=header2>
+		People
+	</div>
+	
+	<form method="post" action="foundtycoons.asp?WorldName=Shamba&Wildcards=*">
+		<table cellspacing="0" style="margin-left: 7px; margin-top: 12px">
+			<tr>
+				<td><input type="text" name="SEARCHSTR" size="25"></td>
+				<td></td>
+			</tr>
+			<tr>
+				<td colspan="3" align="right"><input type="submit" value="Search"></td>
+			</tr>
+		</table>
+	</form>
+	<div class=header2>
+		Index
+	</div>
+	<table>
+		<tr>
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=A"> A </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=B"> B </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=C"> C </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=D"> D </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=E"> E </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=F"> F </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=G"> G </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=H"> H </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=I"> I </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=J"> J </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=K"> K </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=L"> L </a>
+			</td>		
+		
+		</tr>	
+		<tr>
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=M"> M </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=N"> N </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=O"> O </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=P"> P </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=Q"> Q </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=R"> R </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=S"> S </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=T"> T </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=U"> U </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=V"> V </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=W"> W </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=X"> X </a>
+			</td>		
+		
+		</tr>	
+		<tr>
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=Y"> Y </a>
+			</td>		
+		
+			<td>
+				<a href="foundtycoons.asp?WorldName=Shamba&SearchStr=Z"> Z </a>
+			</td>		
+		
+		</tr>
+	</table>
+	
+</body>
+
+</html>
+

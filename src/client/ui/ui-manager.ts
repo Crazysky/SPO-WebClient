@@ -10,6 +10,7 @@ import { TycoonStatsUI, TycoonStats } from './tycoon-stats-ui';
 import { BuildMenuUI } from './build-menu-ui';
 import { ZoneOverlayUI } from './zone-overlay-ui';
 import { BuildingDetailsPanel } from './building-details';
+import { SearchMenuPanel } from './search-menu';
 import { BuildingDetailsResponse } from '../../shared/types';
 
 export class UIManager {
@@ -22,6 +23,7 @@ export class UIManager {
   public buildMenuUI: BuildMenuUI | null = null;
   public zoneOverlayUI: ZoneOverlayUI | null = null;
   public buildingDetailsPanel: BuildingDetailsPanel | null = null;
+  public searchMenuPanel: SearchMenuPanel | null = null;
 
   // Console
   private uiConsole: HTMLElement;
@@ -34,7 +36,7 @@ export class UIManager {
   /**
    * Initialise les composants de jeu (appelé après connexion réussie)
    */
-  public initGameUI(gamePanel: HTMLElement) {
+  public initGameUI(gamePanel: HTMLElement, sendMessage?: (msg: any) => void) {
     // Map & Navigation
     this.mapNavigationUI = new MapNavigationUI(gamePanel);
     this.mapNavigationUI.init();
@@ -60,6 +62,20 @@ export class UIManager {
       onClose: undefined,
       onNavigateToBuilding: undefined,
     });
+
+    // Search Menu Panel
+    if (sendMessage) {
+      this.searchMenuPanel = new SearchMenuPanel(sendMessage);
+    }
+  }
+
+  /**
+   * Show the search menu
+   */
+  public showSearchMenu() {
+    if (this.searchMenuPanel) {
+      this.searchMenuPanel.show();
+    }
   }
 
   /**
@@ -157,5 +173,46 @@ export class UIManager {
    */
   public isBuildingDetailsPanelVisible(): boolean {
     return this.buildingDetailsPanel?.isVisible() ?? false;
+  }
+
+  // ===========================================================================
+  // SEARCH MENU METHODS
+  // ===========================================================================
+
+  /**
+   * Handle search menu responses and render appropriate page
+   */
+  public handleSearchMenuResponse(msg: any) {
+    if (!this.searchMenuPanel) {
+      console.error('[UIManager] searchMenuPanel is null!');
+      return;
+    }
+
+    switch (msg.type) {
+      case 'RESP_SEARCH_MENU_HOME':
+        this.searchMenuPanel.renderHomePage(msg);
+        break;
+      case 'RESP_SEARCH_MENU_TOWNS':
+        this.searchMenuPanel.renderTownsPage(msg);
+        break;
+      case 'RESP_SEARCH_MENU_TYCOON_PROFILE':
+        this.searchMenuPanel.renderTycoonProfile(msg);
+        break;
+      case 'RESP_SEARCH_MENU_PEOPLE':
+        // Just acknowledges the page is ready
+        break;
+      case 'RESP_SEARCH_MENU_PEOPLE_SEARCH':
+        this.searchMenuPanel.renderPeopleSearchResults(msg);
+        break;
+      case 'RESP_SEARCH_MENU_RANKINGS':
+        this.searchMenuPanel.renderRankingsPage(msg);
+        break;
+      case 'RESP_SEARCH_MENU_RANKING_DETAIL':
+        this.searchMenuPanel.renderRankingDetail(msg);
+        break;
+      case 'RESP_SEARCH_MENU_BANKS':
+        this.searchMenuPanel.renderBanksPage(msg);
+        break;
+    }
   }
 }

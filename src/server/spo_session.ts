@@ -95,6 +95,7 @@ export class StarpeaceSession extends EventEmitter {
   private rdoCnntId: string | null = null;
   private cacherId: string | null = null;
   private worldId: string | null = null;
+  private daAddr: string | null = null;
 
   // Credentials cache
   private cachedUsername: string | null = null;
@@ -142,6 +143,21 @@ export class StarpeaceSession extends EventEmitter {
 
   constructor() {
     super();
+  }
+
+  /**
+   * Get Directory Agent address for HTTP requests
+   */
+  public getDAAddr(): string | null {
+    return this.daAddr;
+  }
+
+  /**
+   * Get Directory Agent port for HTTP requests
+   * Always returns 80 for HTTP requests
+   */
+  public getDAPort(): number {
+    return 80;
   }
 
   /**
@@ -1477,6 +1493,11 @@ private parseSegments(rawLines: string[]): MapSegment[] {
       });
       const value = this.parsePropertyResponse(packet.payload!, prop);
       console.log(`[Session] ${prop}: ${value}`);
+
+      // Store DAAddr for later use (HTTP requests always use port 80)
+      if (prop === "DAAddr") {
+        this.daAddr = value;
+      }
     }
   }
 

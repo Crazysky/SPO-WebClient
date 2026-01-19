@@ -1,0 +1,426 @@
+
+
+<html>
+
+<!-- Head -->
+
+<head>
+	<title>	Search </title>
+	<link rel="STYLESHEET" href="../voyager.css" type="text/css">
+</head>
+
+<script language="JScript">
+
+  
+	function getRow( element )
+	{
+		if (element.parentElement == null || element.parentElement.tagName == "TR")
+			return (element.parentElement)
+		else
+			return (getRow( element.parentElement ))
+	}
+	
+	function onItemMouseOver()
+	{
+		var row = getRow( event.srcElement );
+		// if ((row != null) && (event.fromElement != null) && (event.toElement != null) && (event.fromElement.parentElement != event.toElement.parentElement))
+		if (row != null) 
+		{
+			row.style.backgroundColor = 0xFFF8DC;
+			var text = document.all[row.textId];
+			if (text != null)
+				text.style.color = 0x000000;
+			else
+				alert( row.textId )
+		}
+	}
+	
+	function onItemMouseOut()
+	{
+		var row = getRow( event.srcElement );
+		//if ((row != null) && (event.fromElement != null) && (event.toElement != null) && (event.fromElement.parentElement != event.toElement.parentElement))
+		if (row != null) 
+		{
+			row.style.backgroundColor = "";
+			var text = document.all[row.textId];
+			if (text != null)
+				text.style.color = 0xFFF8DC;
+		}
+	}
+	
+	function onItemMouseClick()
+	{
+		var row = getRow( event.srcElement );
+		if (row != null)
+		  
+			navigate( row.dirHref );
+			
+	}
+
+
+  
+</script>
+
+
+
+
+<body>
+	<table width="90%" cellspacing="0" style="margin-left: 12px">
+
+	<tr onMouseOver="onItemMouseOver()" onMouseOut="onItemMouseOut()" onClick="onItemMouseClick()" dirHref="RenderTownIn.asp?Path=Towns\Atharsia.five&WorldName=Shamba&ClassId=1500&RIWS=" textId="text_106987564">
+
+
+  <td width="60"><div class=FacIcon><img src="/five/icons/MapMoabTownHall64x32x0.gif" width="60" border="0"></div></td>
+
+  <td width="*" style="padding-left: 7px"><div id=text_106987564 class=ItemHeader>Atharsia</div></td>
+</tr>
+<tr>
+  <td><div class=ItemInfo><center><b>Mayor:</b></center>
+      
+	<center><font color="red">none</font></center>
+	
+ </td>
+ 
+  <td style="padding-left: 7px;padding-bottom: 7px">
+      <div class=ItemInfo>0
+            &nbsp;inhabitants 
+			<br>(0% UE)
+		
+		<br>
+		QoL: 0%
+            <br>
+		
+		   <a href="http://local.asp?frame_Id=MapIsoView&frame_Action=SELECT&x=885&y=322">Show in map</a>
+		
+	</div>
+ </td>
+</tr>
+<tr>
+ <td colspan="2" height="2" background="images/itemgradient.jpg"></td>
+</tr>
+
+	<tr onMouseOver="onItemMouseOver()" onMouseOut="onItemMouseOut()" onClick="onItemMouseClick()" dirHref="RenderTownIn.asp?Path=Towns\Cathar.five&WorldName=Shamba&ClassId=1500&RIWS=" textId="text_107932044">
+
+
+  <td width="60"><div class=FacIcon><img src="/five/icons/MapMoabTownHall64x32x0.gif" width="60" border="0"></div></td>
+
+  <td width="*" style="padding-left: 7px"><div id=text_107932044 class=ItemHeader>Cathar</div></td>
+</tr>
+<tr>
+  <td><div class=ItemInfo><center><b>Mayor:</b></center>
+      
+	<center><font color="red">none</font></center>
+	
+ </td>
+ 
+  <td style="padding-left: 7px;padding-bottom: 7px">
+      <div class=ItemInfo>51,982
+            &nbsp;inhabitants
+            		<br>(37% UE)
+		
+		<br>
+		QoL: 0%
+            <br>
+		
+		   <a href="http://local.asp?frame_Id=MapIsoView&frame_Action=SELECT&x=407&y=928">Show in map</a>
+		
+	</div>
+ </td>
+</tr>
+<tr>
+ <td colspan="2" height="2" background="images/itemgradient.jpg"></td>
+</tr>
+
+	<tr onMouseOver="onItemMouseOver()" onMouseOut="onItemMouseOut()" onClick="onItemMouseClick()" dirHref="RenderTownIn.asp?Path=Towns\Clementia.five&WorldName=Shamba&ClassId=2500&RIWS=" textId="text_107695872">
+
+
+  <td width="60"><div class=FacIcon><img src="/five/icons/MapDisTownHall64x32x0.gif" width="60" border="0"></div></td>
+
+  <td width="*" style="padding-left: 7px"><div id=text_107695872 class=ItemHeader>Clementia</div></td>
+</tr>
+<tr>
+  <td><div class=ItemInfo><center><b>Mayor:</b></center>
+      
+	<center><font color="red">none</font></center>
+	
+ </td>
+ 
+  <td style="padding-left: 7px;padding-bottom: 7px">
+      <div class=ItemInfo>0
+            &nbsp;inhabitants 
+			<br>(0% UE)
+		
+		<br>
+		QoL: 0%
+            <br>
+		
+		   <a href="http://local.asp?frame_Id=MapIsoView&frame_Action=SELECT&x=483&y=688">Show in map</a>
+		
+	</div>
+ </td>
+</tr>
+<tr>
+ <td colspan="2" height="2" background="images/itemgradient.jpg"></td>
+</tr>
+
+	<tr onMouseOver="onItemMouseOver()" onMouseOut="onItemMouseOut()" onClick="onItemMouseClick()" dirHref="RenderTownIn.asp?Path=Towns\Drakka.five&WorldName=Shamba&ClassId=3500&RIWS=" textId="text_108168128">
+
+
+  <td width="60"><div class=FacIcon><img src="/five/icons/MapMkoTownHall64x32x0.gif" width="60" border="0"></div></td>
+
+  <td width="*" style="padding-left: 7px"><div id=text_108168128 class=ItemHeader>Drakka</div></td>
+</tr>
+<tr>
+  <td><div class=ItemInfo><center><b>Mayor:</b></center>
+      
+	<center><font color="red">none</font></center>
+	
+ </td>
+ 
+  <td style="padding-left: 7px;padding-bottom: 7px">
+      <div class=ItemInfo>0
+            &nbsp;inhabitants 
+			<br>(0% UE)
+		
+		<br>
+		QoL: 0%
+            <br>
+		
+		   <a href="http://local.asp?frame_Id=MapIsoView&frame_Action=SELECT&x=131&y=302">Show in map</a>
+		
+	</div>
+ </td>
+</tr>
+<tr>
+ <td colspan="2" height="2" background="images/itemgradient.jpg"></td>
+</tr>
+
+	<tr onMouseOver="onItemMouseOver()" onMouseOut="onItemMouseOut()" onClick="onItemMouseClick()" dirHref="RenderTownIn.asp?Path=Towns\Eraclia.five&WorldName=Shamba&ClassId=4500&RIWS=" textId="text_108404228">
+
+
+  <td width="60"><div class=FacIcon><img src="/five/icons/MapPGITownHall64x32x0.gif" width="60" border="0"></div></td>
+
+  <td width="*" style="padding-left: 7px"><div id=text_108404228 class=ItemHeader>Eraclia</div></td>
+</tr>
+<tr>
+  <td><div class=ItemInfo><center><b>Mayor:</b></center>
+      
+	<center><font color="red">none</font></center>
+	
+ </td>
+ 
+  <td style="padding-left: 7px;padding-bottom: 7px">
+      <div class=ItemInfo>0
+            &nbsp;inhabitants 
+			<br>(0% UE)
+		
+		<br>
+		QoL: 0%
+            <br>
+		
+		   <a href="http://local.asp?frame_Id=MapIsoView&frame_Action=SELECT&x=205&y=508">Show in map</a>
+		
+	</div>
+ </td>
+</tr>
+<tr>
+ <td colspan="2" height="2" background="images/itemgradient.jpg"></td>
+</tr>
+
+	<tr onMouseOver="onItemMouseOver()" onMouseOut="onItemMouseOut()" onClick="onItemMouseClick()" dirHref="RenderTownIn.asp?Path=Towns\Gundia.five&WorldName=Shamba&ClassId=3500&RIWS=" textId="text_100896316">
+
+
+  <td width="60"><div class=FacIcon><img src="/five/icons/MapMkoTownHall64x32x0.gif" width="60" border="0"></div></td>
+
+  <td width="*" style="padding-left: 7px"><div id=text_100896316 class=ItemHeader>Gundia</div></td>
+</tr>
+<tr>
+  <td><div class=ItemInfo><center><b>Mayor:</b></center>
+      
+	<center><font color="red">none</font></center>
+	
+ </td>
+ 
+  <td style="padding-left: 7px;padding-bottom: 7px">
+      <div class=ItemInfo>0
+            &nbsp;inhabitants 
+			<br>(0% UE)
+		
+		<br>
+		QoL: 0%
+            <br>
+		
+		   <a href="http://local.asp?frame_Id=MapIsoView&frame_Action=SELECT&x=137&y=82">Show in map</a>
+		
+	</div>
+ </td>
+</tr>
+<tr>
+ <td colspan="2" height="2" background="images/itemgradient.jpg"></td>
+</tr>
+
+	<tr onMouseOver="onItemMouseOver()" onMouseOut="onItemMouseOut()" onClick="onItemMouseClick()" dirHref="RenderTownIn.asp?Path=Towns\Olympus.five&WorldName=Shamba&ClassId=4500&RIWS=" textId="text_106467848">
+
+
+  <td width="60"><div class=FacIcon><img src="/five/icons/MapPGITownHall64x32x0.gif" width="60" border="0"></div></td>
+
+  <td width="*" style="padding-left: 7px"><div id=text_106467848 class=ItemHeader>Olympus</div></td>
+</tr>
+<tr>
+  <td><div class=ItemInfo><center><b>Mayor:</b></center>
+      
+	<center><font color="red">none</font></center>
+	
+ </td>
+ 
+  <td style="padding-left: 7px;padding-bottom: 7px">
+      <div class=ItemInfo>66
+            &nbsp;inhabitants
+            		<br>(8% UE)
+		
+		<br>
+		QoL: 0%
+            <br>
+		
+		   <a href="http://local.asp?frame_Id=MapIsoView&frame_Action=SELECT&x=463&y=392">Show in map</a>
+		
+	</div>
+ </td>
+</tr>
+<tr>
+ <td colspan="2" height="2" background="images/itemgradient.jpg"></td>
+</tr>
+
+	<tr onMouseOver="onItemMouseOver()" onMouseOut="onItemMouseOut()" onClick="onItemMouseClick()" dirHref="RenderTownIn.asp?Path=Towns\Paraiso.five&WorldName=Shamba&ClassId=2500&RIWS=" textId="text_106720576">
+
+
+  <td width="60"><div class=FacIcon><img src="/five/icons/MapDisTownHall64x32x0.gif" width="60" border="0"></div></td>
+
+  <td width="*" style="padding-left: 7px"><div id=text_106720576 class=ItemHeader>Paraiso</div></td>
+</tr>
+<tr>
+  <td><div class=ItemInfo><center><b>Mayor:</b></center>
+      
+	<center><font color="red">none</font></center>
+	
+ </td>
+ 
+  <td style="padding-left: 7px;padding-bottom: 7px">
+      <div class=ItemInfo>8,512
+            &nbsp;inhabitants
+            		<br>(29% UE)
+		
+		<br>
+		QoL: 64%
+            <br>
+		
+		   <a href="http://local.asp?frame_Id=MapIsoView&frame_Action=SELECT&x=667&y=120">Show in map</a>
+		
+	</div>
+ </td>
+</tr>
+<tr>
+ <td colspan="2" height="2" background="images/itemgradient.jpg"></td>
+</tr>
+
+	<tr onMouseOver="onItemMouseOver()" onMouseOut="onItemMouseOut()" onClick="onItemMouseClick()" dirHref="RenderTownIn.asp?Path=Towns\Silmaria.five&WorldName=Shamba&ClassId=2500&RIWS=" textId="text_108640424">
+
+
+  <td width="60"><div class=FacIcon><img src="/five/icons/MapDisTownHall64x32x0.gif" width="60" border="0"></div></td>
+
+  <td width="*" style="padding-left: 7px"><div id=text_108640424 class=ItemHeader>Silmaria</div></td>
+</tr>
+<tr>
+  <td><div class=ItemInfo><center><b>Mayor:</b></center>
+      
+	<center><font color="red">none</font></center>
+	
+ </td>
+ 
+  <td style="padding-left: 7px;padding-bottom: 7px">
+      <div class=ItemInfo>0
+            &nbsp;inhabitants 
+			<br>(0% UE)
+		
+		<br>
+		QoL: 0%
+            <br>
+		
+		   <a href="http://local.asp?frame_Id=MapIsoView&frame_Action=SELECT&x=101&y=680">Show in map</a>
+		
+	</div>
+ </td>
+</tr>
+<tr>
+ <td colspan="2" height="2" background="images/itemgradient.jpg"></td>
+</tr>
+
+	<tr onMouseOver="onItemMouseOver()" onMouseOut="onItemMouseOut()" onClick="onItemMouseClick()" dirHref="RenderTownIn.asp?Path=Towns\Toshimi.five&WorldName=Shamba&ClassId=3500&RIWS=" textId="text_107223664">
+
+
+  <td width="60"><div class=FacIcon><img src="/five/icons/MapMkoTownHall64x32x0.gif" width="60" border="0"></div></td>
+
+  <td width="*" style="padding-left: 7px"><div id=text_107223664 class=ItemHeader>Toshimi</div></td>
+</tr>
+<tr>
+  <td><div class=ItemInfo><center><b>Mayor:</b></center>
+      
+	<center><font color="red">none</font></center>
+	
+ </td>
+ 
+  <td style="padding-left: 7px;padding-bottom: 7px">
+      <div class=ItemInfo>0
+            &nbsp;inhabitants 
+			<br>(0% UE)
+		
+		<br>
+		QoL: 0%
+            <br>
+		
+		   <a href="http://local.asp?frame_Id=MapIsoView&frame_Action=SELECT&x=767&y=504">Show in map</a>
+		
+	</div>
+ </td>
+</tr>
+<tr>
+ <td colspan="2" height="2" background="images/itemgradient.jpg"></td>
+</tr>
+
+	<tr onMouseOver="onItemMouseOver()" onMouseOut="onItemMouseOut()" onClick="onItemMouseClick()" dirHref="RenderTownIn.asp?Path=Towns\Vulcania.five&WorldName=Shamba&ClassId=4500&RIWS=" textId="text_107459724">
+
+
+  <td width="60"><div class=FacIcon><img src="/five/icons/MapPGITownHall64x32x0.gif" width="60" border="0"></div></td>
+
+  <td width="*" style="padding-left: 7px"><div id=text_107459724 class=ItemHeader>Vulcania</div></td>
+</tr>
+<tr>
+  <td><div class=ItemInfo><center><b>Mayor:</b></center>
+      
+	<center><font color="red">none</font></center>
+	
+ </td>
+ 
+  <td style="padding-left: 7px;padding-bottom: 7px">
+      <div class=ItemInfo>81,088
+            &nbsp;inhabitants
+            		<br>(32% UE)
+		
+		<br>
+		QoL: 55%
+            <br>
+		
+		   <a href="http://local.asp?frame_Id=MapIsoView&frame_Action=SELECT&x=805&y=830">Show in map</a>
+		
+	</div>
+ </td>
+</tr>
+<tr>
+ <td colspan="2" height="2" background="images/itemgradient.jpg"></td>
+</tr>
+
+	</table>
+<a href="/five/0/visual/voyager/new%20directory/TownsDetail.asp?Tycoon=Breosa&WorldName=Shamba&RIWS=">.</a>
+</body>
+
+</html>

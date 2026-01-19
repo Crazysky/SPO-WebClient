@@ -7,6 +7,7 @@ import { config } from '../shared/config';
 import { createLogger } from '../shared/logger';
 import * as ErrorCodes from '../shared/error-codes';
 import { FacilityDimensionsCache } from './facility-dimensions-cache';
+import { SearchMenuService } from './search-menu-service';
 import {
   WsMessageType,
   WsMessage,
@@ -61,6 +62,23 @@ import {
   // Building Deletion
   WsReqDeleteFacility,
   WsRespDeleteFacility,
+  // Search Menu
+  WsReqSearchMenuHome,
+  WsRespSearchMenuHome,
+  WsReqSearchMenuTowns,
+  WsRespSearchMenuTowns,
+  WsReqSearchMenuTycoonProfile,
+  WsRespSearchMenuTycoonProfile,
+  WsReqSearchMenuPeople,
+  WsRespSearchMenuPeople,
+  WsReqSearchMenuPeopleSearch,
+  WsRespSearchMenuPeopleSearch,
+  WsReqSearchMenuRankings,
+  WsRespSearchMenuRankings,
+  WsReqSearchMenuRankingDetail,
+  WsRespSearchMenuRankingDetail,
+  WsReqSearchMenuBanks,
+  WsRespSearchMenuBanks,
 } from '../shared/types';
 
 /**
@@ -196,6 +214,10 @@ wss.on('connection', (ws: WebSocket) => {
   // Create a dedicated Starpeace Session for this connection
   const spSession = new StarpeaceSession();
 
+  // Search Menu Service (will be initialized after login)
+  let searchMenuService: SearchMenuService | null = null;
+  let loginCredentials: { username: string; worldName: string; worldInfo: any; companyId: string } | null = null;
+
   // -- Forward Events: Gateway -> Browser --
   spSession.on('ws_event', (payload: any) => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -207,7 +229,53 @@ wss.on('connection', (ws: WebSocket) => {
   ws.on('message', async (data: string) => {
     try {
       const msg: WsMessage = JSON.parse(data.toString());
-      await handleClientMessage(ws, spSession, msg);
+
+      // Capture login credentials for SearchMenuService
+      if (msg.type === WsMessageType.REQ_LOGIN_WORLD) {
+        const loginMsg = msg as WsReqLoginWorld;
+        const worldInfo = spSession.getWorldInfo(loginMsg.worldName);
+        loginCredentials = {
+          username: loginMsg.username,
+          worldName: loginMsg.worldName,
+          worldInfo: worldInfo,
+          companyId: '' // Will be set after company selection
+        };
+      }
+
+      // Capture company selection
+      if (msg.type === WsMessageType.REQ_SELECT_COMPANY) {
+        const companyMsg = msg as WsReqSelectCompany;
+        if (loginCredentials) {
+          loginCredentials.companyId = companyMsg.companyId;
+        }
+      }
+
+      await handleClientMessage(ws, spSession, searchMenuService, msg);
+
+      // Initialize SearchMenuService after successful login response
+      if (msg.type === WsMessageType.REQ_SELECT_COMPANY && !searchMenuService && loginCredentials && loginCredentials.worldInfo) {
+        setTimeout(() => {
+          if (loginCredentials && loginCredentials.worldInfo && spSession) {
+            const daAddr = spSession.getDAAddr();
+            const daPort = spSession.getDAPort();
+
+            if (daAddr && daPort) {
+              searchMenuService = new SearchMenuService(
+                loginCredentials.worldInfo.ip,
+                loginCredentials.worldInfo.port || 80,
+                loginCredentials.worldName,
+                loginCredentials.username,
+                loginCredentials.companyId, // Using companyId as companyName for now
+                daAddr, // Use real DAAddr from session
+                daPort // Use real DALockPort from session
+              );
+              console.log(`[Gateway] SearchMenuService initialized with DAAddr: ${daAddr}:${daPort}`);
+            } else {
+              console.error('[Gateway] Failed to initialize SearchMenuService: DAAddr or DAPort not available');
+            }
+          }
+        }, 500);
+      }
     } catch (err) {
       console.error('[Gateway] Message Error:', err);
       const errorResp: WsRespError = {
@@ -228,7 +296,7 @@ wss.on('connection', (ws: WebSocket) => {
 /**
  * Message Router
  */
-async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, msg: WsMessage) {
+async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, searchMenuService: SearchMenuService | null, msg: WsMessage) {
   try {
     switch (msg.type) {
       case WsMessageType.REQ_CONNECT_DIRECTORY: {
@@ -787,6 +855,276 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, msg
             wsRequestId: msg.wsRequestId,
             errorMessage: err.message || 'Failed to delete facility',
             code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      // ========================================================================
+      // SEARCH MENU HANDLERS
+      // ========================================================================
+
+      case WsMessageType.REQ_SEARCH_MENU_HOME: {
+        if (!searchMenuService) {
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: 'Search menu not available. Please log in first.',
+            code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+          return;
+        }
+
+        try {
+          const categories = await searchMenuService.getHomePage();
+          const response: WsRespSearchMenuHome = {
+            type: WsMessageType.RESP_SEARCH_MENU_HOME,
+            wsRequestId: msg.wsRequestId,
+            categories
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: any) {
+          console.error('[Gateway] Failed to fetch search menu home:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: err.message || 'Failed to fetch search menu',
+            code: ErrorCodes.ERROR_Unknown
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      case WsMessageType.REQ_SEARCH_MENU_TOWNS: {
+        if (!searchMenuService) {
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: 'Search menu not available. Please log in first.',
+            code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+          return;
+        }
+
+        try {
+          const towns = await searchMenuService.getTowns();
+          const response: WsRespSearchMenuTowns = {
+            type: WsMessageType.RESP_SEARCH_MENU_TOWNS,
+            wsRequestId: msg.wsRequestId,
+            towns
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: any) {
+          console.error('[Gateway] Failed to fetch towns:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: err.message || 'Failed to fetch towns',
+            code: ErrorCodes.ERROR_Unknown
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      case WsMessageType.REQ_SEARCH_MENU_TYCOON_PROFILE: {
+        if (!searchMenuService) {
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: 'Search menu not available. Please log in first.',
+            code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+          return;
+        }
+
+        const req = msg as WsReqSearchMenuTycoonProfile;
+        try {
+          const profile = await searchMenuService.getTycoonProfile(req.tycoonName);
+          const response: WsRespSearchMenuTycoonProfile = {
+            type: WsMessageType.RESP_SEARCH_MENU_TYCOON_PROFILE,
+            wsRequestId: msg.wsRequestId,
+            profile
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: any) {
+          console.error('[Gateway] Failed to fetch tycoon profile:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: err.message || 'Failed to fetch tycoon profile',
+            code: ErrorCodes.ERROR_Unknown
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      case WsMessageType.REQ_SEARCH_MENU_PEOPLE: {
+        if (!searchMenuService) {
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: 'Search menu not available. Please log in first.',
+            code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+          return;
+        }
+
+        try {
+          const response: WsRespSearchMenuPeople = {
+            type: WsMessageType.RESP_SEARCH_MENU_PEOPLE,
+            wsRequestId: msg.wsRequestId
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: any) {
+          console.error('[Gateway] Failed to fetch people page:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: err.message || 'Failed to fetch people page',
+            code: ErrorCodes.ERROR_Unknown
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      case WsMessageType.REQ_SEARCH_MENU_PEOPLE_SEARCH: {
+        if (!searchMenuService) {
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: 'Search menu not available. Please log in first.',
+            code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+          return;
+        }
+
+        const req = msg as WsReqSearchMenuPeopleSearch;
+        try {
+          const results = await searchMenuService.searchPeople(req.searchStr);
+          const response: WsRespSearchMenuPeopleSearch = {
+            type: WsMessageType.RESP_SEARCH_MENU_PEOPLE_SEARCH,
+            wsRequestId: msg.wsRequestId,
+            results
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: any) {
+          console.error('[Gateway] Failed to search people:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: err.message || 'Failed to search people',
+            code: ErrorCodes.ERROR_Unknown
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      case WsMessageType.REQ_SEARCH_MENU_RANKINGS: {
+        if (!searchMenuService) {
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: 'Search menu not available. Please log in first.',
+            code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+          return;
+        }
+
+        try {
+          const categories = await searchMenuService.getRankings();
+          const response: WsRespSearchMenuRankings = {
+            type: WsMessageType.RESP_SEARCH_MENU_RANKINGS,
+            wsRequestId: msg.wsRequestId,
+            categories
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: any) {
+          console.error('[Gateway] Failed to fetch rankings:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: err.message || 'Failed to fetch rankings',
+            code: ErrorCodes.ERROR_Unknown
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      case WsMessageType.REQ_SEARCH_MENU_RANKING_DETAIL: {
+        if (!searchMenuService) {
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: 'Search menu not available. Please log in first.',
+            code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+          return;
+        }
+
+        const req = msg as WsReqSearchMenuRankingDetail;
+        try {
+          const result = await searchMenuService.getRankingDetail(req.rankingPath);
+          const response: WsRespSearchMenuRankingDetail = {
+            type: WsMessageType.RESP_SEARCH_MENU_RANKING_DETAIL,
+            wsRequestId: msg.wsRequestId,
+            title: result.title,
+            entries: result.entries
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: any) {
+          console.error('[Gateway] Failed to fetch ranking detail:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: err.message || 'Failed to fetch ranking detail',
+            code: ErrorCodes.ERROR_Unknown
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      case WsMessageType.REQ_SEARCH_MENU_BANKS: {
+        if (!searchMenuService) {
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: 'Search menu not available. Please log in first.',
+            code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+          return;
+        }
+
+        try {
+          const banks = await searchMenuService.getBanks();
+          const response: WsRespSearchMenuBanks = {
+            type: WsMessageType.RESP_SEARCH_MENU_BANKS,
+            wsRequestId: msg.wsRequestId,
+            banks
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: any) {
+          console.error('[Gateway] Failed to fetch banks:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: err.message || 'Failed to fetch banks',
+            code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
         }

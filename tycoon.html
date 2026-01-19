@@ -1,0 +1,157 @@
+
+
+<html>
+
+<script>
+	function onPageLoad()
+	{
+		if (!document.all.picture.complete)
+			document.all.picture.src = "images/nopicture.jpg"
+	}
+</script>
+
+<!-- Head -->
+
+<head>
+	<title>	Search </title>
+	<link rel="STYLESHEET" href="../voyager.css" type="text/css">
+</head>
+
+<script language="JScript">
+
+  
+	function getRow( element )
+	{
+		if (element.parentElement == null || element.parentElement.tagName == "TR")
+			return (element.parentElement)
+		else
+			return (getRow( element.parentElement ))
+	}
+	
+	function onItemMouseOver()
+	{
+		var row = getRow( event.srcElement );
+		// if ((row != null) && (event.fromElement != null) && (event.toElement != null) && (event.fromElement.parentElement != event.toElement.parentElement))
+		if (row != null) 
+		{
+			row.style.backgroundColor = 0xFFF8DC;
+			var text = document.all[row.textId];
+			if (text != null)
+				text.style.color = 0x000000;
+			else
+				alert( row.textId )
+		}
+	}
+	
+	function onItemMouseOut()
+	{
+		var row = getRow( event.srcElement );
+		//if ((row != null) && (event.fromElement != null) && (event.toElement != null) && (event.fromElement.parentElement != event.toElement.parentElement))
+		if (row != null) 
+		{
+			row.style.backgroundColor = "";
+			var text = document.all[row.textId];
+			if (text != null)
+				text.style.color = 0xFFF8DC;
+		}
+	}
+	
+	function onItemMouseClick()
+	{
+		var row = getRow( event.srcElement );
+		if (row != null)
+		  
+			navigate( row.dirHref );
+			
+	}
+
+
+  
+</script>
+
+
+
+
+<body style="margin-left: 12px" onLoad="onPageLoad()">
+	<div class=header1>
+		Crazz
+	</div>
+	<div style="text-align: center">
+		<img id=picture src="/fivedata/userinfo/Shamba/Crazz/largephoto.jpg" width=150 height=200><br>
+	</div>
+	<div style="margin-left: 7px">
+		<table cellspacing=0 cellpadding=2>
+			<tr>
+				<td class=label>
+					Fortune:
+				</td>
+				<td class=value>
+					$391,064,875
+				</td>
+			</tr>
+			<tr>
+				<td class=label>
+					This year:
+				</td>
+				<td class=value>
+					$20,693,472
+				</td>
+			</tr>
+		
+			<tr>
+				<td class=label>
+					NTA Ranking:
+				</td>
+				<td class=value>
+					1st place.
+				</td>
+			</tr>
+			<tr>
+				<td class=label>
+					Level:
+				</td>
+				<td class=value>
+					Apprentice.
+				</td>
+			</tr>
+			<tr>
+				<td class=label>
+					Prestige:
+				</td>
+				<td class=value>
+					-28 points.
+				</td>
+			</tr>
+		
+		</table>
+		<div style="margin-top: 7px">
+
+			
+			<a href="/five/0/visual/voyager/newtycoon/tycoon.asp?Tycoon=Crazz&Password=&Company=&WorldName=Shamba&DAAddr=&DAPort=&ISAddr=&ISPort=&frame_Id=PlayerProfile&frame_Class=HTMLView&frame_Align=client&frame_NoBorder=Yes&frame_ToHistory=yes&RIWS=">
+			Show Profile
+			</a><br>
+			
+			<a href="http://local.asp?frame_Id=MsgComposer&frame_Class=MsgComposer&frame_Align=client&frame_Height=50%&frame_Action=new&To=Crazz">
+				Send mail
+			</a>
+			
+		</div>
+		<div>
+		    <table>
+		    	<tr>
+		    		<td>
+		    			<img with="12" height="12" src="images/bullet1.gif">
+		    		</td>
+		    		<td>
+						<div class=mainAnchor>
+							<a class=mainAnchor href="TycoonCompanies.asp?WorldName=Shamba&Tycoon=Crazz&RIWS=">
+								Companies
+							</a>
+						</div>
+		    		</td>
+				</tr>
+			</table>
+		</div>
+	</div>
+</body>
+</html>

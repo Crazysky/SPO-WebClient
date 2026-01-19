@@ -176,6 +176,25 @@ export enum WsMessageType {
   REQ_DELETE_FACILITY = 'REQ_DELETE_FACILITY',
   RESP_DELETE_FACILITY = 'RESP_DELETE_FACILITY',
 
+  // Search Menu / Directory
+  REQ_SEARCH_MENU_HOME = 'REQ_SEARCH_MENU_HOME',
+  REQ_SEARCH_MENU_TOWNS = 'REQ_SEARCH_MENU_TOWNS',
+  REQ_SEARCH_MENU_TYCOON_PROFILE = 'REQ_SEARCH_MENU_TYCOON_PROFILE',
+  REQ_SEARCH_MENU_PEOPLE = 'REQ_SEARCH_MENU_PEOPLE',
+  REQ_SEARCH_MENU_PEOPLE_SEARCH = 'REQ_SEARCH_MENU_PEOPLE_SEARCH',
+  REQ_SEARCH_MENU_RANKINGS = 'REQ_SEARCH_MENU_RANKINGS',
+  REQ_SEARCH_MENU_RANKING_DETAIL = 'REQ_SEARCH_MENU_RANKING_DETAIL',
+  REQ_SEARCH_MENU_BANKS = 'REQ_SEARCH_MENU_BANKS',
+
+  RESP_SEARCH_MENU_HOME = 'RESP_SEARCH_MENU_HOME',
+  RESP_SEARCH_MENU_TOWNS = 'RESP_SEARCH_MENU_TOWNS',
+  RESP_SEARCH_MENU_TYCOON_PROFILE = 'RESP_SEARCH_MENU_TYCOON_PROFILE',
+  RESP_SEARCH_MENU_PEOPLE = 'RESP_SEARCH_MENU_PEOPLE',
+  RESP_SEARCH_MENU_PEOPLE_SEARCH = 'RESP_SEARCH_MENU_PEOPLE_SEARCH',
+  RESP_SEARCH_MENU_RANKINGS = 'RESP_SEARCH_MENU_RANKINGS',
+  RESP_SEARCH_MENU_RANKING_DETAIL = 'RESP_SEARCH_MENU_RANKING_DETAIL',
+  RESP_SEARCH_MENU_BANKS = 'RESP_SEARCH_MENU_BANKS',
+
 }
 
 export interface WsMessage {
@@ -808,4 +827,194 @@ export interface WsRespDeleteFacility extends WsMessage {
   type: WsMessageType.RESP_DELETE_FACILITY;
   success: boolean;
   message?: string;
+}
+
+// =============================================================================
+// 8. SEARCH MENU / DIRECTORY SYSTEM
+// =============================================================================
+
+/**
+ * Search menu navigation item
+ */
+export interface SearchMenuCategory {
+  id: string;
+  label: string;
+  enabled: boolean;
+  iconUrl?: string;
+}
+
+/**
+ * Town information from Towns.asp
+ */
+export interface TownInfo {
+  name: string;
+  iconUrl: string;
+  mayor: string | null;
+  population: number;
+  unemploymentPercent: number;
+  qualityOfLife: number;
+  x: number;
+  y: number;
+  path: string;
+  classId: string;
+}
+
+/**
+ * Tycoon profile from RenderTycoon.asp
+ */
+export interface TycoonProfile {
+  name: string;
+  photoUrl: string;
+  fortune: number;
+  thisYearProfit: number;
+  ntaRanking: string;
+  level: string;
+  prestige: number;
+  profileUrl: string;
+  companiesUrl: string;
+}
+
+/**
+ * Ranking category item (tree structure)
+ */
+export interface RankingCategory {
+  id: string;
+  label: string;
+  url: string;
+  level: number;
+  children?: RankingCategory[];
+}
+
+/**
+ * Ranking detail entry
+ */
+export interface RankingEntry {
+  rank: number;
+  name: string;
+  value: number;
+  photoUrl?: string;
+}
+
+/**
+ * Request home page
+ */
+export interface WsReqSearchMenuHome extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_HOME;
+}
+
+/**
+ * Response home page categories
+ */
+export interface WsRespSearchMenuHome extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_HOME;
+  categories: SearchMenuCategory[];
+}
+
+/**
+ * Request towns list
+ */
+export interface WsReqSearchMenuTowns extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_TOWNS;
+}
+
+/**
+ * Response towns list
+ */
+export interface WsRespSearchMenuTowns extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_TOWNS;
+  towns: TownInfo[];
+}
+
+/**
+ * Request tycoon profile
+ */
+export interface WsReqSearchMenuTycoonProfile extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_TYCOON_PROFILE;
+  tycoonName: string;
+}
+
+/**
+ * Response tycoon profile
+ */
+export interface WsRespSearchMenuTycoonProfile extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_TYCOON_PROFILE;
+  profile: TycoonProfile;
+}
+
+/**
+ * Request people search page
+ */
+export interface WsReqSearchMenuPeople extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_PEOPLE;
+}
+
+/**
+ * Response people search page (returns search interface data)
+ */
+export interface WsRespSearchMenuPeople extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_PEOPLE;
+  // Returns empty - client will use search function
+}
+
+/**
+ * Request people search results
+ */
+export interface WsReqSearchMenuPeopleSearch extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_PEOPLE_SEARCH;
+  searchStr: string;
+}
+
+/**
+ * Response people search results
+ */
+export interface WsRespSearchMenuPeopleSearch extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_PEOPLE_SEARCH;
+  results: string[]; // Array of tycoon names
+}
+
+/**
+ * Request rankings tree
+ */
+export interface WsReqSearchMenuRankings extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_RANKINGS;
+}
+
+/**
+ * Response rankings tree
+ */
+export interface WsRespSearchMenuRankings extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_RANKINGS;
+  categories: RankingCategory[];
+}
+
+/**
+ * Request ranking detail
+ */
+export interface WsReqSearchMenuRankingDetail extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_RANKING_DETAIL;
+  rankingPath: string; // e.g., "Rankings\\NTA.five"
+}
+
+/**
+ * Response ranking detail
+ */
+export interface WsRespSearchMenuRankingDetail extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_RANKING_DETAIL;
+  title: string;
+  entries: RankingEntry[];
+}
+
+/**
+ * Request banks list
+ */
+export interface WsReqSearchMenuBanks extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_BANKS;
+}
+
+/**
+ * Response banks list
+ */
+export interface WsRespSearchMenuBanks extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_BANKS;
+  banks: any[]; // Usually empty
 }
