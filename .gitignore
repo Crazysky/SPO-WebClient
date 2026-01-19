@@ -29,11 +29,11 @@ Thumbs.db
 nul
 *.tmp
 
-# Downloaded cache files (regenerated on server start)
-BuildingClasses/*.BIN
-
-# Image proxy cache (images downloaded from game server)
-cache/images/
+# Cache directory (files downloaded from update server at startup)
+cache/
+# Keep the BuildingClasses directory for local facility_db.csv
+!BuildingClasses/
+!BuildingClasses/facility_db.csv
 
 # Claude AI context (optional - remove if you want to track this)
 .claude/

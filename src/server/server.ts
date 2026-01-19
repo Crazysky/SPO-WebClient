@@ -8,6 +8,7 @@ import { createLogger } from '../shared/logger';
 import * as ErrorCodes from '../shared/error-codes';
 import { FacilityDimensionsCache } from './facility-dimensions-cache';
 import { SearchMenuService } from './search-menu-service';
+import { UpdateService } from './update-service';
 import {
   WsMessageType,
   WsMessage,
@@ -113,17 +114,53 @@ function getPlaceholderImage(): Buffer {
 
 /**
  * Proxy image from remote server to avoid CORS/Referer blocking
+ * Checks update cache first, then falls back to downloading from game server
  */
 async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<void> {
   try {
     // Extract filename from URL (keep original name for debugging)
     const urlParts = imageUrl.split('/');
     const filename = urlParts[urlParts.length - 1] || 'unknown.gif';
-    const cachedPath = path.join(IMAGE_CACHE_DIR, filename);
 
-    // Check if already cached
-    if (fs.existsSync(cachedPath)) {
-      const content = fs.readFileSync(cachedPath);
+    // Try to find image in update cache directories
+    const CACHE_ROOT = path.join(__dirname, '../../cache');
+    const imageDirs = [
+      'BuildingImages',
+      'OtherImages',
+      'misc',
+      'chaticons',
+      'news',
+      'CarImages',
+      'LandImages',
+      'ConcreteImages',
+      'EffectImages',
+      'PlaneImages',
+      'RoadBlockImages'
+    ];
+
+    // Search in cache directories (case-insensitive)
+    for (const dir of imageDirs) {
+      const dirPath = path.join(CACHE_ROOT, dir);
+      if (fs.existsSync(dirPath)) {
+        const files = fs.readdirSync(dirPath);
+        const matchingFile = files.find(f => f.toLowerCase() === filename.toLowerCase());
+        if (matchingFile) {
+          const cachedPath = path.join(dirPath, matchingFile);
+          const content = fs.readFileSync(cachedPath);
+          const ext = path.extname(matchingFile).toLowerCase();
+          const contentType = ext === '.gif' ? 'image/gif' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/gif';
+
+          res.writeHead(200, { 'Content-Type': contentType });
+          res.end(content);
+          return;
+        }
+      }
+    }
+
+    // Fallback: Check legacy images directory
+    const legacyPath = path.join(IMAGE_CACHE_DIR, filename);
+    if (fs.existsSync(legacyPath)) {
+      const content = fs.readFileSync(legacyPath);
       const ext = path.extname(filename).toLowerCase();
       const contentType = ext === '.gif' ? 'image/gif' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/gif';
 
@@ -132,7 +169,58 @@ async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<v
       return;
     }
 
-    // Download from remote server
+    // Not in cache, try to download from update server first
+    const UPDATE_SERVER_BASE = 'http://update.starpeaceonline.com/five/client/cache';
+    const updateImageDirs = [
+      'BuildingImages',
+      'OtherImages',
+      'misc',
+      'chaticons',
+      'news',
+      'CarImages',
+      'landimages',
+      'ConcreteImages',
+      'EffectImages',
+      'PlaneImages',
+      'RoadBlockImages'
+    ];
+
+    let downloaded = false;
+    for (const dir of updateImageDirs) {
+      try {
+        const updateUrl = `${UPDATE_SERVER_BASE}/${dir}/${filename}`;
+        const response = await fetch(updateUrl);
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+
+          // Cache in proper directory structure
+          const targetDir = path.join(CACHE_ROOT, dir);
+          if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+          }
+          const targetPath = path.join(targetDir, filename);
+          fs.writeFileSync(targetPath, buffer);
+
+          const ext = path.extname(filename).toLowerCase();
+          const contentType = ext === '.gif' ? 'image/gif' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/gif';
+
+          res.writeHead(200, { 'Content-Type': contentType });
+          res.end(buffer);
+          downloaded = true;
+          console.log(`[ImageProxy] Downloaded from update server: ${dir}/${filename}`);
+          break;
+        }
+      } catch (err) {
+        // Continue to next directory
+      }
+    }
+
+    if (downloaded) {
+      return;
+    }
+
+    // Not on update server, try game server
     const response = await fetch(imageUrl);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
@@ -141,8 +229,8 @@ async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<v
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Cache the image
-    fs.writeFileSync(cachedPath, buffer);
+    // Cache the image in legacy directory
+    fs.writeFileSync(legacyPath, buffer);
 
     const ext = path.extname(filename).toLowerCase();
     const contentType = ext === '.gif' ? 'image/gif' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/gif';
@@ -1162,6 +1250,13 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
 // Start Server
 async function startServer() {
   try {
+    // Sync files from update server (downloads missing files only)
+    console.log('[Gateway] Checking for updates from update.starpeaceonline.com...');
+    const updateService = new UpdateService();
+    await updateService.syncAll();
+    const stats = updateService.getStats();
+    console.log(`[Gateway] Update check complete: ${stats.downloaded} downloaded, ${stats.skipped} skipped, ${stats.failed} failed`);
+
     // Initialize facility dimensions cache (parse facility.csv)
     console.log('[Gateway] Initializing facility dimensions cache...');
     await facilityDimensionsCache.initialize();
