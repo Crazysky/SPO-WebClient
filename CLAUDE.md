@@ -587,6 +587,48 @@ Provide:
   - Socket reuse optimization (no redundant focus calls)
   - Automatic service connection management
 
+#### Building Upgrade UI Redesign
+- **Status:** ✅ COMPLETED (January 2026)
+- **Goal:** Improve upgrade/downgrade UI with better controls and dynamic STOP button for pending upgrades
+- **Implementation:**
+  - **UI Components:** [src/client/ui/building-details/property-renderers.ts](src/client/ui/building-details/property-renderers.ts:673-788)
+    - **Dynamic rendering based on upgrade state:**
+      - Normal state (no pending): `Upgrade [-] [qty] [+] [OK]` controls + Downgrade button
+      - Pending state (upgrading): `STOP` button replaces upgrade controls + Downgrade button
+    - Level display shows `Level X(+N)/Y` when upgrades are pending
+    - Added decrement button (-) for quantity adjustment before increment button
+    - Changed "VALIDATE" button text to "OK" for clarity
+  - **Button Handlers:** [src/client/ui/building-details/building-details-panel.ts](src/client/ui/building-details/building-details-panel.ts:729-796)
+    - Wired up `.upgrade-stop-btn` click handler for STOP action
+    - Auto-refresh 1 second after all upgrade actions (OK, STOP, Downgrade)
+    - Consistent callback pattern across all actions
+  - **CSS Styling:** [public/design-system.css](public/design-system.css:1099-1301)
+    - `.upgrade-decrement-btn` - Neutral gray button matching increment button style
+    - `.upgrade-stop-btn` - Full-width orange button (#ea580c, distinct from blue/red)
+    - `.downgrade-btn` - Enhanced full-width red button with hover shadow
+    - `.upgrade-row` - Added bottom margin for spacing when STOP button visible
+  - **Server Integration:** Already supported via [src/server/spo_session.ts](src/server/spo_session.ts:1320-1347)
+    - Maps `STOP_UPGRADE` action to internal `'STOP'` action
+    - Sends RDO command: `C sel <CurrBlock> call RDOStopUpgrade "*" ;`
+    - Returns success/error status with appropriate message
+- **Features:**
+  - Quantity adjustment with +/- buttons for precise control
+  - Dynamic interface: STOP button only appears when upgrade is pending
+  - Color-coded actions: Blue (OK), Orange (STOP), Red (Downgrade)
+  - Auto-refresh after each action shows immediate feedback
+  - Level display clearly indicates pending upgrades: `Level 2(+2)/5`
+  - Consistent UX across all upgrade-related actions
+- **RDO Commands:**
+  - `RDOStartUpgrades` - Start upgrade (count parameter)
+  - `RDOStopUpgrade` - Stop pending upgrade
+  - `RDODowngrade` - Downgrade building by 1 level
+- **Benefits:**
+  - Clear visual feedback of upgrade status
+  - One-click stop mechanism when needed
+  - Improved quantity control with bidirectional adjustment
+  - Auto-refresh eliminates need for manual refresh after actions
+  - Cleaner UI: STOP button only shown when relevant
+
 ## Session Context for AI Agent
 
 ### What You Should Know
