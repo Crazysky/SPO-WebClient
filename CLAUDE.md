@@ -251,42 +251,51 @@ Provide:
 - **Blocker:** All game features must be working before refactoring
 - **Note:** Type system foundation completed (January 2026)
 
-#### Download key client files from update.starpeaceonline.com
+#### Automatic synchronization with update.starpeaceonline.com
 - **Status:** ✅ COMPLETED (January 2026)
-- **Goal:** Ensure web client is compliant with server content files
+- **Goal:** Automatically mirror complete server structure without hardcoded file/directory lists
 - **Implementation:**
   - **UpdateService class** ([src/server/update-service.ts](src/server/update-service.ts))
-    - Downloads missing files from http://update.starpeaceonline.com/five/client/cache/
-    - Maintains proper directory structure in `cache/` folder
-    - Runs at every server startup (checks for missing files only)
-  - **Critical directories synced at startup:**
-    - `BuildingClasses/` (CLASSES.BIN, classes.cab) - 157KB building metadata
-    - `CarClasses/`, `ConcreteClasses/`, `EffectClasses/` - Class metadata files
-    - `Inventions/` (inventions.cab) - 411KB invention data
-    - `LandClasses/`, `PlaneClasses/`, `RoadBlockClasses/` - Entity metadata
-    - `Translations/` (6 language packs) - Text translations
-    - Root files: `Default.ini`, `folders.sync`, `index.sync`, `lang.dat`
-  - **Image directories (on-demand download):**
-    - `BuildingImages/`, `OtherImages/`, `CarImages/`, `misc/`, `chaticons/`, etc.
-    - Downloaded lazily by image proxy when first requested (not at startup)
-    - Reduces startup time from ~2 minutes to ~7 seconds
-  - **Enhanced image proxy** ([src/server/server.ts](src/server/server.ts:118-220))
-    - Checks `cache/` directories first (case-insensitive search)
-    - Falls back to downloading from update server if not found locally
-    - Preserves directory structure for downloaded images
-    - Legacy `cache/images/` directory still supported for compatibility
-  - **Statistics:** ~22 critical files downloaded at startup (skips existing files)
-  - **Versioning & Compatibility:**
-    - Only downloads missing files (preserves existing data)
-    - `BuildingClasses/facility_db.csv` remains local (not on update server)
-    - `cache/images/` legacy directory maintained for backward compatibility
+    - **Fully automatic** - No hardcoded directory or file lists
+    - **Bidirectional sync** - Downloads missing files AND removes orphaned files
+    - **Dynamic discovery** - Recursively parses HTML directory listings from update server
+    - Runs at every server startup
+  - **Architecture:**
+    - **`discoverRemoteStructure()`** - Recursively discovers all files/directories on server
+    - **`buildLocalInventory()`** - Scans local cache to identify existing files
+    - **`syncAll()`** - Compares remote vs local, downloads missing, removes orphaned
+    - **Excluded files:** `BuildingClasses/facility_db.csv` (local customization, not overwritten)
+  - **Synchronization process (4 steps):**
+    1. **Discover remote structure** - Parses HTML listings recursively (max depth: 10)
+    2. **Scan local cache** - Builds inventory of existing files/directories
+    3. **Download missing files** - Downloads files present on server but not locally
+    4. **Remove orphaned files** - Deletes files/directories not present on server (except excluded)
+  - **Image proxy** ([src/server/server.ts](src/server/server.ts))
+    - **Dynamic directory scanning** - No hardcoded image directory list
+    - Automatically discovers all subdirectories in `cache/` at runtime
+    - Falls back to downloading from update server if not found
+    - Game server fallback images cached in `webclient-cache/` (separate from update mirror)
+  - **Directory Structure:**
+    - **`cache/`** - Perfect mirror of update.starpeaceonline.com/five/client/cache/
+    - **`webclient-cache/`** - WebClient-specific needs (game server fallback images, local data)
+    - **Separation:** Update server content vs. local client needs kept distinct
+  - **Statistics tracked:**
+    - Downloaded: New files from server
+    - Deleted: Orphaned local files removed
+    - Skipped: Files already present locally
+    - Failed: Download/deletion errors
+  - **Safety features:**
+    - Max recursion depth: 10 levels
+    - Excluded files list prevents deletion of local customizations
+    - Empty directory cleanup (only removes directories not on server)
     - Case-insensitive filename matching for cross-platform compatibility
   - **Benefits:**
-    - Fast startup (~7s for critical files vs ~2min for all files)
-    - Automatic version checking on every server start
-    - No manual file management needed
-    - On-demand image loading reduces bandwidth and disk usage
-    - Zero downtime updates - files added incrementally
+    - **Zero maintenance** - Adapts automatically to server changes
+    - **No code updates needed** - Server structure changes don't require code modifications
+    - **Bidirectional sync** - Adds new files AND removes obsolete ones
+    - **Perfect mirror** - Local cache always matches remote server exactly
+    - **Automatic cleanup** - Removes files that no longer exist on server
+    - **Clean separation** - Update server mirror vs. local cache kept distinct
 
 #### Building Dimensions System (Replaced CLASSES.BIN parser)
 - **Status:** ✅ COMPLETED (January 2026)

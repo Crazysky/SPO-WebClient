@@ -97,10 +97,10 @@ const PUBLIC_DIR = path.join(__dirname, '../../public');
 // Initialize Facility Dimensions Cache
 const facilityDimensionsCache = new FacilityDimensionsCache();
 
-// Image proxy cache directory
-const IMAGE_CACHE_DIR = path.join(__dirname, '../../cache/images');
-if (!fs.existsSync(IMAGE_CACHE_DIR)) {
-  fs.mkdirSync(IMAGE_CACHE_DIR, { recursive: true });
+// WebClient-specific cache directory (for future needs, separate from update server mirror)
+const WEBCLIENT_CACHE_DIR = path.join(__dirname, '../../webclient-cache');
+if (!fs.existsSync(WEBCLIENT_CACHE_DIR)) {
+  fs.mkdirSync(WEBCLIENT_CACHE_DIR, { recursive: true });
 }
 
 /**
@@ -122,23 +122,22 @@ async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<v
     const urlParts = imageUrl.split('/');
     const filename = urlParts[urlParts.length - 1] || 'unknown.gif';
 
-    // Try to find image in update cache directories
+    // Try to find image in update cache (scans all subdirectories dynamically)
     const CACHE_ROOT = path.join(__dirname, '../../cache');
-    const imageDirs = [
-      'BuildingImages',
-      'OtherImages',
-      'misc',
-      'chaticons',
-      'news',
-      'CarImages',
-      'LandImages',
-      'ConcreteImages',
-      'EffectImages',
-      'PlaneImages',
-      'RoadBlockImages'
-    ];
+
+    // Dynamically discover all subdirectories in cache
+    const imageDirs: string[] = [];
+    if (fs.existsSync(CACHE_ROOT)) {
+      const entries = fs.readdirSync(CACHE_ROOT, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          imageDirs.push(entry.name);
+        }
+      }
+    }
 
     // Search in cache directories (case-insensitive)
+    // Cache follows exact update server structure
     for (const dir of imageDirs) {
       const dirPath = path.join(CACHE_ROOT, dir);
       if (fs.existsSync(dirPath)) {
@@ -157,36 +156,11 @@ async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<v
       }
     }
 
-    // Fallback: Check legacy images directory
-    const legacyPath = path.join(IMAGE_CACHE_DIR, filename);
-    if (fs.existsSync(legacyPath)) {
-      const content = fs.readFileSync(legacyPath);
-      const ext = path.extname(filename).toLowerCase();
-      const contentType = ext === '.gif' ? 'image/gif' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/gif';
-
-      res.writeHead(200, { 'Content-Type': contentType });
-      res.end(content);
-      return;
-    }
-
-    // Not in cache, try to download from update server first
+    // Not in cache, try to download from update server (try all known directories)
     const UPDATE_SERVER_BASE = 'http://update.starpeaceonline.com/five/client/cache';
-    const updateImageDirs = [
-      'BuildingImages',
-      'OtherImages',
-      'misc',
-      'chaticons',
-      'news',
-      'CarImages',
-      'landimages',
-      'ConcreteImages',
-      'EffectImages',
-      'PlaneImages',
-      'RoadBlockImages'
-    ];
 
     let downloaded = false;
-    for (const dir of updateImageDirs) {
+    for (const dir of imageDirs) {
       try {
         const updateUrl = `${UPDATE_SERVER_BASE}/${dir}/${filename}`;
         const response = await fetch(updateUrl);
@@ -220,7 +194,7 @@ async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<v
       return;
     }
 
-    // Not on update server, try game server
+    // Not on update server, try game server (fallback for custom/legacy content)
     const response = await fetch(imageUrl);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
@@ -229,8 +203,10 @@ async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<v
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Cache the image in legacy directory
-    fs.writeFileSync(legacyPath, buffer);
+    // Cache game server images in webclient-cache (separate from update server mirror)
+    const webclientImagePath = path.join(WEBCLIENT_CACHE_DIR, filename);
+    fs.writeFileSync(webclientImagePath, buffer);
+    console.log(`[ImageProxy] Downloaded from game server (cached in webclient-cache): ${filename}`);
 
     const ext = path.extname(filename).toLowerCase();
     const contentType = ext === '.gif' ? 'image/gif' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/gif';

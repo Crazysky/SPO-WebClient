@@ -29,9 +29,13 @@ Thumbs.db
 nul
 *.tmp
 
-# Cache directory (files downloaded from update server at startup)
-# This entire directory is regenerated automatically and should not be tracked
+# Update server mirror (exact structure from update.starpeaceonline.com)
+# Regenerated automatically at startup and on-demand
 cache/
+
+# WebClient-specific cache (for game server fallback images and local needs)
+# Separate from update server structure
+webclient-cache/
 
 # Claude AI context (optional - remove if you want to track this)
 .claude/
