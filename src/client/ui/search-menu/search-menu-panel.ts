@@ -470,19 +470,27 @@ export class SearchMenuPanel {
     const categories = data.categories;
 
     const renderCategory = (cat: RankingCategory, level: number = 0): string => {
-      const indent = level * 20;
+      const hasChildren = cat.children && cat.children.length > 0;
+      const leafClass = hasChildren ? '' : 'leaf';
+      const expandedClass = level === 0 ? 'expanded' : ''; // Level 0 starts expanded
+
       let html = `
-        <div class="ranking-category level-${level}" style="margin-left: ${indent}px">
-          <a href="#" class="ranking-link" data-url="${cat.url}">${cat.label}</a>
-        </div>
+        <div class="ranking-category level-${level} ${leafClass} ${expandedClass}" data-url="${cat.url}">
+          <div class="ranking-category-header">
+            <span class="ranking-expand-icon">▶</span>
+            <a href="#" class="ranking-link" data-url="${cat.url}">${cat.label}</a>
+          </div>
       `;
 
-      if (cat.children && cat.children.length > 0) {
-        cat.children.forEach(child => {
+      if (hasChildren) {
+        html += '<div class="ranking-children">';
+        cat.children!.forEach(child => {
           html += renderCategory(child, level + 1);
         });
+        html += '</div>';
       }
 
+      html += '</div>';
       return html;
     };
 
@@ -494,12 +502,25 @@ export class SearchMenuPanel {
 
     this.contentElement.innerHTML = html;
 
-    // Add click handlers
-    this.contentElement.querySelectorAll('.ranking-link').forEach(el => {
-      el.addEventListener('click', (e) => {
-        e.preventDefault();
-        const url = (el as HTMLElement).dataset.url!;
-        this.loadRankingDetail(url);
+    // Add expand/collapse handlers
+    this.contentElement.querySelectorAll('.ranking-category-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+
+        // If clicked on the link, let it navigate
+        if (target.classList.contains('ranking-link')) {
+          e.preventDefault();
+          const url = target.dataset.url!;
+          this.loadRankingDetail(url);
+          return;
+        }
+
+        // Otherwise, toggle expand/collapse
+        const categoryDiv = header.parentElement as HTMLElement;
+        if (!categoryDiv.classList.contains('leaf')) {
+          e.preventDefault();
+          categoryDiv.classList.toggle('expanded');
+        }
       });
     });
   }

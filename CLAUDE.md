@@ -376,7 +376,12 @@ Provide:
   - **Towns:** List with mayor, population, unemployment, quality of life, "Show in map" links
   - **Tycoon Profile:** Photo, name, company, cash, ranking display
   - **People Search:** Alphabetical index (A-Z) + search form
-  - **Rankings:** Hierarchical tree navigation (Companies, Tycoons, NTA, etc.)
+  - **Rankings:** Collapsible hierarchical tree navigation with expand/collapse icons
+    - Top-level categories (NTA, etc.) start expanded by default
+    - Level-based indentation (20px/40px/60px) for visual hierarchy
+    - Click category name → Navigate to detail, click row → Toggle expand/collapse
+    - Smooth animations for expand icons (90° rotation)
+    - Compact spacing (2px gaps) for better fit in panel
   - **Ranking Detail:** Top 3 podium with large photos + full ranking list
   - **Banks:** Placeholder (usually empty on servers)
 - **Architecture Decisions:**
@@ -395,6 +400,12 @@ Provide:
     - **Ranking detail 500 error:** Fixed URL parameter extraction - extracts `Ranking` value from full dirHref URL and preserves backslashes in path ([src/server/search-menu-service.ts:194-210](src/server/search-menu-service.ts#L194-L210))
     - **Missing profile pictures:** Added 1x1 transparent PNG placeholder for 404 images instead of error response ([src/server/server.ts:108-113](src/server/server.ts#L108-L113), [src/server/server.ts:149-153](src/server/server.ts#L149-L153))
     - **Root cause:** HTML uses `onMouseOver` (capital M, capital O) but cheerio selectors were case-sensitive; switched to attribute-based selectors (`dirHref`) for reliability
+  - **UI/UX Improvements (January 2026):**
+    - **Rankings page optimization:** Implemented collapsible tree structure to fit extensive ranking categories within panel ([public/search-menu-styles.css](public/search-menu-styles.css), [src/client/ui/search-menu/search-menu-panel.ts](src/client/ui/search-menu/search-menu-panel.ts#L469-L526))
+    - Reduced vertical spacing from large gaps to 2px for compact display
+    - Added expand/collapse icons (▶) with smooth rotation animation
+    - Level-specific styling: bold backgrounds for level-0, lighter text/smaller fonts for level-2/3
+    - Smart click behavior: category name navigates, row click toggles expansion
 - **API Endpoints:** REQ/RESP pairs for HOME, TOWNS, TYCOON_PROFILE, PEOPLE, PEOPLE_SEARCH, RANKINGS, RANKING_DETAIL, BANKS
 - **Documentation:**
   - [SEARCH_MENU_SIMULATION.md](SEARCH_MENU_SIMULATION.md) - Complete URL patterns and testing guide
