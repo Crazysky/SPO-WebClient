@@ -672,7 +672,7 @@ export function renderPropertyGroup(
 
 /**
  * Render upgrade action controls
- * Simple design: Level display, Upgrade [qty][+][validate], Downgrade [-]
+ * Layout: Level display, Upgrade [-][qty][+][OK] OR STOP button (if pending), Downgrade button
  */
 export function renderUpgradeActions(
   properties: BuildingPropertyValue[],
@@ -702,72 +702,87 @@ export function renderUpgradeActions(
   }
   container.appendChild(levelText);
 
-  // Upgrade row: Upgrade [qty] [+] [VALIDATE]
-  const upgradeRow = document.createElement('div');
-  upgradeRow.className = 'upgrade-row';
+  // If there's a pending upgrade, show STOP button instead of upgrade controls
+  if (isUpgrading && pending > 0) {
+    const stopBtn = document.createElement('button');
+    stopBtn.className = 'upgrade-stop-btn';
+    stopBtn.textContent = 'STOP';
+    stopBtn.onclick = () => {
+      if (onAction) {
+        onAction('STOP_UPGRADE');
+      }
+    };
+    container.appendChild(stopBtn);
+  } else {
+    // Normal upgrade controls: Upgrade [-] [qty] [+] [OK]
+    const upgradeRow = document.createElement('div');
+    upgradeRow.className = 'upgrade-row';
 
-  const upgradeLabel = document.createElement('span');
-  upgradeLabel.className = 'upgrade-label';
-  upgradeLabel.textContent = 'Upgrade';
+    const upgradeLabel = document.createElement('span');
+    upgradeLabel.className = 'upgrade-label';
+    upgradeLabel.textContent = 'Upgrade';
 
-  const qtyInput = document.createElement('input');
-  qtyInput.type = 'number';
-  qtyInput.className = 'upgrade-qty-input';
-  qtyInput.min = '1';
-  qtyInput.max = Math.max(1, maxLevel - currentLevel).toString();
-  qtyInput.value = '1';
-  qtyInput.disabled = currentLevel >= maxLevel;
+    const decrementBtn = document.createElement('button');
+    decrementBtn.className = 'upgrade-decrement-btn';
+    decrementBtn.textContent = '-';
+    decrementBtn.disabled = currentLevel >= maxLevel;
+    decrementBtn.onclick = () => {
+      const current = parseInt(qtyInput.value) || 1;
+      if (current > 1) {
+        qtyInput.value = (current - 1).toString();
+      }
+    };
 
-  const incrementBtn = document.createElement('button');
-  incrementBtn.className = 'upgrade-increment-btn';
-  incrementBtn.textContent = '+';
-  incrementBtn.disabled = currentLevel >= maxLevel;
-  incrementBtn.onclick = () => {
-    const current = parseInt(qtyInput.value) || 1;
-    const max = parseInt(qtyInput.max);
-    if (current < max) {
-      qtyInput.value = (current + 1).toString();
-    }
-  };
+    const qtyInput = document.createElement('input');
+    qtyInput.type = 'number';
+    qtyInput.className = 'upgrade-qty-input';
+    qtyInput.min = '1';
+    qtyInput.max = Math.max(1, maxLevel - currentLevel).toString();
+    qtyInput.value = '1';
+    qtyInput.disabled = currentLevel >= maxLevel;
 
-  const validateBtn = document.createElement('button');
-  validateBtn.className = 'upgrade-validate-btn';
-  validateBtn.textContent = 'VALIDATE';
-  validateBtn.disabled = currentLevel >= maxLevel;
-  validateBtn.onclick = () => {
-    const count = parseInt(qtyInput.value) || 1;
-    if (onAction && count > 0 && currentLevel < maxLevel) {
-      onAction('START_UPGRADE', count);
-    }
-  };
+    const incrementBtn = document.createElement('button');
+    incrementBtn.className = 'upgrade-increment-btn';
+    incrementBtn.textContent = '+';
+    incrementBtn.disabled = currentLevel >= maxLevel;
+    incrementBtn.onclick = () => {
+      const current = parseInt(qtyInput.value) || 1;
+      const max = parseInt(qtyInput.max);
+      if (current < max) {
+        qtyInput.value = (current + 1).toString();
+      }
+    };
 
-  upgradeRow.appendChild(upgradeLabel);
-  upgradeRow.appendChild(qtyInput);
-  upgradeRow.appendChild(incrementBtn);
-  upgradeRow.appendChild(validateBtn);
-  container.appendChild(upgradeRow);
+    const validateBtn = document.createElement('button');
+    validateBtn.className = 'upgrade-validate-btn';
+    validateBtn.textContent = 'OK';
+    validateBtn.disabled = currentLevel >= maxLevel;
+    validateBtn.onclick = () => {
+      const count = parseInt(qtyInput.value) || 1;
+      if (onAction && count > 0 && currentLevel < maxLevel) {
+        onAction('START_UPGRADE', count);
+      }
+    };
 
-  // Downgrade row: Downgrade [-]
-  const downgradeRow = document.createElement('div');
-  downgradeRow.className = 'downgrade-row';
+    upgradeRow.appendChild(upgradeLabel);
+    upgradeRow.appendChild(decrementBtn);
+    upgradeRow.appendChild(qtyInput);
+    upgradeRow.appendChild(incrementBtn);
+    upgradeRow.appendChild(validateBtn);
+    container.appendChild(upgradeRow);
+  }
 
-  const downgradeLabel = document.createElement('span');
-  downgradeLabel.className = 'downgrade-label';
-  downgradeLabel.textContent = 'Downgrade';
-
+  // Downgrade button (separate red button)
   const downgradeBtn = document.createElement('button');
   downgradeBtn.className = 'downgrade-btn';
-  downgradeBtn.textContent = '-';
+  downgradeBtn.textContent = 'Downgrade';
   downgradeBtn.disabled = currentLevel <= 0;
   downgradeBtn.onclick = () => {
     if (onAction && currentLevel > 0) {
       onAction('DOWNGRADE');
     }
   };
-
-  downgradeRow.appendChild(downgradeLabel);
-  downgradeRow.appendChild(downgradeBtn);
-  container.appendChild(downgradeRow);
+  container.appendChild(downgradeBtn);
 
   return container;
 }

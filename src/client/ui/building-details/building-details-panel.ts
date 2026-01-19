@@ -728,13 +728,14 @@ export class BuildingDetailsPanel {
 
 	/**
 	 * Wire up upgrade action button handlers
-	 * Simplified interface: VALIDATE button and Downgrade button only
+	 * Interface: OK button, STOP button (when pending), Downgrade button
 	 */
 	private wireUpgradeActions(): void {
 	  if (!this.contentContainer || !this.currentDetails) return;
 
 	  // Find all upgrade action elements
 	  const validateBtn = this.contentContainer.querySelector('.upgrade-validate-btn') as HTMLButtonElement;
+	  const stopBtn = this.contentContainer.querySelector('.upgrade-stop-btn') as HTMLButtonElement;
 	  const downgradeBtn = this.contentContainer.querySelector('.downgrade-btn') as HTMLButtonElement;
 	  const qtyInput = this.contentContainer.querySelector('.upgrade-qty-input') as HTMLInputElement;
 
@@ -744,15 +745,51 @@ export class BuildingDetailsPanel {
 		  const count = parseInt(qtyInput.value) || 1;
 		  if (this.options.onUpgradeAction && count > 0) {
 			await this.options.onUpgradeAction('START_UPGRADE', count);
+
+			// Auto-refresh 1 second after upgrade action to show updated status
+			if (this.options.onRefresh) {
+			  setTimeout(async () => {
+				if (this.options.onRefresh) {
+				  await this.options.onRefresh();
+				}
+			  }, 1000);
+			}
 		  }
 		};
 	  }
 
-	  // Downgrade button (-) - Downgrade by 1
+	  // Stop button - Stop pending upgrade
+	  if (stopBtn) {
+		stopBtn.onclick = async () => {
+		  if (this.options.onUpgradeAction) {
+			await this.options.onUpgradeAction('STOP_UPGRADE');
+
+			// Auto-refresh 1 second after stop action to show updated status
+			if (this.options.onRefresh) {
+			  setTimeout(async () => {
+				if (this.options.onRefresh) {
+				  await this.options.onRefresh();
+				}
+			  }, 1000);
+			}
+		  }
+		};
+	  }
+
+	  // Downgrade button - Downgrade by 1
 	  if (downgradeBtn) {
 		downgradeBtn.onclick = async () => {
 		  if (this.options.onUpgradeAction) {
 			await this.options.onUpgradeAction('DOWNGRADE');
+
+			// Auto-refresh 1 second after downgrade action to show updated status
+			if (this.options.onRefresh) {
+			  setTimeout(async () => {
+				if (this.options.onRefresh) {
+				  await this.options.onRefresh();
+				}
+			  }, 1000);
+			}
 		  }
 		};
 	  }
