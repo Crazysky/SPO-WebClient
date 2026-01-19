@@ -30,10 +30,8 @@ nul
 *.tmp
 
 # Cache directory (files downloaded from update server at startup)
+# This entire directory is regenerated automatically and should not be tracked
 cache/
-# Keep the BuildingClasses directory for local facility_db.csv
-!BuildingClasses/
-!BuildingClasses/facility_db.csv
 
 # Claude AI context (optional - remove if you want to track this)
 .claude/
