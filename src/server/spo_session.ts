@@ -1401,6 +1401,51 @@ private parseSegments(rawLines: string[]): MapSegment[] {
     }
   }
 
+  /**
+   * Delete a facility (building)
+   * RDO command: C sel <World ID> call RDODelFacility "^" "#<x>","#<y>";
+   * Note: sel uses worldId (from idof World), NOT building's CurrBlock ID
+   */
+  public async deleteFacility(x: number, y: number): Promise<{ success: boolean, message?: string }> {
+    try {
+      console.log(`[Session] Deleting building at (${x}, ${y})`);
+
+      // Ensure construction service is connected (handles building operations on port 7001)
+      if (!this.sockets.has('construction')) {
+        console.log('[Session] Construction service not connected, connecting now...');
+        await this.connectConstructionService();
+      }
+
+      // Verify worldId is available (obtained from "idof World" during connection)
+      if (!this.worldId) {
+        return { success: false, message: 'Construction service not properly initialized - worldId is null' };
+      }
+
+      // Send RDO CALL command to Construction server (port 7001)
+      // Format: C sel <World ID> call RDODelFacility "^" "#<x>","#<y>";
+      // Note: sel must use worldId (from idof World), NOT buildingId (CurrBlock)
+      const result = await this.sendRdoRequest('construction', {
+        verb: RdoVerb.SEL,
+        targetId: this.worldId,  // Use World ID, not building CurrBlock ID
+        action: RdoAction.CALL,
+        member: 'RDODelFacility',
+        separator: '"^"',  // Variant return type
+        args: [`#${x}`, `#${y}`]  // Coordinates as integers
+      });
+
+      console.log(`[Session] Building deleted successfully, result: ${result}`);
+
+      // Clear focused building since it no longer exists
+      this.currentFocusedBuildingId = null;
+      this.currentFocusedCoords = null;
+
+      return { success: true, message: 'Building deleted successfully' };
+    } catch (e: any) {
+      console.error(`[Session] Failed to delete building:`, e);
+      return { success: false, message: e.message || 'Failed to delete building' };
+    }
+  }
+
   public async executeRdo(serviceName: string, packetData: Partial<RdoPacket>): Promise<string> {
     if (!this.sockets.has(serviceName)) {
       throw new Error(`Service ${serviceName} not connected`);

@@ -52,6 +52,9 @@ import {
   // Building Rename
   WsReqRenameFacility,
   WsRespRenameFacility,
+  // Building Deletion
+  WsReqDeleteFacility,
+  WsRespDeleteFacility,
 } from '../shared/types';
 import { getErrorMessage } from '../shared/error-codes';
 import { UIManager } from './ui/ui-manager';
@@ -620,6 +623,10 @@ export class StarpeaceClient {
           async (newName) => {
             // Rename callback
             await this.renameFacility(x, y, newName);
+          },
+          async () => {
+            // Delete callback
+            await this.deleteFacility(x, y);
           }
         );
       } else {
@@ -662,6 +669,10 @@ export class StarpeaceClient {
           async (newName) => {
             // Rename callback
             await this.renameFacility(x, y, newName);
+          },
+          async () => {
+            // Delete callback
+            await this.deleteFacility(x, y);
           }
         );
       }
@@ -834,6 +845,36 @@ export class StarpeaceClient {
       }
     } catch (err: any) {
       this.ui.log('Error', `Failed to rename building: ${err.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Delete a facility (building)
+   */
+  public async deleteFacility(x: number, y: number): Promise<boolean> {
+    this.ui.log('Building', `Deleting building at (${x}, ${y})`);
+
+    try {
+      const req: WsReqDeleteFacility = {
+        type: WsMessageType.REQ_DELETE_FACILITY,
+        x,
+        y
+      };
+
+      const response = await this.sendRequest(req) as WsRespDeleteFacility;
+
+      if (response.success) {
+        this.ui.log('Building', 'Building deleted successfully');
+        // Refresh the map to remove the deleted building
+        await this.loadMapArea(this.currentX, this.currentY, 50, 50);
+        return true;
+      } else {
+        this.ui.log('Error', response.message || 'Failed to delete building');
+        return false;
+      }
+    } catch (err: any) {
+      this.ui.log('Error', `Failed to delete building: ${err.message}`);
       return false;
     }
   }

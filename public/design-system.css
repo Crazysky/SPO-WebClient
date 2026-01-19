@@ -488,6 +488,7 @@ body {
   align-items: center;
 }
 
+.header-delete-btn,
 .header-refresh-btn,
 .header-close-btn {
   background: rgba(255, 255, 255, 0.2);
@@ -503,6 +504,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.header-delete-btn {
+  background: rgba(239, 68, 68, 0.2); /* Red with transparency */
+}
+
+.header-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.4);
 }
 
 .header-refresh-btn:hover,
@@ -1299,4 +1308,93 @@ body {
 .downgrade-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* ============================================
+   DELETE CONFIRMATION DIALOG
+   ============================================ */
+
+.delete-confirmation-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.delete-confirmation-dialog {
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  width: 400px;
+  max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  animation: scaleIn 0.2s ease-out;
+}
+
+.delete-confirmation-dialog h3 {
+  margin: 0 0 var(--space-4) 0;
+  color: var(--error);
+  font-size: var(--text-xl);
+  font-weight: 600;
+}
+
+.delete-confirmation-dialog p {
+  margin: 0 0 var(--space-6) 0;
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  line-height: 1.6;
+}
+
+.delete-confirmation-buttons {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+
+.delete-confirm-btn,
+.delete-cancel-btn {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.delete-confirm-btn {
+  background: var(--error);
+  color: white;
+}
+
+.delete-confirm-btn:hover {
+  background: #DC2626; /* Darker red */
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+}
+
+.delete-cancel-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.delete-cancel-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }

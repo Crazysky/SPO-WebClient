@@ -377,8 +377,60 @@ Provide:
 - **Tasks:** Add world selector to main screen, implement disconnect/reconnect logic, preserve session state
 
 #### Map - Destroy Building
+- **Status:** ✅ COMPLETED (January 2026)
 - **Goal:** Allow building owners to demolish their buildings
-- **Tasks:** Add "Destroy" action to building context menu, confirm dialog, RDO demolish call, refresh map
+- **Implementation:**
+  - **UI Components:** [src/client/ui/building-details/building-details-panel.ts](src/client/ui/building-details/building-details-panel.ts)
+    - Added trash icon button (🗑️) in panel header (left of refresh button)
+    - Confirmation popup modal with building name display
+    - Confirm (red) and Cancel (gray) buttons
+    - Click outside backdrop to dismiss
+    - State management prevents multiple simultaneous deletions
+  - **WebSocket Protocol:** [src/shared/types.ts](src/shared/types.ts)
+    - Message types: `REQ_DELETE_FACILITY` / `RESP_DELETE_FACILITY`
+    - Request: `{ x, y }` - Building coordinates
+    - Response: `{ success, message }` - Deletion result
+  - **Server-side:** [src/server/spo_session.ts](src/server/spo_session.ts:1404-1447)
+    - `deleteFacility(x, y)` method
+    - RDO protocol: `C sel <World ID> call RDODelFacility "^" "#<x>","#<y>";`
+    - **Critical:** Uses `worldId` (from `idof World`), NOT building's CurrBlock ID
+    - Auto-connects to Construction Service (port 7001) if needed
+    - Clears focused building cache after successful deletion
+  - **Gateway Handler:** [src/server/server.ts](src/server/server.ts:766-791)
+    - `REQ_DELETE_FACILITY` message handler
+    - Calls `session.deleteFacility()` and returns WebSocket response
+    - Error handling with proper error codes
+  - **Client Integration:** [src/client/client.ts](src/client/client.ts:842-867)
+    - `deleteFacility(x, y)` method sends WebSocket request
+    - Automatically refreshes map after successful deletion
+    - UI log messages for user feedback
+  - **UI Manager:** [src/client/ui/ui-manager.ts](src/client/ui/ui-manager.ts:115-133)
+    - Updated `showBuildingDetailsPanel()` to accept `onDelete` callback
+  - **CSS Styling:** [public/design-system.css](public/design-system.css:491-1396)
+    - `.header-delete-btn` - Red-themed trash button with transparency
+    - `.delete-confirmation-backdrop` - Full-screen dark overlay
+    - `.delete-confirmation-dialog` - Centered modal with glassmorphism
+    - `.delete-confirm-btn` / `.delete-cancel-btn` - Red confirm, gray cancel
+    - Animations: fadeIn for backdrop, scaleIn for dialog
+- **Features:**
+  - Trash icon button (🗑️) in building details panel header
+  - Two-step safety: Click delete → Confirm/Cancel dialog
+  - Shows building name in confirmation message
+  - Red-themed UI for destructive action
+  - Automatic panel close and map refresh after deletion
+  - Click outside backdrop to cancel
+- **RDO Protocol Format:** `C sel <World ID> call RDODelFacility "^" "#<x>","#<y>";`
+- **API Endpoints:** REQ_DELETE_FACILITY / RESP_DELETE_FACILITY
+- **Important Notes:**
+  - `sel` parameter MUST use `worldId` obtained from `idof World` request
+  - Does NOT use building's `CurrBlock` ID (unlike rename/property updates)
+  - Coordinates are the only parameters needed after World ID is established
+- **Benefits:**
+  - Safe deletion with confirmation popup
+  - Professional UX with red-themed destructive action styling
+  - Proper RDO CALL command formatting
+  - Automatic cleanup of focused building state
+  - Map refreshes immediately to show deletion
 
 #### Map - Set Zone (Public Office Feature)
 - **Goal:** Allow users with public office roles to define building types per map tile (zoning)

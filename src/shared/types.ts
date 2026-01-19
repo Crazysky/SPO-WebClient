@@ -172,6 +172,10 @@ export enum WsMessageType {
   REQ_RENAME_FACILITY = 'REQ_RENAME_FACILITY',
   RESP_RENAME_FACILITY = 'RESP_RENAME_FACILITY',
 
+  // Building Deletion
+  REQ_DELETE_FACILITY = 'REQ_DELETE_FACILITY',
+  RESP_DELETE_FACILITY = 'RESP_DELETE_FACILITY',
+
 }
 
 export interface WsMessage {
@@ -785,5 +789,23 @@ export interface WsRespRenameFacility extends WsMessage {
   type: WsMessageType.RESP_RENAME_FACILITY;
   success: boolean;
   newName: string;
+  message?: string;
+}
+
+/**
+ * Request to delete a facility
+ */
+export interface WsReqDeleteFacility extends WsMessage {
+  type: WsMessageType.REQ_DELETE_FACILITY;
+  x: number;
+  y: number;
+}
+
+/**
+ * Response after deletion action
+ */
+export interface WsRespDeleteFacility extends WsMessage {
+  type: WsMessageType.RESP_DELETE_FACILITY;
+  success: boolean;
   message?: string;
 }

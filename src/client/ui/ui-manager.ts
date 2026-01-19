@@ -118,7 +118,8 @@ export class UIManager {
     onNavigateToBuilding?: (x: number, y: number) => void,
     onUpgradeAction?: (action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE', count?: number) => Promise<void>,
     onRefresh?: () => Promise<void>,
-    onRename?: (newName: string) => Promise<void>
+    onRename?: (newName: string) => Promise<void>,
+    onDelete?: () => Promise<void>
   ) {
     if (this.buildingDetailsPanel) {
       // Update options with callbacks
@@ -128,6 +129,7 @@ export class UIManager {
       options.onUpgradeAction = onUpgradeAction;
       options.onRefresh = onRefresh;
       options.onRename = onRename;
+      options.onDelete = onDelete;
       this.buildingDetailsPanel.show(details);
     }
   }

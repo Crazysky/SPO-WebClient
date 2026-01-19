@@ -58,6 +58,9 @@ import {
   // Building Rename
   WsReqRenameFacility,
   WsRespRenameFacility,
+  // Building Deletion
+  WsReqDeleteFacility,
+  WsRespDeleteFacility,
 } from '../shared/types';
 
 /**
@@ -756,6 +759,33 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, msg
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
             errorMessage: err.message || 'Failed to rename facility',
+            code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      case WsMessageType.REQ_DELETE_FACILITY: {
+        const req = msg as WsReqDeleteFacility;
+        console.log(`[Gateway] Delete facility at (${req.x}, ${req.y})`);
+
+        try {
+          const result = await session.deleteFacility(req.x, req.y);
+
+          const response: WsRespDeleteFacility = {
+            type: WsMessageType.RESP_DELETE_FACILITY,
+            wsRequestId: msg.wsRequestId,
+            success: result.success,
+            message: result.message
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: any) {
+          console.error('[Gateway] Failed to delete facility:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: err.message || 'Failed to delete facility',
             code: ErrorCodes.ERROR_AccessDenied
           };
           ws.send(JSON.stringify(errorResp));

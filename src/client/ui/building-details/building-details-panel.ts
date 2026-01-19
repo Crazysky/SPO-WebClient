@@ -23,6 +23,7 @@ export interface BuildingDetailsPanelOptions {
   onUpgradeAction?: (action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE', count?: number) => Promise<void>;
   onRefresh?: () => Promise<void>;
   onRename?: (newName: string) => Promise<void>;
+  onDelete?: () => Promise<void>;
 }
 
 export class BuildingDetailsPanel {
@@ -134,6 +135,15 @@ export class BuildingDetailsPanel {
     const buttonContainer = document.createElement('div');
     buttonContainer.className = 'header-buttons';
 
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'header-delete-btn';
+    deleteBtn.innerHTML = '🗑️';
+    deleteBtn.title = 'Delete building';
+    deleteBtn.onclick = (e) => {
+      e.stopPropagation();
+      this.showDeleteConfirmation();
+    };
+
     const refreshBtn = document.createElement('button');
     refreshBtn.className = 'header-refresh-btn';
     refreshBtn.innerHTML = '↻';
@@ -155,6 +165,7 @@ export class BuildingDetailsPanel {
       }
     };
 
+    buttonContainer.appendChild(deleteBtn);
     buttonContainer.appendChild(refreshBtn);
     buttonContainer.appendChild(closeBtn);
 
@@ -388,6 +399,81 @@ export class BuildingDetailsPanel {
     if (input) input.remove();
     if (confirmBtn) confirmBtn.remove();
     if (cancelBtn) cancelBtn.remove();
+  }
+
+  /**
+   * Show delete confirmation popup
+   */
+  private showDeleteConfirmation(): void {
+    if (!this.currentDetails) return;
+
+    // Create modal backdrop
+    const backdrop = document.createElement('div');
+    backdrop.className = 'delete-confirmation-backdrop';
+
+    // Create confirmation dialog
+    const dialog = document.createElement('div');
+    dialog.className = 'delete-confirmation-dialog';
+
+    const title = document.createElement('h3');
+    title.textContent = 'Delete Building';
+
+    const message = document.createElement('p');
+    message.textContent = `Are you sure you want to delete "${this.currentDetails.buildingName || 'this building'}"? This action cannot be undone.`;
+
+    const buttonContainer = document.createElement('div');
+    buttonContainer.className = 'delete-confirmation-buttons';
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'delete-confirm-btn';
+    confirmBtn.textContent = 'Confirm';
+    confirmBtn.onclick = async () => {
+      backdrop.remove();
+      await this.handleDelete();
+    };
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'delete-cancel-btn';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = () => {
+      backdrop.remove();
+    };
+
+    buttonContainer.appendChild(cancelBtn);
+    buttonContainer.appendChild(confirmBtn);
+
+    dialog.appendChild(title);
+    dialog.appendChild(message);
+    dialog.appendChild(buttonContainer);
+    backdrop.appendChild(dialog);
+
+    // Add to container
+    this.container.appendChild(backdrop);
+
+    // Close on backdrop click
+    backdrop.onclick = (e) => {
+      if (e.target === backdrop) {
+        backdrop.remove();
+      }
+    };
+  }
+
+  /**
+   * Handle delete action
+   */
+  private async handleDelete(): Promise<void> {
+    if (!this.currentDetails || !this.options.onDelete) return;
+
+    try {
+      await this.options.onDelete();
+      // Close the panel after successful deletion
+      this.hide();
+      if (this.options.onClose) {
+        this.options.onClose();
+      }
+    } catch (error) {
+      console.error('Failed to delete building:', error);
+    }
   }
 
   /**
