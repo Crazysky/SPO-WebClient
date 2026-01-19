@@ -184,9 +184,11 @@ export function parsePeopleSearchResults(html: string): string[] {
   const results: string[] = [];
 
   // Find tycoon names from the results list
-  $('tr[onmouseOver="onItemMouseOver()"]').each((_, el) => {
+  // Use dirHref attribute selector (case-insensitive and reliable)
+  $('tr[dirhref]').each((_, el) => {
     const $row = $(el);
-    const name = $row.find('.ItemHeader').text().trim();
+    // Try both .ItemHeader (used in towns/people) and .listItem (used in rankings)
+    const name = $row.find('.ItemHeader, .listItem').text().trim();
     if (name) {
       results.push(name);
     }
@@ -200,31 +202,38 @@ export function parsePeopleSearchResults(html: string): string[] {
  */
 export function parseRankingsPage(html: string): RankingCategory[] {
   const $ = cheerio.load(html);
-  const categories: RankingCategory[] = [];
 
   function parseLevel(container: any, level: number): RankingCategory[] {
     const items: RankingCategory[] = [];
 
-    container.children('tr[onmouseOver="onItemMouseOver()"]').each((_: any, el: any) => {
+    // Use dirHref attribute selector (case-insensitive and reliable)
+    container.find('tr[dirhref]').each((_: any, el: any) => {
       const $row = $(el);
-      const dirHref = $row.attr('dirHref');
+
+      // Only process direct children of current container (prevent processing nested items multiple times)
+      if ($row.closest('table')[0] !== container[0]) return;
+
+      const dirHref = $row.attr('dirhref') || $row.attr('dirHref');
       const label = $row.find('.listItem').text().trim();
       const levelClass = $row.find(`td.level${level}`).length > 0;
 
-      if (!dirHref || !label) return;
+      if (!dirHref || !label || !levelClass) return;
 
       const item: RankingCategory = {
         id: dirHref,
-        label: label.replace(/\s+/g, ' '),
+        label: label.replace(/\s+/g, ' ').replace(/&nbsp;/g, '').trim(),
         url: dirHref,
         level,
         children: []
       };
 
       // Check for nested table (children)
-      const $nextRow = $row.next().next(); // Skip gradient row
-      if ($nextRow.length && $nextRow.find('table').length) {
-        const $childTable = $nextRow.find('table').first();
+      // Structure: <tr> (current) -> <tr> (gradient) -> <tr> (containing nested table)
+      const $gradientRow = $row.next(); // Gradient row
+      const $tableRow = $gradientRow.next(); // Row containing nested table
+      const $childTable = $tableRow.find('> td > table').first();
+
+      if ($childTable.length) {
         item.children = parseLevel($childTable, level + 1);
       }
 
@@ -234,7 +243,7 @@ export function parseRankingsPage(html: string): RankingCategory[] {
     return items;
   }
 
-  const $mainTable = $('body > table').first();
+  const $mainTable = $('body table').first();
   return parseLevel($mainTable, 0);
 }
 

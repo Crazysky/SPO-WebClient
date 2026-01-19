@@ -152,7 +152,10 @@ export class SearchMenuService {
    * Get tycoon profile
    */
   async getTycoonProfile(tycoonName: string): Promise<TycoonProfile> {
-    const path = `/five/0/visual/voyager/new%20directory/RenderTycoon.asp?WorldName=${encodeURIComponent(this.worldName)}&Tycoon=${encodeURIComponent(tycoonName)}&RIWS=`;
+    // Special case: "YOU" means current user
+    const actualName = tycoonName === 'YOU' ? this.tycoonName : tycoonName;
+
+    const path = `/five/0/visual/voyager/new%20directory/RenderTycoon.asp?WorldName=${encodeURIComponent(this.worldName)}&Tycoon=${encodeURIComponent(actualName)}&RIWS=`;
 
     const html = await this.fetchPage(path);
     const baseUrl = `http://${this.daAddr}`;
@@ -189,7 +192,23 @@ export class SearchMenuService {
    * Get ranking detail
    */
   async getRankingDetail(rankingPath: string): Promise<{ title: string; entries: RankingEntry[] }> {
-    const path = `/five/0/visual/voyager/new%20directory/ranking.asp?WorldName=${encodeURIComponent(this.worldName)}&Ranking=${encodeURIComponent(rankingPath)}&frame_Id=RankingView&frame_Class=HTMLView&frame_Align=client&frame_NoBorder=yes&RIWS=&LangId=0`;
+    // rankingPath is the full dirHref URL from rankings page
+    // We need to make the same request with our WorldName
+    // The URL format is: ranking.asp?WorldName=X&Ranking=Rankings\Path\To\Ranking.five&...
+
+    // Extract the Ranking parameter value from the URL if it's a full URL
+    let rankingValue = rankingPath;
+    if (rankingPath.includes('?')) {
+      // It's a full URL, extract the Ranking parameter
+      const match = rankingPath.match(/[?&]Ranking=([^&]+)/);
+      if (match) {
+        rankingValue = match[1];
+      }
+    }
+
+    // Build the path with proper encoding
+    // Note: The Ranking parameter contains backslashes that must be preserved
+    const path = `/five/0/visual/voyager/new%20directory/ranking.asp?WorldName=${encodeURIComponent(this.worldName)}&Ranking=${rankingValue}&frame_Id=RankingView&frame_Class=HTMLView&frame_Align=client&frame_NoBorder=yes&RIWS=&LangId=0`;
 
     const html = await this.fetchPage(path);
     const baseUrl = `http://${this.daAddr}`;

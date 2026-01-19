@@ -103,6 +103,15 @@ if (!fs.existsSync(IMAGE_CACHE_DIR)) {
 }
 
 /**
+ * Generate a placeholder image (1x1 transparent PNG)
+ */
+function getPlaceholderImage(): Buffer {
+  // 1x1 transparent PNG (base64 encoded)
+  const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  return Buffer.from(base64, 'base64');
+}
+
+/**
  * Proxy image from remote server to avoid CORS/Referer blocking
  */
 async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<void> {
@@ -142,8 +151,11 @@ async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<v
     res.end(buffer);
   } catch (error) {
     console.error(`[ImageProxy] Failed to fetch ${imageUrl}:`, error);
-    res.writeHead(404);
-    res.end('Image not found');
+
+    // Return placeholder image instead of 404
+    const placeholder = getPlaceholderImage();
+    res.writeHead(200, { 'Content-Type': 'image/png' });
+    res.end(placeholder);
   }
 }
 

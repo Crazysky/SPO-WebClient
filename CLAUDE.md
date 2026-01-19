@@ -387,6 +387,14 @@ Provide:
   - Fixed timeout issue: `fetchPage()` now uses `daAddr` instead of `interfaceServerHost`
   - Fixed message routing: Created separate `sendMessage()` method without `wsRequestId` to bypass Promise system
   - Fixed category click handlers: Updated switch/case to match actual ASP filenames (Tycoons, RenderTycoon)
+  - **Parser Fixes (January 2026):**
+    - **"YOU" profile button:** Fixed to use actual tycoon name from session instead of literal string "YOU" ([src/server/search-menu-service.ts:154-156](src/server/search-menu-service.ts#L154-L156))
+    - **Rankings page empty:** Fixed case-sensitive HTML attribute selectors - changed from `tr[onmouseOver]` to `tr[dirhref]` for reliable parsing ([src/server/search-menu-parser.ts:209](src/server/search-menu-parser.ts#L209))
+    - **People search "no results":** Fixed selector to use `tr[dirhref]` instead of case-sensitive event handler attributes ([src/server/search-menu-parser.ts:189](src/server/search-menu-parser.ts#L189))
+    - **Rankings tree structure:** Fixed nested table detection logic - correctly traverses gradient rows to find child tables ([src/server/search-menu-parser.ts:233-237](src/server/search-menu-parser.ts#L233-L237))
+    - **Ranking detail 500 error:** Fixed URL parameter extraction - extracts `Ranking` value from full dirHref URL and preserves backslashes in path ([src/server/search-menu-service.ts:194-210](src/server/search-menu-service.ts#L194-L210))
+    - **Missing profile pictures:** Added 1x1 transparent PNG placeholder for 404 images instead of error response ([src/server/server.ts:108-113](src/server/server.ts#L108-L113), [src/server/server.ts:149-153](src/server/server.ts#L149-L153))
+    - **Root cause:** HTML uses `onMouseOver` (capital M, capital O) but cheerio selectors were case-sensitive; switched to attribute-based selectors (`dirHref`) for reliability
 - **API Endpoints:** REQ/RESP pairs for HOME, TOWNS, TYCOON_PROFILE, PEOPLE, PEOPLE_SEARCH, RANKINGS, RANKING_DETAIL, BANKS
 - **Documentation:**
   - [SEARCH_MENU_SIMULATION.md](SEARCH_MENU_SIMULATION.md) - Complete URL patterns and testing guide
