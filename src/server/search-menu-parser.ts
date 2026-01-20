@@ -34,7 +34,7 @@ export function parseHomePage(html: string, baseUrl: string): SearchMenuCategory
         id: ref.split('.asp')[0].split('/').pop() || label.toLowerCase(),
         label,
         enabled,
-        iconUrl: imgSrc ? `${baseUrl}${imgSrc}` : undefined
+        iconUrl: imgSrc ? `${baseUrl}/${imgSrc}` : undefined
       });
     }
   });
@@ -54,7 +54,7 @@ export function parseHomePage(html: string, baseUrl: string): SearchMenuCategory
         id: label.toLowerCase().replace(/\s+/g, '-'),
         label,
         enabled: false,
-        iconUrl: imgSrc ? `${baseUrl}${imgSrc}` : undefined
+        iconUrl: imgSrc ? `${baseUrl}/${imgSrc}` : undefined
       });
     }
   });
@@ -111,7 +111,7 @@ export function parseTownsPage(html: string, baseUrl: string): TownInfo[] {
 
     towns.push({
       name,
-      iconUrl: iconUrl ? `${baseUrl}${iconUrl}` : '',
+      iconUrl: iconUrl ? `${baseUrl}/${iconUrl}` : '',
       mayor,
       population,
       unemploymentPercent,
@@ -165,7 +165,7 @@ export function parseTycoonProfile(html: string, baseUrl: string): TycoonProfile
 
   return {
     name,
-    photoUrl: photoUrl.startsWith('http') ? photoUrl : `${baseUrl}${photoUrl}`,
+    photoUrl: photoUrl.startsWith('http') ? photoUrl : `${baseUrl}/${photoUrl}`,
     fortune,
     thisYearProfit,
     ntaRanking,
@@ -271,7 +271,7 @@ export function parseRankingDetail(html: string, baseUrl: string): { title: stri
         rank: parseInt(rankMatch[1], 10),
         name: nameMatch[1].trim(),
         value: valueMatch ? parseInt(valueMatch[1], 10) : 0,
-        photoUrl: $img.attr('src') ? `${baseUrl}${$img.attr('src')}` : undefined
+        photoUrl: $img.attr('src') ? `${baseUrl}/${$img.attr('src')}` : undefined
       });
     }
   });
