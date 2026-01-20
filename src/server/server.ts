@@ -123,10 +123,11 @@ function getPlaceholderImage(): Buffer {
  * Checks update cache first, then falls back to downloading from game server
  */
 async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<void> {
+  // Extract filename from URL (keep original name for debugging)
+  const urlParts = imageUrl.split('/');
+  const filename = urlParts[urlParts.length - 1] || 'unknown.gif';
+
   try {
-    // Extract filename from URL (keep original name for debugging)
-    const urlParts = imageUrl.split('/');
-    const filename = urlParts[urlParts.length - 1] || 'unknown.gif';
 
     // Try to find image in update cache (scans all subdirectories dynamically)
     const CACHE_ROOT = path.join(__dirname, '../../cache');
@@ -235,8 +236,13 @@ async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<v
   } catch (error) {
     console.error(`[ImageProxy] Failed to fetch ${imageUrl}:`, error);
 
-    // Return placeholder image instead of 404
+    // Cache the placeholder to avoid repeated failed downloads
     const placeholder = getPlaceholderImage();
+    const webclientImagePath = path.join(WEBCLIENT_CACHE_DIR, filename);
+    fs.writeFileSync(webclientImagePath, placeholder);
+    console.log(`[ImageProxy] Cached placeholder for missing image: ${filename}`);
+
+    // Return placeholder image instead of 404
     res.writeHead(200, { 'Content-Type': 'image/png' });
     res.end(placeholder);
   }
