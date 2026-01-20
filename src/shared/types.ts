@@ -26,6 +26,7 @@ export interface CompanyInfo {
   id: string;
   name: string;
   value?: number;
+  ownerRole?: string; // Role de fonction publique (Maire, Ministre, Président) ou username du joueur
 }
 
 export interface BuildingFocusInfo {
@@ -107,6 +108,7 @@ export enum WsMessageType {
   REQ_RDO_DIRECT = 'REQ_RDO_DIRECT',
   REQ_MAP_LOAD = 'REQ_MAP_LOAD',
   REQ_SELECT_COMPANY = 'REQ_SELECT_COMPANY',
+  REQ_SWITCH_COMPANY = 'REQ_SWITCH_COMPANY',
   REQ_MANAGE_CONSTRUCTION = 'REQ_MANAGE_CONSTRUCTION',
 
   // Gateway -> Client (Responses)
@@ -175,6 +177,12 @@ export enum WsMessageType {
   // Building Deletion
   REQ_DELETE_FACILITY = 'REQ_DELETE_FACILITY',
   RESP_DELETE_FACILITY = 'RESP_DELETE_FACILITY',
+
+  // Road Building
+  REQ_BUILD_ROAD = 'REQ_BUILD_ROAD',
+  RESP_BUILD_ROAD = 'RESP_BUILD_ROAD',
+  REQ_GET_ROAD_COST = 'REQ_GET_ROAD_COST',
+  RESP_GET_ROAD_COST = 'RESP_GET_ROAD_COST',
 
   // Search Menu / Directory
   REQ_SEARCH_MENU_HOME = 'REQ_SEARCH_MENU_HOME',
@@ -306,6 +314,11 @@ export interface WsEventRdoPush extends WsMessage {
 export interface WsReqSelectCompany extends WsMessage {
   type: WsMessageType.REQ_SELECT_COMPANY;
   companyId: string;
+}
+
+export interface WsReqSwitchCompany extends WsMessage {
+  type: WsMessageType.REQ_SWITCH_COMPANY;
+  company: CompanyInfo;
 }
 
 export interface WsRespMapData extends WsMessage {
@@ -1017,4 +1030,89 @@ export interface WsReqSearchMenuBanks extends WsMessage {
 export interface WsRespSearchMenuBanks extends WsMessage {
   type: WsMessageType.RESP_SEARCH_MENU_BANKS;
   banks: any[]; // Usually empty
+}
+
+// =============================================================================
+// 9. ROAD BUILDING FEATURE
+// =============================================================================
+
+/**
+ * Request to build a road segment
+ * Segments must be horizontal or vertical (no diagonals)
+ */
+export interface WsReqBuildRoad extends WsMessage {
+  type: WsMessageType.REQ_BUILD_ROAD;
+  /** Start X coordinate */
+  x1: number;
+  /** Start Y coordinate */
+  y1: number;
+  /** End X coordinate */
+  x2: number;
+  /** End Y coordinate */
+  y2: number;
+}
+
+/**
+ * Response after road building attempt
+ */
+export interface WsRespBuildRoad extends WsMessage {
+  type: WsMessageType.RESP_BUILD_ROAD;
+  /** Whether the road was successfully built */
+  success: boolean;
+  /** Total cost deducted */
+  cost: number;
+  /** Number of tiles built */
+  tileCount: number;
+  /** Error message if failed */
+  message?: string;
+  /** Error code if failed */
+  errorCode?: number;
+}
+
+/**
+ * Request to get road building cost estimate
+ */
+export interface WsReqGetRoadCost extends WsMessage {
+  type: WsMessageType.REQ_GET_ROAD_COST;
+  /** Start X coordinate */
+  x1: number;
+  /** Start Y coordinate */
+  y1: number;
+  /** End X coordinate */
+  x2: number;
+  /** End Y coordinate */
+  y2: number;
+}
+
+/**
+ * Response with road cost estimate
+ */
+export interface WsRespGetRoadCost extends WsMessage {
+  type: WsMessageType.RESP_GET_ROAD_COST;
+  /** Total estimated cost */
+  cost: number;
+  /** Number of tiles */
+  tileCount: number;
+  /** Cost per tile */
+  costPerTile: number;
+}
+
+/**
+ * Road drawing state for client-side tracking
+ */
+export interface RoadDrawingState {
+  /** Whether road drawing mode is active */
+  isDrawing: boolean;
+  /** Start X coordinate (world coordinates) */
+  startX: number;
+  /** Start Y coordinate (world coordinates) */
+  startY: number;
+  /** Current end X coordinate (world coordinates) */
+  endX: number;
+  /** Current end Y coordinate (world coordinates) */
+  endY: number;
+  /** Whether mouse is currently pressed */
+  isMouseDown: boolean;
+  /** Timestamp when mouse was pressed */
+  mouseDownTime: number;
 }

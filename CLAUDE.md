@@ -526,12 +526,135 @@ Provide:
 - **Tasks:** Implement zone editing UI, tile selection, RDO set zone calls, visual zone overlay
 
 #### Map - Build Road (Public Office Feature)
+- **Status:** ✅ COMPLETED (January 2026)
 - **Goal:** Allow authorized users to build roads by defining segments (start/end points)
+- **Implementation:**
+  - **Shared Types:** [src/shared/types.ts](src/shared/types.ts)
+    - Message types: `REQ_BUILD_ROAD`, `RESP_BUILD_ROAD`, `REQ_GET_ROAD_COST`, `RESP_GET_ROAD_COST`
+    - Interfaces: `WsReqBuildRoad`, `WsRespBuildRoad`, `WsReqGetRoadCost`, `WsRespGetRoadCost`
+    - `RoadDrawingState` interface for tracking drawing mode state
+  - **Server-side:** [src/server/spo_session.ts](src/server/spo_session.ts:1560-1620)
+    - `buildRoad(x1, y1, x2, y2)` method - Creates road segment via RDO
+    - `getRoadCostEstimate(x1, y1, x2, y2)` method - Calculates cost preview
+    - RDO protocol: `C sel <WorldContextId> call CreateCircuitSeg "^" "#<circuitId>","#<ownerId>","#<x1>","#<y1>","#<x2>","#<y2>","#<cost>";`
+    - **CRITICAL:** Uses `worldContextId` (from Logon response), NOT `interfaceServerId` (static per world)
+    - **Updated:** Now supports diagonal road segments (Chebyshev distance: `Math.max(dx, dy)`)
+    - Uses `fTycoonProxyId` (from InitClient packet) for road ownership, not `tycoonId`
+    - Cost calculation: `ROAD_COST_PER_TILE * tileCount` (100 per tile)
+  - **Gateway Handler:** [src/server/server.ts](src/server/server.ts:810-860)
+    - `REQ_BUILD_ROAD` message handler - Calls `session.buildRoad()` and returns result
+    - `REQ_GET_ROAD_COST` message handler - Returns cost estimate
+    - Error handling with RDO error code mapping
+  - **Client Renderer:** [src/client/renderer.ts](src/client/renderer.ts:74-90, 640-750)
+    - Road drawing mode state: `roadDrawingMode`, `roadDrawingState`
+    - `setRoadDrawingMode(enabled)` - Toggles drawing mode
+    - `setOnRoadSegmentComplete(callback)` - Callback when segment drawn
+    - `setOnRoadDrawingCancel(callback)` - Callback on ESC/right-click
+    - Mouse event handling: mousedown starts, mousemove updates preview, mouseup completes
+    - `drawRoadDrawingPreview()` - Visual preview with cost display
+    - `checkRoadSegmentCollision()` - Validates no buildings in path
+  - **Client Controller:** [src/client/client.ts](src/client/client.ts:890-970)
+    - `toggleRoadBuildingMode()` - Toggles mode on/off (cancels building placement if active)
+    - `cancelRoadBuildingMode()` - Exits mode and resets UI
+    - `buildRoadSegment(x1, y1, x2, y2)` - Sends WebSocket request, refreshes map on success
+    - ESC key handler for cancellation
+    - Toolbar button callback wiring
+  - **Toolbar UI:** [src/client/ui/toolbar-ui.ts](src/client/ui/toolbar-ui.ts:103-108, 337-354)
+    - Road button (🛤️ icon) with "Build Roads" tooltip
+    - `setOnBuildRoad(callback)` - Sets callback for button click
+    - `setRoadBuildingActive(active)` - Sets button active state (orange styling)
+  - **CSS Styling:** [public/design-system.css](public/design-system.css:1395-1430)
+    - Road button active state: Orange background (#ea580c), orange border
+    - Road preview tooltip styling
+    - Road notification styling
 - **Features:**
-  - Point-to-point road segment creation
-  - Cost preview next to mouse cursor
-  - Tile-by-tile cost calculation
-- **Tasks:** Implement road drawing mode, segment creation logic, cost calculation, RDO build road calls
+  - **Point-to-point drawing:** Click and drag to define segment start/end
+  - **Diagonal roads:** Now supports horizontal, vertical, AND diagonal segments
+  - **Cost preview:** Shows tile count and cost near cursor during drawing
+  - **Collision detection:** Client-side building collision check before sending to server
+  - **Visual feedback:** Orange button highlight when mode active
+  - **ESC/Right-click cancellation:** Easy exit from drawing mode
+  - **Map refresh:** Automatic map refresh after successful road placement
+- **RDO Protocol:**
+  - Command: `CreateCircuitSeg`
+  - Parameters: circuitId (0), ownerId (fTycoonProxyId), x1, y1, x2, y2, cost
+  - Uses `worldContextId` (from Logon response, dynamic per session)
+- **Validation Rules:**
+  - Supports horizontal, vertical, and diagonal segments
+  - Building collision check along entire segment path
+  - Cost must be positive (at least 1 tile)
+- **API Endpoints:** REQ_BUILD_ROAD / RESP_BUILD_ROAD, REQ_GET_ROAD_COST / RESP_GET_ROAD_COST
+- **Bug Fixes (January 2026):**
+  - Fixed to use `worldContextId` instead of `interfaceServerId` for CreateCircuitSeg command
+  - `worldContextId` is dynamic (changes with each login), `interfaceServerId` is static per world
+  - Enables proper road building after company switching
+
+#### Public Office Role System
+- **Status:** ✅ COMPLETED (January 2026)
+- **Goal:** Support public office roles (Mayor, Minister, President) with role-based authentication and company switching
+- **Architecture:**
+  - **Role-based companies:** Players can have special companies representing public office positions
+  - **Company ownership role:** Identified by `companyOwnerRole` attribute in company list (HTML response)
+  - **Switch company mechanism:** Re-authenticates with role as username, maintains session state
+  - **Multi-session support:** Manages multiple socket connections per player (world, directory, construction)
+- **Implementation:**
+  - **Session Management:** [src/server/spo_session.ts](src/server/spo_session.ts)
+    - **InitClient packet parsing (Lines 100-104, 1997-2021):** Extracts 4 values from server push command:
+      - `virtualDate` (Double @) - Server's virtual date
+      - `accountMoney` (OLEString %) - Account balance
+      - `failureLevel` (Integer #) - Company status (0 = nominal, else problematic)
+      - `fTycoonProxyId` (Integer #) - Tycoon proxy ID (different from tycoonId, used for roads/ownership)
+    - **Company list parsing (Lines 937-964):** Two-step regex approach for order-independent HTML attributes
+      - Finds all `<td>` elements with `companyId` attribute
+      - Extracts `companyName` and `companyOwnerRole` separately from each element
+      - Handles attributes in any order (HTML can vary)
+    - **Switch company mechanism (Lines 574-631):**
+      - Closes existing world sockets (except directory_auth/directory_query)
+      - **CRITICAL:** Calls `socket.removeAllListeners()` before `socket.destroy()` to prevent race conditions
+      - Resets session state (worldContextId, tycoonId, interfaceServerId, etc.)
+      - Re-authenticates with `ownerRole` as username
+      - Selects target company after successful authentication
+      - 200ms delay ensures socket is fully ready before company selection
+  - **Client UI:** [src/client/ui/login-ui.ts](src/client/ui/login-ui.ts:229-304)
+    - Groups companies by `ownerRole` in company selection screen
+    - Visual role icons: 🏛️ (Mayor), ⚖️ (Minister), 🎖️ (President), 🏢 (Player companies)
+    - Separate sections with headers for each role category
+  - **Client Controller:** [src/client/client.ts](src/client/client.ts:441-499)
+    - Detects role-based companies during company selection
+    - Compares `company.ownerRole` with stored username
+    - Triggers `REQ_SWITCH_COMPANY` if roles differ, otherwise normal `REQ_SELECT_COMPANY`
+    - Debug logging for role detection process
+  - **WebSocket Protocol:** [src/shared/types.ts](src/shared/types.ts)
+    - `CompanyInfo` interface extended with `ownerRole` field
+    - Message types: `REQ_SWITCH_COMPANY` / `RESP_RDO_RESULT`
+    - `WsReqSwitchCompany` interface with full company object
+  - **Gateway Handler:** [src/server/server.ts](src/server/server.ts:389-401)
+    - `REQ_SWITCH_COMPANY` message handler
+    - Calls `session.switchCompany()` and returns success response
+- **Features:**
+  - **Role detection:** Automatically identifies public office companies
+  - **Company grouping:** Visual organization by role in login UI
+  - **Seamless switching:** Re-authenticates and switches roles without manual intervention
+  - **Socket cleanup:** Proper event listener removal prevents race conditions
+  - **Session isolation:** Each role has independent worldContextId, fTycoonProxyId
+- **RDO Protocol:**
+  - **InitClient format:** `C sel <id> call InitClient "*" "@<date>","%<money>","#<failureLevel>","#<fTycoonProxyId>";`
+  - **Logon format:** `C sel <interfaceServerId> call Logon "^" "%<ownerRole>","%<password>";`
+  - **Response:** `A<RID> res="#<worldContextId>";` (dynamic session ID)
+- **Critical Technical Details:**
+  - **interfaceServerId:** Static per world (e.g., 6892548 for Shamba), never changes
+  - **worldContextId:** Dynamic session ID from Logon response (e.g., 125086508), changes with each login
+  - **fTycoonProxyId:** Player's tycoon proxy ID, changes when switching between player/role accounts
+  - **Socket event cleanup:** MUST call `removeAllListeners()` before `destroy()` to prevent old socket's close event from deleting new socket
+- **Bug Fixes (January 2026):**
+  - **Regex parsing:** Fixed to handle HTML attributes in any order using two-step approach
+  - **Socket race condition:** Added `removeAllListeners()` to prevent close event from deleting new socket
+  - **worldContextId usage:** Fixed CreateCircuitSeg to use worldContextId instead of interfaceServerId
+- **Benefits:**
+  - Players can assume public office roles and build roads/infrastructure for their city
+  - UI clearly distinguishes between player companies and public office positions
+  - Proper session management prevents socket conflicts
+  - Automatic re-authentication simplifies UX
 
 #### Building Menu Image Proxy
 - **Status:** ✅ COMPLETED (January 2026)

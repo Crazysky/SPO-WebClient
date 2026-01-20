@@ -55,6 +55,9 @@ import {
   // Building Deletion
   WsReqDeleteFacility,
   WsRespDeleteFacility,
+  // Road Building
+  WsReqBuildRoad,
+  WsRespBuildRoad,
 } from '../shared/types';
 import { getErrorMessage } from '../shared/error-codes';
 import { UIManager } from './ui/ui-manager';
@@ -90,6 +93,10 @@ export class StarpeaceClient {
   private isSendingChatMessage: boolean = false;
   private isJoiningChannel: boolean = false;
   private isSelectingCompany: boolean = false;
+
+  // Road building state
+  private isRoadBuildingMode: boolean = false;
+  private isBuildingRoad: boolean = false;
 
   constructor() {
     this.uiGamePanel = document.getElementById('game-panel')!;
@@ -165,6 +172,10 @@ export class StarpeaceClient {
     if (this.ui.toolbarUI) {
       this.ui.toolbarUI.setOnBuildMenu(() => {
         this.openBuildMenu();
+      });
+
+      this.ui.toolbarUI.setOnBuildRoad(() => {
+        this.toggleRoadBuildingMode();
       });
 
       this.ui.toolbarUI.setOnSearch(() => {
@@ -409,6 +420,14 @@ export class StarpeaceClient {
       if (resp.companies && resp.companies.length > 0) {
         this.availableCompanies = resp.companies;
         this.ui.log('Login', `Found ${resp.companies.length} compan${resp.companies.length > 1 ? 'ies' : 'y'}`);
+
+        // Debug: Log all companies with their roles
+        console.log('[Client] Companies received from server:');
+        resp.companies.forEach((c, idx) => {
+          console.log(`  [${idx}] ID: ${c.id}, Name: ${c.name}, ownerRole: ${c.ownerRole}`);
+        });
+        console.log(`[Client] Current storedUsername: ${this.storedUsername}`);
+
         this.ui.loginUI.showCompanyListLoading('Loading companies...');
 
         // Small delay for loading state visibility
@@ -438,20 +457,49 @@ export class StarpeaceClient {
     this.ui.loginUI.showCompanyListLoading('Loading world...');
 
     try {
-      const req: WsReqSelectCompany = {
-        type: WsMessageType.REQ_SELECT_COMPANY,
-        companyId
-      };
-
-      await this.sendRequest(req);
-
-      // Store company name for building construction
+      // Find the selected company
       const company = this.availableCompanies.find(c => c.id === companyId);
-      if (company) {
-        this.currentCompanyName = company.name;
+
+      if (!company) {
+        throw new Error('Company not found');
       }
 
-      this.ui.log('Company', 'Company selected successfully');
+      // Debug: Log role detection logic
+      console.log('[Client] Company selection debug:');
+      console.log(`  Selected company: ${company.name} (ID: ${company.id})`);
+      console.log(`  Company ownerRole: ${company.ownerRole}`);
+      console.log(`  Stored username: ${this.storedUsername}`);
+      console.log(`  ownerRole !== storedUsername: ${company.ownerRole !== this.storedUsername}`);
+
+      // Check if we need to switch company (role-based)
+      const needsSwitch = company.ownerRole && company.ownerRole !== this.storedUsername;
+
+      console.log(`  needsSwitch: ${needsSwitch}`);
+
+      if (needsSwitch) {
+        this.ui.log('Company', `Switching to role-based company: ${company.name} (${company.ownerRole})...`);
+
+        // Use switchCompany instead of selectCompany
+        const req: WsReqSwitchCompany = {
+          type: WsMessageType.REQ_SWITCH_COMPANY,
+          company: company
+        };
+
+        await this.sendRequest(req);
+        this.ui.log('Company', 'Company switch successful');
+      } else {
+        // Normal company selection
+        const req: WsReqSelectCompany = {
+          type: WsMessageType.REQ_SELECT_COMPANY,
+          companyId
+        };
+
+        await this.sendRequest(req);
+        this.ui.log('Company', 'Company selected successfully');
+      }
+
+      // Store company name for building construction
+      this.currentCompanyName = company.name;
 
       // Switch to game view
       this.switchToGameView();
@@ -905,6 +953,113 @@ export class StarpeaceClient {
   }
 
   // =========================================================================
+  // ROAD BUILDING METHODS
+  // =========================================================================
+
+  /**
+   * Toggle road building mode
+   */
+  public toggleRoadBuildingMode(): void {
+    this.isRoadBuildingMode = !this.isRoadBuildingMode;
+
+    const renderer = this.ui.mapNavigationUI?.getRenderer();
+    if (renderer) {
+      renderer.setRoadDrawingMode(this.isRoadBuildingMode);
+
+      // Setup callbacks when entering road mode
+      if (this.isRoadBuildingMode) {
+        // Cancel any building placement mode
+        if (this.currentBuildingToPlace) {
+          this.cancelBuildingPlacement();
+        }
+
+        renderer.setRoadSegmentCompleteCallback((x1, y1, x2, y2) => {
+          this.buildRoadSegment(x1, y1, x2, y2);
+        });
+
+        renderer.setCancelRoadDrawingCallback(() => {
+          this.cancelRoadBuildingMode();
+        });
+
+        // Setup ESC key handler
+        this.setupRoadBuildingKeyboardHandler();
+
+        this.ui.log('Road', 'Road building mode enabled. Click and drag to draw roads. Right-click or press ESC to cancel.');
+      } else {
+        this.ui.log('Road', 'Road building mode disabled');
+      }
+    }
+
+    // Update toolbar button state if available
+    if (this.ui.toolbarUI) {
+      this.ui.toolbarUI.setRoadBuildingActive(this.isRoadBuildingMode);
+    }
+  }
+
+  /**
+   * Cancel road building mode
+   */
+  private cancelRoadBuildingMode(): void {
+    this.isRoadBuildingMode = false;
+
+    const renderer = this.ui.mapNavigationUI?.getRenderer();
+    if (renderer) {
+      renderer.setRoadDrawingMode(false);
+    }
+
+    // Update toolbar button state
+    if (this.ui.toolbarUI) {
+      this.ui.toolbarUI.setRoadBuildingActive(false);
+    }
+
+    this.ui.log('Road', 'Road building mode cancelled');
+  }
+
+  /**
+   * Build a road segment between two points
+   */
+  private async buildRoadSegment(x1: number, y1: number, x2: number, y2: number): Promise<void> {
+    // Prevent multiple simultaneous road building requests
+    if (this.isBuildingRoad) {
+      return;
+    }
+
+    this.isBuildingRoad = true;
+    this.ui.log('Road', `Building road from (${x1}, ${y1}) to (${x2}, ${y2})...`);
+
+    try {
+      const req: WsReqBuildRoad = {
+        type: WsMessageType.REQ_BUILD_ROAD,
+        x1,
+        y1,
+        x2,
+        y2
+      };
+
+      const response = await this.sendRequest(req) as WsRespBuildRoad;
+
+      if (response.success) {
+        this.ui.log('Road', `Road built: ${response.tileCount} tiles, cost $${response.cost}`);
+        // Refresh the map to show the new road
+        await this.loadMapArea(this.currentX, this.currentY, 50, 50);
+      } else {
+        this.ui.log('Error', response.message || 'Failed to build road');
+      }
+    } catch (err: any) {
+      this.ui.log('Error', `Failed to build road: ${err.message}`);
+    } finally {
+      this.isBuildingRoad = false;
+    }
+  }
+
+  /**
+   * Check if road building mode is active
+   */
+  public isRoadModeActive(): boolean {
+    return this.isRoadBuildingMode;
+  }
+
+  // =========================================================================
   // BUILDING CONSTRUCTION METHODS
   // =========================================================================
 
@@ -1040,8 +1195,27 @@ export class StarpeaceClient {
    */
   private setupPlacementKeyboardHandler() {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && this.currentBuildingToPlace) {
-        this.cancelBuildingPlacement();
+      if (e.key === 'Escape') {
+        if (this.currentBuildingToPlace) {
+          this.cancelBuildingPlacement();
+          document.removeEventListener('keydown', handler);
+        } else if (this.isRoadBuildingMode) {
+          this.cancelRoadBuildingMode();
+          document.removeEventListener('keydown', handler);
+        }
+      }
+    };
+    document.addEventListener('keydown', handler);
+  }
+
+  /**
+   * Setup global ESC handler for road building mode
+   * Called when entering road building mode
+   */
+  private setupRoadBuildingKeyboardHandler() {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && this.isRoadBuildingMode) {
+        this.cancelRoadBuildingMode();
         document.removeEventListener('keydown', handler);
       }
     };

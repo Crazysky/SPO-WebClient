@@ -9,10 +9,14 @@ export class ToolbarUI {
 
   // Callbacks for unimplemented buttons
   private onBuildMenu: (() => void) | null = null;
+  private onBuildRoad: (() => void) | null = null;
   private onSearch: (() => void) | null = null;
   private onCompanyMenu: (() => void) | null = null;
   private onMail: (() => void) | null = null;
   private onSettings: (() => void) | null = null;
+
+  // Button reference for road building state
+  private roadBuildingBtn: HTMLElement | null = null;
 
   constructor() {
     // Check if toolbar container exists in header
@@ -35,6 +39,13 @@ export class ToolbarUI {
    */
   public setOnBuildMenu(callback: () => void) {
     this.onBuildMenu = callback;
+  }
+
+  /**
+   * Définit le callback pour Build Road
+   */
+  public setOnBuildRoad(callback: () => void) {
+    this.onBuildRoad = callback;
   }
 
   /**
@@ -89,6 +100,13 @@ export class ToolbarUI {
         callback: () => this.onBuildMenu?.()
       },
       {
+        icon: '🛤️',
+        label: 'Road',
+        tooltip: 'Build Roads',
+        callback: () => this.onBuildRoad?.(),
+        isRoadButton: true
+      },
+      {
         icon: '🔍',
         label: 'Search',
         tooltip: 'Search Buildings',
@@ -114,8 +132,12 @@ export class ToolbarUI {
       }
     ];
 
-    buttons.forEach(({ icon, label, tooltip, callback }) => {
-      const btn = this.createToolbarButton(icon, label, tooltip, callback);
+    buttons.forEach((btnConfig) => {
+      const btn = this.createToolbarButton(btnConfig.icon, btnConfig.label, btnConfig.tooltip, btnConfig.callback);
+      // Store reference to road button for state updates
+      if ('isRoadButton' in btnConfig && btnConfig.isRoadButton) {
+        this.roadBuildingBtn = btn;
+      }
       this.toolbar!.appendChild(btn);
     });
 
@@ -309,6 +331,25 @@ export class ToolbarUI {
     if (this.toolbar && this.toolbar.parentElement) {
       this.toolbar.parentElement.removeChild(this.toolbar);
       this.toolbar = null;
+    }
+  }
+
+  /**
+   * Set road building button active state
+   */
+  public setRoadBuildingActive(active: boolean) {
+    if (!this.roadBuildingBtn) return;
+
+    if (active) {
+      this.roadBuildingBtn.style.background = 'rgba(234, 88, 12, 0.3)'; // Orange tint
+      this.roadBuildingBtn.style.borderColor = '#ea580c'; // Orange border
+      this.roadBuildingBtn.style.color = '#fb923c'; // Orange text
+      this.roadBuildingBtn.classList.add('road-active');
+    } else {
+      this.roadBuildingBtn.style.background = 'transparent';
+      this.roadBuildingBtn.style.borderColor = 'transparent';
+      this.roadBuildingBtn.style.color = 'var(--text-secondary)';
+      this.roadBuildingBtn.classList.remove('road-active');
     }
   }
 }

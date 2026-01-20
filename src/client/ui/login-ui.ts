@@ -227,7 +227,7 @@ export class LoginUI {
 
 
   /**
-   * Affiche la sélection de compagnie
+   * Affiche la sélection de compagnie (groupée par rôle)
    */
   public renderCompanySelection(companies: CompanyInfo[]) {
     // Hide world list section
@@ -245,18 +245,61 @@ export class LoginUI {
       return;
     }
 
+    // Group companies by ownerRole
+    const groupedCompanies = new Map<string, CompanyInfo[]>();
     companies.forEach(company => {
-      const card = document.createElement('div');
-      card.className = 'company-card';
-      card.innerHTML = `
-        <div class="company-name">🏢 ${company.name}</div>
+      const role = company.ownerRole || 'Player';
+      if (!groupedCompanies.has(role)) {
+        groupedCompanies.set(role, []);
+      }
+      groupedCompanies.get(role)!.push(company);
+    });
+
+    // Render groups
+    groupedCompanies.forEach((companyList, role) => {
+      // Role header
+      const roleHeader = document.createElement('div');
+      roleHeader.className = 'company-role-header';
+
+      // Determine icon and label based on role
+      let icon = '🏢';
+      let label = 'Companies';
+
+      if (role.toLowerCase().includes('maire') || role.toLowerCase().includes('mayor')) {
+        icon = '🏛️';
+        label = `Maire - ${role}`;
+      } else if (role.toLowerCase().includes('ministre') || role.toLowerCase().includes('minister')) {
+        icon = '⚖️';
+        label = `Ministre - ${role}`;
+      } else if (role.toLowerCase().includes('président') || role.toLowerCase().includes('president')) {
+        icon = '🎖️';
+        label = `Président - ${role}`;
+      } else if (role !== 'Player') {
+        icon = '👤';
+        label = role;
+      }
+
+      roleHeader.innerHTML = `
+        <div style="padding: var(--space-3); font-weight: 600; color: var(--text-primary); border-bottom: 1px solid var(--border-color);">
+          ${icon} ${label}
+        </div>
       `;
-      card.onclick = () => {
-        if (this.onCompanySelect) {
-          this.onCompanySelect(company.id);
-        }
-      };
-      this.uiCompanyList.appendChild(card);
+      this.uiCompanyList.appendChild(roleHeader);
+
+      // Render companies in this group
+      companyList.forEach(company => {
+        const card = document.createElement('div');
+        card.className = 'company-card';
+        card.innerHTML = `
+          <div class="company-name">🏢 ${company.name}</div>
+        `;
+        card.onclick = () => {
+          if (this.onCompanySelect) {
+            this.onCompanySelect(company.id);
+          }
+        };
+        this.uiCompanyList.appendChild(card);
+      });
     });
   }
 
