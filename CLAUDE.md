@@ -533,26 +533,33 @@ Provide:
     - Message types: `REQ_BUILD_ROAD`, `RESP_BUILD_ROAD`, `REQ_GET_ROAD_COST`, `RESP_GET_ROAD_COST`
     - Interfaces: `WsReqBuildRoad`, `WsRespBuildRoad`, `WsReqGetRoadCost`, `WsRespGetRoadCost`
     - `RoadDrawingState` interface for tracking drawing mode state
-  - **Server-side:** [src/server/spo_session.ts](src/server/spo_session.ts:1560-1620)
-    - `buildRoad(x1, y1, x2, y2)` method - Creates road segment via RDO
+  - **Server-side:** [src/server/spo_session.ts](src/server/spo_session.ts:1585-1747)
+    - `generateRoadSegments(x1, y1, x2, y2)` - Generates segment array for path
+      - Horizontal/Vertical: Single segment
+      - Diagonal: Multiple 1-tile segments in staircase pattern
+      - Algorithm: Alternates H/V moves, prioritizes axis with most remaining distance
+    - `buildRoad(x1, y1, x2, y2)` method - Creates road path via RDO
+      - Sends segments sequentially to game server
+      - Supports partial builds (continues if some segments fail)
+      - Returns total cost and tile count
     - `getRoadCostEstimate(x1, y1, x2, y2)` method - Calculates cost preview
     - RDO protocol: `C sel <WorldContextId> call CreateCircuitSeg "^" "#<circuitId>","#<ownerId>","#<x1>","#<y1>","#<x2>","#<y2>","#<cost>";`
     - **CRITICAL:** Uses `worldContextId` (from Logon response), NOT `interfaceServerId` (static per world)
-    - **Updated:** Now supports diagonal road segments (Chebyshev distance: `Math.max(dx, dy)`)
     - Uses `fTycoonProxyId` (from InitClient packet) for road ownership, not `tycoonId`
-    - Cost calculation: `ROAD_COST_PER_TILE * tileCount` (100 per tile)
+    - Cost calculation: `ROAD_COST_PER_TILE * tileCount` (2,000,000 per tile)
   - **Gateway Handler:** [src/server/server.ts](src/server/server.ts:810-860)
     - `REQ_BUILD_ROAD` message handler - Calls `session.buildRoad()` and returns result
     - `REQ_GET_ROAD_COST` message handler - Returns cost estimate
     - Error handling with RDO error code mapping
-  - **Client Renderer:** [src/client/renderer.ts](src/client/renderer.ts:74-90, 640-750)
+  - **Client Renderer:** [src/client/renderer.ts](src/client/renderer.ts:74-90, 632-1015)
     - Road drawing mode state: `roadDrawingMode`, `roadDrawingState`
     - `setRoadDrawingMode(enabled)` - Toggles drawing mode
     - `setOnRoadSegmentComplete(callback)` - Callback when segment drawn
     - `setOnRoadDrawingCancel(callback)` - Callback on ESC/right-click
-    - Mouse event handling: mousedown starts, mousemove updates preview, mouseup completes
-    - `drawRoadDrawingPreview()` - Visual preview with cost display
-    - `checkRoadSegmentCollision()` - Validates no buildings in path
+    - Mouse event handling: mousedown starts, mousemove updates preview (no snapping), mouseup completes
+    - `generateStaircasePath(x1, y1, x2, y2)` - Generates staircase path tiles (mirrors server logic)
+    - `checkStaircaseCollision(pathTiles)` - Validates no buildings in staircase path
+    - `drawRoadDrawingPreview()` - Visual preview with staircase pattern and cost display
   - **Client Controller:** [src/client/client.ts](src/client/client.ts:890-970)
     - `toggleRoadBuildingMode()` - Toggles mode on/off (cancels building placement if active)
     - `cancelRoadBuildingMode()` - Exits mode and resets UI
@@ -568,22 +575,41 @@ Provide:
     - Road preview tooltip styling
     - Road notification styling
 - **Features:**
-  - **Point-to-point drawing:** Click and drag to define segment start/end
-  - **Diagonal roads:** Now supports horizontal, vertical, AND diagonal segments
-  - **Cost preview:** Shows tile count and cost near cursor during drawing
-  - **Collision detection:** Client-side building collision check before sending to server
-  - **Visual feedback:** Orange button highlight when mode active
+  - **Point-to-point drawing:** Click and drag to define path start/end
+  - **Diagonal roads:** Supports horizontal, vertical, AND diagonal paths (staircase pattern)
+  - **Real-time preview:** Shows exact staircase path that will be built
+  - **Cost preview:** Shows tile count and cost near cursor during drawing (Manhattan distance: dx + dy)
+  - **Collision detection:** Client-side building collision check for entire staircase path
+  - **Visual feedback:** Orange button highlight when mode active, green/red preview based on validity
   - **ESC/Right-click cancellation:** Easy exit from drawing mode
   - **Map refresh:** Automatic map refresh after successful road placement
+  - **Partial builds:** If some segments fail, successfully built segments remain
+- **Diagonal Road Algorithm (Staircase Pattern):**
+  - **Reverse-engineered** from official client RDO captures
+  - Diagonal paths built as series of 1-tile H/V segments alternating direction
+  - Example: (462,492) → (465,490) becomes 5 segments: H-V-H-V-H
+    1. (462,492) → (463,492) horizontal
+    2. (463,492) → (463,491) vertical
+    3. (463,491) → (464,491) horizontal
+    4. (464,491) → (464,490) vertical
+    5. (464,490) → (465,490) horizontal
+  - Algorithm prioritizes axis with most remaining distance
+  - 100% compatible with official client behavior
 - **RDO Protocol:**
   - Command: `CreateCircuitSeg`
-  - Parameters: circuitId (0), ownerId (fTycoonProxyId), x1, y1, x2, y2, cost
+  - Parameters: circuitId (1 for roads), ownerId (fTycoonProxyId), x1, y1, x2, y2, cost
   - Uses `worldContextId` (from Logon response, dynamic per session)
+  - Each segment is a separate RDO call sent sequentially
 - **Validation Rules:**
-  - Supports horizontal, vertical, and diagonal segments
-  - Building collision check along entire segment path
-  - Cost must be positive (at least 1 tile)
+  - Supports horizontal, vertical, and diagonal paths (via staircase)
+  - Building collision check along entire staircase path
+  - Cost calculated as Manhattan distance (dx + dy) * $2,000,000 per tile
 - **API Endpoints:** REQ_BUILD_ROAD / RESP_BUILD_ROAD, REQ_GET_ROAD_COST / RESP_GET_ROAD_COST
+- **Implementation Notes (January 2026):**
+  - **No H/V snapping:** Mouse endpoint follows cursor freely for natural diagonal drawing
+  - **Client-server parity:** Client preview uses same staircase algorithm as server
+  - **Sequential sending:** Segments sent one-by-one with server response validation
+  - **Error resilience:** Partial success if only some segments fail
 - **Bug Fixes (January 2026):**
   - Fixed to use `worldContextId` instead of `interfaceServerId` for CreateCircuitSeg command
   - `worldContextId` is dynamic (changes with each login), `interfaceServerId` is static per world
