@@ -275,6 +275,12 @@ Provide:
     - Automatically discovers all subdirectories in `cache/` at runtime
     - Falls back to downloading from update server if not found
     - Game server fallback images cached in `webclient-cache/` (separate from update mirror)
+    - **Cache lookup order:**
+      1. Check `cache/` subdirectories (update server mirror)
+      2. Check `webclient-cache/` (game server fallback images)
+      3. Download from update server → save to `cache/`
+      4. Download from game server → save to `webclient-cache/`
+      5. Return 1x1 transparent PNG placeholder on failure
   - **Directory Structure:**
     - **`cache/`** - Perfect mirror of update.starpeaceonline.com/five/client/cache/
     - **`webclient-cache/`** - WebClient-specific needs (game server fallback images, local data)
@@ -289,6 +295,12 @@ Provide:
     - Excluded files list prevents deletion of local customizations
     - Empty directory cleanup (only removes directories not on server)
     - Case-insensitive filename matching for cross-platform compatibility
+  - **Bug Fixes (January 2026):**
+    - **webclient-cache read-after-write issue:** Fixed cache directory that was write-only (images cached but never served from cache)
+      - Added cache lookup between update server check and download fallback
+      - Prevents repeated failed downloads for 404 images
+      - Enables reuse of successfully cached game server images
+      - Cache hit logged: `[ImageProxy] Served from webclient-cache: filename.jpg`
   - **Benefits:**
     - **Zero maintenance** - Adapts automatically to server changes
     - **No code updates needed** - Server structure changes don't require code modifications
@@ -296,6 +308,7 @@ Provide:
     - **Perfect mirror** - Local cache always matches remote server exactly
     - **Automatic cleanup** - Removes files that no longer exist on server
     - **Clean separation** - Update server mirror vs. local cache kept distinct
+    - **Efficient caching** - Both update server and game server images cached and reused
 
 #### Building Dimensions System (Replaced CLASSES.BIN parser)
 - **Status:** ✅ COMPLETED (January 2026)
