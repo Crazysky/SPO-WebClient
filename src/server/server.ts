@@ -162,6 +162,19 @@ async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<v
       }
     }
 
+    // Check webclient-cache for game server fallback images
+    const webclientCachePath = path.join(WEBCLIENT_CACHE_DIR, filename);
+    if (fs.existsSync(webclientCachePath)) {
+      const content = fs.readFileSync(webclientCachePath);
+      const ext = path.extname(filename).toLowerCase();
+      const contentType = ext === '.gif' ? 'image/gif' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/gif';
+
+      res.writeHead(200, { 'Content-Type': contentType });
+      res.end(content);
+      console.log(`[ImageProxy] Served from webclient-cache: ${filename}`);
+      return;
+    }
+
     // Not in cache, try to download from update server (try all known directories)
     const UPDATE_SERVER_BASE = 'http://update.starpeaceonline.com/five/client/cache';
 
