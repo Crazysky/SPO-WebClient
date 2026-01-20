@@ -97,9 +97,18 @@ export class StarpeaceSession extends EventEmitter {
   private worldId: string | null = null;
   private daAddr: string | null = null;
 
+  // InitClient data (received during login)
+  private virtualDate: number | null = null; // Server virtual date (Double)
+  private accountMoney: string | null = null; // Account money (can be very large)
+  private failureLevel: number | null = null; // Company status (0 = nominal, >0 = in debt)
+  private fTycoonProxyId: number | null = null; // Tycoon proxy ID (different from TycoonId)
+
   // Credentials cache
   private cachedUsername: string | null = null;
   private cachedPassword: string | null = null;
+
+  // Current company info (for role-based switching)
+  private currentCompany: CompanyInfo | null = null;
 
   // Additional world properties
   private mailAccount: string | null = null;
@@ -158,6 +167,36 @@ export class StarpeaceSession extends EventEmitter {
    */
   public getDAPort(): number {
     return 80;
+  }
+
+  /**
+   * Get server virtual date from InitClient
+   */
+  public getVirtualDate(): number | null {
+    return this.virtualDate;
+  }
+
+  /**
+   * Get account money from InitClient
+   */
+  public getAccountMoney(): string | null {
+    return this.accountMoney;
+  }
+
+  /**
+   * Get failure level from InitClient
+   * 0 = nominal status, >0 = company in debt
+   */
+  public getFailureLevel(): number | null {
+    return this.failureLevel;
+  }
+
+  /**
+   * Get fTycoonProxyId from InitClient
+   * Different from regular TycoonId
+   */
+  public getFTycoonProxyId(): number | null {
+    return this.fTycoonProxyId;
   }
 
   /**
@@ -284,16 +323,16 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
     verb: RdoVerb.IDOF,
     targetId: "InterfaceServer"
   });
-  const interfaceServerId = this.parseIdOfResponse(idPacket);
-  console.log(`[Session] InterfaceServer ID: ${interfaceServerId}`);
+  this.interfaceServerId = this.parseIdOfResponse(idPacket);
+  console.log(`[Session] InterfaceServer ID: ${this.interfaceServerId}`);
 
   // 2. Retrieve World Properties (10 properties)
-  await this.fetchWorldProperties(interfaceServerId);
+  await this.fetchWorldProperties(this.interfaceServerId);
 
   // 3. Check AccountStatus
   const statusPacket = await this.sendRdoRequest("world", {
     verb: RdoVerb.SEL,
-    targetId: interfaceServerId,
+    targetId: this.interfaceServerId,
     action: RdoAction.CALL,
     member: "AccountStatus",
     args: [username, pass]
@@ -304,7 +343,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
   // 4. Authenticate (call Logon)
   const logonPacket = await this.sendRdoRequest("world", {
     verb: RdoVerb.SEL,
-    targetId: interfaceServerId,
+    targetId: this.interfaceServerId,
     action: RdoAction.CALL,
     member: "Logon",
     args: [username, pass]
@@ -526,6 +565,69 @@ public async selectCompany(companyId: string): Promise<void> {
 
   console.log(`[Session] Company ${companyId} selected - Ready for game!`);
   console.log(`[Session] Player spawn position: (${this.lastPlayerX}, ${this.lastPlayerY})`);
+}
+
+/**
+ * Switch to a different company (public role or player company)
+ * Performs a full re-login using the ownerRole as username
+ */
+public async switchCompany(company: CompanyInfo): Promise<void> {
+  if (!this.currentWorldInfo || !this.cachedPassword) {
+    throw new Error('Cannot switch company: world or credentials not available');
+  }
+
+  console.log(`[Session] Switching to company: ${company.name} (ownerRole: ${company.ownerRole})`);
+
+  // Store the company we're switching to
+  this.currentCompany = company;
+
+  // Determine the username to use for login
+  const loginUsername = company.ownerRole || this.cachedUsername || '';
+
+  // If ownerRole is different from original username, we need to do a "role switch"
+  if (company.ownerRole && company.ownerRole !== this.cachedUsername) {
+    console.log(`[Session] Role-based login detected: switching from "${this.cachedUsername}" to role "${company.ownerRole}"`);
+  }
+
+  // Close existing sockets except directory
+  console.log('[Session] Closing existing world connections for company switch...');
+  const socketsToClose = Array.from(this.sockets.keys()).filter(name => name !== 'directory_auth' && name !== 'directory_query');
+
+  for (const socketName of socketsToClose) {
+    const socket = this.sockets.get(socketName);
+    if (socket) {
+      // CRITICAL: Remove all event listeners before destroying
+      // Otherwise the 'close' event will delete the NEW socket from the Map
+      socket.removeAllListeners();
+      socket.destroy();
+      this.sockets.delete(socketName);
+      this.framers.delete(socketName);
+    }
+  }
+
+  // Reset session state
+  this.worldContextId = null;
+  this.tycoonId = null;
+  this.interfaceServerId = null;
+  this.rdoCnntId = null;
+  this.cacherId = null;
+  this.worldId = null;
+  this.currentFocusedBuildingId = null;
+  this.currentFocusedCoords = null;
+
+  // Re-login to world with the role username
+  const result = await this.loginWorld(loginUsername, this.cachedPassword, this.currentWorldInfo);
+
+  console.log(`[Session] Re-logged in as "${loginUsername}", contextId: ${result.contextId}`);
+  console.log(`[Session] After switchCompany - interfaceServerId: ${this.interfaceServerId}, worldId: ${this.worldId}`);
+
+  // Small delay to ensure socket is fully ready before selecting company
+  await new Promise(resolve => setTimeout(resolve, 200));
+
+  // Select the specific company
+  await this.selectCompany(company.id);
+
+  console.log(`[Session] Company switch complete - now playing as ${company.name}`);
 }
 
 	/**
@@ -839,14 +941,32 @@ private extractRevenue(line: string): string {
         if (matchBody) realId = matchBody[1];
       }
 
-      // Parse companies with regex
+      // Parse companies with regex (include companyOwnerRole)
+      // Note: Attributes can appear in any order in HTML, so we need to capture them separately
       const companies: CompanyInfo[] = [];
-      const regex = /companyName="([^"]+)"[^>]*companyId="(\d+)"/gi;
-      let match;
-      while ((match = regex.exec(text)) !== null) {
+
+      // Match all <td> elements with company attributes
+      const tdRegex = /<td[^>]*companyId="(\d+)"[^>]*>/gi;
+      let tdMatch;
+
+      while ((tdMatch = tdRegex.exec(text)) !== null) {
+        const companyId = tdMatch[1];
+        const tdElement = tdMatch[0]; // Full <td> tag
+
+        // Extract companyName from this specific <td>
+        const nameMatch = /companyName="([^"]+)"/i.exec(tdElement);
+        const companyName = nameMatch ? nameMatch[1] : `Company ${companyId}`;
+
+        // Extract companyOwnerRole from this specific <td>
+        const roleMatch = /companyOwnerRole="([^"]*)"/i.exec(tdElement);
+        const ownerRole = roleMatch ? roleMatch[1] : username;
+
+        console.log(`[HTTP] Company parsed - ID: ${companyId}, Name: ${companyName}, ownerRole: ${ownerRole} ${roleMatch ? '(from HTML)' : '(defaulted to username)'}`);
+
         companies.push({
-          id: match[2],
-          name: match[1]
+          id: companyId,
+          name: companyName,
+          ownerRole: ownerRole
         });
       }
 
@@ -1462,6 +1582,195 @@ private parseSegments(rawLines: string[]): MapSegment[] {
     }
   }
 
+  // =============================================================================
+  // ROAD BUILDING FEATURE
+  // =============================================================================
+
+  /** Cost per road tile in dollars */
+  private readonly ROAD_COST_PER_TILE = 2000000;
+
+  /**
+   * Build a road segment between two points
+   * RDO command: C sel <Context ID> call CreateCircuitSeg "^" "#<circuitId>","#<ownerId>","#<x1>","#<y1>","#<x2>","#<y2>","#<cost>";
+   *
+   * CRITICAL: Uses worldContextId (from Logon response), NOT interfaceServerId
+   * Note: Supports horizontal, vertical, and diagonal segments
+   *
+   * @param x1 Start X coordinate
+   * @param y1 Start Y coordinate
+   * @param x2 End X coordinate
+   * @param y2 End Y coordinate
+   * @returns Result with success status, cost, and tile count
+   */
+  public async buildRoad(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number
+  ): Promise<{ success: boolean; cost: number; tileCount: number; message?: string; errorCode?: number }> {
+    try {
+      console.log(`[RoadBuilding] Building road segment from (${x1}, ${y1}) to (${x2}, ${y2})`);
+
+      // Validate points are different
+      if (x1 === x2 && y1 === y2) {
+        console.warn(`[RoadBuilding] Invalid segment: start and end points are the same`);
+        return {
+          success: false,
+          cost: 0,
+          tileCount: 0,
+          message: 'Start and end points must be different.',
+          errorCode: 2 // CIRCUIT_ERROR_InvalidSegment
+        };
+      }
+
+      // Calculate tile count and cost using Chebyshev distance (max of dx, dy) for diagonal support
+      const dx = Math.abs(x2 - x1);
+      const dy = Math.abs(y2 - y1);
+      const tileCount = Math.max(dx, dy);
+      const cost = tileCount * this.ROAD_COST_PER_TILE;
+
+      console.log(`[RoadBuilding] Segment: ${tileCount} tiles, cost: $${cost}`);
+
+      // Debug: Check available sockets
+      console.log(`[RoadBuilding] Available sockets: ${Array.from(this.sockets.keys()).join(', ')}`);
+      console.log(`[RoadBuilding] interfaceServerId: ${this.interfaceServerId}`);
+
+      // Verify world socket is connected (Interface Server)
+      if (!this.sockets.has('world')) {
+        console.error('[RoadBuilding] Interface server not connected - socket "world" not found');
+        return {
+          success: false,
+          cost: 0,
+          tileCount: 0,
+          message: 'Interface server not connected',
+          errorCode: 1 // CIRCUIT_ERROR_Unknown
+        };
+      }
+
+      // Verify worldContextId is available (from Logon response)
+      if (!this.worldContextId) {
+        console.error('[RoadBuilding] World context not initialized - worldContextId is null');
+        return {
+          success: false,
+          cost: 0,
+          tileCount: 0,
+          message: 'World context not initialized - worldContextId is null',
+          errorCode: 1 // CIRCUIT_ERROR_Unknown
+        };
+      }
+
+      // Get fTycoonProxyId for owner assignment (from InitClient)
+      const ownerId = this.fTycoonProxyId || 0;
+      const circuitId = 1; // Road circuit type (1 = roads, other values for rails, etc.)
+
+      console.log(`[RoadBuilding] Sending CreateCircuitSeg: worldContextId=${this.worldContextId}, ownerId=${ownerId}, circuitId=${circuitId}`);
+
+      // Send RDO CALL command using World Context ID (from Logon response)
+      // Format: C sel <Context ID> call CreateCircuitSeg "^" "#<circuitId>","#<ownerId>","#<x1>","#<y1>","#<x2>","#<y2>","#<cost>";
+      // CRITICAL: Must use worldContextId (changes with each login), NOT interfaceServerId (static per world)
+      const result = await this.sendRdoRequest('world', {
+        verb: RdoVerb.SEL,
+        targetId: this.worldContextId!,  // Non-null assertion - already checked above
+        action: RdoAction.CALL,
+        member: 'CreateCircuitSeg',
+        separator: '"^"',
+        args: [
+          `#${circuitId}`,
+          `#${ownerId}`,
+          `#${x1}`,
+          `#${y1}`,
+          `#${x2}`,
+          `#${y2}`,
+          `#${cost}`
+        ]
+      });
+
+      // Parse response for result code
+      // Expected: res="#0" for success, other values for errors
+      const resultMatch = /res="#(-?\d+)"/.exec(result.payload || '');
+      const resultCode = resultMatch ? parseInt(resultMatch[1], 10) : -1;
+
+      if (resultCode === 0) {
+        console.log(`[RoadBuilding] Road segment built successfully: ${tileCount} tiles, $${cost}`);
+        return {
+          success: true,
+          cost,
+          tileCount,
+          message: 'Road segment built successfully'
+        };
+      } else {
+        // Map error codes to user-friendly messages
+        const errorMessages: Record<number, string> = {
+          1: 'Unknown error occurred while building road',
+          2: 'Invalid segment coordinates',
+          3: 'Access denied - insufficient permissions or funds',
+          5: 'Unknown company',
+          21: 'Unknown circuit type',
+          22: 'Cannot create segment at this location',
+          23: 'Cannot break existing segment'
+        };
+
+        const message = errorMessages[resultCode] || `Road building failed with code ${resultCode}`;
+        console.warn(`[RoadBuilding] Road segment failed: ${message}`);
+        return {
+          success: false,
+          cost: 0,
+          tileCount: 0,
+          message,
+          errorCode: resultCode
+        };
+      }
+    } catch (e: any) {
+      console.error(`[RoadBuilding] Failed to build road:`, e);
+      return {
+        success: false,
+        cost: 0,
+        tileCount: 0,
+        message: e.message || 'Failed to build road',
+        errorCode: 1 // CIRCUIT_ERROR_Unknown
+      };
+    }
+  }
+
+  /**
+   * Get road building cost estimate without actually building
+   * @param x1 Start X coordinate
+   * @param y1 Start Y coordinate
+   * @param x2 End X coordinate
+   * @param y2 End Y coordinate
+   * @returns Cost estimate with tile count
+   */
+  public getRoadCostEstimate(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number
+  ): { cost: number; tileCount: number; costPerTile: number; valid: boolean; error?: string } {
+    // Validate start and end points are different
+    if (x1 === x2 && y1 === y2) {
+      return {
+        cost: 0,
+        tileCount: 0,
+        costPerTile: this.ROAD_COST_PER_TILE,
+        valid: false,
+        error: 'Start and end points must be different'
+      };
+    }
+
+    // Calculate tile count using Chebyshev distance (max of dx, dy) for diagonal support
+    const dx = Math.abs(x2 - x1);
+    const dy = Math.abs(y2 - y1);
+    const tileCount = Math.max(dx, dy);
+    const cost = tileCount * this.ROAD_COST_PER_TILE;
+
+    return {
+      cost,
+      tileCount,
+      costPerTile: this.ROAD_COST_PER_TILE,
+      valid: true
+    };
+  }
+
   public async executeRdo(serviceName: string, packetData: Partial<RdoPacket>): Promise<string> {
     if (!this.sockets.has(serviceName)) {
       throw new Error(`Service ${serviceName} not connected`);
@@ -1777,6 +2086,33 @@ private handlePush(socketName: string, packet: RdoPacket) {
       (packet.raw && packet.raw.includes("InitClient"));
     if (hasInitClient) {
       console.log(`[Session] Server sent InitClient push (detected in ${packet.member ? 'member' : 'raw'})`);
+
+      // Parse InitClient data
+      // Example: C sel 44917624 call InitClient "*" "@78006","%419278163478","#0","#223892356";
+      // Args: [Date, Money, FailureLevel, fTycoonProxyId]
+      if (packet.args && packet.args.length >= 4) {
+        try {
+          // Parse virtual date (Double: @value)
+          this.virtualDate = RdoParser.asFloat(packet.args[0]);
+
+          // Parse money (OLEString: %value - can be very large number)
+          this.accountMoney = RdoParser.getValue(packet.args[1]);
+
+          // Parse failure level (Integer: #value)
+          this.failureLevel = RdoParser.asInt(packet.args[2]);
+
+          // Parse fTycoonProxyId (Integer: #value)
+          this.fTycoonProxyId = RdoParser.asInt(packet.args[3]);
+
+          console.log(`[Session] InitClient parsed - Date: ${this.virtualDate}, Money: ${this.accountMoney}, FailureLevel: ${this.failureLevel}, fTycoonProxyId: ${this.fTycoonProxyId}`);
+        } catch (error) {
+          console.error(`[Session] Failed to parse InitClient data:`, error);
+          console.log(`[Session] Raw args:`, packet.args);
+        }
+      } else {
+        console.warn(`[Session] InitClient packet has insufficient args (expected 4, got ${packet.args?.length || 0})`);
+      }
+
       this.waitingForInitClient = false;
       if (this.initClientResolver) {
         this.initClientResolver();

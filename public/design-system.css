@@ -1398,3 +1398,76 @@ body {
     opacity: 1;
   }
 }
+
+/* ============================================================================
+   ROAD BUILDING MODE STYLES
+   ============================================================================ */
+
+/* Road building button active state */
+.toolbar-btn.road-active {
+  background: rgba(234, 88, 12, 0.3) !important;
+  border-color: #ea580c !important;
+  color: #fb923c !important;
+  box-shadow: 0 0 10px rgba(234, 88, 12, 0.3);
+}
+
+.toolbar-btn.road-active:hover {
+  background: rgba(234, 88, 12, 0.5) !important;
+  border-color: #f97316 !important;
+  color: #fdba74 !important;
+}
+
+/* Road drawing cursor hint */
+.road-drawing-cursor {
+  cursor: crosshair !important;
+}
+
+/* Road preview tooltip */
+.road-preview-tooltip {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.9);
+  color: #4ade80;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 1000;
+  white-space: nowrap;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+.road-preview-tooltip.invalid {
+  color: #ff6b6b;
+  border-color: rgba(255, 107, 107, 0.3);
+}
+
+/* Road mode notification */
+.road-mode-notification {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(234, 88, 12, 0.9);
+  color: white;
+  padding: 10px 20px;
+  border-radius: var(--radius-lg);
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 1000;
+  animation: slideDown 0.3s ease-out;
+  box-shadow: var(--shadow-xl);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}

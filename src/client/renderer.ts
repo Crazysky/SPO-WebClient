@@ -1,4 +1,4 @@
-import { MapData, MapBuilding, MapSegment, SurfaceData, FacilityDimensions } from '../shared/types';
+import { MapData, MapBuilding, MapSegment, SurfaceData, FacilityDimensions, RoadDrawingState } from '../shared/types';
 
 interface CachedZone {
   x: number;
@@ -71,6 +71,21 @@ export class MapRenderer {
   private mouseWorldX: number = 0;
   private mouseWorldY: number = 0;
 
+  // Road drawing mode state
+  private roadDrawingMode: boolean = false;
+  private roadDrawingState: RoadDrawingState = {
+    isDrawing: false,
+    startX: 0,
+    startY: 0,
+    endX: 0,
+    endY: 0,
+    isMouseDown: false,
+    mouseDownTime: 0
+  };
+  private onRoadSegmentComplete: ((x1: number, y1: number, x2: number, y2: number) => void) | null = null;
+  private onCancelRoadDrawing: (() => void) | null = null;
+  private roadCostPerTile: number = 100; // Default cost, will be updated from server
+
   constructor(canvasId: string) {
     this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
     if (!this.canvas) {
@@ -121,6 +136,27 @@ export class MapRenderer {
    */
   public setFetchFacilityDimensionsCallback(callback: (visualClass: string) => Promise<FacilityDimensions | null>) {
     this.onFetchFacilityDimensions = callback;
+  }
+
+  /**
+   * Set callback for road segment completion
+   */
+  public setRoadSegmentCompleteCallback(callback: (x1: number, y1: number, x2: number, y2: number) => void) {
+    this.onRoadSegmentComplete = callback;
+  }
+
+  /**
+   * Set callback for road drawing cancellation
+   */
+  public setCancelRoadDrawingCallback(callback: () => void) {
+    this.onCancelRoadDrawing = callback;
+  }
+
+  /**
+   * Set road cost per tile (for preview display)
+   */
+  public setRoadCostPerTile(cost: number) {
+    this.roadCostPerTile = cost;
   }
 	/**
 	 * Convert mouse event coordinates to canvas-relative coordinates
@@ -343,6 +379,9 @@ private getClickedBuilding(mouseX: number, mouseY: number): MapBuilding | null {
     // Draw building placement preview
     this.drawPlacementPreview(centerX, centerY);
 
+    // Draw road drawing preview
+    this.drawRoadDrawingPreview(centerX, centerY);
+
     // Draw info overlay
     this.drawInfo();
   }
@@ -511,8 +550,8 @@ private getClickedBuilding(mouseX: number, mouseY: number): MapBuilding | null {
 		}
 
 		// --- FIX CURSOR CONSISTANT ---
-		// Don't change cursor if in placement mode
-		if (this.placementMode) {
+		// Don't change cursor if in placement mode or road drawing mode
+		if (this.placementMode || this.roadDrawingMode) {
 			this.canvas.style.cursor = 'crosshair';
 		} else if (this.hoveredBuilding) {
 			this.canvas.style.cursor = 'pointer';
@@ -525,7 +564,7 @@ private getClickedBuilding(mouseX: number, mouseY: number): MapBuilding | null {
 	} 
 
 	private setupMouseControls() {
-	  // Right mouse button down - cancel placement OR start drag
+	  // Right mouse button down - cancel placement OR cancel road drawing OR start drag
 	  this.canvas.addEventListener('mousedown', (e) => {
 		if (e.button === 2) { // Right click
 		  e.preventDefault(); // Prevent context menu
@@ -536,15 +575,39 @@ private getClickedBuilding(mouseX: number, mouseY: number): MapBuilding | null {
 			return;
 		  }
 
+		  // In road drawing mode, right click cancels
+		  if (this.roadDrawingMode && this.onCancelRoadDrawing) {
+			this.onCancelRoadDrawing();
+			return;
+		  }
+
 		  // Normal mode - start drag
 		  this.isDragging = true;
 		  this.lastMouseX = e.clientX;
 		  this.lastMouseY = e.clientY;
 		  this.canvas.style.cursor = 'grabbing';
 		}
+
+		// Left mouse button down - start road drawing if in road mode
+		if (e.button === 0 && this.roadDrawingMode) {
+		  const coords = this.getCanvasCoordinates(e.clientX, e.clientY);
+		  const centerX = this.canvas.width / 2;
+		  const centerY = this.canvas.height / 2;
+		  const worldX = Math.floor(this.cameraX + (coords.x - centerX) / this.scale);
+		  const worldY = Math.floor(this.cameraY + (coords.y - centerY) / this.scale);
+
+		  this.roadDrawingState.isDrawing = true;
+		  this.roadDrawingState.isMouseDown = true;
+		  this.roadDrawingState.mouseDownTime = Date.now();
+		  this.roadDrawingState.startX = worldX;
+		  this.roadDrawingState.startY = worldY;
+		  this.roadDrawingState.endX = worldX;
+		  this.roadDrawingState.endY = worldY;
+		  this.render();
+		}
 	  });
 
-	  // Mouse move - drag with right button OR detect hover
+	  // Mouse move - drag with right button OR detect hover OR update road drawing
 	  this.canvas.addEventListener('mousemove', (e) => {
 		// Update mouse world coordinates for placement preview
 		const coords = this.getCanvasCoordinates(e.clientX, e.clientY);
@@ -566,6 +629,29 @@ private getClickedBuilding(mouseX: number, mouseY: number): MapBuilding | null {
 		  this.lastMouseY = e.clientY;
 
 		  this.render();
+		} else if (this.roadDrawingMode && this.roadDrawingState.isDrawing) {
+		  // In road drawing mode with active drawing - update endpoint
+		  const worldX = Math.floor(this.mouseWorldX);
+		  const worldY = Math.floor(this.mouseWorldY);
+
+		  // Snap to horizontal or vertical (choose the axis with larger delta)
+		  const dx = Math.abs(worldX - this.roadDrawingState.startX);
+		  const dy = Math.abs(worldY - this.roadDrawingState.startY);
+
+		  if (dx >= dy) {
+			// Horizontal segment
+			this.roadDrawingState.endX = worldX;
+			this.roadDrawingState.endY = this.roadDrawingState.startY;
+		  } else {
+			// Vertical segment
+			this.roadDrawingState.endX = this.roadDrawingState.startX;
+			this.roadDrawingState.endY = worldY;
+		  }
+
+		  this.render();
+		} else if (this.roadDrawingMode) {
+		  // Road drawing mode but not yet drawing - show hover preview
+		  this.render();
 		} else if (this.placementMode) {
 		  // In placement mode - update preview
 		  this.render();
@@ -575,11 +661,36 @@ private getClickedBuilding(mouseX: number, mouseY: number): MapBuilding | null {
 		}
 	  });
 
-	  // Mouse up - stop drag
+	  // Mouse up - stop drag OR complete road segment
 	const stopDrag = (e?: MouseEvent) => {
+        // Handle road drawing completion on mouse up
+        if (this.roadDrawingState.isMouseDown && this.roadDrawingMode) {
+            this.roadDrawingState.isMouseDown = false;
+
+            // Check if this was a drag (not just a click)
+            const dragDuration = Date.now() - this.roadDrawingState.mouseDownTime;
+            const startX = this.roadDrawingState.startX;
+            const startY = this.roadDrawingState.startY;
+            const endX = this.roadDrawingState.endX;
+            const endY = this.roadDrawingState.endY;
+
+            // Only complete if there's actual movement and drag was long enough
+            if ((startX !== endX || startY !== endY) && dragDuration > 50) {
+                // Complete the road segment
+                if (this.onRoadSegmentComplete) {
+                    this.onRoadSegmentComplete(startX, startY, endX, endY);
+                }
+            }
+
+            // Reset drawing state
+            this.roadDrawingState.isDrawing = false;
+            this.render();
+            return;
+        }
+
         if (this.isDragging) {
             this.isDragging = false;
-            
+
             // --- FIX CURSOR + LOAD ZONES ---
             if (e) {
                 const coords = this.getCanvasCoordinates(e.clientX, e.clientY);
@@ -590,14 +701,14 @@ private getClickedBuilding(mouseX: number, mouseY: number): MapBuilding | null {
                     this.hoveredBuilding = null;
                 }
                 this.canvas.style.cursor = 'grab';
-            }            
-            this.render();            
+            }
+            this.render();
             // --- CRITICAL: Load central zone after drag ---
             this.checkAndLoadVisibleZones();
         }
     };
-	  
-	  this.canvas.addEventListener('mouseup', stopDrag);
+
+	  this.canvas.addEventListener('mouseup', (e) => stopDrag(e));
 	  this.canvas.addEventListener('mouseleave', () => stopDrag());
 
 	  // Prevent context menu on right click
@@ -734,6 +845,200 @@ private getClickedBuilding(mouseX: number, mouseY: number): MapBuilding | null {
       this.canvas.style.cursor = 'default';
     }
     this.render();
+  }
+
+  // =========================================================================
+  // ROAD DRAWING MODE METHODS
+  // =========================================================================
+
+  /**
+   * Enable/disable road drawing mode
+   */
+  public setRoadDrawingMode(enabled: boolean) {
+    this.roadDrawingMode = enabled;
+    // Reset drawing state when toggling mode
+    this.roadDrawingState = {
+      isDrawing: false,
+      startX: 0,
+      startY: 0,
+      endX: 0,
+      endY: 0,
+      isMouseDown: false,
+      mouseDownTime: 0
+    };
+    if (enabled) {
+      this.canvas.style.cursor = 'crosshair';
+    } else {
+      this.canvas.style.cursor = 'default';
+    }
+    this.render();
+  }
+
+  /**
+   * Check if road drawing mode is active
+   */
+  public isRoadDrawingModeActive(): boolean {
+    return this.roadDrawingMode;
+  }
+
+  /**
+   * Draw road drawing preview
+   * Shows the current road segment being drawn with cost preview
+   */
+  private drawRoadDrawingPreview(centerX: number, centerY: number) {
+    if (!this.roadDrawingMode) {
+      return;
+    }
+
+    const ctx = this.ctx;
+    ctx.save();
+
+    // If actively drawing, show the road segment preview
+    if (this.roadDrawingState.isDrawing) {
+      const x1 = this.roadDrawingState.startX;
+      const y1 = this.roadDrawingState.startY;
+      const x2 = this.roadDrawingState.endX;
+      const y2 = this.roadDrawingState.endY;
+
+      // Calculate tile count for the segment
+      const tileCount = Math.abs(x2 - x1) + Math.abs(y2 - y1);
+      const cost = tileCount * this.roadCostPerTile;
+
+      // Check for collisions along the path
+      const hasCollision = this.checkRoadSegmentCollision(x1, y1, x2, y2);
+      const isValid = !hasCollision && tileCount > 0;
+
+      // Draw the preview tiles
+      const minX = Math.min(x1, x2);
+      const maxX = Math.max(x1, x2);
+      const minY = Math.min(y1, y2);
+      const maxY = Math.max(y1, y2);
+
+      // Determine if horizontal or vertical
+      const isHorizontal = y1 === y2;
+
+      if (isHorizontal) {
+        // Draw horizontal segment
+        for (let x = minX; x <= maxX; x++) {
+          const screenX = centerX + (x - this.cameraX) * this.scale;
+          const screenY = centerY + (y1 - this.cameraY) * this.scale;
+
+          ctx.fillStyle = isValid ? 'rgba(102, 102, 102, 0.5)' : 'rgba(255, 107, 107, 0.5)';
+          ctx.fillRect(screenX, screenY, this.scale, this.scale);
+
+          ctx.strokeStyle = isValid ? '#888' : '#ff6b6b';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(screenX, screenY, this.scale, this.scale);
+        }
+      } else {
+        // Draw vertical segment
+        for (let y = minY; y <= maxY; y++) {
+          const screenX = centerX + (x1 - this.cameraX) * this.scale;
+          const screenY = centerY + (y - this.cameraY) * this.scale;
+
+          ctx.fillStyle = isValid ? 'rgba(102, 102, 102, 0.5)' : 'rgba(255, 107, 107, 0.5)';
+          ctx.fillRect(screenX, screenY, this.scale, this.scale);
+
+          ctx.strokeStyle = isValid ? '#888' : '#ff6b6b';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(screenX, screenY, this.scale, this.scale);
+        }
+      }
+
+      // Draw start point marker
+      const startScreenX = centerX + (x1 - this.cameraX) * this.scale + this.scale / 2;
+      const startScreenY = centerY + (y1 - this.cameraY) * this.scale + this.scale / 2;
+      ctx.fillStyle = '#4ade80';
+      ctx.beginPath();
+      ctx.arc(startScreenX, startScreenY, Math.max(3, this.scale / 4), 0, Math.PI * 2);
+      ctx.fill();
+
+      // Draw end point marker
+      const endScreenX = centerX + (x2 - this.cameraX) * this.scale + this.scale / 2;
+      const endScreenY = centerY + (y2 - this.cameraY) * this.scale + this.scale / 2;
+      ctx.fillStyle = isValid ? '#60a5fa' : '#ff6b6b';
+      ctx.beginPath();
+      ctx.arc(endScreenX, endScreenY, Math.max(3, this.scale / 4), 0, Math.PI * 2);
+      ctx.fill();
+
+      // Draw cost/info label near cursor
+      const labelX = endScreenX + 10;
+      const labelY = endScreenY - 10;
+
+      ctx.font = 'bold 12px monospace';
+      ctx.textAlign = 'left';
+
+      // Background for label
+      const costText = `$${this.formatCost(cost)}`;
+      const tileText = `${tileCount} tiles`;
+      const labelText = `${costText} (${tileText})`;
+      const labelWidth = ctx.measureText(labelText).width + 10;
+
+      ctx.fillStyle = isValid ? 'rgba(0, 0, 0, 0.8)' : 'rgba(100, 0, 0, 0.8)';
+      ctx.fillRect(labelX - 5, labelY - 14, labelWidth, 20);
+
+      ctx.fillStyle = isValid ? '#4ade80' : '#ff6b6b';
+      ctx.fillText(labelText, labelX, labelY);
+
+      // Draw validation error if any
+      if (!isValid && hasCollision) {
+        ctx.fillStyle = '#ff6b6b';
+        ctx.fillText('Building collision!', labelX, labelY + 16);
+      }
+    } else {
+      // Not actively drawing - show cursor position hint
+      const mouseX = Math.floor(this.mouseWorldX);
+      const mouseY = Math.floor(this.mouseWorldY);
+
+      const screenX = centerX + (mouseX - this.cameraX) * this.scale;
+      const screenY = centerY + (mouseY - this.cameraY) * this.scale;
+
+      // Draw cursor highlight
+      ctx.fillStyle = 'rgba(102, 102, 102, 0.3)';
+      ctx.fillRect(screenX, screenY, this.scale, this.scale);
+
+      ctx.strokeStyle = '#888';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(screenX, screenY, this.scale, this.scale);
+      ctx.setLineDash([]);
+
+      // Draw hint text
+      ctx.font = '11px monospace';
+      ctx.fillStyle = '#888';
+      ctx.textAlign = 'center';
+      ctx.fillText('Click and drag to draw road', screenX + this.scale / 2, screenY - 8);
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Check for collisions along a road segment path
+   */
+  private checkRoadSegmentCollision(x1: number, y1: number, x2: number, y2: number): boolean {
+    const minX = Math.min(x1, x2);
+    const maxX = Math.max(x1, x2);
+    const minY = Math.min(y1, y2);
+    const maxY = Math.max(y1, y2);
+
+    // Check each tile along the segment
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        // Only check tiles that are part of the segment (horizontal or vertical)
+        const isOnHorizontalSegment = y1 === y2 && y === y1;
+        const isOnVerticalSegment = x1 === x2 && x === x1;
+
+        if (isOnHorizontalSegment || isOnVerticalSegment) {
+          // Check if this tile collides with a building
+          if (this.checkBuildingCollision(x, y, 1, 1)) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
   }
 
   /**

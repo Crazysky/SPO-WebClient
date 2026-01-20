@@ -21,6 +21,7 @@ import {
   WsReqMapLoad,
   WsRespMapData,
   WsReqSelectCompany,
+  WsReqSwitchCompany,
   WsReqManageConstruction,
   WsRespConstructionSuccess,
   WsReqChatGetUsers,
@@ -62,6 +63,11 @@ import {
   // Building Deletion
   WsReqDeleteFacility,
   WsRespDeleteFacility,
+  // Road Building
+  WsReqBuildRoad,
+  WsRespBuildRoad,
+  WsReqGetRoadCost,
+  WsRespGetRoadCost,
   // Search Menu
   WsReqSearchMenuHome,
   WsRespSearchMenuHome,
@@ -371,6 +377,20 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
         const req = msg as WsReqSelectCompany;
         console.log(`[Gateway] Selecting company: ${req.companyId}`);
         await session.selectCompany(req.companyId);
+
+        // Send success response
+        const response: WsMessage = {
+          type: WsMessageType.RESP_RDO_RESULT,
+          wsRequestId: msg.wsRequestId
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_SWITCH_COMPANY: {
+        const req = msg as WsReqSwitchCompany;
+        console.log(`[Gateway] Switching company: ${req.company.name} (role: ${req.company.ownerRole})`);
+        await session.switchCompany(req.company);
 
         // Send success response
         const response: WsMessage = {
@@ -867,6 +887,68 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             wsRequestId: msg.wsRequestId,
             errorMessage: err.message || 'Failed to delete facility',
             code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      // ========================================================================
+      // ROAD BUILDING HANDLERS
+      // ========================================================================
+
+      case WsMessageType.REQ_BUILD_ROAD: {
+        const req = msg as WsReqBuildRoad;
+        console.log(`[Gateway] Build road from (${req.x1}, ${req.y1}) to (${req.x2}, ${req.y2})`);
+
+        try {
+          const result = await session.buildRoad(req.x1, req.y1, req.x2, req.y2);
+
+          const response: WsRespBuildRoad = {
+            type: WsMessageType.RESP_BUILD_ROAD,
+            wsRequestId: msg.wsRequestId,
+            success: result.success,
+            cost: result.cost,
+            tileCount: result.tileCount,
+            message: result.message,
+            errorCode: result.errorCode
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: any) {
+          console.error('[Gateway] Failed to build road:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: err.message || 'Failed to build road',
+            code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      case WsMessageType.REQ_GET_ROAD_COST: {
+        const req = msg as WsReqGetRoadCost;
+        console.log(`[Gateway] Get road cost from (${req.x1}, ${req.y1}) to (${req.x2}, ${req.y2})`);
+
+        try {
+          const result = session.getRoadCostEstimate(req.x1, req.y1, req.x2, req.y2);
+
+          const response: WsRespGetRoadCost = {
+            type: WsMessageType.RESP_GET_ROAD_COST,
+            wsRequestId: msg.wsRequestId,
+            cost: result.cost,
+            tileCount: result.tileCount,
+            costPerTile: result.costPerTile
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: any) {
+          console.error('[Gateway] Failed to get road cost:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: err.message || 'Failed to get road cost',
+            code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
         }
