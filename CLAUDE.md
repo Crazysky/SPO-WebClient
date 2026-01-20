@@ -453,6 +453,12 @@ Provide:
     - **Rankings tree structure:** Fixed nested table detection logic - correctly traverses gradient rows to find child tables ([src/server/search-menu-parser.ts:233-237](src/server/search-menu-parser.ts#L233-L237))
     - **Ranking detail 500 error:** Fixed URL parameter extraction - extracts `Ranking` value from full dirHref URL and preserves backslashes in path ([src/server/search-menu-service.ts:194-210](src/server/search-menu-service.ts#L194-L210))
     - **Missing profile pictures:** Added 1x1 transparent PNG placeholder for 404 images instead of error response ([src/server/server.ts:108-113](src/server/server.ts#L108-L113), [src/server/server.ts:149-153](src/server/server.ts#L149-L153))
+    - **Incorrect image URLs (404 errors):** Fixed image path construction to use proper directory structure
+      - Images were using `/images/` instead of `/five/0/visual/voyager/new%20directory/images/`
+      - Added `baseUrl` parameter to `parseHomePage()` ([src/server/search-menu-parser.ts](src/server/search-menu-parser.ts))
+      - Updated all parse functions to construct full paths: `http://<host>/five/0/visual/voyager/new%20directory/<relative-path>`
+      - Affected functions: `getHomePage()`, `getTowns()`, `getTycoonProfile()`, `getRankingDetail()`
+      - Images now download successfully and cache properly
     - **Root cause:** HTML uses `onMouseOver` (capital M, capital O) but cheerio selectors were case-sensitive; switched to attribute-based selectors (`dirHref`) for reliability
   - **UI/UX Improvements (January 2026):**
     - **Rankings page optimization:** Implemented collapsible tree structure to fit extensive ranking categories within panel ([public/search-menu-styles.css](public/search-menu-styles.css), [src/client/ui/search-menu/search-menu-panel.ts](src/client/ui/search-menu/search-menu-panel.ts#L469-L526))
