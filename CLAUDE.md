@@ -457,6 +457,7 @@ Provide:
       - Images were using `/images/` instead of `/five/0/visual/voyager/new%20directory/images/`
       - Added `baseUrl` parameter to `parseHomePage()` ([src/server/search-menu-parser.ts](src/server/search-menu-parser.ts))
       - Updated all parse functions to construct full paths: `http://<host>/five/0/visual/voyager/new%20directory/<relative-path>`
+      - Fixed missing `/` separator between baseUrl and relative path (caused `new%20directoryimages/` instead of `new%20directory/images/`)
       - Affected functions: `getHomePage()`, `getTowns()`, `getTycoonProfile()`, `getRankingDetail()`
       - Images now download successfully and cache properly
     - **Root cause:** HTML uses `onMouseOver` (capital M, capital O) but cheerio selectors were case-sensitive; switched to attribute-based selectors (`dirHref`) for reliability
