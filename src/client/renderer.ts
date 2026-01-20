@@ -631,22 +631,12 @@ private getClickedBuilding(mouseX: number, mouseY: number): MapBuilding | null {
 		  this.render();
 		} else if (this.roadDrawingMode && this.roadDrawingState.isDrawing) {
 		  // In road drawing mode with active drawing - update endpoint
+		  // No snapping: allow diagonal paths (server handles staircase generation)
 		  const worldX = Math.floor(this.mouseWorldX);
 		  const worldY = Math.floor(this.mouseWorldY);
 
-		  // Snap to horizontal or vertical (choose the axis with larger delta)
-		  const dx = Math.abs(worldX - this.roadDrawingState.startX);
-		  const dy = Math.abs(worldY - this.roadDrawingState.startY);
-
-		  if (dx >= dy) {
-			// Horizontal segment
-			this.roadDrawingState.endX = worldX;
-			this.roadDrawingState.endY = this.roadDrawingState.startY;
-		  } else {
-			// Vertical segment
-			this.roadDrawingState.endX = this.roadDrawingState.startX;
-			this.roadDrawingState.endY = worldY;
-		  }
+		  this.roadDrawingState.endX = worldX;
+		  this.roadDrawingState.endY = worldY;
 
 		  this.render();
 		} else if (this.roadDrawingMode) {
@@ -900,49 +890,26 @@ private getClickedBuilding(mouseX: number, mouseY: number): MapBuilding | null {
       const x2 = this.roadDrawingState.endX;
       const y2 = this.roadDrawingState.endY;
 
-      // Calculate tile count for the segment
-      const tileCount = Math.abs(x2 - x1) + Math.abs(y2 - y1);
+      // Generate staircase path tiles (same algorithm as server)
+      const pathTiles = this.generateStaircasePath(x1, y1, x2, y2);
+      const tileCount = pathTiles.length;
       const cost = tileCount * this.roadCostPerTile;
 
-      // Check for collisions along the path
-      const hasCollision = this.checkRoadSegmentCollision(x1, y1, x2, y2);
+      // Check for collisions along the staircase path
+      const hasCollision = this.checkStaircaseCollision(pathTiles);
       const isValid = !hasCollision && tileCount > 0;
 
-      // Draw the preview tiles
-      const minX = Math.min(x1, x2);
-      const maxX = Math.max(x1, x2);
-      const minY = Math.min(y1, y2);
-      const maxY = Math.max(y1, y2);
+      // Draw each tile in the staircase path
+      for (const tile of pathTiles) {
+        const screenX = centerX + (tile.x - this.cameraX) * this.scale;
+        const screenY = centerY + (tile.y - this.cameraY) * this.scale;
 
-      // Determine if horizontal or vertical
-      const isHorizontal = y1 === y2;
+        ctx.fillStyle = isValid ? 'rgba(102, 102, 102, 0.5)' : 'rgba(255, 107, 107, 0.5)';
+        ctx.fillRect(screenX, screenY, this.scale, this.scale);
 
-      if (isHorizontal) {
-        // Draw horizontal segment
-        for (let x = minX; x <= maxX; x++) {
-          const screenX = centerX + (x - this.cameraX) * this.scale;
-          const screenY = centerY + (y1 - this.cameraY) * this.scale;
-
-          ctx.fillStyle = isValid ? 'rgba(102, 102, 102, 0.5)' : 'rgba(255, 107, 107, 0.5)';
-          ctx.fillRect(screenX, screenY, this.scale, this.scale);
-
-          ctx.strokeStyle = isValid ? '#888' : '#ff6b6b';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(screenX, screenY, this.scale, this.scale);
-        }
-      } else {
-        // Draw vertical segment
-        for (let y = minY; y <= maxY; y++) {
-          const screenX = centerX + (x1 - this.cameraX) * this.scale;
-          const screenY = centerY + (y - this.cameraY) * this.scale;
-
-          ctx.fillStyle = isValid ? 'rgba(102, 102, 102, 0.5)' : 'rgba(255, 107, 107, 0.5)';
-          ctx.fillRect(screenX, screenY, this.scale, this.scale);
-
-          ctx.strokeStyle = isValid ? '#888' : '#ff6b6b';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(screenX, screenY, this.scale, this.scale);
-        }
+        ctx.strokeStyle = isValid ? '#888' : '#ff6b6b';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(screenX, screenY, this.scale, this.scale);
       }
 
       // Draw start point marker
@@ -1014,30 +981,64 @@ private getClickedBuilding(mouseX: number, mouseY: number): MapBuilding | null {
   }
 
   /**
-   * Check for collisions along a road segment path
+   * Generate staircase path tiles from (x1,y1) to (x2,y2)
+   * Same algorithm as server: alternate H and V moves, prioritizing axis with more remaining distance
+   *
+   * @returns Array of tile coordinates that form the staircase path
    */
-  private checkRoadSegmentCollision(x1: number, y1: number, x2: number, y2: number): boolean {
-    const minX = Math.min(x1, x2);
-    const maxX = Math.max(x1, x2);
-    const minY = Math.min(y1, y2);
-    const maxY = Math.max(y1, y2);
+  private generateStaircasePath(x1: number, y1: number, x2: number, y2: number): Array<{ x: number; y: number }> {
+    const tiles: Array<{ x: number; y: number }> = [];
 
-    // Check each tile along the segment
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        // Only check tiles that are part of the segment (horizontal or vertical)
-        const isOnHorizontalSegment = y1 === y2 && y === y1;
-        const isOnVerticalSegment = x1 === x2 && x === x1;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
 
-        if (isOnHorizontalSegment || isOnVerticalSegment) {
-          // Check if this tile collides with a building
-          if (this.checkBuildingCollision(x, y, 1, 1)) {
-            return true;
-          }
-        }
-      }
+    // Same point - no tiles
+    if (dx === 0 && dy === 0) {
+      return tiles;
     }
 
+    // Direction increments
+    const stepX = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
+    const stepY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
+
+    let currentX = x1;
+    let currentY = y1;
+    let remainingX = absDx;
+    let remainingY = absDy;
+
+    // Add starting tile
+    tiles.push({ x: currentX, y: currentY });
+
+    // Generate staircase path
+    while (remainingX > 0 || remainingY > 0) {
+      // Prioritize the axis with more remaining steps
+      const moveX = remainingX > 0 && (remainingX >= remainingY || remainingY === 0);
+
+      if (moveX) {
+        currentX += stepX;
+        remainingX--;
+      } else if (remainingY > 0) {
+        currentY += stepY;
+        remainingY--;
+      }
+
+      tiles.push({ x: currentX, y: currentY });
+    }
+
+    return tiles;
+  }
+
+  /**
+   * Check for building collisions along a staircase path
+   */
+  private checkStaircaseCollision(pathTiles: Array<{ x: number; y: number }>): boolean {
+    for (const tile of pathTiles) {
+      if (this.checkBuildingCollision(tile.x, tile.y, 1, 1)) {
+        return true;
+      }
+    }
     return false;
   }
 

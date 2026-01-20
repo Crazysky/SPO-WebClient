@@ -1590,17 +1590,92 @@ private parseSegments(rawLines: string[]): MapSegment[] {
   private readonly ROAD_COST_PER_TILE = 2000000;
 
   /**
-   * Build a road segment between two points
+   * Generate individual road segments for a path from (x1,y1) to (x2,y2)
+   *
+   * For horizontal/vertical paths: returns a single segment
+   * For diagonal paths: returns multiple 1-tile segments in staircase pattern
+   *
+   * Algorithm for diagonal (staircase pattern):
+   * - Alternate between horizontal and vertical 1-tile segments
+   * - Prioritize the axis with more distance remaining
+   *
+   * @param x1 Start X
+   * @param y1 Start Y
+   * @param x2 End X
+   * @param y2 End Y
+   * @returns Array of segments, each with start/end coordinates
+   */
+  private generateRoadSegments(
+    x1: number, y1: number, x2: number, y2: number
+  ): Array<{ sx: number; sy: number; ex: number; ey: number }> {
+    const segments: Array<{ sx: number; sy: number; ex: number; ey: number }> = [];
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    // Pure horizontal segment
+    if (dy === 0 && dx !== 0) {
+      segments.push({ sx: x1, sy: y1, ex: x2, ey: y2 });
+      return segments;
+    }
+
+    // Pure vertical segment
+    if (dx === 0 && dy !== 0) {
+      segments.push({ sx: x1, sy: y1, ex: x2, ey: y2 });
+      return segments;
+    }
+
+    // Diagonal: create staircase pattern with 1-tile segments
+    // Direction increments
+    const stepX = dx > 0 ? 1 : -1;
+    const stepY = dy > 0 ? 1 : -1;
+
+    let currentX = x1;
+    let currentY = y1;
+    let remainingX = absDx;
+    let remainingY = absDy;
+
+    // Alternate between X and Y moves, prioritizing the axis with more remaining distance
+    while (remainingX > 0 || remainingY > 0) {
+      // Decide whether to move X or Y
+      // Prioritize the axis with more remaining steps
+      const moveX = remainingX > 0 && (remainingX >= remainingY || remainingY === 0);
+
+      if (moveX) {
+        // Horizontal 1-tile segment
+        const nextX = currentX + stepX;
+        segments.push({ sx: currentX, sy: currentY, ex: nextX, ey: currentY });
+        currentX = nextX;
+        remainingX--;
+      } else if (remainingY > 0) {
+        // Vertical 1-tile segment
+        const nextY = currentY + stepY;
+        segments.push({ sx: currentX, sy: currentY, ex: currentX, ey: nextY });
+        currentY = nextY;
+        remainingY--;
+      }
+    }
+
+    return segments;
+  }
+
+  /**
+   * Build a road path between two points
+   *
+   * For horizontal/vertical: sends single segment
+   * For diagonal: sends multiple 1-tile segments in staircase pattern (like official client)
+   *
    * RDO command: C sel <Context ID> call CreateCircuitSeg "^" "#<circuitId>","#<ownerId>","#<x1>","#<y1>","#<x2>","#<y2>","#<cost>";
    *
    * CRITICAL: Uses worldContextId (from Logon response), NOT interfaceServerId
-   * Note: Supports horizontal, vertical, and diagonal segments
    *
    * @param x1 Start X coordinate
    * @param y1 Start Y coordinate
    * @param x2 End X coordinate
    * @param y2 End Y coordinate
-   * @returns Result with success status, cost, and tile count
+   * @returns Result with success status, total cost, and tile count
    */
   public async buildRoad(
     x1: number,
@@ -1609,11 +1684,11 @@ private parseSegments(rawLines: string[]): MapSegment[] {
     y2: number
   ): Promise<{ success: boolean; cost: number; tileCount: number; message?: string; errorCode?: number }> {
     try {
-      console.log(`[RoadBuilding] Building road segment from (${x1}, ${y1}) to (${x2}, ${y2})`);
+      console.log(`[RoadBuilding] Building road from (${x1}, ${y1}) to (${x2}, ${y2})`);
 
       // Validate points are different
       if (x1 === x2 && y1 === y2) {
-        console.warn(`[RoadBuilding] Invalid segment: start and end points are the same`);
+        console.warn(`[RoadBuilding] Invalid: start and end points are the same`);
         return {
           success: false,
           cost: 0,
@@ -1623,101 +1698,121 @@ private parseSegments(rawLines: string[]): MapSegment[] {
         };
       }
 
-      // Calculate tile count and cost using Chebyshev distance (max of dx, dy) for diagonal support
-      const dx = Math.abs(x2 - x1);
-      const dy = Math.abs(y2 - y1);
-      const tileCount = Math.max(dx, dy);
-      const cost = tileCount * this.ROAD_COST_PER_TILE;
-
-      console.log(`[RoadBuilding] Segment: ${tileCount} tiles, cost: $${cost}`);
-
-      // Debug: Check available sockets
-      console.log(`[RoadBuilding] Available sockets: ${Array.from(this.sockets.keys()).join(', ')}`);
-      console.log(`[RoadBuilding] interfaceServerId: ${this.interfaceServerId}`);
-
-      // Verify world socket is connected (Interface Server)
+      // Verify world socket is connected
       if (!this.sockets.has('world')) {
-        console.error('[RoadBuilding] Interface server not connected - socket "world" not found');
+        console.error('[RoadBuilding] Interface server not connected');
         return {
           success: false,
           cost: 0,
           tileCount: 0,
           message: 'Interface server not connected',
-          errorCode: 1 // CIRCUIT_ERROR_Unknown
+          errorCode: 1
         };
       }
 
-      // Verify worldContextId is available (from Logon response)
+      // Verify worldContextId is available
       if (!this.worldContextId) {
-        console.error('[RoadBuilding] World context not initialized - worldContextId is null');
+        console.error('[RoadBuilding] World context not initialized');
         return {
           success: false,
           cost: 0,
           tileCount: 0,
-          message: 'World context not initialized - worldContextId is null',
-          errorCode: 1 // CIRCUIT_ERROR_Unknown
+          message: 'World context not initialized',
+          errorCode: 1
         };
       }
 
-      // Get fTycoonProxyId for owner assignment (from InitClient)
+      // Generate segments (single for H/V, multiple for diagonal)
+      const segments = this.generateRoadSegments(x1, y1, x2, y2);
+      console.log(`[RoadBuilding] Generated ${segments.length} segment(s)`);
+
+      // Get owner and circuit IDs
       const ownerId = this.fTycoonProxyId || 0;
-      const circuitId = 1; // Road circuit type (1 = roads, other values for rails, etc.)
+      const circuitId = 1; // Road circuit type
 
-      console.log(`[RoadBuilding] Sending CreateCircuitSeg: worldContextId=${this.worldContextId}, ownerId=${ownerId}, circuitId=${circuitId}`);
+      let totalCost = 0;
+      let totalTiles = 0;
+      let failedSegment: { message: string; errorCode: number } | null = null;
 
-      // Send RDO CALL command using World Context ID (from Logon response)
-      // Format: C sel <Context ID> call CreateCircuitSeg "^" "#<circuitId>","#<ownerId>","#<x1>","#<y1>","#<x2>","#<y2>","#<cost>";
-      // CRITICAL: Must use worldContextId (changes with each login), NOT interfaceServerId (static per world)
-      const result = await this.sendRdoRequest('world', {
-        verb: RdoVerb.SEL,
-        targetId: this.worldContextId!,  // Non-null assertion - already checked above
-        action: RdoAction.CALL,
-        member: 'CreateCircuitSeg',
-        separator: '"^"',
-        args: [
+      // Send each segment sequentially
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+
+        // Calculate segment cost (each segment is 1 tile for diagonal, or full length for H/V)
+        const segDx = Math.abs(seg.ex - seg.sx);
+        const segDy = Math.abs(seg.ey - seg.sy);
+        const segTiles = Math.max(segDx, segDy);
+        const segCost = segTiles * this.ROAD_COST_PER_TILE;
+
+        console.log(`[RoadBuilding] Segment ${i + 1}/${segments.length}: (${seg.sx},${seg.sy}) to (${seg.ex},${seg.ey}), tiles=${segTiles}, cost=${segCost}`);
+
+        const args = [
           `#${circuitId}`,
           `#${ownerId}`,
-          `#${x1}`,
-          `#${y1}`,
-          `#${x2}`,
-          `#${y2}`,
-          `#${cost}`
-        ]
-      });
+          `#${seg.sx}`,
+          `#${seg.sy}`,
+          `#${seg.ex}`,
+          `#${seg.ey}`,
+          `#${segCost}`
+        ];
 
-      // Parse response for result code
-      // Expected: res="#0" for success, other values for errors
-      const resultMatch = /res="#(-?\d+)"/.exec(result.payload || '');
-      const resultCode = resultMatch ? parseInt(resultMatch[1], 10) : -1;
+        const result = await this.sendRdoRequest('world', {
+          verb: RdoVerb.SEL,
+          targetId: this.worldContextId!,
+          action: RdoAction.CALL,
+          member: 'CreateCircuitSeg',
+          separator: '"^"',
+          args
+        });
 
-      if (resultCode === 0) {
-        console.log(`[RoadBuilding] Road segment built successfully: ${tileCount} tiles, $${cost}`);
+        // Parse response
+        const resultMatch = /res="#(-?\d+)"/.exec(result.payload || '');
+        const resultCode = resultMatch ? parseInt(resultMatch[1], 10) : -1;
+
+        if (resultCode === 0) {
+          totalCost += segCost;
+          totalTiles += segTiles;
+        } else {
+          // Map error codes
+          const errorMessages: Record<number, string> = {
+            1: 'Unknown error',
+            2: 'Invalid segment coordinates',
+            3: 'Access denied - insufficient permissions or funds',
+            5: 'Unknown company',
+            21: 'Unknown circuit type',
+            22: 'Cannot create segment at this location',
+            23: 'Cannot break existing segment'
+          };
+
+          failedSegment = {
+            message: errorMessages[resultCode] || `Failed with code ${resultCode}`,
+            errorCode: resultCode
+          };
+          console.warn(`[RoadBuilding] Segment ${i + 1} failed: ${failedSegment.message}`);
+          // Continue with other segments (partial road is better than nothing)
+        }
+      }
+
+      // Return overall result
+      if (totalTiles > 0) {
+        const message = failedSegment
+          ? `Road partially built (${totalTiles} tiles). Some segments failed: ${failedSegment.message}`
+          : `Road built successfully: ${totalTiles} tiles`;
+
+        console.log(`[RoadBuilding] ${message}`);
         return {
           success: true,
-          cost,
-          tileCount,
-          message: 'Road segment built successfully'
+          cost: totalCost,
+          tileCount: totalTiles,
+          message
         };
       } else {
-        // Map error codes to user-friendly messages
-        const errorMessages: Record<number, string> = {
-          1: 'Unknown error occurred while building road',
-          2: 'Invalid segment coordinates',
-          3: 'Access denied - insufficient permissions or funds',
-          5: 'Unknown company',
-          21: 'Unknown circuit type',
-          22: 'Cannot create segment at this location',
-          23: 'Cannot break existing segment'
-        };
-
-        const message = errorMessages[resultCode] || `Road building failed with code ${resultCode}`;
-        console.warn(`[RoadBuilding] Road segment failed: ${message}`);
         return {
           success: false,
           cost: 0,
           tileCount: 0,
-          message,
-          errorCode: resultCode
+          message: failedSegment?.message || 'Failed to build road',
+          errorCode: failedSegment?.errorCode || 1
         };
       }
     } catch (e: any) {
@@ -1727,7 +1822,7 @@ private parseSegments(rawLines: string[]): MapSegment[] {
         cost: 0,
         tileCount: 0,
         message: e.message || 'Failed to build road',
-        errorCode: 1 // CIRCUIT_ERROR_Unknown
+        errorCode: 1
       };
     }
   }
