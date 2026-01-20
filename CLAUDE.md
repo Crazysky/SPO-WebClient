@@ -298,9 +298,14 @@ Provide:
   - **Bug Fixes (January 2026):**
     - **webclient-cache read-after-write issue:** Fixed cache directory that was write-only (images cached but never served from cache)
       - Added cache lookup between update server check and download fallback
-      - Prevents repeated failed downloads for 404 images
       - Enables reuse of successfully cached game server images
       - Cache hit logged: `[ImageProxy] Served from webclient-cache: filename.jpg`
+    - **Repeated 404 download attempts:** Fixed missing images causing repeated failed downloads
+      - Now caches placeholder PNG with original filename when image not found (404)
+      - First request: Attempts download → fails → caches placeholder
+      - Subsequent requests: Serves cached placeholder (no network call, no error logs)
+      - Eliminates console spam for same missing images
+      - Logged: `[ImageProxy] Cached placeholder for missing image: filename.jpg`
   - **Benefits:**
     - **Zero maintenance** - Adapts automatically to server changes
     - **No code updates needed** - Server structure changes don't require code modifications
