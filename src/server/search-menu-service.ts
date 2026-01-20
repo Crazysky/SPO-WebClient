@@ -122,7 +122,8 @@ export class SearchMenuService {
     const path = `/five/0/visual/voyager/new%20directory/DirectoryMain.asp?Tycoon=${encodeURIComponent(this.tycoonName)}&Company=${encodeURIComponent(this.companyName)}&WorldName=${encodeURIComponent(this.worldName)}&DAAddr=${this.daAddr}&DAPort=${this.daPort}&RIWS=`;
 
     const html = await this.fetchPage(path);
-    const categories = parseHomePage(html);
+    const baseUrl = `http://${this.daAddr}/five/0/visual/voyager/new%20directory`;
+    const categories = parseHomePage(html, baseUrl);
 
     // Convert icon URLs to proxy URLs
     return categories.map(cat => ({
@@ -138,7 +139,7 @@ export class SearchMenuService {
     const path = `/five/0/visual/voyager/new%20directory/Towns.asp?Tycoon=${encodeURIComponent(this.tycoonName)}&WorldName=${encodeURIComponent(this.worldName)}&RIWS=`;
 
     const html = await this.fetchPage(path);
-    const baseUrl = `http://${this.daAddr}`;
+    const baseUrl = `http://${this.daAddr}/five/0/visual/voyager/new%20directory`;
     const towns = parseTownsPage(html, baseUrl);
 
     // Convert icon URLs to proxy URLs
@@ -158,7 +159,7 @@ export class SearchMenuService {
     const path = `/five/0/visual/voyager/new%20directory/RenderTycoon.asp?WorldName=${encodeURIComponent(this.worldName)}&Tycoon=${encodeURIComponent(actualName)}&RIWS=`;
 
     const html = await this.fetchPage(path);
-    const baseUrl = `http://${this.daAddr}`;
+    const baseUrl = `http://${this.daAddr}/five/0/visual/voyager/new%20directory`;
     const profile = parseTycoonProfile(html, baseUrl);
 
     // Convert photo URL to proxy URL
@@ -211,7 +212,7 @@ export class SearchMenuService {
     const path = `/five/0/visual/voyager/new%20directory/ranking.asp?WorldName=${encodeURIComponent(this.worldName)}&Ranking=${rankingValue}&frame_Id=RankingView&frame_Class=HTMLView&frame_Align=client&frame_NoBorder=yes&RIWS=&LangId=0`;
 
     const html = await this.fetchPage(path);
-    const baseUrl = `http://${this.daAddr}`;
+    const baseUrl = `http://${this.daAddr}/five/0/visual/voyager/new%20directory`;
     const result = parseRankingDetail(html, baseUrl);
 
     // Convert photo URLs to proxy URLs

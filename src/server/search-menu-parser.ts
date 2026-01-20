@@ -17,7 +17,7 @@ import {
 /**
  * Parse DirectoryMain.asp - Home page with category grid
  */
-export function parseHomePage(html: string): SearchMenuCategory[] {
+export function parseHomePage(html: string, baseUrl: string): SearchMenuCategory[] {
   const $ = cheerio.load(html);
   const categories: SearchMenuCategory[] = [];
 
@@ -34,7 +34,7 @@ export function parseHomePage(html: string): SearchMenuCategory[] {
         id: ref.split('.asp')[0].split('/').pop() || label.toLowerCase(),
         label,
         enabled,
-        iconUrl: imgSrc
+        iconUrl: imgSrc ? `${baseUrl}${imgSrc}` : undefined
       });
     }
   });
@@ -54,7 +54,7 @@ export function parseHomePage(html: string): SearchMenuCategory[] {
         id: label.toLowerCase().replace(/\s+/g, '-'),
         label,
         enabled: false,
-        iconUrl: imgSrc
+        iconUrl: imgSrc ? `${baseUrl}${imgSrc}` : undefined
       });
     }
   });
