@@ -922,6 +922,24 @@ Provide:
       - Toggle: Press `C` to enable/disable chunk rendering
     - **Debug panel shows:** Chunk cache size, hit rate, render time
     - **Graceful degradation:** Falls back to tile rendering in environments without OffscreenCanvas (Node.js tests)
+- **Seamless Tile Rendering Fix (January 2026):**
+  - **Problem:** Visible cyan/turquoise grid pattern between all tiles (checkerboard effect)
+  - **Root cause:** Background rectangles with fallback colors were drawn BEFORE each texture
+    - Rectangles with padding extended beyond texture diamonds
+    - Adjacent tiles' transparent corners revealed wrong-colored rectangles
+    - Fallback colors (cyan for water) didn't match actual texture colors
+  - **Solution:** Removed background rectangles, rely on seamless overlap formula
+    - When texture available: Draw ONLY the texture (no background)
+    - When texture NOT available: Draw diamond-shaped fallback (not rectangle)
+    - Seamless formula `x = u*(rows-i+j)` ensures tiles overlap by half their dimensions
+    - Opaque diamond content of one tile covers transparent corners of adjacent tiles
+  - **Files modified:**
+    - [src/client/renderer/isometric-terrain-renderer.ts](src/client/renderer/isometric-terrain-renderer.ts#L430-L472) - `drawIsometricTile()` method
+    - [src/client/renderer/chunk-cache.ts](src/client/renderer/chunk-cache.ts#L327-L365) - `renderChunk()` method
+  - **Coordinate formula (seamless tiling):**
+    - `x = u * (rows - i + j)` - X step = u (half of tileWidth)
+    - `y = (u/2) * ((rows - i) + (cols - j))` - Y step = u/2 (half of tileHeight)
+  - **Result:** Smooth, continuous terrain matching official client rendering
 - **Season Auto-Detection (January 2026):**
   - **Feature:** Client automatically detects available seasons for each terrain type
   - **Implementation:**

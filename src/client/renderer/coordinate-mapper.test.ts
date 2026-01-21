@@ -1,6 +1,9 @@
 /**
  * Unit tests for CoordinateMapper
- * Tests the Lander.pas isometric transformation algorithm
+ * Tests the seamless isometric transformation algorithm
+ *
+ * Formula: x = u * (rows - i + j), y = (u/2) * ((rows - i) + (cols - j))
+ * Where u = 2 << zoomLevel
  */
 
 import { CoordinateMapper } from './coordinate-mapper';
@@ -15,15 +18,20 @@ describe('CoordinateMapper', () => {
 
   describe('mapToScreen', () => {
     it('should convert map origin (0,0) to screen coordinates at zoom level 2', () => {
+      // u = 16 at zoom level 2
+      // x = u * (rows - i + j) = 16 * (2000 - 0 + 0) = 32000
+      // y = (u/2) * ((rows - i) + (cols - j)) = 8 * ((2000 - 0) + (2000 - 0)) = 32000
       const result = mapper.mapToScreen(0, 0, 2, Rotation.NORTH, { x: 0, y: 0 });
-      expect(result.x).toBe(2 * 16 * (2000 - 0 + 0)); // 64000
-      expect(result.y).toBe(16 * ((2000 - 0) + (2000 - 0))); // 64000
+      expect(result.x).toBe(16 * (2000 - 0 + 0)); // 32000
+      expect(result.y).toBe(8 * ((2000 - 0) + (2000 - 0))); // 32000
     });
 
     it('should convert map center (1000,1000) to screen coordinates', () => {
+      // x = 16 * (2000 - 1000 + 1000) = 32000
+      // y = 8 * ((2000 - 1000) + (2000 - 1000)) = 16000
       const result = mapper.mapToScreen(1000, 1000, 2, Rotation.NORTH, { x: 0, y: 0 });
-      expect(result.x).toBe(2 * 16 * (2000 - 1000 + 1000)); // 64000
-      expect(result.y).toBe(16 * ((2000 - 1000) + (2000 - 1000))); // 32000
+      expect(result.x).toBe(16 * (2000 - 1000 + 1000)); // 32000
+      expect(result.y).toBe(8 * ((2000 - 1000) + (2000 - 1000))); // 16000
     });
 
     it('should scale properly at different zoom levels', () => {
@@ -125,9 +133,12 @@ describe('CoordinateMapper', () => {
   });
 
   describe('getVisibleBounds', () => {
-    it('should return valid bounds for a viewport', () => {
+    it('should return valid bounds for a viewport centered on map', () => {
       const viewport = { x: 0, y: 0, width: 800, height: 600 };
-      const origin = { x: 0, y: 0 };
+      // Origin set to center of map (tile 1000,1000)
+      // At zoom 2: x = 16*2000 = 32000, y = 8*2000 = 16000
+      // Center origin on canvas center
+      const origin = { x: 32000 - 400, y: 16000 - 300 };
 
       const bounds = mapper.getVisibleBounds(viewport, 2, Rotation.NORTH, origin);
 
@@ -141,16 +152,19 @@ describe('CoordinateMapper', () => {
 
     it('should return smaller bounds at higher zoom levels', () => {
       const viewport = { x: 0, y: 0, width: 800, height: 600 };
-      const origin = { x: 32000, y: 32000 }; // Center of map
+      // Use origin=0 to get comparable results across zoom levels
+      // The number of visible tiles should decrease as we zoom in
+      const origin = { x: 0, y: 0 };
 
       const bounds0 = mapper.getVisibleBounds(viewport, 0, Rotation.NORTH, origin);
       const bounds3 = mapper.getVisibleBounds(viewport, 3, Rotation.NORTH, origin);
 
-      const area0 = (bounds0.maxI - bounds0.minI) * (bounds0.maxJ - bounds0.minJ);
-      const area3 = (bounds3.maxI - bounds3.minI) * (bounds3.maxJ - bounds3.minJ);
+      const range0 = Math.max(0, bounds0.maxI - bounds0.minI) + Math.max(0, bounds0.maxJ - bounds0.minJ);
+      const range3 = Math.max(0, bounds3.maxI - bounds3.minI) + Math.max(0, bounds3.maxJ - bounds3.minJ);
 
       // Higher zoom (3) should show fewer tiles than lower zoom (0)
-      expect(area3).toBeLessThan(area0);
+      // At higher zoom, tiles are larger so fewer fit in viewport
+      expect(range3).toBeLessThan(range0);
     });
 
     it('should clamp bounds to map limits', () => {

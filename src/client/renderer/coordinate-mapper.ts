@@ -14,14 +14,18 @@ export class CoordinateMapper {
 
   /**
    * Convert map tile coordinates (i, j) to screen pixel coordinates (x, y)
-   * Based on Lander.pas algorithm
+   * Based on Lander.pas algorithm, modified for seamless isometric tiling.
+   *
+   * For seamless tiles, adjacent tiles must overlap by half their dimensions:
+   * - X step between tiles = tileWidth/2 = u
+   * - Y step between tiles = tileHeight/2 = u/2
    *
    * @param i - Row index (0 to mapHeight-1)
    * @param j - Column index (0 to mapWidth-1)
    * @param zoomLevel - Zoom level (0-3)
    * @param rotation - Rotation (0=North, 1=East, 2=South, 3=West)
    * @param origin - Camera position (screen origin offset)
-   * @returns Screen coordinates {x, y}
+   * @returns Screen coordinates {x, y} - top center point of the diamond tile
    */
   mapToScreen(
     i: number,
@@ -32,7 +36,7 @@ export class CoordinateMapper {
   ): Point {
     // Get zoom configuration
     const config = ZOOM_LEVELS[zoomLevel];
-    const u = config.u; // 2 << zoomLevel
+    const u = config.u; // 2 << zoomLevel (half of tileWidth)
 
     const rows = this.mapHeight;
     const cols = this.mapWidth;
@@ -42,18 +46,19 @@ export class CoordinateMapper {
     // const ri = rotated.x;
     // const rj = rotated.y;
 
-    // Lander.pas formula (without rotation for now):
-    // x = 2*u*(rows - i + j) - origin.x
-    // y = u*((rows - i) + (cols - j)) - origin.y
-    const x = 2 * u * (rows - i + j) - origin.x;
-    const y = u * ((rows - i) + (cols - j)) - origin.y;
+    // Modified Lander.pas formula for seamless isometric tiling:
+    // - X uses u (not 2*u) for step = tileWidth/2 between adjacent tiles
+    // - Y uses u/2 for step = tileHeight/2 between adjacent tiles
+    // This ensures tiles overlap by exactly half their dimensions.
+    const x = u * (rows - i + j) - origin.x;
+    const y = (u / 2) * ((rows - i) + (cols - j)) - origin.y;
 
     return { x, y };
   }
 
   /**
    * Convert screen pixel coordinates (x, y) to map tile coordinates (i, j)
-   * Based on Lander.pas algorithm
+   * Inverse of mapToScreen, derived from the seamless tiling formula.
    *
    * @param x - Screen X coordinate
    * @param y - Screen Y coordinate
@@ -72,7 +77,6 @@ export class CoordinateMapper {
     // Get zoom configuration
     const config = ZOOM_LEVELS[zoomLevel];
     const u = config.u; // 2 << zoomLevel
-    const tu = u << 2; // 4 * u
 
     const rows = this.mapHeight;
     const cols = this.mapWidth;
@@ -81,18 +85,22 @@ export class CoordinateMapper {
     const screenX = x + origin.x;
     const screenY = y + origin.y;
 
-    // Lander.pas formula (without rotation for now):
-    // aux = 2*(u*cols - y)
-    // h1 = aux + tu*(rows + 1) - x
-    // i = h1 / tu
-    // h2 = aux + x
-    // j = h2 / tu
-    const aux = 2 * (u * cols - screenY);
-    const h1 = aux + tu * (rows + 1) - screenX;
-    const i = Math.floor(h1 / tu);
+    // Inverse of the seamless tiling formula:
+    // screenX = u * (rows - i + j)
+    // screenY = (u/2) * ((rows - i) + (cols - j))
+    //
+    // Let A = rows - i + j, B = (rows - i) + (cols - j)
+    // screenX = u * A  =>  A = screenX / u
+    // screenY = (u/2) * B  =>  B = 2 * screenY / u
+    //
+    // From A and B:
+    // A + B = 2*rows - 2*i + cols  =>  i = (2*rows + cols - A - B) / 2
+    // A - B = 2*j - cols  =>  j = (A - B + cols) / 2
+    const A = screenX / u;
+    const B = (2 * screenY) / u;
 
-    const h2 = aux + screenX;
-    const j = Math.floor(h2 / tu);
+    const i = Math.floor((2 * rows + cols - A - B) / 2);
+    const j = Math.floor((A - B + cols) / 2);
 
     // TODO: Apply inverse rotation (disabled for now)
     // const original = this.rotateMapCoordinates(i, j, this.getInverseRotation(rotation));

@@ -19,7 +19,9 @@ import {
   ZOOM_LEVELS,
   ZoomConfig,
   Rotation,
-  TerrainData
+  TerrainData,
+  Season,
+  SEASON_NAMES
 } from '../../shared/map-config';
 
 /**
@@ -54,6 +56,7 @@ export class IsometricTerrainRenderer {
   // View state
   private zoomLevel: number = 2;  // Default zoom (16×32 pixels per tile)
   private rotation: Rotation = Rotation.NORTH;
+  private season: Season = Season.SUMMER;  // Default season for textures
 
   // Camera position in map coordinates (center tile)
   private cameraI: number = 500;
@@ -65,6 +68,9 @@ export class IsometricTerrainRenderer {
   // State flags
   private loaded: boolean = false;
   private mapName: string = '';
+
+  // Available seasons for current terrain type (auto-detected from server)
+  private availableSeasons: Season[] = [Season.WINTER, Season.SPRING, Season.SUMMER, Season.AUTUMN];
 
   // Rendering stats (for debug info)
   private lastRenderStats = {
@@ -109,7 +115,9 @@ export class IsometricTerrainRenderer {
     // Set terrain type for texture loading
     const terrainType = getTerrainTypeForMap(mapName);
     this.textureCache.setTerrainType(terrainType);
-    console.log(`[IsometricRenderer] Terrain type: ${terrainType}`);
+
+    // Query available seasons from server and auto-select if current season is unavailable
+    await this.fetchAvailableSeasons(terrainType);
 
     // Load terrain data
     const terrainData = await this.terrainLoader.loadMap(mapName);
@@ -147,6 +155,41 @@ export class IsometricTerrainRenderer {
   }
 
   /**
+   * Fetch available seasons for a terrain type from server
+   * Auto-selects the default season if current season is not available
+   */
+  private async fetchAvailableSeasons(terrainType: string): Promise<void> {
+    try {
+      const url = `/api/terrain-info/${encodeURIComponent(terrainType)}`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        console.warn(`[IsometricRenderer] Failed to fetch terrain info for ${terrainType}: ${response.status}`);
+        return;
+      }
+
+      const info = await response.json() as {
+        terrainType: string;
+        availableSeasons: Season[];
+        defaultSeason: Season;
+      };
+
+      this.availableSeasons = info.availableSeasons;
+
+      // If current season is not available, switch to default
+      if (!info.availableSeasons.includes(this.season)) {
+        console.log(`[IsometricRenderer] Season ${this.season} not available for ${terrainType}, switching to ${info.defaultSeason}`);
+        this.season = info.defaultSeason;
+        this.textureCache.setSeason(info.defaultSeason);
+        // Clear chunk cache since season changed
+        this.chunkCache?.clearAll();
+      }
+    } catch (error) {
+      console.warn(`[IsometricRenderer] Error fetching terrain info:`, error);
+    }
+  }
+
+  /**
    * Update origin based on camera position
    * The origin is the screen offset that centers the camera tile
    */
@@ -158,10 +201,10 @@ export class IsometricTerrainRenderer {
     const rows = dims.height;
     const cols = dims.width;
 
-    // Calculate where the camera tile would be in screen space
+    // Calculate where the camera tile would be in screen space using the seamless formula
     // Then offset so it's at the center of the canvas
-    const cameraScreenX = 2 * u * (rows - this.cameraI + this.cameraJ);
-    const cameraScreenY = u * ((rows - this.cameraI) + (cols - this.cameraJ));
+    const cameraScreenX = u * (rows - this.cameraI + this.cameraJ);
+    const cameraScreenY = (u / 2) * ((rows - this.cameraI) + (cols - this.cameraJ));
 
     // Origin makes camera position appear at canvas center
     this.origin = {
@@ -376,6 +419,13 @@ export class IsometricTerrainRenderer {
    *    (u, h/2)  - right
    *
    * Where: u = tileWidth/2, h = tileHeight
+   *
+   * Tiles are positioned using the seamless formula which ensures adjacent tiles
+   * overlap by exactly half their dimensions. This means the opaque diamond content
+   * of one tile covers the transparent corners of adjacent tiles.
+   *
+   * When textures are available: Draw ONLY the texture (no background rectangle)
+   * When textures are NOT available: Draw a diamond-shaped fallback color
    */
   private drawIsometricTile(
     screenX: number,
@@ -387,71 +437,37 @@ export class IsometricTerrainRenderer {
     const halfWidth = config.tileWidth / 2;  // u
     const halfHeight = config.tileHeight / 2;
 
-    // Try to get texture from cache
-    let textureDrawn = false;
+    // Round coordinates to integers to avoid sub-pixel rendering gaps
+    const x = Math.round(screenX);
+    const y = Math.round(screenY);
 
+    // Try to get texture if textures are enabled
+    let texture: ImageBitmap | null = null;
     if (this.useTextures) {
-      const texture = this.textureCache.getTextureSync(textureId, config.level);
-
-      if (texture) {
-        // Draw texture as diamond using clipping path
-        ctx.save();
-
-        // Create diamond clipping path
-        ctx.beginPath();
-        ctx.moveTo(screenX, screenY);                          // Top
-        ctx.lineTo(screenX - halfWidth, screenY + halfHeight); // Left
-        ctx.lineTo(screenX, screenY + config.tileHeight);      // Bottom
-        ctx.lineTo(screenX + halfWidth, screenY + halfHeight); // Right
-        ctx.closePath();
-        ctx.clip();
-
-        // Draw texture scaled to tile size
-        // BMP textures are typically 32x16 for zoom 2, scale to match current zoom
-        const texWidth = config.tileWidth;
-        const texHeight = config.tileHeight;
-
-        ctx.drawImage(
-          texture,
-          screenX - halfWidth,
-          screenY,
-          texWidth,
-          texHeight
-        );
-
-        ctx.restore();
-        textureDrawn = true;
-      }
+      texture = this.textureCache.getTextureSync(textureId);
     }
 
-    // Fallback to solid color if texture not available
-    if (!textureDrawn) {
+    if (texture) {
+      // Draw texture directly - no background rectangle needed
+      // Adjacent tiles' opaque diamonds cover this tile's transparent corners
+      ctx.drawImage(
+        texture,
+        x - halfWidth,
+        y,
+        config.tileWidth,
+        config.tileHeight
+      );
+    } else {
+      // No texture available - draw a diamond-shaped fallback color
       const color = this.textureCache.getFallbackColor(textureId);
-
-      // Draw diamond shape
-      ctx.beginPath();
-      ctx.moveTo(screenX, screenY);                          // Top
-      ctx.lineTo(screenX - halfWidth, screenY + halfHeight); // Left
-      ctx.lineTo(screenX, screenY + config.tileHeight);      // Bottom
-      ctx.lineTo(screenX + halfWidth, screenY + halfHeight); // Right
-      ctx.closePath();
-
-      // Fill with terrain color
       ctx.fillStyle = color;
-      ctx.fill();
-    }
-
-    // Draw subtle edge for depth (optional, can be toggled)
-    if (this.zoomLevel >= 2) {
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
-      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(screenX, screenY);                          // Top
-      ctx.lineTo(screenX - halfWidth, screenY + halfHeight); // Left
-      ctx.lineTo(screenX, screenY + config.tileHeight);      // Bottom
-      ctx.lineTo(screenX + halfWidth, screenY + halfHeight); // Right
+      ctx.moveTo(x, y);                           // top
+      ctx.lineTo(x + halfWidth, y + halfHeight);  // right
+      ctx.lineTo(x, y + config.tileHeight);       // bottom
+      ctx.lineTo(x - halfWidth, y + halfHeight);  // left
       ctx.closePath();
-      ctx.stroke();
+      ctx.fill();
     }
   }
 
@@ -472,9 +488,13 @@ export class IsometricTerrainRenderer {
     ctx.font = '12px monospace';
     ctx.textAlign = 'left';
 
+    const availableSeasonStr = this.availableSeasons.length === 1
+      ? `(only ${SEASON_NAMES[this.availableSeasons[0]]})`
+      : `(${this.availableSeasons.length} available)`;
+
     const lines = [
       `Map: ${this.mapName} (${this.terrainLoader.getDimensions().width}×${this.terrainLoader.getDimensions().height})`,
-      `Terrain: ${this.textureCache.getTerrainType()}`,
+      `Terrain: ${this.textureCache.getTerrainType()} | Season: ${SEASON_NAMES[this.season]} ${availableSeasonStr}`,
       `Camera: (${Math.round(this.cameraI)}, ${Math.round(this.cameraJ)})`,
       `Zoom Level: ${this.zoomLevel} (${config.tileWidth}×${config.tileHeight}px)`,
       `Visible: i[${bounds.minI}..${bounds.maxI}] j[${bounds.minJ}..${bounds.maxJ}]`,
@@ -482,7 +502,7 @@ export class IsometricTerrainRenderer {
       `Textures: ${this.useTextures ? 'ON' : 'OFF'} | Cache: ${cacheStats.size}/${cacheStats.maxSize} (${(cacheStats.hitRate * 100).toFixed(1)}% hit)`,
       `Chunks: ${this.useChunks ? 'ON' : 'OFF'} | Cached: ${chunkStats?.cacheSizes[this.zoomLevel] || 0} (${((chunkStats?.hitRate || 0) * 100).toFixed(1)}% hit)`,
       `Render Time: ${this.lastRenderStats.renderTimeMs.toFixed(2)}ms`,
-      `Controls: Drag=Pan, Wheel=Zoom, T=Textures, C=Chunks`
+      `Controls: Drag=Pan, Wheel=Zoom, T=Textures, C=Chunks, S=Season`
     ];
 
     lines.forEach((line, index) => {
@@ -579,6 +599,9 @@ export class IsometricTerrainRenderer {
       }
       if (e.key === 'c' || e.key === 'C') {
         this.toggleChunks();
+      }
+      if (e.key === 's' || e.key === 'S') {
+        this.cycleSeason();
       }
     });
   }
@@ -812,7 +835,64 @@ export class IsometricTerrainRenderer {
     }
 
     // Preload all visible textures
-    await this.textureCache.preload(Array.from(textureIds), this.zoomLevel);
+    await this.textureCache.preload(Array.from(textureIds));
     this.render();
+  }
+
+  // =========================================================================
+  // SEASON API
+  // =========================================================================
+
+  /**
+   * Set the season for terrain textures
+   * @param season - Season (0=Winter, 1=Spring, 2=Summer, 3=Autumn)
+   */
+  setSeason(season: Season): void {
+    if (this.season !== season) {
+      this.season = season;
+      this.textureCache.setSeason(season);
+      // Clear chunk cache since textures changed
+      this.chunkCache?.clearAll();
+      console.log(`[IsometricRenderer] Season changed to ${SEASON_NAMES[season]}`);
+      this.render();
+    }
+  }
+
+  /**
+   * Get current season
+   */
+  getSeason(): Season {
+    return this.season;
+  }
+
+  /**
+   * Get current season name
+   */
+  getSeasonName(): string {
+    return SEASON_NAMES[this.season];
+  }
+
+  /**
+   * Cycle to next season (for keyboard shortcut)
+   * Only cycles through available seasons for this terrain type
+   */
+  cycleSeason(): void {
+    if (this.availableSeasons.length <= 1) {
+      console.log(`[IsometricRenderer] Only one season available, cannot cycle`);
+      return;
+    }
+
+    // Find current index in available seasons
+    const currentIndex = this.availableSeasons.indexOf(this.season);
+    const nextIndex = (currentIndex + 1) % this.availableSeasons.length;
+    const nextSeason = this.availableSeasons[nextIndex];
+    this.setSeason(nextSeason);
+  }
+
+  /**
+   * Get available seasons for current terrain type
+   */
+  getAvailableSeasons(): Season[] {
+    return [...this.availableSeasons];
   }
 }

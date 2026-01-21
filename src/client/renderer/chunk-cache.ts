@@ -26,30 +26,33 @@ const isOffscreenCanvasSupported = typeof OffscreenCanvas !== 'undefined';
 
 /**
  * Calculate chunk canvas dimensions for isometric rendering
- * Based on Lander.pas formula, a chunk of N×N tiles needs specific canvas size
+ * Based on seamless tiling formula where tiles overlap by half their dimensions
  */
 function calculateChunkCanvasDimensions(chunkSize: number, config: ZoomConfig): { width: number; height: number } {
   const u = config.u;
-  // For N×N chunk:
+  // For N×N chunk with seamless formula:
+  // x = u * (N - i + j), step = u (half of tileWidth)
+  // y = (u/2) * ((N - i) + (N - j)), step = u/2 (half of tileHeight)
+  //
   // Width spans from tile (N-1, 0) to tile (0, N-1)
-  // x_min = 2*u*(N - (N-1) + 0) = 2*u
-  // x_max = 2*u*(N - 0 + (N-1)) = 2*u*(2N-1)
-  // Width = 2*u*(2N-1) - 2*u + tileWidth = 2*u*(2N-2) + tileWidth
-  //       = 4*u*(N-1) + 2*u = 2*u*(2N-1)
+  // x_min = u * (N - (N-1) + 0) = u
+  // x_max = u * (N - 0 + (N-1)) = u * (2N-1)
+  // Width = x_max - x_min + tileWidth = u*(2N-2) + tileWidth = u*(2N-2) + 2*u = 2*u*N
+  //
+  // Height spans from lowest y to highest y
+  // y_min = (u/2) * ((N - (N-1)) + (N - (N-1))) = u
+  // y_max = (u/2) * (N + N) = u*N
+  // Height = y_max - y_min + tileHeight = u*(N-1) + u = u*N
 
-  // Height spans from tile (N-1, N-1) to tile (0, 0)
-  // y_min = u*((N-(N-1)) + (N-(N-1))) = u*2
-  // y_max = u*(N + N) = 2*N*u
-  // Height = 2*N*u - 2*u + tileHeight = u*(2N-2) + u = u*(2N-1)
-
-  const width = 2 * u * (2 * chunkSize - 1) + config.tileWidth;
-  const height = u * (2 * chunkSize - 1) + config.tileHeight;
+  const width = u * (2 * chunkSize - 1) + config.tileWidth;
+  const height = (u / 2) * (2 * chunkSize - 1) + config.tileHeight;
 
   return { width, height };
 }
 
 /**
  * Calculate the screen offset for a tile within a chunk's local canvas
+ * Uses seamless tiling formula where tiles overlap by half their dimensions
  */
 function getTileScreenPosInChunk(
   localI: number,
@@ -60,15 +63,16 @@ function getTileScreenPosInChunk(
   const u = config.u;
 
   // Local origin: position where tile (0, 0) of the chunk would be
-  // Using Lander.pas formula with local rows/cols = chunkSize
-  const x = 2 * u * (chunkSize - localI + localJ);
-  const y = u * ((chunkSize - localI) + (chunkSize - localJ));
+  // Using seamless formula with local rows/cols = chunkSize
+  const x = u * (chunkSize - localI + localJ);
+  const y = (u / 2) * ((chunkSize - localI) + (chunkSize - localJ));
 
   return { x, y };
 }
 
 /**
  * Get the screen position of a chunk's top-left corner in the main canvas
+ * Uses seamless tiling formula for consistent positioning
  */
 function getChunkScreenPosition(
   chunkI: number,
@@ -82,19 +86,15 @@ function getChunkScreenPosition(
   const u = config.u;
 
   // The chunk covers tiles from (chunkI * chunkSize) to ((chunkI + 1) * chunkSize - 1)
-  // The "anchor" tile for positioning is the top tile of the chunk in screen space
-  // which is tile (chunkI * chunkSize, (chunkJ + 1) * chunkSize - 1)
-
-  // Actually, we need the screen position of the chunk's local origin point
+  // We need the screen position of the chunk's local origin point
   // The chunk canvas has its own coordinate system
-  // When we draw to main canvas, we offset by the difference
 
   const baseI = chunkI * chunkSize;
   const baseJ = chunkJ * chunkSize;
 
-  // Screen position of tile (baseI, baseJ) in world space
-  const worldX = 2 * u * (mapHeight - baseI + baseJ) - origin.x;
-  const worldY = u * ((mapHeight - baseI) + (mapWidth - baseJ)) - origin.y;
+  // Screen position of tile (baseI, baseJ) in world space using seamless formula
+  const worldX = u * (mapHeight - baseI + baseJ) - origin.x;
+  const worldY = (u / 2) * ((mapHeight - baseI) + (mapWidth - baseJ)) - origin.y;
 
   // The chunk canvas has tile (0,0) at position getTileScreenPosInChunk(0, 0, ...)
   // So we need to offset
@@ -317,10 +317,13 @@ export class ChunkCache {
       }
     }
 
-    // Preload all textures for this chunk
-    await this.textureCache.preload(Array.from(textureIds), zoomLevel);
+    // Preload all textures for this chunk (season is set on textureCache)
+    await this.textureCache.preload(Array.from(textureIds));
 
     // Render all tiles in the chunk
+    // Tiles use the seamless formula where adjacent tiles overlap by half their dimensions.
+    // This means the opaque diamond content of one tile covers the transparent corners
+    // of adjacent tiles, so we don't need background rectangles.
     for (let i = startI; i < endI; i++) {
       for (let j = startJ; j < endJ; j++) {
         const localI = i - startI;
@@ -329,54 +332,34 @@ export class ChunkCache {
         const textureId = this.getTextureId(j, i);
         const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
 
-        // Try to draw texture
-        const texture = this.textureCache.getTextureSync(textureId, zoomLevel);
+        // Round coordinates to integers to avoid sub-pixel rendering gaps
+        const x = Math.round(screenPos.x);
+        const y = Math.round(screenPos.y);
+
+        // Get texture if available
+        const texture = this.textureCache.getTextureSync(textureId);
 
         if (texture) {
-          // Draw texture with diamond clip
-          ctx.save();
-          ctx.beginPath();
-          ctx.moveTo(screenPos.x, screenPos.y);
-          ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
-          ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
-          ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
-          ctx.closePath();
-          ctx.clip();
-
+          // Draw texture directly - no background rectangle needed
+          // Adjacent tiles' opaque diamonds cover this tile's transparent corners
           ctx.drawImage(
             texture,
-            screenPos.x - halfWidth,
-            screenPos.y,
+            x - halfWidth,
+            y,
             config.tileWidth,
             config.tileHeight
           );
-          ctx.restore();
         } else {
-          // Fallback to solid color
+          // No texture available - draw a diamond-shaped fallback color
           const color = getFallbackColor(textureId);
-
-          ctx.beginPath();
-          ctx.moveTo(screenPos.x, screenPos.y);
-          ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
-          ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
-          ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
-          ctx.closePath();
-
           ctx.fillStyle = color;
-          ctx.fill();
-        }
-
-        // Subtle edge for depth (only at higher zoom levels)
-        if (zoomLevel >= 2) {
-          ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
-          ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.moveTo(screenPos.x, screenPos.y);
-          ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
-          ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
-          ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
+          ctx.moveTo(x, y);                                // top
+          ctx.lineTo(x + halfWidth, y + halfHeight);       // right
+          ctx.lineTo(x, y + config.tileHeight);            // bottom
+          ctx.lineTo(x - halfWidth, y + halfHeight);       // left
           ctx.closePath();
-          ctx.stroke();
+          ctx.fill();
         }
       }
     }
