@@ -5,6 +5,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import { createLogger } from '../shared/logger';
 
 const logger = createLogger('UpdateService');
@@ -21,18 +22,29 @@ interface SyncStats {
   deleted: number;
   skipped: number;
   failed: number;
+  extracted: number;
+}
+
+interface CabMetadata {
+  [cabPath: string]: {
+    extractedFiles: string[];
+    cabModifiedTime: number;
+  };
 }
 
 export class UpdateService {
   private readonly UPDATE_SERVER_BASE = 'http://update.starpeaceonline.com/five/client/cache';
   private readonly CACHE_ROOT: string;
-  private stats: SyncStats = { downloaded: 0, deleted: 0, skipped: 0, failed: 0 };
+  private readonly CAB_METADATA_FILE: string;
+  private stats: SyncStats = { downloaded: 0, deleted: 0, skipped: 0, failed: 0, extracted: 0 };
+  private cabMetadata: CabMetadata = {};
 
   /**
    * Files to exclude from synchronization (local customizations)
    */
   private readonly EXCLUDED_FILES = [
-    'BuildingClasses/facility_db.csv'  // Local custom file, not on server
+    'BuildingClasses/facility_db.csv',  // Local custom file, not on server
+    '.cab-metadata.json'                 // CAB extraction tracking metadata
   ];
 
   /**
@@ -50,6 +62,133 @@ export class UpdateService {
     // Default to cache/ directory in project root
     // This mirrors the exact structure from update.starpeaceonline.com/five/client/cache/
     this.CACHE_ROOT = cacheRoot || path.join(__dirname, '../../cache');
+    this.CAB_METADATA_FILE = path.join(this.CACHE_ROOT, '.cab-metadata.json');
+    this.loadCabMetadata();
+  }
+
+  /**
+   * Load CAB extraction metadata from disk
+   */
+  private loadCabMetadata(): void {
+    try {
+      if (fs.existsSync(this.CAB_METADATA_FILE)) {
+        const data = fs.readFileSync(this.CAB_METADATA_FILE, 'utf8');
+        this.cabMetadata = JSON.parse(data);
+      }
+    } catch (error) {
+      logger.warn('[UpdateService] Failed to load CAB metadata, starting fresh:', error);
+      this.cabMetadata = {};
+    }
+  }
+
+  /**
+   * Save CAB extraction metadata to disk
+   */
+  private saveCabMetadata(): void {
+    try {
+      fs.writeFileSync(this.CAB_METADATA_FILE, JSON.stringify(this.cabMetadata, null, 2), 'utf8');
+    } catch (error) {
+      logger.error('[UpdateService] Failed to save CAB metadata:', error);
+    }
+  }
+
+  /**
+   * Extract a CAB file using Windows expand.exe utility or cabextract
+   */
+  private extractCabFile(cabPath: string): string[] {
+    const extractedFiles: string[] = [];
+    const cabDir = path.dirname(cabPath);
+
+    try {
+      logger.info(`[UpdateService] Extracting CAB: ${path.relative(this.CACHE_ROOT, cabPath)}`);
+
+      // Take snapshot of files BEFORE extraction
+      const filesBefore = new Set<string>();
+      if (fs.existsSync(cabDir)) {
+        const entries = fs.readdirSync(cabDir);
+        for (const entry of entries) {
+          const fullPath = path.join(cabDir, entry);
+          if (fs.statSync(fullPath).isFile()) {
+            filesBefore.add(entry.toLowerCase());
+          }
+        }
+      }
+
+      // Use full path to Windows expand.exe to avoid conflicts with Unix expand tool
+      // Windows expand.exe: C:\Windows\System32\expand.exe -F:* "source.cab" "destination_directory"
+      const isWindows = process.platform === 'win32';
+      let command: string;
+
+      if (isWindows) {
+        // Use full path to Windows expand.exe
+        const expandPath = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'expand.exe');
+        command = `"${expandPath}" -F:* "${cabPath}" "${cabDir}"`;
+      } else {
+        // Linux/Mac: use cabextract if available
+        command = `cabextract -q -d "${cabDir}" "${cabPath}"`;
+      }
+
+      execSync(command, {
+        cwd: cabDir,
+        stdio: 'pipe',
+        windowsHide: true,
+        shell: isWindows ? 'cmd.exe' : undefined
+      });
+
+      // Scan directory to find NEW extracted files (files that weren't there before)
+      const entries = fs.readdirSync(cabDir);
+      for (const entry of entries) {
+        const fullPath = path.join(cabDir, entry);
+        const stats = fs.statSync(fullPath);
+
+        // Include files that are:
+        // 1. Regular files (not directories)
+        // 2. Not CAB files themselves
+        // 3. Either new OR already existed (for initial scan)
+        if (stats.isFile() && !entry.toLowerCase().endsWith('.cab')) {
+          const relativePath = path.relative(this.CACHE_ROOT, fullPath).replace(/\\/g, '/');
+
+          // If this is first run (filesBefore only contains CAB), include all non-CAB files
+          // If this is re-extraction, only include files that weren't there before
+          if (filesBefore.size <= 1 || !filesBefore.has(entry.toLowerCase())) {
+            extractedFiles.push(relativePath);
+          }
+        }
+      }
+
+      this.stats.extracted++;
+      logger.info(`[UpdateService] ✓ Extracted ${extractedFiles.length} files from CAB`);
+
+      return extractedFiles;
+    } catch (error) {
+      logger.error(`[UpdateService] ✗ Failed to extract CAB ${path.relative(this.CACHE_ROOT, cabPath)}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Clean up files extracted from a previous CAB version
+   */
+  private cleanupOldCabExtraction(cabRelativePath: string): void {
+    const metadata = this.cabMetadata[cabRelativePath];
+    if (!metadata || !metadata.extractedFiles) {
+      return;
+    }
+
+    logger.info(`[UpdateService] Cleaning up ${metadata.extractedFiles.length} files from old CAB extraction`);
+
+    for (const extractedFile of metadata.extractedFiles) {
+      const fullPath = path.join(this.CACHE_ROOT, extractedFile);
+      try {
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+          logger.info(`[UpdateService] 🗑 Deleted old extraction: ${extractedFile}`);
+          this.stats.deleted++;
+        }
+      } catch (error) {
+        logger.error(`[UpdateService] Failed to delete old extraction ${extractedFile}:`, error);
+      }
+    }
   }
 
   /**
@@ -74,9 +213,16 @@ export class UpdateService {
 
     while ((match = dirRegex.exec(html)) !== null) {
       const dirname = match[1];
-      if (!this.IGNORED_PATTERNS.includes(dirname)) {
-        directories.push(dirname);
+      const linkText = match[2];
+
+      // Skip parent directory links and ignored patterns
+      if (this.IGNORED_PATTERNS.includes(dirname) ||
+          linkText.includes('[To Parent Directory]') ||
+          linkText.includes('Parent Directory')) {
+        continue;
       }
+
+      directories.push(dirname);
     }
 
     return { files, directories };
@@ -178,9 +324,16 @@ export class UpdateService {
    */
   private async downloadFile(item: RemoteItem): Promise<boolean> {
     const localPath = path.join(this.CACHE_ROOT, item.path);
+    const isCabFile = item.path.toLowerCase().endsWith('.cab');
 
     try {
       logger.info(`[UpdateService] Downloading: ${item.path}`);
+
+      // Check if CAB file needs old extraction cleanup
+      if (isCabFile && this.cabMetadata[item.path]) {
+        logger.info(`[UpdateService] CAB file updated, cleaning up old extraction first`);
+        this.cleanupOldCabExtraction(item.path);
+      }
 
       const response = await fetch(item.url);
       if (!response.ok) {
@@ -201,6 +354,19 @@ export class UpdateService {
 
       this.stats.downloaded++;
       logger.info(`[UpdateService] ✓ Downloaded: ${item.path} (${buffer.length} bytes)`);
+
+      // Auto-extract CAB files
+      if (isCabFile) {
+        const extractedFiles = this.extractCabFile(localPath);
+
+        // Update metadata
+        const stats = fs.statSync(localPath);
+        this.cabMetadata[item.path] = {
+          extractedFiles: extractedFiles,
+          cabModifiedTime: stats.mtimeMs
+        };
+      }
+
       return true;
     } catch (error) {
       this.stats.failed++;
@@ -247,11 +413,24 @@ export class UpdateService {
   }
 
   /**
+   * Check if a file is an extracted CAB file (should not be deleted as orphan)
+   */
+  private isExtractedCabFile(relativePath: string): boolean {
+    for (const cabPath in this.cabMetadata) {
+      const metadata = this.cabMetadata[cabPath];
+      if (metadata.extractedFiles.includes(relativePath)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Synchronize cache with remote server
    */
   async syncAll(): Promise<void> {
     logger.info('[UpdateService] Starting automatic synchronization...');
-    this.stats = { downloaded: 0, deleted: 0, skipped: 0, failed: 0 };
+    this.stats = { downloaded: 0, deleted: 0, skipped: 0, failed: 0, extracted: 0 };
 
     const startTime = Date.now();
 
@@ -282,8 +461,8 @@ export class UpdateService {
     logger.info(`[UpdateService] Remote: ${remoteFiles.length} files, ${remoteDirs.length} directories`);
     logger.info(`[UpdateService] Local: ${localFiles.length} files, ${localDirs.length} directories`);
 
-    // Step 3: Download missing files
-    logger.info('[UpdateService] Step 3/4: Downloading missing files...');
+    // Step 3: Download missing files and extract CAB files
+    logger.info('[UpdateService] Step 3/4: Downloading missing files and extracting CABs...');
     const remoteFilePaths = new Set(remoteFiles.map(f => f.path));
 
     for (const remoteFile of remoteFiles) {
@@ -293,9 +472,33 @@ export class UpdateService {
       }
 
       const localPath = path.join(this.CACHE_ROOT, remoteFile.path);
+      const isCabFile = remoteFile.path.toLowerCase().endsWith('.cab');
+
       if (fs.existsSync(localPath)) {
         this.stats.skipped++;
-        // File exists, skip
+
+        // Check if existing CAB file needs extraction (first run or updated)
+        if (isCabFile) {
+          const stats = fs.statSync(localPath);
+          const metadata = this.cabMetadata[remoteFile.path];
+
+          // Extract if: no metadata exists OR CAB file was modified
+          if (!metadata || metadata.cabModifiedTime !== stats.mtimeMs) {
+            logger.info(`[UpdateService] CAB exists but needs extraction: ${remoteFile.path}`);
+
+            // Clean up old extraction if it exists
+            if (metadata) {
+              this.cleanupOldCabExtraction(remoteFile.path);
+            }
+
+            // Extract CAB
+            const extractedFiles = this.extractCabFile(localPath);
+            this.cabMetadata[remoteFile.path] = {
+              extractedFiles: extractedFiles,
+              cabModifiedTime: stats.mtimeMs
+            };
+          }
+        }
       } else {
         // File missing, download
         await this.downloadFile(remoteFile);
@@ -307,6 +510,11 @@ export class UpdateService {
 
     for (const localFile of localFiles) {
       if (this.isExcluded(localFile)) {
+        continue;
+      }
+
+      // Don't delete files that were extracted from CAB files
+      if (this.isExtractedCabFile(localFile)) {
         continue;
       }
 
@@ -341,9 +549,12 @@ export class UpdateService {
       }
     }
 
+    // Save CAB metadata
+    this.saveCabMetadata();
+
     const duration = Date.now() - startTime;
     logger.info(`[UpdateService] Synchronization complete in ${duration}ms`);
-    logger.info(`[UpdateService] Downloaded: ${this.stats.downloaded} | Deleted: ${this.stats.deleted} | Skipped: ${this.stats.skipped} | Failed: ${this.stats.failed}`);
+    logger.info(`[UpdateService] Downloaded: ${this.stats.downloaded} | Extracted: ${this.stats.extracted} | Deleted: ${this.stats.deleted} | Skipped: ${this.stats.skipped} | Failed: ${this.stats.failed}`);
   }
 
   /**

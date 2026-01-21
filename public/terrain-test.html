@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Isometric Terrain Renderer Test</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #0a0a0f;
+      color: #fff;
+      font-family: 'Segoe UI', sans-serif;
+      overflow: hidden;
+      height: 100vh;
+    }
+
+    #container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    #controls {
+      background: rgba(0, 0, 0, 0.8);
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      border-bottom: 1px solid #333;
+    }
+
+    #controls h1 {
+      font-size: 18px;
+      font-weight: normal;
+      color: #4dabf7;
+    }
+
+    #controls label {
+      color: #888;
+      font-size: 14px;
+    }
+
+    #controls select, #controls button {
+      background: #1a1a2e;
+      color: #fff;
+      border: 1px solid #333;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    #controls select:hover, #controls button:hover {
+      background: #2a2a4e;
+    }
+
+    #controls button.active {
+      background: #4dabf7;
+      border-color: #4dabf7;
+    }
+
+    #status {
+      color: #666;
+      font-size: 12px;
+      margin-left: auto;
+    }
+
+    #canvas-container {
+      flex: 1;
+      position: relative;
+    }
+
+    #terrainCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      color: #666;
+    }
+
+    #loading .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #333;
+      border-top-color: #4dabf7;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 10px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="controls">
+      <h1>🗺️ Isometric Terrain Test</h1>
+      <label>Map:</label>
+      <select id="mapSelect">
+        <option value="Shamba">Shamba (1000×1000)</option>
+        <option value="Antiqua">Antiqua (2000×2000)</option>
+        <option value="Zyrane">Zyrane (1000×1000)</option>
+      </select>
+      <label>Zoom:</label>
+      <select id="zoomSelect">
+        <option value="0">Level 0 (4×8)</option>
+        <option value="1">Level 1 (8×16)</option>
+        <option value="2" selected>Level 2 (16×32)</option>
+        <option value="3">Level 3 (32×64)</option>
+      </select>
+      <button id="loadBtn">Load Map</button>
+      <button id="centerBtn">Center</button>
+      <button id="textureBtn" title="Toggle Textures (T)">🎨 Textures</button>
+      <button id="preloadBtn" title="Preload visible textures">⬇️ Preload</button>
+      <span id="status">Ready</span>
+    </div>
+    <div id="canvas-container">
+      <canvas id="terrainCanvas"></canvas>
+      <div id="loading" class="hidden">
+        <div class="spinner"></div>
+        <div>Loading terrain...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bundled terrain test script -->
+  <script src="/terrain-test.js"></script>
+</body>
+</html>

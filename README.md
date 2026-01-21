@@ -8,12 +8,16 @@ This project provides a web-based client that communicates with legacy Starpeace
 
 ## SPO Web Client Features
 - **Building Management:** Place, manage, and customize buildings with detailed property controls
-- **Map Rendering:** HTML5 Canvas-based map visualization with roads, buildings, and zones : 2D view, basic implementation.
+- **Isometric Map Rendering:** HTML5 Canvas-based isometric visualization with real terrain textures from BMP map files
+  - 4 zoom levels (4×8, 8×16, 16×32, 32×64 pixels per tile)
+  - Authentic terrain textures loaded from original game files
+  - Layered rendering: terrain, roads, buildings, zone overlays, placement previews
+  - Smooth pan and zoom controls
 - **Road Building:** Draw horizontal, vertical, and diagonal road segments with visual preview and cost estimation
 - **Public Office Roles:** Support for Mayor, Minister, and President roles with automatic company switching
 - **Chat System:** In-game chat with other players, change channels
-- **Building Details:** Get building details and settings - basic implementation.
-- **Placement Validation:** Client-side collision detection for roads, buildings, and zones (zone is to be implemented)
+- **Building Details:** Comprehensive building information with property editing and upgrade controls
+- **Placement Validation:** Client-side collision detection for roads, buildings, and zones
 
 ## Tech Stack
 

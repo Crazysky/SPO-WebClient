@@ -2,12 +2,12 @@
  * MapNavigationUI - Gère l'affichage et les interactions avec la carte
  */
 
-import { MapRenderer } from '../renderer';
+import { IsometricMapRenderer } from '../renderer/isometric-map-renderer';
 import { FacilityDimensions } from '../../shared/types';
 
 export class MapNavigationUI {
   private canvas: HTMLCanvasElement | null = null;
-  private renderer: MapRenderer | null = null;
+  private renderer: IsometricMapRenderer | null = null;
 
   // Callbacks
   private onLoadZone: ((x: number, y: number, w: number, h: number) => void) | null = null;
@@ -55,8 +55,15 @@ export class MapNavigationUI {
     this.canvas.style.backgroundColor = '#111';
     this.gamePanel.appendChild(this.canvas);
 
-    // Init Renderer
-    this.renderer = new MapRenderer('game-canvas');
+    // Init Renderer (Isometric)
+    this.renderer = new IsometricMapRenderer('game-canvas');
+
+    // Load map terrain (default to Shamba for now - can be made dynamic later)
+    this.renderer.loadMap('Shamba').then(() => {
+      console.log('[MapNavigationUI] Terrain loaded successfully');
+    }).catch((err) => {
+      console.error('[MapNavigationUI] Failed to load terrain:', err);
+    });
 
     // FIX: Define callbacks WITHOUT condition (they will be called via this.onLoadZone)
     // Callbacks can be defined AFTER initialization via setOnLoadZone/setOnBuildingClick
@@ -79,7 +86,7 @@ export class MapNavigationUI {
   /**
    * Retourne le renderer (pour les opérations map data)
    */
-  public getRenderer(): MapRenderer | null {
+  public getRenderer(): IsometricMapRenderer | null {
     return this.renderer;
   }
 }

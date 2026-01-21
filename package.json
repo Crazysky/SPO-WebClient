@@ -6,7 +6,8 @@
   "scripts": {
     "build:server": "tsc",
     "build:client": "esbuild src/client/client.ts --bundle --outfile=public/client.js --format=iife",
-    "build": "npm run build:server && npm run build:client",
+    "build:terrain-test": "esbuild src/client/terrain-test.ts --bundle --outfile=public/terrain-test.js --format=iife",
+    "build": "npm run build:server && npm run build:client && npm run build:terrain-test",
     "start": "node dist/server/server.js",
     "dev": "npm run build && npm start",
     "test": "jest",
@@ -35,6 +36,7 @@
     "npm": ">=9.0.0"
   },
   "dependencies": {
+    "bmp-js": "^0.1.0",
     "cheerio": "^1.1.2",
     "node-fetch": "^2.7.0",
     "ws": "^8.19.0"

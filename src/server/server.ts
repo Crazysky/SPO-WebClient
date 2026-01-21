@@ -9,6 +9,8 @@ import * as ErrorCodes from '../shared/error-codes';
 import { FacilityDimensionsCache } from './facility-dimensions-cache';
 import { SearchMenuService } from './search-menu-service';
 import { UpdateService } from './update-service';
+import { MapDataService } from './map-data-service';
+import { TextureExtractor } from './texture-extractor';
 import {
   WsMessageType,
   WsMessage,
@@ -103,6 +105,12 @@ const PUBLIC_DIR = path.join(__dirname, '../../public');
 // Initialize Facility Dimensions Cache
 const facilityDimensionsCache = new FacilityDimensionsCache();
 
+// Initialize Map Data Service
+const mapDataService = new MapDataService();
+
+// Initialize Texture Extractor (extracts terrain textures from CAB archives)
+const textureExtractor = new TextureExtractor();
+
 // WebClient-specific cache directory (for future needs, separate from update server mirror)
 const WEBCLIENT_CACHE_DIR = path.join(__dirname, '../../webclient-cache');
 if (!fs.existsSync(WEBCLIENT_CACHE_DIR)) {
@@ -123,6 +131,33 @@ function getPlaceholderImage(): Buffer {
  * Checks update cache first, then falls back to downloading from game server
  */
 async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<void> {
+  // Handle local file:// URLs
+  if (imageUrl.startsWith('file://')) {
+    const localPath = imageUrl.substring('file://'.length);
+    try {
+      if (fs.existsSync(localPath)) {
+        const content = fs.readFileSync(localPath);
+        const ext = path.extname(localPath).toLowerCase();
+        const contentType = ext === '.bmp' ? 'application/octet-stream' :
+                          ext === '.gif' ? 'image/gif' :
+                          ext === '.png' ? 'image/png' :
+                          ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
+                          'application/octet-stream';
+
+        res.writeHead(200, { 'Content-Type': contentType });
+        res.end(content);
+        return;
+      } else {
+        throw new Error(`Local file not found: ${localPath}`);
+      }
+    } catch (error) {
+      console.error(`[ImageProxy] Failed to serve local file ${localPath}:`, error);
+      res.writeHead(404);
+      res.end('File not found');
+      return;
+    }
+  }
+
   // Extract filename from URL (keep original name for debugging)
   const urlParts = imageUrl.split('/');
   const filename = urlParts[urlParts.length - 1] || 'unknown.gif';
@@ -251,6 +286,88 @@ async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<v
 // 1. HTTP Server for Static Files + Image Proxy
 const server = http.createServer(async (req, res) => {
   const safePath = req.url === '/' ? '/index.html' : req.url || '/index.html';
+
+  // Map data API endpoint: /api/map-data/:mapname
+  if (safePath.startsWith('/api/map-data/')) {
+    const mapName = safePath.substring('/api/map-data/'.length).split('?')[0];
+
+    if (!mapName) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing map name' }));
+      return;
+    }
+
+    try {
+      // Extract CAB file if needed (or verify files exist)
+      await mapDataService.extractCabFile(mapName);
+
+      // Get map metadata from INI file
+      const metadata = await mapDataService.getMapMetadata(mapName);
+
+      // Get BMP file path and create proxy URL
+      const bmpPath = mapDataService.getBmpFilePath(mapName);
+      const bmpUrl = `/proxy-image?url=${encodeURIComponent('file://' + bmpPath)}`;
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ metadata, bmpUrl }));
+    } catch (error: any) {
+      console.error(`[MapDataService] Error loading map ${mapName}:`, error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message || 'Failed to load map data' }));
+    }
+    return;
+  }
+
+  // Terrain texture endpoint: /api/terrain-texture/:terrainType/:zoom/:paletteIndex
+  // Example: /api/terrain-texture/Earth/2/128
+  if (safePath.startsWith('/api/terrain-texture/')) {
+    const parts = safePath.substring('/api/terrain-texture/'.length).split('/');
+
+    if (parts.length < 3) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid URL format. Expected: /api/terrain-texture/:terrainType/:zoom/:paletteIndex' }));
+      return;
+    }
+
+    const terrainType = decodeURIComponent(parts[0]);
+    const zoomLevel = parseInt(parts[1], 10);
+    const paletteIndex = parseInt(parts[2].split('?')[0], 10);
+
+    if (isNaN(zoomLevel) || isNaN(paletteIndex)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid zoom level or palette index' }));
+      return;
+    }
+
+    const texturePath = textureExtractor.getTexturePath(terrainType, zoomLevel, paletteIndex);
+
+    if (!texturePath) {
+      // Return a 204 No Content for missing textures (client will use fallback color)
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    try {
+      const content = fs.readFileSync(texturePath);
+      const ext = path.extname(texturePath).toLowerCase();
+      const contentType = ext === '.bmp' ? 'image/bmp' :
+                        ext === '.gif' ? 'image/gif' :
+                        ext === '.png' ? 'image/png' :
+                        'application/octet-stream';
+
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=31536000' // Cache for 1 year (textures don't change)
+      });
+      res.end(content);
+    } catch (error: any) {
+      console.error(`[TextureExtractor] Failed to serve texture ${texturePath}:`, error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to read texture file' }));
+    }
+    return;
+  }
 
   // Image proxy endpoint: /proxy-image?url=<encoded_url>
   if (safePath.startsWith('/proxy-image?')) {
@@ -1332,12 +1449,18 @@ async function startServer() {
     const updateService = new UpdateService();
     await updateService.syncAll();
     const stats = updateService.getStats();
-    console.log(`[Gateway] Update check complete: ${stats.downloaded} downloaded, ${stats.skipped} skipped, ${stats.failed} failed`);
+    console.log(`[Gateway] Update check complete: ${stats.downloaded} downloaded, ${stats.extracted} CAB extracted, ${stats.skipped} skipped, ${stats.failed} failed`);
 
     // Initialize facility dimensions cache (parse facility.csv)
     console.log('[Gateway] Initializing facility dimensions cache...');
     await facilityDimensionsCache.initialize();
     console.log('[Gateway] Facility dimensions cache initialized successfully');
+
+    // Initialize texture extractor (extract terrain textures from CAB archives)
+    console.log('[Gateway] Initializing texture extractor...');
+    await textureExtractor.initialize();
+    const textureStats = textureExtractor.getStats();
+    console.log(`[Gateway] Texture extractor initialized: ${textureStats.length} terrain/zoom combinations`);
 
     // Start HTTP server
     server.listen(PORT, () => {
