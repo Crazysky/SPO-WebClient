@@ -17,6 +17,7 @@
 import { IsometricTerrainRenderer } from './isometric-terrain-renderer';
 import { CoordinateMapper } from './coordinate-mapper';
 import { TextureCache } from './texture-cache';
+import { GameObjectTextureCache } from './game-object-texture-cache';
 import {
   Point,
   Rect,
@@ -61,10 +62,16 @@ export class IsometricMapRenderer {
   // Core terrain renderer
   private terrainRenderer: IsometricTerrainRenderer;
 
+  // Game object texture cache (roads, buildings, etc.)
+  private gameObjectTextureCache: GameObjectTextureCache;
+
   // Game objects
   private cachedZones: Map<string, CachedZone> = new Map();
   private allBuildings: MapBuilding[] = [];
   private allSegments: MapSegment[] = [];
+
+  // Road tiles map for texture type detection
+  private roadTilesMap: Map<string, boolean> = new Map();
 
   // Building dimensions cache
   private facilityDimensionsCache: Map<string, FacilityDimensions> = new Map();
@@ -133,11 +140,37 @@ export class IsometricMapRenderer {
     // Create terrain renderer (shares canvas)
     this.terrainRenderer = new IsometricTerrainRenderer(canvas);
 
+    // Create game object texture cache (roads, buildings, etc.)
+    this.gameObjectTextureCache = new GameObjectTextureCache(500);
+
+    // Preload common road textures
+    this.preloadRoadTextures();
+
     // Setup event handlers
     this.setupMouseControls();
 
     // Initial render
     this.render();
+  }
+
+  /**
+   * Preload common road textures for faster rendering
+   */
+  private preloadRoadTextures(): void {
+    const roadTextures = [
+      'Roadhorz.bmp',
+      'Roadvert.bmp',
+      'Roadcross.bmp',
+      'RoadcornerN.bmp',
+      'RoadcornerE.bmp',
+      'RoadcornerS.bmp',
+      'RoadcornerW.bmp',
+      'RoadTN.bmp',
+      'RoadTE.bmp',
+      'RoadTS.bmp',
+      'RoadTW.bmp'
+    ];
+    this.gameObjectTextureCache.preload('RoadBlockImages', roadTextures);
   }
 
   // =========================================================================
@@ -204,15 +237,37 @@ export class IsometricMapRenderer {
   private rebuildAggregatedData() {
     this.allBuildings = [];
     this.allSegments = [];
+    this.roadTilesMap.clear();
 
     this.cachedZones.forEach(zone => {
       this.allBuildings.push(...zone.buildings);
       this.allSegments.push(...zone.segments);
     });
+
+    // Build road tiles map for connectivity detection
+    this.allSegments.forEach(seg => {
+      const minX = Math.min(seg.x1, seg.x2);
+      const maxX = Math.max(seg.x1, seg.x2);
+      const minY = Math.min(seg.y1, seg.y2);
+      const maxY = Math.max(seg.y1, seg.y2);
+
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          this.roadTilesMap.set(`${x},${y}`, true);
+        }
+      }
+    });
   }
 
   /**
-   * Fetch facility dimensions for buildings
+   * Check if a road tile exists at the given coordinates
+   */
+  private hasRoadAt(x: number, y: number): boolean {
+    return this.roadTilesMap.has(`${x},${y}`);
+  }
+
+  /**
+   * Fetch facility dimensions for buildings and preload their textures
    */
   private async fetchDimensionsForBuildings(buildings: MapBuilding[]) {
     if (!this.onFetchFacilityDimensions) return;
@@ -231,7 +286,24 @@ export class IsometricMapRenderer {
       }
     }
 
+    // Preload building textures for all unique visual classes
+    this.preloadBuildingTextures(buildings);
+
     this.render();
+  }
+
+  /**
+   * Preload building textures for faster rendering
+   */
+  private preloadBuildingTextures(buildings: MapBuilding[]): void {
+    const uniqueClasses = new Set<string>();
+    buildings.forEach(b => uniqueClasses.add(b.visualClass));
+
+    const textureFilenames = Array.from(uniqueClasses).map(
+      visualClass => GameObjectTextureCache.getBuildingTextureFilename(visualClass)
+    );
+
+    this.gameObjectTextureCache.preload('BuildingImages', textureFilenames);
   }
 
   /**
@@ -464,13 +536,16 @@ export class IsometricMapRenderer {
   }
 
   /**
-   * Draw road segments as isometric tiles
+   * Draw road segments as isometric tiles with textures
    */
   private drawRoads(bounds: TileBounds, occupiedTiles: Set<string>) {
     const ctx = this.ctx;
     const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
     const halfWidth = config.tileWidth / 2;
     const halfHeight = config.tileHeight / 2;
+
+    // Track drawn tiles to avoid duplicates
+    const drawnTiles = new Set<string>();
 
     this.allSegments.forEach(seg => {
       const minX = Math.min(seg.x1, seg.x2);
@@ -480,8 +555,11 @@ export class IsometricMapRenderer {
 
       for (let y = minY; y <= maxY; y++) {
         for (let x = minX; x <= maxX; x++) {
-          // Skip if occupied by building
-          if (occupiedTiles.has(`${x},${y}`)) continue;
+          const tileKey = `${x},${y}`;
+
+          // Skip if occupied by building or already drawn
+          if (occupiedTiles.has(tileKey) || drawnTiles.has(tileKey)) continue;
+          drawnTiles.add(tileKey);
 
           // Convert to isometric coordinates (x = j, y = i)
           const screenPos = this.terrainRenderer.mapToScreen(y, x);
@@ -492,27 +570,50 @@ export class IsometricMapRenderer {
             continue;
           }
 
-          // Draw isometric road tile
-          ctx.beginPath();
-          ctx.moveTo(screenPos.x, screenPos.y);
-          ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
-          ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
-          ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
-          ctx.closePath();
+          // Round coordinates for pixel-perfect rendering
+          const sx = Math.round(screenPos.x);
+          const sy = Math.round(screenPos.y);
 
-          ctx.fillStyle = '#666';
-          ctx.fill();
+          // Determine road texture type based on neighboring roads
+          const hasNorth = this.hasRoadAt(x, y - 1);
+          const hasEast = this.hasRoadAt(x + 1, y);
+          const hasSouth = this.hasRoadAt(x, y + 1);
+          const hasWest = this.hasRoadAt(x - 1, y);
 
-          ctx.strokeStyle = '#444';
-          ctx.lineWidth = 1;
-          ctx.stroke();
+          const textureType = GameObjectTextureCache.getRoadTextureType(hasNorth, hasEast, hasSouth, hasWest);
+          const textureFilename = GameObjectTextureCache.getRoadTextureFilename(textureType);
+
+          // Try to get road texture
+          const texture = this.gameObjectTextureCache.getTextureSync('RoadBlockImages', textureFilename);
+
+          if (texture) {
+            // Draw road texture directly (textures are already diamond-shaped)
+            ctx.drawImage(
+              texture,
+              sx - halfWidth,
+              sy,
+              config.tileWidth,
+              config.tileHeight
+            );
+          } else {
+            // Fallback to solid color
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(sx - halfWidth, sy + halfHeight);
+            ctx.lineTo(sx, sy + config.tileHeight);
+            ctx.lineTo(sx + halfWidth, sy + halfHeight);
+            ctx.closePath();
+
+            ctx.fillStyle = '#666';
+            ctx.fill();
+          }
         }
       }
     });
   }
 
   /**
-   * Draw buildings as isometric tiles
+   * Draw buildings as isometric tiles with textures
    */
   private drawBuildings(bounds: TileBounds) {
     const ctx = this.ctx;
@@ -527,38 +628,110 @@ export class IsometricMapRenderer {
 
       const isHovered = this.hoveredBuilding === building;
 
-      // Draw each tile of building footprint
-      for (let dy = 0; dy < ysize; dy++) {
-        for (let dx = 0; dx < xsize; dx++) {
-          const tileX = building.x + dx;
-          const tileY = building.y + dy;
+      // Try to get building texture
+      const textureFilename = GameObjectTextureCache.getBuildingTextureFilename(building.visualClass);
+      const texture = this.gameObjectTextureCache.getTextureSync('BuildingImages', textureFilename);
 
-          // Convert to isometric (x = j, y = i)
-          const screenPos = this.terrainRenderer.mapToScreen(tileY, tileX);
+      if (texture) {
+        // Calculate the anchor point for the building (bottom-left corner in isometric view)
+        // For multi-tile buildings, we need to find the correct anchor position
+        // The anchor is at (x, y) and the building extends to (x+xsize-1, y+ysize-1)
 
-          // Cull if off-screen
-          if (screenPos.x < -config.tileWidth || screenPos.x > this.canvas.width + config.tileWidth ||
-              screenPos.y < -config.tileHeight || screenPos.y > this.canvas.height + config.tileHeight) {
-            continue;
+        // For isometric rendering, we need the top-most point of the building footprint
+        // which is at map coordinates (x + xsize - 1, y) - the top corner of the diamond
+        const anchorScreenPos = this.terrainRenderer.mapToScreen(building.y, building.x + xsize - 1);
+
+        // Calculate the full building size in screen space
+        // Building width spans from (x, y+ysize-1) to (x+xsize-1, y) in screen X
+        // Building height spans the full isometric height
+        const buildingScreenWidth = config.tileWidth * xsize;
+        const buildingScreenHeight = config.tileHeight * ysize;
+
+        // Cull if completely off-screen
+        if (anchorScreenPos.x + buildingScreenWidth / 2 < 0 ||
+            anchorScreenPos.x - buildingScreenWidth / 2 > this.canvas.width ||
+            anchorScreenPos.y < -buildingScreenHeight ||
+            anchorScreenPos.y > this.canvas.height + buildingScreenHeight) {
+          return;
+        }
+
+        // Draw the texture scaled to fit the building footprint
+        const drawX = anchorScreenPos.x - buildingScreenWidth / 2;
+        const drawY = anchorScreenPos.y;
+
+        if (isHovered) {
+          // Draw highlight behind the texture
+          ctx.globalAlpha = 0.3;
+          ctx.fillStyle = '#5fadff';
+          this.drawBuildingFootprint(building, xsize, ysize, config, halfWidth, halfHeight);
+          ctx.globalAlpha = 1.0;
+        }
+
+        ctx.drawImage(texture, drawX, drawY, buildingScreenWidth, buildingScreenHeight);
+      } else {
+        // Fallback: draw solid colored tiles for each tile of building footprint
+        for (let dy = 0; dy < ysize; dy++) {
+          for (let dx = 0; dx < xsize; dx++) {
+            const tileX = building.x + dx;
+            const tileY = building.y + dy;
+
+            // Convert to isometric (x = j, y = i)
+            const screenPos = this.terrainRenderer.mapToScreen(tileY, tileX);
+
+            // Cull if off-screen
+            if (screenPos.x < -config.tileWidth || screenPos.x > this.canvas.width + config.tileWidth ||
+                screenPos.y < -config.tileHeight || screenPos.y > this.canvas.height + config.tileHeight) {
+              continue;
+            }
+
+            // Round coordinates to avoid sub-pixel gaps
+            const sx = Math.round(screenPos.x);
+            const sy = Math.round(screenPos.y);
+
+            // Draw isometric building tile
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(sx - halfWidth, sy + halfHeight);
+            ctx.lineTo(sx, sy + config.tileHeight);
+            ctx.lineTo(sx + halfWidth, sy + halfHeight);
+            ctx.closePath();
+
+            ctx.fillStyle = isHovered ? '#5fadff' : '#4a90e2';
+            ctx.fill();
           }
-
-          // Draw isometric building tile
-          ctx.beginPath();
-          ctx.moveTo(screenPos.x, screenPos.y);
-          ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
-          ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
-          ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
-          ctx.closePath();
-
-          ctx.fillStyle = isHovered ? '#5fadff' : '#4a90e2';
-          ctx.fill();
-
-          ctx.strokeStyle = isHovered ? '#fff' : '#2d5a8f';
-          ctx.lineWidth = isHovered ? 2 : 1;
-          ctx.stroke();
         }
       }
     });
+  }
+
+  /**
+   * Draw building footprint outline (used for hover highlighting)
+   */
+  private drawBuildingFootprint(
+    building: MapBuilding,
+    xsize: number,
+    ysize: number,
+    config: ZoomConfig,
+    halfWidth: number,
+    halfHeight: number
+  ): void {
+    const ctx = this.ctx;
+
+    for (let dy = 0; dy < ysize; dy++) {
+      for (let dx = 0; dx < xsize; dx++) {
+        const screenPos = this.terrainRenderer.mapToScreen(building.y + dy, building.x + dx);
+        const sx = Math.round(screenPos.x);
+        const sy = Math.round(screenPos.y);
+
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx - halfWidth, sy + halfHeight);
+        ctx.lineTo(sx, sy + config.tileHeight);
+        ctx.lineTo(sx + halfWidth, sy + halfHeight);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
   }
 
   /**

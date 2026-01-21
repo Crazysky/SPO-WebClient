@@ -1,8 +1,12 @@
 /**
  * Unit tests for TextureCache
+ *
+ * Note: Textures are organized by SEASON (0=Winter, 1=Spring, 2=Summer, 3=Autumn),
+ * NOT by zoom level. The zoom level only affects tile rendering size.
  */
 
 import { TextureCache, getFallbackColor } from './texture-cache';
+import { Season } from '../../shared/map-config';
 
 // Mock fetch
 global.fetch = jest.fn();
@@ -56,7 +60,7 @@ describe('TextureCache', () => {
 
     it('should clear cache when terrain type changes', () => {
       // First, add something to cache by triggering a load
-      cache.getTextureSync(100, 2);
+      cache.getTextureSync(100);
 
       // Change terrain type
       cache.setTerrainType('Alien Swamp');
@@ -69,7 +73,45 @@ describe('TextureCache', () => {
 
     it('should not clear cache when setting same terrain type', () => {
       cache.setTerrainType('Earth'); // Same as default
-      cache.getTextureSync(100, 2); // This should trigger a load
+      cache.getTextureSync(100); // This should trigger a load
+
+      const stats = cache.getStats();
+      expect(stats.misses).toBe(1); // Should have one miss from the load
+    });
+  });
+
+  describe('season', () => {
+    it('should have default season of Summer', () => {
+      expect(cache.getSeason()).toBe(Season.SUMMER);
+    });
+
+    it('should set season', () => {
+      cache.setSeason(Season.WINTER);
+      expect(cache.getSeason()).toBe(Season.WINTER);
+    });
+
+    it('should return season name', () => {
+      expect(cache.getSeasonName()).toBe('Summer');
+      cache.setSeason(Season.WINTER);
+      expect(cache.getSeasonName()).toBe('Winter');
+    });
+
+    it('should clear cache when season changes', () => {
+      // First, add something to cache by triggering a load
+      cache.getTextureSync(100);
+
+      // Change season
+      cache.setSeason(Season.WINTER);
+
+      // Stats should be reset
+      const stats = cache.getStats();
+      expect(stats.size).toBe(0);
+      expect(stats.hits).toBe(0);
+    });
+
+    it('should not clear cache when setting same season', () => {
+      cache.setSeason(Season.SUMMER); // Same as default
+      cache.getTextureSync(100); // This should trigger a load
 
       const stats = cache.getStats();
       expect(stats.misses).toBe(1); // Should have one miss from the load
@@ -78,25 +120,32 @@ describe('TextureCache', () => {
 
   describe('getTextureSync', () => {
     it('should return null for uncached texture', () => {
-      const texture = cache.getTextureSync(100, 2);
+      const texture = cache.getTextureSync(100);
       expect(texture).toBeNull();
     });
 
     it('should increment misses for uncached texture', () => {
-      cache.getTextureSync(100, 2);
+      cache.getTextureSync(100);
       const stats = cache.getStats();
       expect(stats.misses).toBe(1);
     });
 
     it('should start async load for uncached texture', () => {
-      cache.getTextureSync(100, 2);
+      cache.getTextureSync(100);
+      // Default season is 2 (Summer)
       expect(global.fetch).toHaveBeenCalledWith('/api/terrain-texture/Earth/2/100');
     });
 
+    it('should use correct season in URL', () => {
+      cache.setSeason(Season.WINTER); // 0
+      cache.getTextureSync(100);
+      expect(global.fetch).toHaveBeenCalledWith('/api/terrain-texture/Earth/0/100');
+    });
+
     it('should not start multiple loads for same texture', () => {
-      cache.getTextureSync(100, 2);
-      cache.getTextureSync(100, 2);
-      cache.getTextureSync(100, 2);
+      cache.getTextureSync(100);
+      cache.getTextureSync(100);
+      cache.getTextureSync(100);
 
       // Should only call fetch once
       expect(global.fetch).toHaveBeenCalledTimes(1);
@@ -105,7 +154,7 @@ describe('TextureCache', () => {
 
   describe('getTextureAsync', () => {
     it('should resolve to null for missing texture (204 response)', async () => {
-      const texture = await cache.getTextureAsync(100, 2);
+      const texture = await cache.getTextureAsync(100);
       expect(texture).toBeNull();
     });
 
@@ -120,7 +169,7 @@ describe('TextureCache', () => {
       });
       (global as any).createImageBitmap.mockResolvedValueOnce(mockBitmap);
 
-      const texture = await cache.getTextureAsync(128, 2);
+      const texture = await cache.getTextureAsync(128);
       expect(texture).toBe(mockBitmap);
     });
   });
@@ -140,15 +189,15 @@ describe('TextureCache', () => {
 
   describe('has', () => {
     it('should return false for uncached texture', () => {
-      expect(cache.has(100, 2)).toBe(false);
+      expect(cache.has(100)).toBe(false);
     });
   });
 
   describe('clear', () => {
     it('should reset all cache state', () => {
       // Trigger some cache activity
-      cache.getTextureSync(100, 2);
-      cache.getTextureSync(101, 2);
+      cache.getTextureSync(100);
+      cache.getTextureSync(101);
 
       // Clear
       cache.clear();
@@ -164,12 +213,21 @@ describe('TextureCache', () => {
 
   describe('preload', () => {
     it('should load multiple textures', async () => {
-      await cache.preload([100, 101, 102], 2);
+      // Default season is 2 (Summer)
+      await cache.preload([100, 101, 102]);
 
       expect(global.fetch).toHaveBeenCalledTimes(3);
       expect(global.fetch).toHaveBeenCalledWith('/api/terrain-texture/Earth/2/100');
       expect(global.fetch).toHaveBeenCalledWith('/api/terrain-texture/Earth/2/101');
       expect(global.fetch).toHaveBeenCalledWith('/api/terrain-texture/Earth/2/102');
+    });
+
+    it('should use correct season in URL', async () => {
+      cache.setSeason(Season.AUTUMN); // 3
+      await cache.preload([100, 101]);
+
+      expect(global.fetch).toHaveBeenCalledWith('/api/terrain-texture/Earth/3/100');
+      expect(global.fetch).toHaveBeenCalledWith('/api/terrain-texture/Earth/3/101');
     });
   });
 
@@ -187,8 +245,8 @@ describe('TextureCache', () => {
 
     it('should calculate hit rate correctly', () => {
       // All misses
-      cache.getTextureSync(100, 2);
-      cache.getTextureSync(101, 2);
+      cache.getTextureSync(100);
+      cache.getTextureSync(101);
 
       const stats = cache.getStats();
       expect(stats.misses).toBe(2);

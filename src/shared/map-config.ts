@@ -79,3 +79,22 @@ export enum Rotation {
   SOUTH = 2,
   WEST = 3
 }
+
+/**
+ * Season enum for terrain textures
+ * Each season has different terrain appearance (snow in winter, green in summer, etc.)
+ * Texture folders are organized by season: 0=Winter, 1=Spring, 2=Summer, 3=Autumn
+ */
+export enum Season {
+  WINTER = 0,   // Hiver
+  SPRING = 1,   // Printemps
+  SUMMER = 2,   // Été
+  AUTUMN = 3    // Automne
+}
+
+export const SEASON_NAMES: Record<Season, string> = {
+  [Season.WINTER]: 'Winter',
+  [Season.SPRING]: 'Spring',
+  [Season.SUMMER]: 'Summer',
+  [Season.AUTUMN]: 'Autumn'
+};

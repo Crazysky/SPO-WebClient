@@ -53,10 +53,25 @@ global.ResizeObserver = jest.fn().mockImplementation((callback) => ({
   removeEventListener: jest.fn(),
 };
 
-// Mock fetch for texture loading
-global.fetch = jest.fn().mockResolvedValue({
-  ok: false,
-  status: 204,
+// Mock fetch for texture loading and terrain-info endpoint
+global.fetch = jest.fn().mockImplementation((url: string) => {
+  // Mock terrain-info endpoint
+  if (url.includes('/api/terrain-info/')) {
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        terrainType: 'Earth',
+        availableSeasons: [0, 1, 2, 3],
+        defaultSeason: 2
+      })
+    });
+  }
+  // Default: return 204 for texture loading
+  return Promise.resolve({
+    ok: false,
+    status: 204,
+  });
 });
 
 // Mock createImageBitmap

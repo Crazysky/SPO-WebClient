@@ -4,6 +4,9 @@
  * Client-side texture cache with LRU eviction.
  * Fetches terrain textures from the server and caches them as ImageBitmap objects.
  *
+ * Textures are organized by SEASON (0=Winter, 1=Spring, 2=Summer, 3=Autumn),
+ * not by zoom level. The zoom level only affects tile rendering size.
+ *
  * Features:
  * - LRU (Least Recently Used) eviction policy
  * - Async texture loading with Promise-based API
@@ -11,7 +14,7 @@
  * - Pre-loading support for visible tiles
  */
 
-import { ZoomConfig, ZOOM_LEVELS } from '../../shared/map-config';
+import { Season, SEASON_NAMES } from '../../shared/map-config';
 
 // Fallback colors for palette indices when texture is not available
 const TERRAIN_COLORS: Record<number, string> = {
@@ -74,6 +77,7 @@ interface CacheEntry {
   texture: ImageBitmap | null;
   lastAccess: number;
   loading: boolean;
+  loaded: boolean;  // True when load attempt completed (even if texture is null/missing)
   loadPromise?: Promise<ImageBitmap | null>;
 }
 
@@ -81,6 +85,7 @@ export class TextureCache {
   private cache: Map<string, CacheEntry> = new Map();
   private maxSize: number;
   private terrainType: string = 'Earth';
+  private season: Season = Season.SUMMER; // Default to summer
   private accessCounter: number = 0;
 
   // Statistics
@@ -100,6 +105,7 @@ export class TextureCache {
       this.terrainType = terrainType;
       // Clear cache when terrain type changes
       this.clear();
+      console.log(`[TextureCache] Terrain type set to: ${terrainType}, current season: ${SEASON_NAMES[this.season]}`);
     }
   }
 
@@ -111,18 +117,49 @@ export class TextureCache {
   }
 
   /**
-   * Generate cache key for a texture
+   * Set the season for texture loading
+   * @param season - Season (0=Winter, 1=Spring, 2=Summer, 3=Autumn)
    */
-  private getCacheKey(paletteIndex: number, zoomLevel: number): string {
-    return `${this.terrainType}-${zoomLevel}-${paletteIndex}`;
+  setSeason(season: Season): void {
+    if (this.season !== season) {
+      this.season = season;
+      // Clear cache when season changes (textures are different per season)
+      this.clear();
+      console.log(`[TextureCache] Season changed to ${SEASON_NAMES[season]}`);
+    }
+  }
+
+  /**
+   * Get the current season
+   */
+  getSeason(): Season {
+    return this.season;
+  }
+
+  /**
+   * Get the current season name
+   */
+  getSeasonName(): string {
+    return SEASON_NAMES[this.season];
+  }
+
+  /**
+   * Generate cache key for a texture
+   * Key is based on terrain type, season, and palette index
+   */
+  private getCacheKey(paletteIndex: number): string {
+    return `${this.terrainType}-${this.season}-${paletteIndex}`;
   }
 
   /**
    * Get texture for a palette index (sync - returns cached or null)
    * Use this for fast rendering - if not cached, returns null and starts loading
+   *
+   * Note: The texture is the same regardless of zoom level.
+   * Zoom level only affects how the texture is rendered (scaled).
    */
-  getTextureSync(paletteIndex: number, zoomLevel: number): ImageBitmap | null {
-    const key = this.getCacheKey(paletteIndex, zoomLevel);
+  getTextureSync(paletteIndex: number): ImageBitmap | null {
+    const key = this.getCacheKey(paletteIndex);
     const entry = this.cache.get(key);
 
     if (entry && entry.texture) {
@@ -131,9 +168,15 @@ export class TextureCache {
       return entry.texture;
     }
 
+    // If already loaded (even if texture is null/missing), don't retry
+    if (entry && entry.loaded) {
+      this.misses++;
+      return null;
+    }
+
     // Not in cache, trigger async load if not already loading
     if (!entry || !entry.loading) {
-      this.loadTexture(paletteIndex, zoomLevel);
+      this.loadTexture(paletteIndex);
     }
 
     this.misses++;
@@ -143,8 +186,8 @@ export class TextureCache {
   /**
    * Get texture for a palette index (async - waits for load)
    */
-  async getTextureAsync(paletteIndex: number, zoomLevel: number): Promise<ImageBitmap | null> {
-    const key = this.getCacheKey(paletteIndex, zoomLevel);
+  async getTextureAsync(paletteIndex: number): Promise<ImageBitmap | null> {
+    const key = this.getCacheKey(paletteIndex);
     const entry = this.cache.get(key);
 
     if (entry) {
@@ -155,13 +198,19 @@ export class TextureCache {
         return entry.texture;
       }
 
+      // If already loaded (even if texture is null/missing), don't retry
+      if (entry.loaded) {
+        this.misses++;
+        return null;
+      }
+
       if (entry.loadPromise) {
         return entry.loadPromise;
       }
     }
 
     this.misses++;
-    return this.loadTexture(paletteIndex, zoomLevel);
+    return this.loadTexture(paletteIndex);
   }
 
   /**
@@ -174,8 +223,8 @@ export class TextureCache {
   /**
    * Load a texture from the server
    */
-  private async loadTexture(paletteIndex: number, zoomLevel: number): Promise<ImageBitmap | null> {
-    const key = this.getCacheKey(paletteIndex, zoomLevel);
+  private async loadTexture(paletteIndex: number): Promise<ImageBitmap | null> {
+    const key = this.getCacheKey(paletteIndex);
 
     // Check if already loading
     const existing = this.cache.get(key);
@@ -184,23 +233,25 @@ export class TextureCache {
     }
 
     // Create loading entry
-    const loadPromise = this.fetchTexture(paletteIndex, zoomLevel);
+    const loadPromise = this.fetchTexture(paletteIndex);
 
     this.cache.set(key, {
       texture: null,
       lastAccess: ++this.accessCounter,
       loading: true,
+      loaded: false,
       loadPromise
     });
 
     try {
       const texture = await loadPromise;
 
-      // Update cache entry
+      // Update cache entry (mark as loaded even if texture is null/missing)
       const entry = this.cache.get(key);
       if (entry) {
         entry.texture = texture;
         entry.loading = false;
+        entry.loaded = true;  // Mark as loaded even if texture is null
         entry.loadPromise = undefined;
       }
 
@@ -217,9 +268,11 @@ export class TextureCache {
 
   /**
    * Fetch texture from server and convert to ImageBitmap
+   * Uses season (not zoom level) to fetch the correct texture variant
+   * Applies blue (0,0,255) color key transparency for terrain textures
    */
-  private async fetchTexture(paletteIndex: number, zoomLevel: number): Promise<ImageBitmap | null> {
-    const url = `/api/terrain-texture/${encodeURIComponent(this.terrainType)}/${zoomLevel}/${paletteIndex}`;
+  private async fetchTexture(paletteIndex: number): Promise<ImageBitmap | null> {
+    const url = `/api/terrain-texture/${encodeURIComponent(this.terrainType)}/${this.season}/${paletteIndex}`;
 
     try {
       const response = await fetch(url);
@@ -234,11 +287,65 @@ export class TextureCache {
       }
 
       const blob = await response.blob();
-      return await createImageBitmap(blob);
+      const rawBitmap = await createImageBitmap(blob);
+
+      // Apply blue color key transparency for terrain textures
+      // The blue (0,0,255) pixels are the transparency zones outside the diamond shape
+      return this.applyColorKeyTransparency(rawBitmap);
     } catch (error) {
       console.warn(`[TextureCache] Failed to load texture ${paletteIndex}:`, error);
       return null;
     }
+  }
+
+  /**
+   * Apply blue color key transparency to terrain textures
+   * Terrain textures use RGB(0,0,255) as the transparency key color
+   */
+  private async applyColorKeyTransparency(bitmap: ImageBitmap): Promise<ImageBitmap> {
+    // Check if OffscreenCanvas is available (not available in Node.js tests)
+    if (typeof OffscreenCanvas === 'undefined') {
+      return bitmap;
+    }
+
+    // Create an OffscreenCanvas to process the image
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) {
+      return bitmap;
+    }
+
+    // Draw the original bitmap
+    ctx.drawImage(bitmap, 0, 0);
+
+    // Get pixel data
+    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    const data = imageData.data;
+
+    // Blue color key: RGB(0, 0, 255)
+    // Allow small tolerance for compression artifacts
+    const tolerance = 10;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+
+      // Check for blue color key (R≈0, G≈0, B≈255)
+      if (r <= tolerance && g <= tolerance && b >= 255 - tolerance) {
+        data[i + 3] = 0; // Set alpha to 0 (fully transparent)
+      }
+    }
+
+    // Put processed data back
+    ctx.putImageData(imageData, 0, 0);
+
+    // Close the original bitmap to free memory
+    bitmap.close();
+
+    // Create new ImageBitmap from processed canvas
+    return canvas.transferToImageBitmap();
   }
 
   /**
@@ -271,11 +378,11 @@ export class TextureCache {
   }
 
   /**
-   * Preload textures for a range of palette indices
+   * Preload textures for a list of palette indices
    */
-  async preload(paletteIndices: number[], zoomLevel: number): Promise<void> {
+  async preload(paletteIndices: number[]): Promise<void> {
     const loadPromises = paletteIndices.map(index =>
-      this.getTextureAsync(index, zoomLevel)
+      this.getTextureAsync(index)
     );
 
     await Promise.all(loadPromises);
@@ -317,8 +424,8 @@ export class TextureCache {
   /**
    * Check if a texture is cached
    */
-  has(paletteIndex: number, zoomLevel: number): boolean {
-    const key = this.getCacheKey(paletteIndex, zoomLevel);
+  has(paletteIndex: number): boolean {
+    const key = this.getCacheKey(paletteIndex);
     const entry = this.cache.get(key);
     return entry !== undefined && entry.texture !== null;
   }

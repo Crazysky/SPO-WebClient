@@ -201,6 +201,12 @@
     { level: 3, u: 32, tileWidth: 64, tileHeight: 32 }
     // 32×64
   ];
+  var SEASON_NAMES = {
+    [0 /* WINTER */]: "Winter",
+    [1 /* SPRING */]: "Spring",
+    [2 /* SUMMER */]: "Summer",
+    [3 /* AUTUMN */]: "Autumn"
+  };
 
   // src/client/renderer/coordinate-mapper.ts
   var CoordinateMapper = class {
@@ -210,27 +216,31 @@
     }
     /**
      * Convert map tile coordinates (i, j) to screen pixel coordinates (x, y)
-     * Based on Lander.pas algorithm
+     * Based on Lander.pas algorithm, modified for seamless isometric tiling.
+     *
+     * For seamless tiles, adjacent tiles must overlap by half their dimensions:
+     * - X step between tiles = tileWidth/2 = u
+     * - Y step between tiles = tileHeight/2 = u/2
      *
      * @param i - Row index (0 to mapHeight-1)
      * @param j - Column index (0 to mapWidth-1)
      * @param zoomLevel - Zoom level (0-3)
      * @param rotation - Rotation (0=North, 1=East, 2=South, 3=West)
      * @param origin - Camera position (screen origin offset)
-     * @returns Screen coordinates {x, y}
+     * @returns Screen coordinates {x, y} - top center point of the diamond tile
      */
     mapToScreen(i, j, zoomLevel, rotation, origin) {
       const config = ZOOM_LEVELS[zoomLevel];
       const u = config.u;
       const rows = this.mapHeight;
       const cols = this.mapWidth;
-      const x = 2 * u * (rows - i + j) - origin.x;
-      const y = u * (rows - i + (cols - j)) - origin.y;
+      const x = u * (rows - i + j) - origin.x;
+      const y = u / 2 * (rows - i + (cols - j)) - origin.y;
       return { x, y };
     }
     /**
      * Convert screen pixel coordinates (x, y) to map tile coordinates (i, j)
-     * Based on Lander.pas algorithm
+     * Inverse of mapToScreen, derived from the seamless tiling formula.
      *
      * @param x - Screen X coordinate
      * @param y - Screen Y coordinate
@@ -242,16 +252,14 @@
     screenToMap(x, y, zoomLevel, rotation, origin) {
       const config = ZOOM_LEVELS[zoomLevel];
       const u = config.u;
-      const tu = u << 2;
       const rows = this.mapHeight;
       const cols = this.mapWidth;
       const screenX = x + origin.x;
       const screenY = y + origin.y;
-      const aux = 2 * (u * cols - screenY);
-      const h1 = aux + tu * (rows + 1) - screenX;
-      const i = Math.floor(h1 / tu);
-      const h2 = aux + screenX;
-      const j = Math.floor(h2 / tu);
+      const A = screenX / u;
+      const B = 2 * screenY / u;
+      const i = Math.floor((2 * rows + cols - A - B) / 2);
+      const j = Math.floor((A - B + cols) / 2);
       return { x: i, y: j };
     }
     /**
@@ -419,6 +427,8 @@
     constructor(maxSize = 200) {
       this.cache = /* @__PURE__ */ new Map();
       this.terrainType = "Earth";
+      this.season = 2 /* SUMMER */;
+      // Default to summer
       this.accessCounter = 0;
       // Statistics
       this.hits = 0;
@@ -433,6 +443,7 @@
       if (this.terrainType !== terrainType) {
         this.terrainType = terrainType;
         this.clear();
+        console.log(`[TextureCache] Terrain type set to: ${terrainType}, current season: ${SEASON_NAMES[this.season]}`);
       }
     }
     /**
@@ -442,25 +453,56 @@
       return this.terrainType;
     }
     /**
-     * Generate cache key for a texture
+     * Set the season for texture loading
+     * @param season - Season (0=Winter, 1=Spring, 2=Summer, 3=Autumn)
      */
-    getCacheKey(paletteIndex, zoomLevel) {
-      return `${this.terrainType}-${zoomLevel}-${paletteIndex}`;
+    setSeason(season) {
+      if (this.season !== season) {
+        this.season = season;
+        this.clear();
+        console.log(`[TextureCache] Season changed to ${SEASON_NAMES[season]}`);
+      }
+    }
+    /**
+     * Get the current season
+     */
+    getSeason() {
+      return this.season;
+    }
+    /**
+     * Get the current season name
+     */
+    getSeasonName() {
+      return SEASON_NAMES[this.season];
+    }
+    /**
+     * Generate cache key for a texture
+     * Key is based on terrain type, season, and palette index
+     */
+    getCacheKey(paletteIndex) {
+      return `${this.terrainType}-${this.season}-${paletteIndex}`;
     }
     /**
      * Get texture for a palette index (sync - returns cached or null)
      * Use this for fast rendering - if not cached, returns null and starts loading
+     *
+     * Note: The texture is the same regardless of zoom level.
+     * Zoom level only affects how the texture is rendered (scaled).
      */
-    getTextureSync(paletteIndex, zoomLevel) {
-      const key = this.getCacheKey(paletteIndex, zoomLevel);
+    getTextureSync(paletteIndex) {
+      const key = this.getCacheKey(paletteIndex);
       const entry = this.cache.get(key);
       if (entry && entry.texture) {
         entry.lastAccess = ++this.accessCounter;
         this.hits++;
         return entry.texture;
       }
+      if (entry && entry.loaded) {
+        this.misses++;
+        return null;
+      }
       if (!entry || !entry.loading) {
-        this.loadTexture(paletteIndex, zoomLevel);
+        this.loadTexture(paletteIndex);
       }
       this.misses++;
       return null;
@@ -468,8 +510,8 @@
     /**
      * Get texture for a palette index (async - waits for load)
      */
-    async getTextureAsync(paletteIndex, zoomLevel) {
-      const key = this.getCacheKey(paletteIndex, zoomLevel);
+    async getTextureAsync(paletteIndex) {
+      const key = this.getCacheKey(paletteIndex);
       const entry = this.cache.get(key);
       if (entry) {
         entry.lastAccess = ++this.accessCounter;
@@ -477,12 +519,16 @@
           this.hits++;
           return entry.texture;
         }
+        if (entry.loaded) {
+          this.misses++;
+          return null;
+        }
         if (entry.loadPromise) {
           return entry.loadPromise;
         }
       }
       this.misses++;
-      return this.loadTexture(paletteIndex, zoomLevel);
+      return this.loadTexture(paletteIndex);
     }
     /**
      * Get fallback color for a palette index
@@ -493,17 +539,18 @@
     /**
      * Load a texture from the server
      */
-    async loadTexture(paletteIndex, zoomLevel) {
-      const key = this.getCacheKey(paletteIndex, zoomLevel);
+    async loadTexture(paletteIndex) {
+      const key = this.getCacheKey(paletteIndex);
       const existing = this.cache.get(key);
       if (existing?.loadPromise) {
         return existing.loadPromise;
       }
-      const loadPromise = this.fetchTexture(paletteIndex, zoomLevel);
+      const loadPromise = this.fetchTexture(paletteIndex);
       this.cache.set(key, {
         texture: null,
         lastAccess: ++this.accessCounter,
         loading: true,
+        loaded: false,
         loadPromise
       });
       try {
@@ -512,6 +559,7 @@
         if (entry) {
           entry.texture = texture;
           entry.loading = false;
+          entry.loaded = true;
           entry.loadPromise = void 0;
         }
         this.evictIfNeeded();
@@ -523,9 +571,11 @@
     }
     /**
      * Fetch texture from server and convert to ImageBitmap
+     * Uses season (not zoom level) to fetch the correct texture variant
+     * Applies blue (0,0,255) color key transparency for terrain textures
      */
-    async fetchTexture(paletteIndex, zoomLevel) {
-      const url = `/api/terrain-texture/${encodeURIComponent(this.terrainType)}/${zoomLevel}/${paletteIndex}`;
+    async fetchTexture(paletteIndex) {
+      const url = `/api/terrain-texture/${encodeURIComponent(this.terrainType)}/${this.season}/${paletteIndex}`;
       try {
         const response = await fetch(url);
         if (response.status === 204) {
@@ -535,11 +585,41 @@
           return null;
         }
         const blob = await response.blob();
-        return await createImageBitmap(blob);
+        const rawBitmap = await createImageBitmap(blob);
+        return this.applyColorKeyTransparency(rawBitmap);
       } catch (error) {
         console.warn(`[TextureCache] Failed to load texture ${paletteIndex}:`, error);
         return null;
       }
+    }
+    /**
+     * Apply blue color key transparency to terrain textures
+     * Terrain textures use RGB(0,0,255) as the transparency key color
+     */
+    async applyColorKeyTransparency(bitmap) {
+      if (typeof OffscreenCanvas === "undefined") {
+        return bitmap;
+      }
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        return bitmap;
+      }
+      ctx.drawImage(bitmap, 0, 0);
+      const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+      const data = imageData.data;
+      const tolerance = 10;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        if (r <= tolerance && g <= tolerance && b >= 255 - tolerance) {
+          data[i + 3] = 0;
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+      bitmap.close();
+      return canvas.transferToImageBitmap();
     }
     /**
      * Evict least recently used entries if cache is over capacity
@@ -567,11 +647,11 @@
       }
     }
     /**
-     * Preload textures for a range of palette indices
+     * Preload textures for a list of palette indices
      */
-    async preload(paletteIndices, zoomLevel) {
+    async preload(paletteIndices) {
       const loadPromises = paletteIndices.map(
-        (index) => this.getTextureAsync(index, zoomLevel)
+        (index) => this.getTextureAsync(index)
       );
       await Promise.all(loadPromises);
     }
@@ -607,8 +687,8 @@
     /**
      * Check if a texture is cached
      */
-    has(paletteIndex, zoomLevel) {
-      const key = this.getCacheKey(paletteIndex, zoomLevel);
+    has(paletteIndex) {
+      const key = this.getCacheKey(paletteIndex);
       const entry = this.cache.get(key);
       return entry !== void 0 && entry.texture !== null;
     }
@@ -626,6 +706,381 @@
     }
   };
 
+  // src/client/renderer/chunk-cache.ts
+  var CHUNK_SIZE = 32;
+  var MAX_CHUNKS_PER_ZOOM = 64;
+  var isOffscreenCanvasSupported = typeof OffscreenCanvas !== "undefined";
+  function calculateChunkCanvasDimensions(chunkSize, config) {
+    const u = config.u;
+    const width = u * (2 * chunkSize - 1) + config.tileWidth;
+    const height = u / 2 * (2 * chunkSize - 1) + config.tileHeight;
+    return { width, height };
+  }
+  function getTileScreenPosInChunk(localI, localJ, chunkSize, config) {
+    const u = config.u;
+    const x = u * (chunkSize - localI + localJ);
+    const y = u / 2 * (chunkSize - localI + (chunkSize - localJ));
+    return { x, y };
+  }
+  function getChunkScreenPosition(chunkI, chunkJ, chunkSize, config, mapHeight, mapWidth, origin) {
+    const u = config.u;
+    const baseI = chunkI * chunkSize;
+    const baseJ = chunkJ * chunkSize;
+    const worldX = u * (mapHeight - baseI + baseJ) - origin.x;
+    const worldY = u / 2 * (mapHeight - baseI + (mapWidth - baseJ)) - origin.y;
+    const localOrigin = getTileScreenPosInChunk(0, 0, chunkSize, config);
+    return {
+      x: worldX - localOrigin.x,
+      y: worldY - localOrigin.y
+    };
+  }
+  var ChunkCache = class {
+    constructor(textureCache, getTextureId) {
+      // Cache per zoom level: Map<"chunkI,chunkJ", ChunkEntry>
+      this.caches = /* @__PURE__ */ new Map();
+      this.accessCounter = 0;
+      this.mapWidth = 0;
+      this.mapHeight = 0;
+      // Rendering queue
+      this.renderQueue = [];
+      this.isProcessingQueue = false;
+      // Stats
+      this.stats = {
+        chunksRendered: 0,
+        cacheHits: 0,
+        cacheMisses: 0,
+        evictions: 0
+      };
+      // Callback when chunk becomes ready
+      this.onChunkReady = null;
+      this.textureCache = textureCache;
+      this.getTextureId = getTextureId;
+      for (let i = 0; i <= 3; i++) {
+        this.caches.set(i, /* @__PURE__ */ new Map());
+      }
+    }
+    /**
+     * Set map dimensions (call after loading map)
+     */
+    setMapDimensions(width, height) {
+      this.mapWidth = width;
+      this.mapHeight = height;
+    }
+    /**
+     * Set callback for when a chunk becomes ready (triggers re-render)
+     */
+    setOnChunkReady(callback) {
+      this.onChunkReady = callback;
+    }
+    /**
+     * Get cache key for a chunk
+     */
+    getKey(chunkI, chunkJ) {
+      return `${chunkI},${chunkJ}`;
+    }
+    /**
+     * Get chunk coordinates for a tile
+     */
+    static getChunkCoords(tileI, tileJ) {
+      return {
+        chunkI: Math.floor(tileI / CHUNK_SIZE),
+        chunkJ: Math.floor(tileJ / CHUNK_SIZE)
+      };
+    }
+    /**
+     * Check if chunk rendering is supported (requires OffscreenCanvas)
+     */
+    isSupported() {
+      return isOffscreenCanvasSupported;
+    }
+    /**
+     * Get a chunk canvas (sync - returns null if not ready, triggers async render)
+     */
+    getChunkSync(chunkI, chunkJ, zoomLevel) {
+      if (!isOffscreenCanvasSupported) return null;
+      const cache = this.caches.get(zoomLevel);
+      if (!cache) return null;
+      const key = this.getKey(chunkI, chunkJ);
+      const entry = cache.get(key);
+      if (entry && entry.ready) {
+        entry.lastAccess = ++this.accessCounter;
+        this.stats.cacheHits++;
+        return entry.canvas;
+      }
+      if (!entry || !entry.rendering) {
+        this.stats.cacheMisses++;
+        this.queueChunkRender(chunkI, chunkJ, zoomLevel);
+      }
+      return null;
+    }
+    /**
+     * Queue a chunk for async rendering
+     */
+    queueChunkRender(chunkI, chunkJ, zoomLevel) {
+      const cache = this.caches.get(zoomLevel);
+      const key = this.getKey(chunkI, chunkJ);
+      if (!cache.has(key)) {
+        const config = ZOOM_LEVELS[zoomLevel];
+        const dims = calculateChunkCanvasDimensions(CHUNK_SIZE, config);
+        cache.set(key, {
+          canvas: new OffscreenCanvas(dims.width, dims.height),
+          lastAccess: ++this.accessCounter,
+          ready: false,
+          rendering: true
+        });
+      } else {
+        const entry = cache.get(key);
+        entry.rendering = true;
+      }
+      this.renderQueue.push({
+        chunkI,
+        chunkJ,
+        zoomLevel,
+        resolve: () => {
+        }
+      });
+      this.processRenderQueue();
+    }
+    /**
+     * Process render queue (one chunk at a time to not block)
+     */
+    async processRenderQueue() {
+      if (this.isProcessingQueue) return;
+      this.isProcessingQueue = true;
+      while (this.renderQueue.length > 0) {
+        const request = this.renderQueue.shift();
+        await this.renderChunk(request.chunkI, request.chunkJ, request.zoomLevel);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      this.isProcessingQueue = false;
+    }
+    /**
+     * Render a single chunk
+     */
+    async renderChunk(chunkI, chunkJ, zoomLevel) {
+      const cache = this.caches.get(zoomLevel);
+      const key = this.getKey(chunkI, chunkJ);
+      const entry = cache.get(key);
+      if (!entry) return;
+      const config = ZOOM_LEVELS[zoomLevel];
+      const ctx = entry.canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, entry.canvas.width, entry.canvas.height);
+      const startI = chunkI * CHUNK_SIZE;
+      const startJ = chunkJ * CHUNK_SIZE;
+      const endI = Math.min(startI + CHUNK_SIZE, this.mapHeight);
+      const endJ = Math.min(startJ + CHUNK_SIZE, this.mapWidth);
+      const halfWidth = config.tileWidth / 2;
+      const halfHeight = config.tileHeight / 2;
+      const textureIds = /* @__PURE__ */ new Set();
+      for (let i = startI; i < endI; i++) {
+        for (let j = startJ; j < endJ; j++) {
+          textureIds.add(this.getTextureId(j, i));
+        }
+      }
+      await this.textureCache.preload(Array.from(textureIds));
+      for (let i = startI; i < endI; i++) {
+        for (let j = startJ; j < endJ; j++) {
+          const localI = i - startI;
+          const localJ = j - startJ;
+          const textureId = this.getTextureId(j, i);
+          const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
+          const x = Math.round(screenPos.x);
+          const y = Math.round(screenPos.y);
+          const texture = this.textureCache.getTextureSync(textureId);
+          if (texture) {
+            ctx.drawImage(
+              texture,
+              x - halfWidth,
+              y,
+              config.tileWidth,
+              config.tileHeight
+            );
+          } else {
+            const color = getFallbackColor(textureId);
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + halfWidth, y + halfHeight);
+            ctx.lineTo(x, y + config.tileHeight);
+            ctx.lineTo(x - halfWidth, y + halfHeight);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+      }
+      entry.ready = true;
+      entry.rendering = false;
+      this.stats.chunksRendered++;
+      this.evictIfNeeded(zoomLevel);
+      if (this.onChunkReady) {
+        this.onChunkReady();
+      }
+    }
+    /**
+     * Draw a chunk to the main canvas
+     */
+    drawChunkToCanvas(ctx, chunkI, chunkJ, zoomLevel, origin) {
+      const chunk = this.getChunkSync(chunkI, chunkJ, zoomLevel);
+      if (!chunk) return false;
+      const config = ZOOM_LEVELS[zoomLevel];
+      const screenPos = getChunkScreenPosition(
+        chunkI,
+        chunkJ,
+        CHUNK_SIZE,
+        config,
+        this.mapHeight,
+        this.mapWidth,
+        origin
+      );
+      ctx.drawImage(chunk, screenPos.x, screenPos.y);
+      return true;
+    }
+    /**
+     * Get screen position of a chunk for visibility testing
+     */
+    getChunkScreenBounds(chunkI, chunkJ, zoomLevel, origin) {
+      const config = ZOOM_LEVELS[zoomLevel];
+      const dims = calculateChunkCanvasDimensions(CHUNK_SIZE, config);
+      const screenPos = getChunkScreenPosition(
+        chunkI,
+        chunkJ,
+        CHUNK_SIZE,
+        config,
+        this.mapHeight,
+        this.mapWidth,
+        origin
+      );
+      return {
+        x: screenPos.x,
+        y: screenPos.y,
+        width: dims.width,
+        height: dims.height
+      };
+    }
+    /**
+     * Get visible chunk range for current viewport
+     */
+    getVisibleChunks(canvasWidth, canvasHeight, zoomLevel, origin) {
+      const maxChunkI = Math.ceil(this.mapHeight / CHUNK_SIZE);
+      const maxChunkJ = Math.ceil(this.mapWidth / CHUNK_SIZE);
+      let minVisibleI = maxChunkI;
+      let maxVisibleI = 0;
+      let minVisibleJ = maxChunkJ;
+      let maxVisibleJ = 0;
+      for (let ci = 0; ci < maxChunkI; ci++) {
+        for (let cj = 0; cj < maxChunkJ; cj++) {
+          const bounds = this.getChunkScreenBounds(ci, cj, zoomLevel, origin);
+          if (bounds.x + bounds.width >= 0 && bounds.x <= canvasWidth && bounds.y + bounds.height >= 0 && bounds.y <= canvasHeight) {
+            minVisibleI = Math.min(minVisibleI, ci);
+            maxVisibleI = Math.max(maxVisibleI, ci);
+            minVisibleJ = Math.min(minVisibleJ, cj);
+            maxVisibleJ = Math.max(maxVisibleJ, cj);
+          }
+        }
+      }
+      return {
+        minChunkI: minVisibleI,
+        maxChunkI: maxVisibleI,
+        minChunkJ: minVisibleJ,
+        maxChunkJ: maxVisibleJ
+      };
+    }
+    /**
+     * Preload chunks for a specific area (anticipate pan)
+     */
+    preloadChunks(centerChunkI, centerChunkJ, radius, zoomLevel) {
+      const maxChunkI = Math.ceil(this.mapHeight / CHUNK_SIZE);
+      const maxChunkJ = Math.ceil(this.mapWidth / CHUNK_SIZE);
+      for (let di = -radius; di <= radius; di++) {
+        for (let dj = -radius; dj <= radius; dj++) {
+          const ci = centerChunkI + di;
+          const cj = centerChunkJ + dj;
+          if (ci >= 0 && ci < maxChunkI && cj >= 0 && cj < maxChunkJ) {
+            this.getChunkSync(ci, cj, zoomLevel);
+          }
+        }
+      }
+    }
+    /**
+     * LRU eviction for a specific zoom level
+     */
+    evictIfNeeded(zoomLevel) {
+      const cache = this.caches.get(zoomLevel);
+      while (cache.size > MAX_CHUNKS_PER_ZOOM) {
+        let oldestKey = null;
+        let oldestAccess = Infinity;
+        for (const [key, entry] of cache) {
+          if (entry.ready && !entry.rendering && entry.lastAccess < oldestAccess) {
+            oldestAccess = entry.lastAccess;
+            oldestKey = key;
+          }
+        }
+        if (oldestKey) {
+          cache.delete(oldestKey);
+          this.stats.evictions++;
+        } else {
+          break;
+        }
+      }
+    }
+    /**
+     * Clear cache for a specific zoom level (call when zoom changes)
+     */
+    clearZoomLevel(zoomLevel) {
+      const cache = this.caches.get(zoomLevel);
+      if (cache) {
+        cache.clear();
+      }
+    }
+    /**
+     * Clear all caches
+     */
+    clearAll() {
+      for (const cache of this.caches.values()) {
+        cache.clear();
+      }
+      this.renderQueue = [];
+      this.stats = {
+        chunksRendered: 0,
+        cacheHits: 0,
+        cacheMisses: 0,
+        evictions: 0
+      };
+    }
+    /**
+     * Invalidate a specific chunk (e.g., if terrain changes)
+     */
+    invalidateChunk(chunkI, chunkJ, zoomLevel) {
+      if (zoomLevel !== void 0) {
+        const cache = this.caches.get(zoomLevel);
+        if (cache) {
+          cache.delete(this.getKey(chunkI, chunkJ));
+        }
+      } else {
+        for (const cache of this.caches.values()) {
+          cache.delete(this.getKey(chunkI, chunkJ));
+        }
+      }
+    }
+    /**
+     * Get cache statistics
+     */
+    getStats() {
+      const total = this.stats.cacheHits + this.stats.cacheMisses;
+      const cacheSizes = {};
+      for (const [level, cache] of this.caches) {
+        cacheSizes[level] = cache.size;
+      }
+      return {
+        ...this.stats,
+        hitRate: total > 0 ? this.stats.cacheHits / total : 0,
+        cacheSizes,
+        queueLength: this.renderQueue.length
+      };
+    }
+  };
+
   // src/client/renderer/isometric-terrain-renderer.ts
   var MAP_TERRAIN_TYPES = {
     "Shamba": "Alien Swamp",
@@ -638,12 +1093,17 @@
   }
   var IsometricTerrainRenderer = class {
     constructor(canvas) {
-      // Texture mode (true = use textures, false = use colors only)
+      this.chunkCache = null;
+      // Rendering mode
       this.useTextures = true;
+      this.useChunks = true;
+      // Use chunk-based rendering (10-20x faster)
       // View state
       this.zoomLevel = 2;
       // Default zoom (16×32 pixels per tile)
       this.rotation = 0 /* NORTH */;
+      this.season = 2 /* SUMMER */;
+      // Default season for textures
       // Camera position in map coordinates (center tile)
       this.cameraI = 500;
       this.cameraJ = 500;
@@ -652,6 +1112,8 @@
       // State flags
       this.loaded = false;
       this.mapName = "";
+      // Available seasons for current terrain type (auto-detected from server)
+      this.availableSeasons = [0 /* WINTER */, 1 /* SPRING */, 2 /* SUMMER */, 3 /* AUTUMN */];
       // Rendering stats (for debug info)
       this.lastRenderStats = {
         tilesRendered: 0,
@@ -683,12 +1145,18 @@
       console.log(`[IsometricRenderer] Loading map: ${mapName}`);
       const terrainType = getTerrainTypeForMap(mapName);
       this.textureCache.setTerrainType(terrainType);
-      console.log(`[IsometricRenderer] Terrain type: ${terrainType}`);
+      await this.fetchAvailableSeasons(terrainType);
       const terrainData = await this.terrainLoader.loadMap(mapName);
       this.coordMapper = new CoordinateMapper(
         terrainData.width,
         terrainData.height
       );
+      this.chunkCache = new ChunkCache(
+        this.textureCache,
+        (x, y) => this.terrainLoader.getTextureId(x, y)
+      );
+      this.chunkCache.setMapDimensions(terrainData.width, terrainData.height);
+      this.chunkCache.setOnChunkReady(() => this.render());
       this.cameraI = Math.floor(terrainData.height / 2);
       this.cameraJ = Math.floor(terrainData.width / 2);
       this.updateOrigin();
@@ -697,6 +1165,30 @@
       console.log(`[IsometricRenderer] Map loaded: ${terrainData.width}\xD7${terrainData.height}`);
       this.render();
       return terrainData;
+    }
+    /**
+     * Fetch available seasons for a terrain type from server
+     * Auto-selects the default season if current season is not available
+     */
+    async fetchAvailableSeasons(terrainType) {
+      try {
+        const url = `/api/terrain-info/${encodeURIComponent(terrainType)}`;
+        const response = await fetch(url);
+        if (!response.ok) {
+          console.warn(`[IsometricRenderer] Failed to fetch terrain info for ${terrainType}: ${response.status}`);
+          return;
+        }
+        const info = await response.json();
+        this.availableSeasons = info.availableSeasons;
+        if (!info.availableSeasons.includes(this.season)) {
+          console.log(`[IsometricRenderer] Season ${this.season} not available for ${terrainType}, switching to ${info.defaultSeason}`);
+          this.season = info.defaultSeason;
+          this.textureCache.setSeason(info.defaultSeason);
+          this.chunkCache?.clearAll();
+        }
+      } catch (error) {
+        console.warn(`[IsometricRenderer] Error fetching terrain info:`, error);
+      }
     }
     /**
      * Update origin based on camera position
@@ -708,8 +1200,8 @@
       const dims = this.terrainLoader.getDimensions();
       const rows = dims.height;
       const cols = dims.width;
-      const cameraScreenX = 2 * u * (rows - this.cameraI + this.cameraJ);
-      const cameraScreenY = u * (rows - this.cameraI + (cols - this.cameraJ));
+      const cameraScreenX = u * (rows - this.cameraI + this.cameraJ);
+      const cameraScreenY = u / 2 * (rows - this.cameraI + (cols - this.cameraJ));
       this.origin = {
         x: cameraScreenX - this.canvas.width / 2,
         y: cameraScreenY - this.canvas.height / 2
@@ -755,12 +1247,90 @@
     }
     /**
      * Render the terrain layer
-     * Draws isometric diamond tiles for each visible map cell
+     * Uses chunk-based rendering for performance (10-20x faster)
+     * Falls back to tile-by-tile rendering when chunks not available
      */
     renderTerrainLayer(bounds) {
+      if (this.useChunks && this.chunkCache && this.chunkCache.isSupported()) {
+        return this.renderTerrainLayerChunked();
+      }
+      return this.renderTerrainLayerTiles(bounds);
+    }
+    /**
+     * Chunk-based terrain rendering (fast path)
+     * Renders pre-cached chunks instead of individual tiles
+     */
+    renderTerrainLayerChunked() {
+      if (!this.chunkCache) return 0;
+      const ctx = this.ctx;
+      const visibleChunks = this.chunkCache.getVisibleChunks(
+        this.canvas.width,
+        this.canvas.height,
+        this.zoomLevel,
+        this.origin
+      );
+      let chunksDrawn = 0;
+      let tilesRendered = 0;
+      for (let ci = visibleChunks.minChunkI; ci <= visibleChunks.maxChunkI; ci++) {
+        for (let cj = visibleChunks.minChunkJ; cj <= visibleChunks.maxChunkJ; cj++) {
+          const drawn = this.chunkCache.drawChunkToCanvas(
+            ctx,
+            ci,
+            cj,
+            this.zoomLevel,
+            this.origin
+          );
+          if (drawn) {
+            chunksDrawn++;
+            tilesRendered += CHUNK_SIZE * CHUNK_SIZE;
+          } else {
+            tilesRendered += this.renderChunkTilesFallback(ci, cj);
+          }
+        }
+      }
+      const centerChunkI = Math.floor((visibleChunks.minChunkI + visibleChunks.maxChunkI) / 2);
+      const centerChunkJ = Math.floor((visibleChunks.minChunkJ + visibleChunks.maxChunkJ) / 2);
+      this.chunkCache.preloadChunks(centerChunkI, centerChunkJ, 2, this.zoomLevel);
+      return tilesRendered;
+    }
+    /**
+     * Render individual tiles for a chunk that isn't cached yet
+     */
+    renderChunkTilesFallback(chunkI, chunkJ) {
       const ctx = this.ctx;
       const config = ZOOM_LEVELS[this.zoomLevel];
-      const u = config.u;
+      const tileWidth = config.tileWidth;
+      const tileHeight = config.tileHeight;
+      const startI = chunkI * CHUNK_SIZE;
+      const startJ = chunkJ * CHUNK_SIZE;
+      const endI = Math.min(startI + CHUNK_SIZE, this.terrainLoader.getDimensions().height);
+      const endJ = Math.min(startJ + CHUNK_SIZE, this.terrainLoader.getDimensions().width);
+      let tilesRendered = 0;
+      for (let i = startI; i < endI; i++) {
+        for (let j = startJ; j < endJ; j++) {
+          const textureId = this.terrainLoader.getTextureId(j, i);
+          const screenPos = this.coordMapper.mapToScreen(
+            i,
+            j,
+            this.zoomLevel,
+            this.rotation,
+            this.origin
+          );
+          if (screenPos.x < -tileWidth || screenPos.x > this.canvas.width + tileWidth || screenPos.y < -tileHeight || screenPos.y > this.canvas.height + tileHeight) {
+            continue;
+          }
+          this.drawIsometricTile(screenPos.x, screenPos.y, config, textureId);
+          tilesRendered++;
+        }
+      }
+      return tilesRendered;
+    }
+    /**
+     * Tile-by-tile terrain rendering (slow path, fallback)
+     */
+    renderTerrainLayerTiles(bounds) {
+      const ctx = this.ctx;
+      const config = ZOOM_LEVELS[this.zoomLevel];
       const tileWidth = config.tileWidth;
       const tileHeight = config.tileHeight;
       let tilesRendered = 0;
@@ -793,57 +1363,42 @@
      *    (u, h/2)  - right
      *
      * Where: u = tileWidth/2, h = tileHeight
+     *
+     * Tiles are positioned using the seamless formula which ensures adjacent tiles
+     * overlap by exactly half their dimensions. This means the opaque diamond content
+     * of one tile covers the transparent corners of adjacent tiles.
+     *
+     * When textures are available: Draw ONLY the texture (no background rectangle)
+     * When textures are NOT available: Draw a diamond-shaped fallback color
      */
     drawIsometricTile(screenX, screenY, config, textureId) {
       const ctx = this.ctx;
       const halfWidth = config.tileWidth / 2;
       const halfHeight = config.tileHeight / 2;
-      let textureDrawn = false;
+      const x = Math.round(screenX);
+      const y = Math.round(screenY);
+      let texture = null;
       if (this.useTextures) {
-        const texture = this.textureCache.getTextureSync(textureId, config.level);
-        if (texture) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.moveTo(screenX, screenY);
-          ctx.lineTo(screenX - halfWidth, screenY + halfHeight);
-          ctx.lineTo(screenX, screenY + config.tileHeight);
-          ctx.lineTo(screenX + halfWidth, screenY + halfHeight);
-          ctx.closePath();
-          ctx.clip();
-          const texWidth = config.tileWidth;
-          const texHeight = config.tileHeight;
-          ctx.drawImage(
-            texture,
-            screenX - halfWidth,
-            screenY,
-            texWidth,
-            texHeight
-          );
-          ctx.restore();
-          textureDrawn = true;
-        }
+        texture = this.textureCache.getTextureSync(textureId);
       }
-      if (!textureDrawn) {
+      if (texture) {
+        ctx.drawImage(
+          texture,
+          x - halfWidth,
+          y,
+          config.tileWidth,
+          config.tileHeight
+        );
+      } else {
         const color = this.textureCache.getFallbackColor(textureId);
-        ctx.beginPath();
-        ctx.moveTo(screenX, screenY);
-        ctx.lineTo(screenX - halfWidth, screenY + halfHeight);
-        ctx.lineTo(screenX, screenY + config.tileHeight);
-        ctx.lineTo(screenX + halfWidth, screenY + halfHeight);
-        ctx.closePath();
         ctx.fillStyle = color;
-        ctx.fill();
-      }
-      if (this.zoomLevel >= 2) {
-        ctx.strokeStyle = "rgba(0, 0, 0, 0.15)";
-        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(screenX, screenY);
-        ctx.lineTo(screenX - halfWidth, screenY + halfHeight);
-        ctx.lineTo(screenX, screenY + config.tileHeight);
-        ctx.lineTo(screenX + halfWidth, screenY + halfHeight);
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + halfWidth, y + halfHeight);
+        ctx.lineTo(x, y + config.tileHeight);
+        ctx.lineTo(x - halfWidth, y + halfHeight);
         ctx.closePath();
-        ctx.stroke();
+        ctx.fill();
       }
     }
     /**
@@ -853,21 +1408,24 @@
       const ctx = this.ctx;
       const config = ZOOM_LEVELS[this.zoomLevel];
       const cacheStats = this.textureCache.getStats();
+      const chunkStats = this.chunkCache?.getStats();
       ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-      ctx.fillRect(10, 10, 380, 180);
+      ctx.fillRect(10, 10, 420, 210);
       ctx.fillStyle = "#fff";
       ctx.font = "12px monospace";
       ctx.textAlign = "left";
+      const availableSeasonStr = this.availableSeasons.length === 1 ? `(only ${SEASON_NAMES[this.availableSeasons[0]]})` : `(${this.availableSeasons.length} available)`;
       const lines = [
         `Map: ${this.mapName} (${this.terrainLoader.getDimensions().width}\xD7${this.terrainLoader.getDimensions().height})`,
-        `Terrain: ${this.textureCache.getTerrainType()}`,
+        `Terrain: ${this.textureCache.getTerrainType()} | Season: ${SEASON_NAMES[this.season]} ${availableSeasonStr}`,
         `Camera: (${Math.round(this.cameraI)}, ${Math.round(this.cameraJ)})`,
         `Zoom Level: ${this.zoomLevel} (${config.tileWidth}\xD7${config.tileHeight}px)`,
         `Visible: i[${bounds.minI}..${bounds.maxI}] j[${bounds.minJ}..${bounds.maxJ}]`,
         `Tiles Rendered: ${tilesRendered}`,
         `Textures: ${this.useTextures ? "ON" : "OFF"} | Cache: ${cacheStats.size}/${cacheStats.maxSize} (${(cacheStats.hitRate * 100).toFixed(1)}% hit)`,
+        `Chunks: ${this.useChunks ? "ON" : "OFF"} | Cached: ${chunkStats?.cacheSizes[this.zoomLevel] || 0} (${((chunkStats?.hitRate || 0) * 100).toFixed(1)}% hit)`,
         `Render Time: ${this.lastRenderStats.renderTimeMs.toFixed(2)}ms`,
-        `Controls: Drag=Pan, Wheel=Zoom, T=Toggle Textures`
+        `Controls: Drag=Pan, Wheel=Zoom, T=Textures, C=Chunks, S=Season`
       ];
       lines.forEach((line, index) => {
         ctx.fillText(line, 20, 30 + index * 18);
@@ -929,6 +1487,12 @@
       window.addEventListener("keydown", (e) => {
         if (e.key === "t" || e.key === "T") {
           this.toggleTextures();
+        }
+        if (e.key === "c" || e.key === "C") {
+          this.toggleChunks();
+        }
+        if (e.key === "s" || e.key === "S") {
+          this.cycleSeason();
         }
       });
     }
@@ -1060,6 +1624,8 @@
     unload() {
       this.terrainLoader.unload();
       this.textureCache.clear();
+      this.chunkCache?.clearAll();
+      this.chunkCache = null;
       this.loaded = false;
       this.mapName = "";
       this.render();
@@ -1073,6 +1639,15 @@
     toggleTextures() {
       this.useTextures = !this.useTextures;
       console.log(`[IsometricRenderer] Textures: ${this.useTextures ? "ON" : "OFF"}`);
+      this.render();
+    }
+    /**
+     * Toggle chunk-based rendering on/off
+     * When OFF, uses tile-by-tile rendering (slower but useful for debugging)
+     */
+    toggleChunks() {
+      this.useChunks = !this.useChunks;
+      console.log(`[IsometricRenderer] Chunks: ${this.useChunks ? "ON" : "OFF"}`);
       this.render();
     }
     /**
@@ -1117,8 +1692,56 @@
           textureIds.add(this.terrainLoader.getTextureId(j, i));
         }
       }
-      await this.textureCache.preload(Array.from(textureIds), this.zoomLevel);
+      await this.textureCache.preload(Array.from(textureIds));
       this.render();
+    }
+    // =========================================================================
+    // SEASON API
+    // =========================================================================
+    /**
+     * Set the season for terrain textures
+     * @param season - Season (0=Winter, 1=Spring, 2=Summer, 3=Autumn)
+     */
+    setSeason(season) {
+      if (this.season !== season) {
+        this.season = season;
+        this.textureCache.setSeason(season);
+        this.chunkCache?.clearAll();
+        console.log(`[IsometricRenderer] Season changed to ${SEASON_NAMES[season]}`);
+        this.render();
+      }
+    }
+    /**
+     * Get current season
+     */
+    getSeason() {
+      return this.season;
+    }
+    /**
+     * Get current season name
+     */
+    getSeasonName() {
+      return SEASON_NAMES[this.season];
+    }
+    /**
+     * Cycle to next season (for keyboard shortcut)
+     * Only cycles through available seasons for this terrain type
+     */
+    cycleSeason() {
+      if (this.availableSeasons.length <= 1) {
+        console.log(`[IsometricRenderer] Only one season available, cannot cycle`);
+        return;
+      }
+      const currentIndex = this.availableSeasons.indexOf(this.season);
+      const nextIndex = (currentIndex + 1) % this.availableSeasons.length;
+      const nextSeason = this.availableSeasons[nextIndex];
+      this.setSeason(nextSeason);
+    }
+    /**
+     * Get available seasons for current terrain type
+     */
+    getAvailableSeasons() {
+      return [...this.availableSeasons];
     }
   };
 
@@ -1127,6 +1750,7 @@
     const canvas = document.getElementById("terrainCanvas");
     const mapSelect = document.getElementById("mapSelect");
     const zoomSelect = document.getElementById("zoomSelect");
+    const seasonSelect = document.getElementById("seasonSelect");
     const loadBtn = document.getElementById("loadBtn");
     const centerBtn = document.getElementById("centerBtn");
     const status = document.getElementById("status");
@@ -1170,6 +1794,13 @@
         renderer.setZoomLevel(level);
       }
     }
+    function handleSeasonChange() {
+      if (renderer) {
+        const season = parseInt(seasonSelect.value, 10);
+        renderer.setSeason(season);
+        status.textContent = `Season: ${renderer.getSeasonName()}`;
+      }
+    }
     function centerMap() {
       if (renderer && renderer.isLoaded()) {
         const loader = renderer.getTerrainLoader();
@@ -1182,6 +1813,7 @@
     if (loadBtn) loadBtn.addEventListener("click", () => loadMap());
     if (centerBtn) centerBtn.addEventListener("click", centerMap);
     if (zoomSelect) zoomSelect.addEventListener("change", handleZoomChange);
+    if (seasonSelect) seasonSelect.addEventListener("change", handleSeasonChange);
     if (textureBtn) textureBtn.addEventListener("click", toggleTextures);
     if (preloadBtn) preloadBtn.addEventListener("click", preloadTextures);
     window.addEventListener("resize", resizeCanvas);
@@ -1205,6 +1837,10 @@
     window.setZoom = (level) => {
       if (renderer) renderer.setZoomLevel(level);
       if (zoomSelect) zoomSelect.value = String(level);
+    };
+    window.setSeason = (season) => {
+      if (renderer) renderer.setSeason(season);
+      if (seasonSelect) seasonSelect.value = String(season);
     };
     window.centerMap = centerMap;
     window.toggleTextures = toggleTextures;
