@@ -6,8 +6,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { MapMetadata, TownInfo } from '../shared/map-config';
+import type { Service } from './service-registry';
 
-export class MapDataService {
+export class MapDataService implements Service {
+  public readonly name = 'mapData';
+
   private cacheRoot: string;
   private extracted: Set<string> = new Set();
 

@@ -6,10 +6,13 @@
 import * as path from 'path';
 import { createLogger } from '../shared/logger';
 import { FacilityCSVParser, FacilityDimensions } from './facility-csv-parser';
+import type { Service } from './service-registry';
 
 const logger = createLogger('FacilityDimensionsCache');
 
-export class FacilityDimensionsCache {
+export class FacilityDimensionsCache implements Service {
+  public readonly name = 'facilities';
+
   private cache: Map<string, FacilityDimensions> = new Map();
   private parser: FacilityCSVParser;
   private initialized: boolean = false;
@@ -86,5 +89,12 @@ export class FacilityDimensionsCache {
     return {
       total: this.cache.size
     };
+  }
+
+  /**
+   * Service interface: Check if service is healthy
+   */
+  isHealthy(): boolean {
+    return this.initialized && this.cache.size > 0;
   }
 }

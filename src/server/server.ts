@@ -11,6 +11,7 @@ import { SearchMenuService } from './search-menu-service';
 import { UpdateService } from './update-service';
 import { MapDataService } from './map-data-service';
 import { TextureExtractor } from './texture-extractor';
+import { serviceRegistry, setupGracefulShutdown } from './service-registry';
 import {
   WsMessageType,
   WsMessage,
@@ -102,14 +103,34 @@ const logger = createLogger('Gateway');
 const PORT = config.server.port;
 const PUBLIC_DIR = path.join(__dirname, '../../public');
 
-// Initialize Facility Dimensions Cache
-const facilityDimensionsCache = new FacilityDimensionsCache();
+// =============================================================================
+// Service Registration
+// =============================================================================
+// Register all singleton services with the ServiceRegistry
+// Dependencies are declared to ensure proper initialization order
 
-// Initialize Map Data Service
-const mapDataService = new MapDataService();
+// Update service (syncs files from update server) - no dependencies
+serviceRegistry.register('update', new UpdateService());
 
-// Initialize Texture Extractor (extracts terrain textures from CAB archives)
-const textureExtractor = new TextureExtractor();
+// Facility dimensions cache - depends on update service (needs facility_db.csv)
+serviceRegistry.register('facilities', new FacilityDimensionsCache(), {
+  dependsOn: ['update']
+});
+
+// Texture extractor - depends on update service (needs CAB archives)
+serviceRegistry.register('textures', new TextureExtractor(), {
+  dependsOn: ['update']
+});
+
+// Map data service - depends on update service (needs map files)
+serviceRegistry.register('mapData', new MapDataService(), {
+  dependsOn: ['update']
+});
+
+// Convenience getters for type-safe access to services
+const facilityDimensionsCache = () => serviceRegistry.get<FacilityDimensionsCache>('facilities');
+const mapDataService = () => serviceRegistry.get<MapDataService>('mapData');
+const textureExtractor = () => serviceRegistry.get<TextureExtractor>('textures');
 
 // WebClient-specific cache directory (for future needs, separate from update server mirror)
 const WEBCLIENT_CACHE_DIR = path.join(__dirname, '../../webclient-cache');
@@ -299,13 +320,13 @@ const server = http.createServer(async (req, res) => {
 
     try {
       // Extract CAB file if needed (or verify files exist)
-      await mapDataService.extractCabFile(mapName);
+      await mapDataService().extractCabFile(mapName);
 
       // Get map metadata from INI file
-      const metadata = await mapDataService.getMapMetadata(mapName);
+      const metadata = await mapDataService().getMapMetadata(mapName);
 
       // Get BMP file path and create proxy URL
-      const bmpPath = mapDataService.getBmpFilePath(mapName);
+      const bmpPath = mapDataService().getBmpFilePath(mapName);
       const bmpUrl = `/proxy-image?url=${encodeURIComponent('file://' + bmpPath)}`;
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -318,28 +339,50 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Terrain texture endpoint: /api/terrain-texture/:terrainType/:zoom/:paletteIndex
-  // Example: /api/terrain-texture/Earth/2/128
+  // Terrain info endpoint: /api/terrain-info/:terrainType
+  // Returns available seasons and default season for a terrain type
+  // Example: /api/terrain-info/Alien%20Swamp
+  if (safePath.startsWith('/api/terrain-info/')) {
+    const terrainType = decodeURIComponent(safePath.substring('/api/terrain-info/'.length).split('?')[0]);
+
+    const terrainInfo = textureExtractor().getTerrainInfo(terrainType);
+
+    if (!terrainInfo) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Terrain type not found: ${terrainType}` }));
+      return;
+    }
+
+    console.log(`[TerrainInfo] ${terrainType}: availableSeasons=[${terrainInfo.availableSeasons.join(',')}], defaultSeason=${terrainInfo.defaultSeason}`);
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(terrainInfo));
+    return;
+  }
+
+  // Terrain texture endpoint: /api/terrain-texture/:terrainType/:season/:paletteIndex
+  // Season: 0=Winter, 1=Spring, 2=Summer, 3=Autumn
+  // Example: /api/terrain-texture/Earth/2/128 (Summer, palette index 128)
   if (safePath.startsWith('/api/terrain-texture/')) {
     const parts = safePath.substring('/api/terrain-texture/'.length).split('/');
 
     if (parts.length < 3) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid URL format. Expected: /api/terrain-texture/:terrainType/:zoom/:paletteIndex' }));
+      res.end(JSON.stringify({ error: 'Invalid URL format. Expected: /api/terrain-texture/:terrainType/:season/:paletteIndex' }));
       return;
     }
 
     const terrainType = decodeURIComponent(parts[0]);
-    const zoomLevel = parseInt(parts[1], 10);
+    const season = parseInt(parts[1], 10);
     const paletteIndex = parseInt(parts[2].split('?')[0], 10);
 
-    if (isNaN(zoomLevel) || isNaN(paletteIndex)) {
+    if (isNaN(season) || season < 0 || season > 3 || isNaN(paletteIndex)) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid zoom level or palette index' }));
+      res.end(JSON.stringify({ error: 'Invalid season (0-3) or palette index' }));
       return;
     }
 
-    const texturePath = textureExtractor.getTexturePath(terrainType, zoomLevel, paletteIndex);
+    const texturePath = textureExtractor().getTexturePath(terrainType, season, paletteIndex);
 
     if (!texturePath) {
       // Return a 204 No Content for missing textures (client will use fallback color)
@@ -921,7 +964,7 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
         console.log(`[Gateway] Getting facility dimensions for: ${req.visualClass}`);
 
         try {
-          const dimensions = facilityDimensionsCache.getFacility(req.visualClass);
+          const dimensions = facilityDimensionsCache().getFacility(req.visualClass);
 
           const response: WsRespFacilityDimensions = {
             type: WsMessageType.RESP_FACILITY_DIMENSIONS,
@@ -1444,23 +1487,23 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
 // Start Server
 async function startServer() {
   try {
-    // Sync files from update server (downloads missing files only)
-    console.log('[Gateway] Checking for updates from update.starpeaceonline.com...');
-    const updateService = new UpdateService();
-    await updateService.syncAll();
-    const stats = updateService.getStats();
-    console.log(`[Gateway] Update check complete: ${stats.downloaded} downloaded, ${stats.extracted} CAB extracted, ${stats.skipped} skipped, ${stats.failed} failed`);
+    // Initialize all registered services (in dependency order)
+    console.log('[Gateway] Initializing services...');
+    await serviceRegistry.initialize();
 
-    // Initialize facility dimensions cache (parse facility.csv)
-    console.log('[Gateway] Initializing facility dimensions cache...');
-    await facilityDimensionsCache.initialize();
-    console.log('[Gateway] Facility dimensions cache initialized successfully');
+    // Log service-specific statistics
+    const updateStats = serviceRegistry.get<UpdateService>('update').getStats();
+    console.log(`[Gateway] Update service: ${updateStats.downloaded} downloaded, ${updateStats.extracted} CAB extracted, ${updateStats.skipped} skipped, ${updateStats.failed} failed`);
 
-    // Initialize texture extractor (extract terrain textures from CAB archives)
-    console.log('[Gateway] Initializing texture extractor...');
-    await textureExtractor.initialize();
-    const textureStats = textureExtractor.getStats();
-    console.log(`[Gateway] Texture extractor initialized: ${textureStats.length} terrain/zoom combinations`);
+    const facilityStats = facilityDimensionsCache().getStats();
+    console.log(`[Gateway] Facility cache: ${facilityStats.total} facilities loaded`);
+
+    const textureStats = textureExtractor().getStats() as Array<{ terrainType: string; seasonName: string; textureCount: number }>;
+    console.log(`[Gateway] Texture extractor: ${textureStats.length} terrain/season combinations`);
+    textureStats.forEach(s => console.log(`  - ${s.terrainType}/${s.seasonName}: ${s.textureCount} textures`));
+
+    // Setup graceful shutdown handlers (SIGTERM, SIGINT)
+    setupGracefulShutdown(serviceRegistry, server);
 
     // Start HTTP server
     server.listen(PORT, () => {

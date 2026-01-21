@@ -374,6 +374,52 @@ Provide:
 - **Goal:** Cache shared data (e.g., building metadata, zone info) at server level instead of each client requesting separately
 - **Tasks:** Implement caching layer in gateway, TTL strategy, cache invalidation
 
+#### Service Registry & Lifecycle Management
+- **Status:** ✅ COMPLETED (January 2026)
+- **Goal:** Centralize service management with proper lifecycle, dependency injection, and graceful shutdown
+- **Implementation:**
+  - **Module:** [src/server/service-registry.ts](src/server/service-registry.ts) - Central service registry
+  - **Service Interface:**
+    - `name: string` - Service identifier
+    - `initialize?(): Promise<void>` - Startup initialization
+    - `shutdown?(): Promise<void>` - Graceful shutdown
+    - `isHealthy?(): boolean` - Health check
+    - `getStats?(): unknown` - Statistics for monitoring
+  - **ServiceRegistry Class:**
+    - `register(name, service, options)` - Register service with dependencies
+    - `get<T>(name)` - Type-safe service retrieval
+    - `initialize()` - Initialize all services in dependency order (topological sort)
+    - `shutdown()` - Shutdown services in reverse order
+    - `healthCheck()` - Aggregate health status of all services
+  - **Registered Services:**
+    - `update` (UpdateService) - Syncs files from update server, no dependencies
+    - `facilities` (FacilityDimensionsCache) - Building dimensions, depends on `update`
+    - `textures` (TextureExtractor) - Terrain textures, depends on `update`
+    - `mapData` (MapDataService) - Map metadata, depends on `update`
+  - **Graceful Shutdown System:**
+    - **1st Ctrl+C:** Graceful shutdown (max 5 seconds timeout)
+    - **2nd Ctrl+C:** Force shutdown (closes all connections immediately)
+    - **3rd Ctrl+C:** Immediate `process.exit(1)`
+    - HTTP server close timeout: 2 seconds
+    - Uses `closeAllConnections()` for Node.js 18+
+    - Handles SIGTERM, SIGINT, uncaughtException, unhandledRejection
+  - **Integration:** [src/server/server.ts](src/server/server.ts)
+    - Services registered at module load with dependency declarations
+    - `startServer()` calls `serviceRegistry.initialize()` once
+    - `setupGracefulShutdown()` handles process signals
+- **Updated Services:**
+  - [src/server/update-service.ts](src/server/update-service.ts) - Implements `Service`, adds `initialize()` wrapper
+  - [src/server/facility-dimensions-cache.ts](src/server/facility-dimensions-cache.ts) - Implements `Service`, adds `isHealthy()`
+  - [src/server/texture-extractor.ts](src/server/texture-extractor.ts) - Implements `Service`, adds `isHealthy()`
+  - [src/server/map-data-service.ts](src/server/map-data-service.ts) - Implements `Service`
+- **Benefits:**
+  - **Centralized management:** All services in one registry
+  - **Dependency order:** Topological sort ensures correct initialization sequence
+  - **Health monitoring:** `healthCheck()` aggregates all service statuses
+  - **Graceful shutdown:** Proper cleanup with timeouts and force options
+  - **Type safety:** Generic `get<T>()` method for type-safe service access
+  - **Testability:** Services can be mocked via registry
+
 ### CODE
 #### Project Organization & Git Setup
 - **Status:** ✅ COMPLETED (January 2026)
@@ -849,10 +895,14 @@ Provide:
   - **Files:** `<mapname>.bmp` (terrain), `<mapname>.ini` (metadata)
   - **Available maps:** Antiqua (2000×2000), Shamba (1000×1000), Zyrane (1000×1000), +25 others (require manual CAB extraction)
 - **Texture Data Sources:**
-  - **Location:** `cache/landimages/<terrainType>/<zoomLevel>/`
+  - **Location:** `cache/landimages/<terrainType>/<season>/`
+  - **Season folders:** 0=Winter, 1=Spring, 2=Summer, 3=Autumn
   - **CAB archives:** `dryground.cab`, `grass.cab`, `midgrass.cab`, `water.cab`
-  - **Extracted to:** `webclient-cache/textures/<terrainType>/<zoomLevel>/`
-  - **Total textures:** 160 per zoom level × 4 zoom levels × 2 terrain types = 1,280 textures
+  - **Extracted to:** `webclient-cache/textures/<terrainType>/<season>/`
+  - **Total textures:** 160 per season × 4 seasons × 2 terrain types = 1,280 textures
+  - **Terrain availability:**
+    - **Earth:** All 4 seasons (Winter, Spring, Summer, Autumn)
+    - **Alien Swamp:** Only Winter (season 0)
 - **Performance:**
   - Build size: client.js 277.0kb (includes chunk cache system)
   - Texture cache: Hit rate >90% after warm-up
@@ -872,13 +922,28 @@ Provide:
       - Toggle: Press `C` to enable/disable chunk rendering
     - **Debug panel shows:** Chunk cache size, hit rate, render time
     - **Graceful degradation:** Falls back to tile rendering in environments without OffscreenCanvas (Node.js tests)
+- **Season Auto-Detection (January 2026):**
+  - **Feature:** Client automatically detects available seasons for each terrain type
+  - **Implementation:**
+    - Server-side: `getAvailableSeasonsForTerrain()` and `getTerrainInfo()` in [src/server/texture-extractor.ts](src/server/texture-extractor.ts)
+    - API endpoint: `/api/terrain-info/:terrainType` returns `{ availableSeasons, defaultSeason }`
+    - Client-side: `fetchAvailableSeasons()` in [src/client/renderer/isometric-terrain-renderer.ts](src/client/renderer/isometric-terrain-renderer.ts)
+  - **Behavior:**
+    - On map load, client queries available seasons from server
+    - If current season not available, auto-switches to default season
+    - Season priority: Summer > Spring > Autumn > Winter
+  - **Bug Fixes:**
+    - **Infinite loop fix:** Added `loaded` flag to CacheEntry in [src/client/renderer/texture-cache.ts](src/client/renderer/texture-cache.ts) to prevent repeated requests for missing textures
+    - **Index format fix:** Deleted old index.json files with `zoomLevel` field, regenerated with correct `season` field
+    - **Refactored texture system:** Changed from zoom-level to season-based organization throughout codebase
 - **Testing:**
   - **Unit tests:** 28 IsometricTerrainRenderer + 25 TextureCache = 53 tests passing
   - **Test page:** [public/terrain-test.html](public/terrain-test.html) - Standalone test page
   - **Integration:** Build successful, tests preserved
 - **API Endpoints:**
   - `GET /api/map-data/:mapname` → Map metadata + BMP URL
-  - `GET /api/terrain-texture/:terrainType/:zoom/:paletteIndex` → Texture BMP
+  - `GET /api/terrain-texture/:terrainType/:season/:paletteIndex` → Texture BMP (season: 0-3)
+  - `GET /api/terrain-info/:terrainType` → Available seasons and default season for terrain type
 - **Documentation:**
   - [TERRAIN_RENDERING_STATUS.md](TERRAIN_RENDERING_STATUS.md) - Complete implementation status (1,000+ lines)
   - Phase-by-phase progress tracking
@@ -1089,5 +1154,5 @@ Provide:
 
 ---
 
-**Last Updated:** January 2026  
+**Last Updated:** January 2026 (ServiceRegistry & Graceful Shutdown added)
 **Project Version:** Alpha (active development)

@@ -2,7 +2,13 @@
  * TextureExtractor
  *
  * Extracts terrain textures from CAB archives and builds a texture index.
- * Textures are extracted to webclient-cache/textures/<terrainType>/<zoom>/
+ * Textures are extracted to webclient-cache/textures/<terrainType>/<season>/
+ *
+ * Season folders:
+ * - 0 = Winter (Hiver)
+ * - 1 = Spring (Printemps)
+ * - 2 = Summer (Été)
+ * - 3 = Autumn (Automne)
  *
  * Texture naming convention in CAB files:
  * - land.<paletteIndex>.<TerrainType><Direction><Variant>.bmp
@@ -19,6 +25,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { Season, SEASON_NAMES } from '../shared/map-config';
+import type { Service } from './service-registry';
 
 const execAsync = promisify(exec);
 
@@ -36,15 +44,18 @@ export interface TextureInfo {
 
 export interface TextureIndex {
   terrainType: string;
-  zoomLevel: number;
+  season: Season;
   textures: Map<number, TextureInfo[]>; // paletteIndex -> array of texture variants
 }
 
-export class TextureExtractor {
+export class TextureExtractor implements Service {
+  public readonly name = 'textures';
+
   private cacheDir: string;
   private landImagesDir: string;
   private extractedDir: string;
-  private textureIndex: Map<string, TextureIndex> = new Map(); // "terrainType-zoom" -> TextureIndex
+  private textureIndex: Map<string, TextureIndex> = new Map(); // "terrainType-season" -> TextureIndex
+  private initialized: boolean = false;
 
   constructor(cacheDir: string = 'cache') {
     this.cacheDir = cacheDir;
@@ -53,9 +64,14 @@ export class TextureExtractor {
   }
 
   /**
-   * Initialize texture extraction for all terrain types and zoom levels
+   * Initialize texture extraction for all terrain types and seasons
    */
   async initialize(): Promise<void> {
+    if (this.initialized) {
+      console.log('[TextureExtractor] Already initialized');
+      return;
+    }
+
     console.log('[TextureExtractor] Initializing...');
 
     // Ensure extracted directory exists
@@ -67,16 +83,24 @@ export class TextureExtractor {
     const terrainTypes = await this.getTerrainTypes();
     console.log(`[TextureExtractor] Found terrain types: ${terrainTypes.join(', ')}`);
 
-    // Extract textures for each terrain type and zoom level
+    // Extract textures for each terrain type and season
     for (const terrainType of terrainTypes) {
-      const zoomLevels = await this.getZoomLevels(terrainType);
+      const seasons = await this.getAvailableSeasons(terrainType);
 
-      for (const zoom of zoomLevels) {
-        await this.extractTerrainTextures(terrainType, zoom);
+      for (const season of seasons) {
+        await this.extractTerrainTextures(terrainType, season);
       }
     }
 
+    this.initialized = true;
     console.log('[TextureExtractor] Initialization complete');
+  }
+
+  /**
+   * Service interface: Check if service is healthy
+   */
+  isHealthy(): boolean {
+    return this.initialized && this.textureIndex.size > 0;
   }
 
   /**
@@ -86,28 +110,34 @@ export class TextureExtractor {
     const entries = fs.readdirSync(this.landImagesDir, { withFileTypes: true });
     return entries
       .filter(e => e.isDirectory() && !e.name.startsWith('.'))
-      .map(e => e.name);
+      .map(e => decodeURIComponent(e.name)); // Decode URL-encoded directory names
   }
 
   /**
-   * Get available zoom levels for a terrain type
+   * Get available seasons for a terrain type
+   * Returns Season enum values (0=Winter, 1=Spring, 2=Summer, 3=Autumn)
    */
-  private async getZoomLevels(terrainType: string): Promise<number[]> {
-    const terrainDir = path.join(this.landImagesDir, terrainType);
+  private async getAvailableSeasons(terrainType: string): Promise<Season[]> {
+    // Use encoded name for filesystem access
+    const encodedTerrainType = encodeURIComponent(terrainType);
+    const terrainDir = path.join(this.landImagesDir, encodedTerrainType);
     const entries = fs.readdirSync(terrainDir, { withFileTypes: true });
 
     return entries
       .filter(e => e.isDirectory() && /^[0-3]$/.test(e.name))
-      .map(e => parseInt(e.name, 10))
+      .map(e => parseInt(e.name, 10) as Season)
       .sort();
   }
 
   /**
-   * Extract textures from CAB files for a specific terrain type and zoom level
+   * Extract textures from CAB files for a specific terrain type and season
    */
-  private async extractTerrainTextures(terrainType: string, zoomLevel: number): Promise<void> {
-    const sourceDir = path.join(this.landImagesDir, terrainType, String(zoomLevel));
-    const targetDir = path.join(this.extractedDir, terrainType, String(zoomLevel));
+  private async extractTerrainTextures(terrainType: string, season: Season): Promise<void> {
+    // Use encoded name for filesystem access
+    const encodedTerrainType = encodeURIComponent(terrainType);
+    const sourceDir = path.join(this.landImagesDir, encodedTerrainType, String(season));
+    const targetDir = path.join(this.extractedDir, terrainType, String(season));
+    const seasonName = SEASON_NAMES[season];
 
     // Check if source directory exists
     if (!fs.existsSync(sourceDir)) {
@@ -126,13 +156,13 @@ export class TextureExtractor {
         textureMap.set(parseInt(key, 10), value as TextureInfo[]);
       }
 
-      this.textureIndex.set(`${terrainType}-${zoomLevel}`, {
+      this.textureIndex.set(`${terrainType}-${season}`, {
         terrainType,
-        zoomLevel,
+        season,
         textures: textureMap
       });
 
-      console.log(`[TextureExtractor] Loaded cached index: ${terrainType}/${zoomLevel}`);
+      console.log(`[TextureExtractor] Loaded cached index: ${terrainType}/${seasonName}`);
       return;
     }
 
@@ -175,20 +205,21 @@ export class TextureExtractor {
     // Store in memory index
     const index: TextureIndex = {
       terrainType,
-      zoomLevel,
+      season,
       textures: textureMap
     };
-    this.textureIndex.set(`${terrainType}-${zoomLevel}`, index);
+    this.textureIndex.set(`${terrainType}-${season}`, index);
 
     // Save index to file for faster startup next time
     const indexData = {
       terrainType,
-      zoomLevel,
+      season,
+      seasonName,
       textures: Object.fromEntries(textureMap)
     };
     fs.writeFileSync(indexFile, JSON.stringify(indexData, null, 2));
 
-    console.log(`[TextureExtractor] Extracted ${textureMap.size} textures: ${terrainType}/${zoomLevel}`);
+    console.log(`[TextureExtractor] Extracted ${textureMap.size} textures: ${terrainType}/${seasonName}`);
   }
 
   /**
@@ -244,9 +275,13 @@ export class TextureExtractor {
   /**
    * Get texture file path for a palette index
    * Returns the first matching texture (Center variant 0 preferred)
+   *
+   * @param terrainType - Terrain type (e.g., 'Earth', 'Alien Swamp')
+   * @param season - Season (0=Winter, 1=Spring, 2=Summer, 3=Autumn)
+   * @param paletteIndex - Palette index from map BMP (0-255)
    */
-  getTexturePath(terrainType: string, zoomLevel: number, paletteIndex: number): string | null {
-    const key = `${terrainType}-${zoomLevel}`;
+  getTexturePath(terrainType: string, season: Season, paletteIndex: number): string | null {
+    const key = `${terrainType}-${season}`;
     const index = this.textureIndex.get(key);
 
     if (!index) {
@@ -269,8 +304,8 @@ export class TextureExtractor {
   /**
    * Get all texture variants for a palette index
    */
-  getTextureVariants(terrainType: string, zoomLevel: number, paletteIndex: number): TextureInfo[] {
-    const key = `${terrainType}-${zoomLevel}`;
+  getTextureVariants(terrainType: string, season: Season, paletteIndex: number): TextureInfo[] {
+    const key = `${terrainType}-${season}`;
     const index = this.textureIndex.get(key);
 
     if (!index) {
@@ -288,10 +323,10 @@ export class TextureExtractor {
   }
 
   /**
-   * Get all available palette indices for a terrain type and zoom level
+   * Get all available palette indices for a terrain type and season
    */
-  getAvailableIndices(terrainType: string, zoomLevel: number): number[] {
-    const key = `${terrainType}-${zoomLevel}`;
+  getAvailableIndices(terrainType: string, season: Season): number[] {
+    const key = `${terrainType}-${season}`;
     const index = this.textureIndex.get(key);
 
     if (!index) {
@@ -304,17 +339,66 @@ export class TextureExtractor {
   /**
    * Get statistics about extracted textures
    */
-  getStats(): { terrainType: string; zoomLevel: number; textureCount: number }[] {
-    const stats: { terrainType: string; zoomLevel: number; textureCount: number }[] = [];
+  getStats(): { terrainType: string; season: Season; seasonName: string; textureCount: number }[] {
+    const stats: { terrainType: string; season: Season; seasonName: string; textureCount: number }[] = [];
 
     for (const [key, index] of this.textureIndex) {
       stats.push({
         terrainType: index.terrainType,
-        zoomLevel: index.zoomLevel,
+        season: index.season,
+        seasonName: SEASON_NAMES[index.season],
         textureCount: index.textures.size
       });
     }
 
     return stats;
+  }
+
+  /**
+   * Get available seasons for a terrain type from the loaded index
+   * This queries the already-initialized texture index (fast, no filesystem access)
+   *
+   * @param terrainType - Terrain type (e.g., 'Earth', 'Alien Swamp')
+   * @returns Array of available Season enum values
+   */
+  getAvailableSeasonsForTerrain(terrainType: string): Season[] {
+    const seasons: Season[] = [];
+
+    for (const [key, index] of this.textureIndex) {
+      if (index.terrainType === terrainType && !seasons.includes(index.season)) {
+        seasons.push(index.season);
+      }
+    }
+
+    return seasons.sort((a, b) => a - b);
+  }
+
+  /**
+   * Get terrain info including available seasons
+   * Used by client to auto-select an available season
+   */
+  getTerrainInfo(terrainType: string): { terrainType: string; availableSeasons: Season[]; defaultSeason: Season } | null {
+    const availableSeasons = this.getAvailableSeasonsForTerrain(terrainType);
+
+    if (availableSeasons.length === 0) {
+      return null;
+    }
+
+    // Default season priority: Summer (2) > Spring (1) > Autumn (3) > Winter (0)
+    const seasonPriority = [Season.SUMMER, Season.SPRING, Season.AUTUMN, Season.WINTER];
+    let defaultSeason = availableSeasons[0];
+
+    for (const preferred of seasonPriority) {
+      if (availableSeasons.includes(preferred)) {
+        defaultSeason = preferred;
+        break;
+      }
+    }
+
+    return {
+      terrainType,
+      availableSeasons,
+      defaultSeason
+    };
   }
 }
