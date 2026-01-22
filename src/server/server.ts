@@ -5,6 +5,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { StarpeaceSession } from './spo_session';
 import { config } from '../shared/config';
 import { createLogger } from '../shared/logger';
+import { UPDATE_SERVER } from '../shared/constants';
+import { fileToProxyUrl, PROXY_IMAGE_ENDPOINT } from '../shared/proxy-utils';
 import * as ErrorCodes from '../shared/error-codes';
 import { FacilityDimensionsCache } from './facility-dimensions-cache';
 import { SearchMenuService } from './search-menu-service';
@@ -237,12 +239,10 @@ async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<v
     }
 
     // Not in cache, try to download from update server (try all known directories)
-    const UPDATE_SERVER_BASE = 'http://update.starpeaceonline.com/five/client/cache';
-
     let downloaded = false;
     for (const dir of imageDirs) {
       try {
-        const updateUrl = `${UPDATE_SERVER_BASE}/${dir}/${filename}`;
+        const updateUrl = `${UPDATE_SERVER.CACHE_URL}/${dir}/${filename}`;
         const response = await fetch(updateUrl);
         if (response.ok) {
           const arrayBuffer = await response.arrayBuffer();
@@ -331,7 +331,7 @@ const server = http.createServer(async (req, res) => {
 
       // Get BMP file path and create proxy URL
       const bmpPath = mapDataService().getBmpFilePath(mapName);
-      const bmpUrl = `/proxy-image?url=${encodeURIComponent('file://' + bmpPath)}`;
+      const bmpUrl = fileToProxyUrl(bmpPath);
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ metadata, bmpUrl }));
@@ -417,7 +417,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Image proxy endpoint: /proxy-image?url=<encoded_url>
-  if (safePath.startsWith('/proxy-image?')) {
+  if (safePath.startsWith(`${PROXY_IMAGE_ENDPOINT}?`)) {
     const urlParams = new URLSearchParams(safePath.split('?')[1]);
     const imageUrl = urlParams.get('url');
 

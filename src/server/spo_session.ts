@@ -48,6 +48,7 @@ import {
   rdoArgs
 } from '../shared/rdo-types';
 import { config } from '../shared/config';
+import { toProxyUrl, isProxyUrl } from '../shared/proxy-utils';
 
 export class StarpeaceSession extends EventEmitter {
   private sockets: Map<string, net.Socket> = new Map();
@@ -60,19 +61,13 @@ export class StarpeaceSession extends EventEmitter {
    * Keeps original filename for debugging
    */
   private convertToProxyUrl(remoteUrl: string): string {
-    if (!remoteUrl || remoteUrl.startsWith('/proxy-image')) {
+    if (!remoteUrl || isProxyUrl(remoteUrl)) {
       return remoteUrl;
     }
 
-    // If it's a relative path, construct full URL
-    let fullUrl = remoteUrl;
-    if (remoteUrl.startsWith('/')) {
-      if (this.currentWorldInfo) {
-        fullUrl = `http://${this.currentWorldInfo.ip}${remoteUrl}`;
-      }
-    }
-
-    return `/proxy-image?url=${encodeURIComponent(fullUrl)}`;
+    // Use baseHost for relative URLs
+    const baseHost = this.currentWorldInfo?.ip;
+    return toProxyUrl(remoteUrl, baseHost);
   }
 
   // Pending requests map

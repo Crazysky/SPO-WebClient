@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { createLogger } from '../shared/logger';
+import { UPDATE_SERVER } from '../shared/constants';
 import { extractCabArchive, isCabExtractorAvailable } from './cab-extractor';
 
 const logger = createLogger('UpdateService');
@@ -37,7 +38,7 @@ import type { Service } from './service-registry';
 export class UpdateService implements Service {
   public readonly name = 'update';
 
-  private readonly UPDATE_SERVER_BASE = 'http://update.starpeaceonline.com/five/client/cache';
+  private readonly UPDATE_SERVER_BASE = UPDATE_SERVER.CACHE_URL;
   private readonly CACHE_ROOT: string;
   private readonly CAB_METADATA_FILE: string;
   private stats: SyncStats = { downloaded: 0, deleted: 0, skipped: 0, failed: 0, extracted: 0 };

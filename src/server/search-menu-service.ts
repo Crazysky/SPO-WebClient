@@ -20,6 +20,7 @@ import {
   parseRankingsPage,
   parseRankingDetail
 } from './search-menu-parser.js';
+import { toProxyUrl, isProxyUrl } from '../shared/proxy-utils';
 
 export class SearchMenuService {
   private interfaceServerHost: string;
@@ -101,18 +102,12 @@ export class SearchMenuService {
     if (!imageUrl) return '';
 
     // Already a proxy URL
-    if (imageUrl.startsWith('/proxy-image')) {
+    if (isProxyUrl(imageUrl)) {
       return imageUrl;
     }
 
-    // Full URL from DA server
-    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
-      return `/proxy-image?url=${encodeURIComponent(imageUrl)}`;
-    }
-
-    // Relative URL - construct full URL using DAAddr then proxy
-    const fullUrl = `http://${this.daAddr}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
-    return `/proxy-image?url=${encodeURIComponent(fullUrl)}`;
+    // Use toProxyUrl with DAAddr as base host for relative URLs
+    return toProxyUrl(imageUrl, this.daAddr);
   }
 
   /**

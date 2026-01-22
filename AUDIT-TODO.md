@@ -355,13 +355,24 @@ config.renderer.zoneCheckDebounceMs   // ligne 61
 **Note:** Les types dans types.ts (BuildingConnectionData, BuildingSupplyData, BuildingPropertyValue) sont les versions utilisées. Les duplicats dans property-definitions.ts étaient du code orphelin jamais importé - supprimés (~140 lignes).
 
 ### Phase 4: Extraction Utilitaires Partagés
-**Priorité:** MOYENNE | **Effort:** ~3 heures
+**Priorité:** MOYENNE | **Effort:** ~3 heures | **Statut:** ✅ TERMINÉ (Janvier 2026)
 
-- [ ] Créer `src/shared/fetch-utils.ts`
-- [ ] Créer `src/shared/proxy-utils.ts`
-- [ ] Créer `src/shared/constants.ts` (URLs, chemins, ports)
-- [ ] Créer `src/server/html-parser-utils.ts`
-- [ ] Migrer le code existant vers ces utilitaires
+- [x] Créer `src/shared/fetch-utils.ts` - Wrappers fetch avec gestion erreurs et timeout
+- [x] Créer `src/shared/proxy-utils.ts` - Construction URLs proxy centralisée
+- [x] Créer `src/shared/constants.ts` - URLs, chemins, ports, constantes globales
+- [x] ~~Créer `src/server/html-parser-utils.ts`~~ (Ignoré - patterns trop spécifiques à chaque cas)
+- [x] Migrer le code existant vers ces utilitaires
+
+**Nouveaux modules créés:**
+- `fetch-utils.ts`: `fetchSafe()`, `fetchRequired()`, `fetchJson()`, `fetchBinary()`, `fetchText()`, `fetchWithResult()`
+- `proxy-utils.ts`: `toProxyUrl()`, `fileToProxyUrl()`, `isProxyUrl()`, `fromProxyUrl()`, `PROXY_IMAGE_ENDPOINT`
+- `constants.ts`: `UPDATE_SERVER`, `CACHE_DIRS`, `FILE_EXTENSIONS`, `IMAGE_MIME_TYPES`, `TIMEOUTS`, `PLACEHOLDER_IMAGE`, `ROAD_CONSTANTS`, `MAP_CONSTANTS`, `SEASONS`
+
+**Code migré:**
+- `update-service.ts`: Utilise `UPDATE_SERVER.CACHE_URL`
+- `server.ts`: Utilise `UPDATE_SERVER`, `fileToProxyUrl()`, `PROXY_IMAGE_ENDPOINT`
+- `spo_session.ts`: Utilise `toProxyUrl()`, `isProxyUrl()`
+- `search-menu-service.ts`: Utilise `toProxyUrl()`, `isProxyUrl()`
 
 ### Phase 5: Décomposition des Mega-Classes (Si Approuvé)
 **Priorité:** BASSE | **Effort:** ~8 heures
