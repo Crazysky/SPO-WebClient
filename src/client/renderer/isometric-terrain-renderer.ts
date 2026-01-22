@@ -334,9 +334,9 @@ export class IsometricTerrainRenderer {
 
   /**
    * Render individual tiles for a chunk that isn't cached yet
+   * Uses two-pass rendering: standard tiles first, then tall tiles on top
    */
   private renderChunkTilesFallback(chunkI: number, chunkJ: number): number {
-    const ctx = this.ctx;
     const config = ZOOM_LEVELS[this.zoomLevel];
     const tileWidth = config.tileWidth;
     const tileHeight = config.tileHeight;
@@ -346,7 +346,12 @@ export class IsometricTerrainRenderer {
     const endI = Math.min(startI + CHUNK_SIZE, this.terrainLoader.getDimensions().height);
     const endJ = Math.min(startJ + CHUNK_SIZE, this.terrainLoader.getDimensions().width);
 
-    let tilesRendered = 0;
+    // Standard tile height at base resolution (64×32)
+    const BASE_TILE_HEIGHT = 32;
+
+    // Collect tiles for two-pass rendering
+    const standardTiles: Array<{ screenX: number; screenY: number; textureId: number }> = [];
+    const tallTiles: Array<{ screenX: number; screenY: number; textureId: number }> = [];
 
     for (let i = startI; i < endI; i++) {
       for (let j = startJ; j < endJ; j++) {
@@ -364,24 +369,49 @@ export class IsometricTerrainRenderer {
           continue;
         }
 
-        this.drawIsometricTile(screenPos.x, screenPos.y, config, textureId);
-        tilesRendered++;
+        // Check if texture is tall (only if textures are enabled)
+        let isTall = false;
+        if (this.useTextures) {
+          const texture = this.textureCache.getTextureSync(textureId);
+          isTall = texture !== null && texture.height > BASE_TILE_HEIGHT;
+        }
+
+        if (isTall) {
+          tallTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
+        } else {
+          standardTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
+        }
       }
     }
 
-    return tilesRendered;
+    // Pass 1: Render standard tiles
+    for (const tile of standardTiles) {
+      this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
+    }
+
+    // Pass 2: Render tall tiles on top
+    for (const tile of tallTiles) {
+      this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
+    }
+
+    return standardTiles.length + tallTiles.length;
   }
 
   /**
    * Tile-by-tile terrain rendering (slow path, fallback)
+   * Uses two-pass rendering: standard tiles first, then tall tiles on top
    */
   private renderTerrainLayerTiles(bounds: TileBounds): number {
-    const ctx = this.ctx;
     const config = ZOOM_LEVELS[this.zoomLevel];
     const tileWidth = config.tileWidth;
     const tileHeight = config.tileHeight;
 
-    let tilesRendered = 0;
+    // Standard tile height at base resolution (64×32)
+    const BASE_TILE_HEIGHT = 32;
+
+    // Collect tiles for two-pass rendering
+    const standardTiles: Array<{ screenX: number; screenY: number; textureId: number }> = [];
+    const tallTiles: Array<{ screenX: number; screenY: number; textureId: number }> = [];
 
     // Render tiles in back-to-front order (painter's algorithm)
     for (let i = bounds.minI; i <= bounds.maxI; i++) {
@@ -401,12 +431,32 @@ export class IsometricTerrainRenderer {
           continue;
         }
 
-        this.drawIsometricTile(screenPos.x, screenPos.y, config, textureId);
-        tilesRendered++;
+        // Check if texture is tall (only if textures are enabled)
+        let isTall = false;
+        if (this.useTextures) {
+          const texture = this.textureCache.getTextureSync(textureId);
+          isTall = texture !== null && texture.height > BASE_TILE_HEIGHT;
+        }
+
+        if (isTall) {
+          tallTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
+        } else {
+          standardTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
+        }
       }
     }
 
-    return tilesRendered;
+    // Pass 1: Render standard tiles
+    for (const tile of standardTiles) {
+      this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
+    }
+
+    // Pass 2: Render tall tiles on top
+    for (const tile of tallTiles) {
+      this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
+    }
+
+    return standardTiles.length + tallTiles.length;
   }
 
   /**
@@ -426,12 +476,15 @@ export class IsometricTerrainRenderer {
    *
    * When textures are available: Draw ONLY the texture (no background rectangle)
    * When textures are NOT available: Draw a diamond-shaped fallback color
+   *
+   * @param isTallTexture - If true, draw texture at full height with upward offset
    */
   private drawIsometricTile(
     screenX: number,
     screenY: number,
     config: ZoomConfig,
-    textureId: number
+    textureId: number,
+    isTallTexture: boolean = false
   ): void {
     const ctx = this.ctx;
     const halfWidth = config.tileWidth / 2;  // u
@@ -448,15 +501,29 @@ export class IsometricTerrainRenderer {
     }
 
     if (texture) {
-      // Draw texture directly - no background rectangle needed
-      // Adjacent tiles' opaque diamonds cover this tile's transparent corners
-      ctx.drawImage(
-        texture,
-        x - halfWidth,
-        y,
-        config.tileWidth,
-        config.tileHeight
-      );
+      if (isTallTexture) {
+        // Tall texture: draw at actual height with upward offset
+        const scale = config.tileWidth / 64;
+        const scaledHeight = texture.height * scale;
+        const yOffset = scaledHeight - config.tileHeight;
+
+        ctx.drawImage(
+          texture,
+          x - halfWidth,
+          y - yOffset,
+          config.tileWidth,
+          scaledHeight
+        );
+      } else {
+        // Standard texture: draw at standard tile height
+        ctx.drawImage(
+          texture,
+          x - halfWidth,
+          y,
+          config.tileWidth,
+          config.tileHeight
+        );
+      }
     } else {
       // No texture available - draw a diamond-shaped fallback color
       const color = this.textureCache.getFallbackColor(textureId);

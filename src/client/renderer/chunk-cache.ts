@@ -21,12 +21,26 @@ import { TextureCache, getFallbackColor } from './texture-cache';
 export const CHUNK_SIZE = 32; // tiles per chunk dimension (32×32 = 1024 tiles per chunk)
 const MAX_CHUNKS_PER_ZOOM = 64; // Maximum cached chunks per zoom level
 
+// Maximum extra height for tall textures (special terrain like trees/plants)
+// Tallest textures are ~90 pixels at 64 wide, standard tiles are 32 pixels, so max extra = ~60 pixels
+const MAX_TEXTURE_EXTRA_HEIGHT = 64; // pixels at base resolution (64×32)
+
 // Check if OffscreenCanvas is available (not in Node.js test environment)
 const isOffscreenCanvasSupported = typeof OffscreenCanvas !== 'undefined';
 
 /**
+ * Calculate the scaled extra height for tall textures at a given zoom level
+ * Textures are 64 pixels wide at base resolution, so scale = tileWidth / 64
+ */
+function getScaledExtraHeight(config: ZoomConfig): number {
+  const scale = config.tileWidth / 64;
+  return Math.ceil(MAX_TEXTURE_EXTRA_HEIGHT * scale);
+}
+
+/**
  * Calculate chunk canvas dimensions for isometric rendering
  * Based on seamless tiling formula where tiles overlap by half their dimensions
+ * Adds extra height at top for tall textures (special terrain like trees)
  */
 function calculateChunkCanvasDimensions(chunkSize: number, config: ZoomConfig): { width: number; height: number } {
   const u = config.u;
@@ -45,7 +59,11 @@ function calculateChunkCanvasDimensions(chunkSize: number, config: ZoomConfig): 
   // Height = y_max - y_min + tileHeight = u*(N-1) + u = u*N
 
   const width = u * (2 * chunkSize - 1) + config.tileWidth;
-  const height = (u / 2) * (2 * chunkSize - 1) + config.tileHeight;
+  const baseHeight = (u / 2) * (2 * chunkSize - 1) + config.tileHeight;
+
+  // Add extra height at top for tall textures that extend upward
+  const extraHeight = getScaledExtraHeight(config);
+  const height = baseHeight + extraHeight;
 
   return { width, height };
 }
@@ -53,6 +71,7 @@ function calculateChunkCanvasDimensions(chunkSize: number, config: ZoomConfig): 
 /**
  * Calculate the screen offset for a tile within a chunk's local canvas
  * Uses seamless tiling formula where tiles overlap by half their dimensions
+ * Adds vertical offset for tall texture headroom
  */
 function getTileScreenPosInChunk(
   localI: number,
@@ -67,12 +86,16 @@ function getTileScreenPosInChunk(
   const x = u * (chunkSize - localI + localJ);
   const y = (u / 2) * ((chunkSize - localI) + (chunkSize - localJ));
 
-  return { x, y };
+  // Add vertical offset to give tall textures room to extend upward
+  const extraHeight = getScaledExtraHeight(config);
+
+  return { x, y: y + extraHeight };
 }
 
 /**
  * Get the screen position of a chunk's top-left corner in the main canvas
  * Uses seamless tiling formula for consistent positioning
+ * Accounts for the extra height added for tall textures
  */
 function getChunkScreenPosition(
   chunkI: number,
@@ -97,7 +120,7 @@ function getChunkScreenPosition(
   const worldY = (u / 2) * ((mapHeight - baseI) + (mapWidth - baseJ)) - origin.y;
 
   // The chunk canvas has tile (0,0) at position getTileScreenPosInChunk(0, 0, ...)
-  // So we need to offset
+  // which includes the extra height offset for tall textures
   const localOrigin = getTileScreenPosInChunk(0, 0, chunkSize, config);
 
   return {
@@ -320,48 +343,86 @@ export class ChunkCache {
     // Preload all textures for this chunk (season is set on textureCache)
     await this.textureCache.preload(Array.from(textureIds));
 
-    // Render all tiles in the chunk
-    // Tiles use the seamless formula where adjacent tiles overlap by half their dimensions.
-    // This means the opaque diamond content of one tile covers the transparent corners
-    // of adjacent tiles, so we don't need background rectangles.
+    // Standard tile height at base resolution (64×32)
+    const BASE_TILE_HEIGHT = 32;
+
+    // Two-pass rendering:
+    // Pass 1: Render standard-height tiles (ground)
+    // Pass 2: Render tall tiles (special terrain like trees/plants) on top
+    // This ensures tall textures are not covered by adjacent ground tiles
+
+    // Collect tiles to render in each pass
+    const standardTiles: Array<{ i: number; j: number; textureId: number; texture: ImageBitmap | null }> = [];
+    const tallTiles: Array<{ i: number; j: number; textureId: number; texture: ImageBitmap }> = [];
+
     for (let i = startI; i < endI; i++) {
       for (let j = startJ; j < endJ; j++) {
-        const localI = i - startI;
-        const localJ = j - startJ;
-
         const textureId = this.getTextureId(j, i);
-        const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
-
-        // Round coordinates to integers to avoid sub-pixel rendering gaps
-        const x = Math.round(screenPos.x);
-        const y = Math.round(screenPos.y);
-
-        // Get texture if available
         const texture = this.textureCache.getTextureSync(textureId);
 
-        if (texture) {
-          // Draw texture directly - no background rectangle needed
-          // Adjacent tiles' opaque diamonds cover this tile's transparent corners
-          ctx.drawImage(
-            texture,
-            x - halfWidth,
-            y,
-            config.tileWidth,
-            config.tileHeight
-          );
+        if (texture && texture.height > BASE_TILE_HEIGHT) {
+          // Tall texture - render in second pass
+          tallTiles.push({ i, j, textureId, texture });
         } else {
-          // No texture available - draw a diamond-shaped fallback color
-          const color = getFallbackColor(textureId);
-          ctx.fillStyle = color;
-          ctx.beginPath();
-          ctx.moveTo(x, y);                                // top
-          ctx.lineTo(x + halfWidth, y + halfHeight);       // right
-          ctx.lineTo(x, y + config.tileHeight);            // bottom
-          ctx.lineTo(x - halfWidth, y + halfHeight);       // left
-          ctx.closePath();
-          ctx.fill();
+          // Standard or missing texture - render in first pass
+          standardTiles.push({ i, j, textureId, texture });
         }
       }
+    }
+
+    // Pass 1: Render standard-height tiles
+    for (const tile of standardTiles) {
+      const localI = tile.i - startI;
+      const localJ = tile.j - startJ;
+      const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
+      const x = Math.round(screenPos.x);
+      const y = Math.round(screenPos.y);
+
+      if (tile.texture) {
+        ctx.drawImage(
+          tile.texture,
+          x - halfWidth,
+          y,
+          config.tileWidth,
+          config.tileHeight
+        );
+      } else {
+        // No texture available - draw a diamond-shaped fallback color
+        const color = getFallbackColor(tile.textureId);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(x, y);                                // top
+        ctx.lineTo(x + halfWidth, y + halfHeight);       // right
+        ctx.lineTo(x, y + config.tileHeight);            // bottom
+        ctx.lineTo(x - halfWidth, y + halfHeight);       // left
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    // Pass 2: Render tall tiles on top
+    for (const tile of tallTiles) {
+      const localI = tile.i - startI;
+      const localJ = tile.j - startJ;
+      const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
+      const x = Math.round(screenPos.x);
+      const y = Math.round(screenPos.y);
+
+      // Draw texture at its actual dimensions, scaled by zoom level
+      const scale = config.tileWidth / 64;
+      const scaledHeight = tile.texture.height * scale;
+
+      // Adjust Y position upward - the bottom aligns with tile position,
+      // the top extends upward to overlap tiles rendered earlier
+      const yOffset = scaledHeight - config.tileHeight;
+
+      ctx.drawImage(
+        tile.texture,
+        x - halfWidth,
+        y - yOffset,
+        config.tileWidth,
+        scaledHeight
+      );
     }
 
     // Mark as ready

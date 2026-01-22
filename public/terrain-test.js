@@ -715,18 +715,26 @@
   // src/client/renderer/chunk-cache.ts
   var CHUNK_SIZE = 32;
   var MAX_CHUNKS_PER_ZOOM = 64;
+  var MAX_TEXTURE_EXTRA_HEIGHT = 64;
   var isOffscreenCanvasSupported = typeof OffscreenCanvas !== "undefined";
+  function getScaledExtraHeight(config) {
+    const scale = config.tileWidth / 64;
+    return Math.ceil(MAX_TEXTURE_EXTRA_HEIGHT * scale);
+  }
   function calculateChunkCanvasDimensions(chunkSize, config) {
     const u = config.u;
     const width = u * (2 * chunkSize - 1) + config.tileWidth;
-    const height = u / 2 * (2 * chunkSize - 1) + config.tileHeight;
+    const baseHeight = u / 2 * (2 * chunkSize - 1) + config.tileHeight;
+    const extraHeight = getScaledExtraHeight(config);
+    const height = baseHeight + extraHeight;
     return { width, height };
   }
   function getTileScreenPosInChunk(localI, localJ, chunkSize, config) {
     const u = config.u;
     const x = u * (chunkSize - localI + localJ);
     const y = u / 2 * (chunkSize - localI + (chunkSize - localJ));
-    return { x, y };
+    const extraHeight = getScaledExtraHeight(config);
+    return { x, y: y + extraHeight };
   }
   function getChunkScreenPosition(chunkI, chunkJ, chunkSize, config, mapHeight, mapWidth, origin) {
     const u = config.u;
@@ -885,35 +893,62 @@
         }
       }
       await this.textureCache.preload(Array.from(textureIds));
+      const BASE_TILE_HEIGHT = 32;
+      const standardTiles = [];
+      const tallTiles = [];
       for (let i = startI; i < endI; i++) {
         for (let j = startJ; j < endJ; j++) {
-          const localI = i - startI;
-          const localJ = j - startJ;
           const textureId = this.getTextureId(j, i);
-          const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
-          const x = Math.round(screenPos.x);
-          const y = Math.round(screenPos.y);
           const texture = this.textureCache.getTextureSync(textureId);
-          if (texture) {
-            ctx.drawImage(
-              texture,
-              x - halfWidth,
-              y,
-              config.tileWidth,
-              config.tileHeight
-            );
+          if (texture && texture.height > BASE_TILE_HEIGHT) {
+            tallTiles.push({ i, j, textureId, texture });
           } else {
-            const color = getFallbackColor(textureId);
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-            ctx.lineTo(x + halfWidth, y + halfHeight);
-            ctx.lineTo(x, y + config.tileHeight);
-            ctx.lineTo(x - halfWidth, y + halfHeight);
-            ctx.closePath();
-            ctx.fill();
+            standardTiles.push({ i, j, textureId, texture });
           }
         }
+      }
+      for (const tile of standardTiles) {
+        const localI = tile.i - startI;
+        const localJ = tile.j - startJ;
+        const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
+        const x = Math.round(screenPos.x);
+        const y = Math.round(screenPos.y);
+        if (tile.texture) {
+          ctx.drawImage(
+            tile.texture,
+            x - halfWidth,
+            y,
+            config.tileWidth,
+            config.tileHeight
+          );
+        } else {
+          const color = getFallbackColor(tile.textureId);
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + halfWidth, y + halfHeight);
+          ctx.lineTo(x, y + config.tileHeight);
+          ctx.lineTo(x - halfWidth, y + halfHeight);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+      for (const tile of tallTiles) {
+        const localI = tile.i - startI;
+        const localJ = tile.j - startJ;
+        const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
+        const x = Math.round(screenPos.x);
+        const y = Math.round(screenPos.y);
+        const scale = config.tileWidth / 64;
+        const scaledHeight = tile.texture.height * scale;
+        const yOffset = scaledHeight - config.tileHeight;
+        ctx.drawImage(
+          tile.texture,
+          x - halfWidth,
+          y - yOffset,
+          config.tileWidth,
+          scaledHeight
+        );
       }
       entry.ready = true;
       entry.rendering = false;
@@ -1301,9 +1336,9 @@
     }
     /**
      * Render individual tiles for a chunk that isn't cached yet
+     * Uses two-pass rendering: standard tiles first, then tall tiles on top
      */
     renderChunkTilesFallback(chunkI, chunkJ) {
-      const ctx = this.ctx;
       const config = ZOOM_LEVELS[this.zoomLevel];
       const tileWidth = config.tileWidth;
       const tileHeight = config.tileHeight;
@@ -1311,7 +1346,9 @@
       const startJ = chunkJ * CHUNK_SIZE;
       const endI = Math.min(startI + CHUNK_SIZE, this.terrainLoader.getDimensions().height);
       const endJ = Math.min(startJ + CHUNK_SIZE, this.terrainLoader.getDimensions().width);
-      let tilesRendered = 0;
+      const BASE_TILE_HEIGHT = 32;
+      const standardTiles = [];
+      const tallTiles = [];
       for (let i = startI; i < endI; i++) {
         for (let j = startJ; j < endJ; j++) {
           const textureId = this.terrainLoader.getTextureId(j, i);
@@ -1325,21 +1362,37 @@
           if (screenPos.x < -tileWidth || screenPos.x > this.canvas.width + tileWidth || screenPos.y < -tileHeight || screenPos.y > this.canvas.height + tileHeight) {
             continue;
           }
-          this.drawIsometricTile(screenPos.x, screenPos.y, config, textureId);
-          tilesRendered++;
+          let isTall = false;
+          if (this.useTextures) {
+            const texture = this.textureCache.getTextureSync(textureId);
+            isTall = texture !== null && texture.height > BASE_TILE_HEIGHT;
+          }
+          if (isTall) {
+            tallTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
+          } else {
+            standardTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
+          }
         }
       }
-      return tilesRendered;
+      for (const tile of standardTiles) {
+        this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
+      }
+      for (const tile of tallTiles) {
+        this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
+      }
+      return standardTiles.length + tallTiles.length;
     }
     /**
      * Tile-by-tile terrain rendering (slow path, fallback)
+     * Uses two-pass rendering: standard tiles first, then tall tiles on top
      */
     renderTerrainLayerTiles(bounds) {
-      const ctx = this.ctx;
       const config = ZOOM_LEVELS[this.zoomLevel];
       const tileWidth = config.tileWidth;
       const tileHeight = config.tileHeight;
-      let tilesRendered = 0;
+      const BASE_TILE_HEIGHT = 32;
+      const standardTiles = [];
+      const tallTiles = [];
       for (let i = bounds.minI; i <= bounds.maxI; i++) {
         for (let j = bounds.minJ; j <= bounds.maxJ; j++) {
           const textureId = this.terrainLoader.getTextureId(j, i);
@@ -1353,11 +1406,25 @@
           if (screenPos.x < -tileWidth || screenPos.x > this.canvas.width + tileWidth || screenPos.y < -tileHeight || screenPos.y > this.canvas.height + tileHeight) {
             continue;
           }
-          this.drawIsometricTile(screenPos.x, screenPos.y, config, textureId);
-          tilesRendered++;
+          let isTall = false;
+          if (this.useTextures) {
+            const texture = this.textureCache.getTextureSync(textureId);
+            isTall = texture !== null && texture.height > BASE_TILE_HEIGHT;
+          }
+          if (isTall) {
+            tallTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
+          } else {
+            standardTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
+          }
         }
       }
-      return tilesRendered;
+      for (const tile of standardTiles) {
+        this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
+      }
+      for (const tile of tallTiles) {
+        this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
+      }
+      return standardTiles.length + tallTiles.length;
     }
     /**
      * Draw a single isometric diamond tile
@@ -1376,8 +1443,10 @@
      *
      * When textures are available: Draw ONLY the texture (no background rectangle)
      * When textures are NOT available: Draw a diamond-shaped fallback color
+     *
+     * @param isTallTexture - If true, draw texture at full height with upward offset
      */
-    drawIsometricTile(screenX, screenY, config, textureId) {
+    drawIsometricTile(screenX, screenY, config, textureId, isTallTexture = false) {
       const ctx = this.ctx;
       const halfWidth = config.tileWidth / 2;
       const halfHeight = config.tileHeight / 2;
@@ -1388,13 +1457,26 @@
         texture = this.textureCache.getTextureSync(textureId);
       }
       if (texture) {
-        ctx.drawImage(
-          texture,
-          x - halfWidth,
-          y,
-          config.tileWidth,
-          config.tileHeight
-        );
+        if (isTallTexture) {
+          const scale = config.tileWidth / 64;
+          const scaledHeight = texture.height * scale;
+          const yOffset = scaledHeight - config.tileHeight;
+          ctx.drawImage(
+            texture,
+            x - halfWidth,
+            y - yOffset,
+            config.tileWidth,
+            scaledHeight
+          );
+        } else {
+          ctx.drawImage(
+            texture,
+            x - halfWidth,
+            y,
+            config.tileWidth,
+            config.tileHeight
+          );
+        }
       } else {
         const color = this.textureCache.getFallbackColor(textureId);
         ctx.fillStyle = color;

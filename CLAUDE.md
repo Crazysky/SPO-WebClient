@@ -975,6 +975,33 @@ Provide:
         - Standard textures: RGB(0,0,255) - Blue
         - Earth special: RGB(255,255,255) - White
         - Alien Swamp special: Various (orange, magenta, cyan, red)
+    - **Tall special texture rendering (January 2026):**
+      - **Problem:** Special textures (GrassSpecial, etc.) were compressed/squished to fit standard 64×32 tile size
+      - **Root cause:** Renderer forced all textures to config.tileWidth × config.tileHeight, ignoring actual texture dimensions
+      - **Texture dimensions discovered:**
+        - Standard textures: 64×32 (all zoom levels)
+        - GrassSpecial1/3/11/13: 64×90 (58 pixels taller)
+        - GrassSpecial2: 64×78 (46 pixels taller)
+        - GrassSpecial6: 64×55 (23 pixels taller)
+      - **Solution:** Draw textures at actual dimensions, scaled by zoom level, with upward offset
+      - **Implementation:**
+        - [src/client/renderer/isometric-terrain-renderer.ts](src/client/renderer/isometric-terrain-renderer.ts) `drawIsometricTile()`
+        - [src/client/renderer/chunk-cache.ts](src/client/renderer/chunk-cache.ts) `renderChunk()`
+        - Scale factor: `config.tileWidth / 64` (textures are 64px wide at base)
+        - Y offset: `scaledHeight - config.tileHeight` (shifts tall textures upward)
+        - Chunk canvas height increased by `MAX_TEXTURE_EXTRA_HEIGHT` (64px) to avoid clipping
+      - **Result:** Tall terrain textures (trees, plants) render at correct height, overlapping tiles above
+    - **Two-pass rendering for tall textures (January 2026):**
+      - **Problem:** Tall special textures were being covered by adjacent ground tiles rendered after them
+      - **Root cause:** All tiles rendered in single pass (back-to-front), but adjacent tiles covered tall textures
+      - **Solution:** Two-pass rendering - standard tiles first, then tall tiles on top
+      - **Implementation:**
+        - [src/client/renderer/chunk-cache.ts](src/client/renderer/chunk-cache.ts) `renderChunk()` - Two-pass for chunks
+        - [src/client/renderer/isometric-terrain-renderer.ts](src/client/renderer/isometric-terrain-renderer.ts) `renderTerrainLayerTiles()`, `renderChunkTilesFallback()`
+        - Pass 1: Render tiles with `texture.height <= 32` (standard ground)
+        - Pass 2: Render tiles with `texture.height > 32` (tall special textures) on top
+        - `drawIsometricTile()` updated with `isTallTexture` parameter for proper height handling
+      - **Result:** Tall terrain textures (trees, plants, decorations) render on top of surrounding ground
 - **Testing:**
   - **Unit tests:** 28 IsometricTerrainRenderer + 25 TextureCache = 53 tests passing
   - **Test page:** [public/terrain-test.html](public/terrain-test.html) - Standalone test page
