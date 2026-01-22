@@ -768,6 +768,14 @@ export class IsometricTerrainRenderer {
   }
 
   /**
+   * Get the current screen origin (for coordinate mapping)
+   * Origin is computed so that camera position appears at canvas center
+   */
+  getOrigin(): Point {
+    return this.origin;
+  }
+
+  /**
    * Convert screen coordinates to map coordinates
    */
   screenToMap(screenX: number, screenY: number): Point {

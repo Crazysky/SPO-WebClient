@@ -527,11 +527,14 @@ export class IsometricMapRenderer {
       height: this.canvas.height
     };
 
+    // Get the actual origin from terrain renderer (camera position in screen coords)
+    const origin = this.terrainRenderer.getOrigin();
+
     return this.terrainRenderer.getCoordinateMapper().getVisibleBounds(
       viewport,
       this.terrainRenderer.getZoomLevel(),
       this.terrainRenderer.getRotation(),
-      { x: 0, y: 0 } // Origin is handled internally
+      origin
     );
   }
 
@@ -1272,10 +1275,14 @@ export class IsometricMapRenderer {
       }
     }
 
-    console.log(`[IsometricMapRenderer] loadVisibleZones: ${zonesToLoad.length} zones to load, ${this.cachedZones.size} cached, ${this.loadingZones.size} loading`);
+    // Limit to prevent server spam (server has max 3 concurrent requests)
+    const MAX_ZONES_PER_BATCH = 4;
+    const zonesToRequest = zonesToLoad.slice(0, MAX_ZONES_PER_BATCH);
 
-    // Load zones
-    for (const zone of zonesToLoad) {
+    console.log(`[IsometricMapRenderer] loadVisibleZones: ${zonesToLoad.length} zones needed, requesting ${zonesToRequest.length} (max ${MAX_ZONES_PER_BATCH}), ${this.cachedZones.size} cached, ${this.loadingZones.size} loading`);
+
+    // Load zones (limited batch)
+    for (const zone of zonesToRequest) {
       const key = `${zone.x},${zone.y}`;
       this.loadingZones.add(key);
       console.log(`[IsometricMapRenderer] Requesting zone (${zone.x}, ${zone.y})`);
