@@ -12,16 +12,16 @@ Cet audit identifie les incohérences, doublons, code orphelin, redondances et a
 
 ### Statistiques Globales
 
-| Métrique | Valeur | État |
-|----------|--------|------|
-| Total lignes de code | 27,281 | ✅ Raisonnable |
-| Fichiers TypeScript | 56 | ✅ |
-| Fichiers >1000 lignes | 5 | 🔴 Trop nombreux |
-| Taille moyenne fichier | 487 lignes | 🟡 Élevé (idéal: 200-300) |
-| Code orphelin estimé | ~900 lignes | 🔴 À supprimer |
-| Types dupliqués | 8 paires | 🔴 À consolider |
-| Patterns dupliqués | ~550 lignes | 🟡 À factoriser |
-| Conformité nommage | 100% | ✅ Excellent |
+| Métrique | Valeur (Initial) | Valeur (Après Phase 5) | État |
+|----------|------------------|------------------------|------|
+| Total lignes de code | 27,281 | 27,301 | ✅ Raisonnable |
+| Fichiers TypeScript | 56 | 66 (+10 nouveaux modules) | ✅ |
+| Fichiers >1000 lignes | 5 | 4 (-1) | 🟡 Amélioré |
+| spo_session.ts | 3,757 | 3,469 (-288) | 🟡 Réduit |
+| types.ts | 1,144 | 18 (barrel) | ✅ Modularisé |
+| Taille moyenne fichier | 487 | 413 lignes | 🟡 Amélioré |
+| Patterns dupliqués | ~550 lignes | ~300 lignes | ✅ Réduit |
+| Conformité nommage | 100% | 100% | ✅ Excellent |
 
 ---
 
@@ -374,13 +374,38 @@ config.renderer.zoneCheckDebounceMs   // ligne 61
 - `spo_session.ts`: Utilise `toProxyUrl()`, `isProxyUrl()`
 - `search-menu-service.ts`: Utilise `toProxyUrl()`, `isProxyUrl()`
 
-### Phase 5: Décomposition des Mega-Classes (Si Approuvé)
-**Priorité:** BASSE | **Effort:** ~8 heures
+### Phase 5: Décomposition des Mega-Classes
+**Priorité:** BASSE | **Effort:** ~8 heures | **Statut:** ✅ PARTIEL (Janvier 2026)
 
-- [ ] Diviser `spo_session.ts` en 4 modules
-- [ ] Diviser `types.ts` en 3 fichiers par domaine
-- [ ] Extraire message handlers de `server.ts`
+#### ✅ types.ts divisé en 3 fichiers par domaine
+- [x] Créer `src/shared/types/protocol-types.ts` - Constantes RDO, enums, packets (~80 lignes)
+- [x] Créer `src/shared/types/domain-types.ts` - Entités métier: WorldInfo, MapBuilding, etc. (~300 lignes)
+- [x] Créer `src/shared/types/message-types.ts` - Types WebSocket req/resp (~440 lignes)
+- [x] Créer `src/shared/types/index.ts` - Barrel export pour compatibilité
+- [x] Convertir `src/shared/types.ts` en barrel export simple
+
+**Résultat:** types.ts 1,144 → 18 lignes (re-export only), modularité améliorée
+
+#### ✅ spo_session.ts partiellement modularisé
+- [x] Créer `src/server/rdo-helpers.ts` - Fonctions utilitaires RDO pures (~125 lignes)
+  - `cleanPayload()`, `splitMultilinePayload()`, `extractRevenue()`
+  - `parsePropertyResponse()`, `parseIdOfResponse()`, `stripTypePrefix()`, `hasTypePrefix()`
+- [x] Créer `src/server/map-parsers.ts` - Fonctions de parsing map/buildings (~244 lignes)
+  - `parseBuildings()`, `parseSegments()`, `parseBuildingFocusResponse()`
+- [x] Refactoriser `spo_session.ts` pour utiliser les helpers
+
+**Résultat:** spo_session.ts 3,757 → 3,469 lignes (-288 lignes extraites)
+
+#### ✅ server.ts - Utilitaires handlers créés
+- [x] Créer `src/server/message-handlers/handler-utils.ts` - Utilitaires handlers (~75 lignes)
+  - `sendResponse()`, `sendError()`, `withErrorHandler()`, `createResponse()`
+- [x] Créer `src/server/message-handlers/index.ts` - Barrel export
+
+**Note:** Extraction complète des handlers déférée - couplage fort avec session et WebSocket
+
+#### ⏳ client.ts - Différé
 - [ ] Extraire contrôleurs de `client.ts`
+**Note:** Requiert analyse approfondie des dépendances UI
 
 ---
 

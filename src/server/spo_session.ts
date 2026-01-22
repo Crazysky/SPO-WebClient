@@ -15,22 +15,17 @@ import {
   WsEventTycoonUpdate,
   CompanyInfo,
   MapData,
-  MapBuilding,
-  MapSegment,
   WsEventRdoPush,
-  // NEW: Chat types
   ChatUser,
   WsEventChatUserTyping,
   WsEventChatChannelChange,
   WsEventChatUserListChange,
   BuildingFocusInfo,
   WsEventBuildingRefresh,
-  // NEW: Building construction types
   BuildingCategory,
   BuildingInfo,
   SurfaceData,
   SurfaceType,
-  // NEW: Building details types
   BuildingDetailsResponse,
   BuildingPropertyValue,
   BuildingSupplyData,
@@ -49,6 +44,17 @@ import {
 } from '../shared/rdo-types';
 import { config } from '../shared/config';
 import { toProxyUrl, isProxyUrl } from '../shared/proxy-utils';
+import {
+  cleanPayload as cleanPayloadHelper,
+  splitMultilinePayload as splitMultilinePayloadHelper,
+  parsePropertyResponse as parsePropertyResponseHelper,
+  parseIdOfResponse as parseIdOfResponseHelper,
+} from './rdo-helpers';
+import {
+  parseBuildings as parseBuildingsHelper,
+  parseSegments as parseSegmentsHelper,
+  parseBuildingFocusResponse as parseBuildingFocusResponseHelper,
+} from './map-parsers';
 
 export class StarpeaceSession extends EventEmitter {
   private sockets: Map<string, net.Socket> = new Map();
@@ -223,11 +229,11 @@ export class StarpeaceSession extends EventEmitter {
     try {
       // 1. Resolve & Open Session
       const idPacket = await this.sendRdoRequest('directory_auth', { verb: RdoVerb.IDOF, targetId: 'DirectoryServer' });
-      const directoryServerId = this.parseIdOfResponse(idPacket);
+      const directoryServerId = parseIdOfResponseHelper(idPacket.payload);
       const sessionPacket = await this.sendRdoRequest('directory_auth', {
         verb: RdoVerb.SEL, targetId: directoryServerId, action: RdoAction.GET, member: 'RDOOpenSession'
       });
-      const sessionId = this.parsePropertyResponse(sessionPacket.payload || '', 'RDOOpenSession');
+      const sessionId = parsePropertyResponseHelper(sessionPacket.payload || '', 'RDOOpenSession');
 
       // 2. Map & Logon
       await this.sendRdoRequest('directory_auth', {
@@ -238,7 +244,7 @@ export class StarpeaceSession extends EventEmitter {
         verb: RdoVerb.SEL, targetId: sessionId, action: RdoAction.CALL, member: 'RDOLogonUser',
         args: [username, pass]
       });
-      const res = this.parsePropertyResponse(logonPacket.payload || '', 'res');
+      const res = parsePropertyResponseHelper(logonPacket.payload || '', 'res');
       if (res !== '0') throw new Error(`Directory Authentication failed (Code: ${res})`);
 
       // 3. End Session & Close
@@ -261,11 +267,11 @@ export class StarpeaceSession extends EventEmitter {
     try {
       // 1. Resolve & Open NEW Session
       const idPacket = await this.sendRdoRequest('directory_query', { verb: RdoVerb.IDOF, targetId: 'DirectoryServer' });
-      const directoryServerId = this.parseIdOfResponse(idPacket);
+      const directoryServerId = parseIdOfResponseHelper(idPacket.payload);
       const sessionPacket = await this.sendRdoRequest('directory_query', {
         verb: RdoVerb.SEL, targetId: directoryServerId, action: RdoAction.GET, member: 'RDOOpenSession'
       });
-      const sessionId = this.parsePropertyResponse(sessionPacket.payload || '', 'RDOOpenSession');
+      const sessionId = parsePropertyResponseHelper(sessionPacket.payload || '', 'RDOOpenSession');
 
       // 2. Query Worlds - Use provided zonePath or default to BETA (Asia/Worlds)
       const worldPath = zonePath || 'Root/Areas/Asia/Worlds';
@@ -273,7 +279,7 @@ export class StarpeaceSession extends EventEmitter {
         verb: RdoVerb.SEL, targetId: sessionId, action: RdoAction.CALL, member: 'RDOQueryKey',
         args: [worldPath, DIRECTORY_QUERY.QUERY_BLOCK]
       });
-      const resValue = this.parsePropertyResponse(queryPacket.payload || '', 'res');
+      const resValue = parsePropertyResponseHelper(queryPacket.payload || '', 'res');
       const worlds = this.parseDirectoryResult(resValue);
       this.availableWorlds.clear();
       for (const w of worlds) {
@@ -319,7 +325,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
     verb: RdoVerb.IDOF,
     targetId: "InterfaceServer"
   });
-  this.interfaceServerId = this.parseIdOfResponse(idPacket);
+  this.interfaceServerId = parseIdOfResponseHelper(idPacket.payload);
   console.log(`[Session] InterfaceServer ID: ${this.interfaceServerId}`);
 
   // 2. Retrieve World Properties (10 properties)
@@ -333,7 +339,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
     member: "AccountStatus",
     args: [username, pass]
   });
-  const statusPayload = this.parsePropertyResponse(statusPacket.payload!, "res");
+  const statusPayload = parsePropertyResponseHelper(statusPacket.payload!, "res");
   console.log(`[Session] AccountStatus: ${statusPayload}`);
 
   // 4. Authenticate (call Logon)
@@ -345,9 +351,9 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
     args: [username, pass]
   });
 
-  let contextId = this.cleanPayload(logonPacket.payload!);
+  let contextId = cleanPayloadHelper(logonPacket.payload!);
   if (contextId.includes("res")) {
-    contextId = this.parsePropertyResponse(logonPacket.payload!, "res");
+    contextId = parsePropertyResponseHelper(logonPacket.payload!, "res");
   }
 
   if (!contextId || contextId === "0" || contextId.startsWith("error")) {
@@ -364,7 +370,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
     action: RdoAction.GET,
     member: "MailAccount"
   });
-  const mailAccount = this.parsePropertyResponse(mailPacket.payload!, "MailAccount");
+  const mailAccount = parsePropertyResponseHelper(mailPacket.payload!, "MailAccount");
   console.log(`[Session] MailAccount: ${mailAccount}`);
 
   const tycoonPacket = await this.sendRdoRequest("world", {
@@ -373,7 +379,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
     action: RdoAction.GET,
     member: "TycoonId"
   });
-  this.tycoonId = this.parsePropertyResponse(tycoonPacket.payload!, "TycoonId");
+  this.tycoonId = parsePropertyResponseHelper(tycoonPacket.payload!, "TycoonId");
 
   const cnntPacket = await this.sendRdoRequest("world", {
     verb: RdoVerb.SEL,
@@ -381,7 +387,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
     action: RdoAction.GET,
     member: "RDOCnntId"
   });
-  this.rdoCnntId = this.parsePropertyResponse(cnntPacket.payload!, "RDOCnntId");
+  this.rdoCnntId = parsePropertyResponseHelper(cnntPacket.payload!, "RDOCnntId");
 
   // 6. Setup InitClient waiter BEFORE RegisterEventsById
   this.waitingForInitClient = true;
@@ -430,7 +436,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
     action: RdoAction.GET,
     member: "GetCompanyCount"
   });
-  const companyCountStr = this.parsePropertyResponse(companyCountPacket.payload!, "GetCompanyCount");
+  const companyCountStr = parsePropertyResponseHelper(companyCountPacket.payload!, "GetCompanyCount");
   const companyCount = parseInt(companyCountStr, 10) || 0;
   console.log(`[Session] Company Count: ${companyCount}`);
 
@@ -479,7 +485,7 @@ public async selectCompany(companyId: string): Promise<void> {
     member: "GetTycoonCookie",
     args: [this.tycoonId!, "LastY.0"]
   });
-  const lastY = this.parsePropertyResponse(lastYPacket.payload!, "res");
+  const lastY = parsePropertyResponseHelper(lastYPacket.payload!, "res");
   this.lastPlayerY = parseInt(lastY, 10) || 0;
   console.log(`[Session] Cookie LastY.0: ${this.lastPlayerY}`);
 
@@ -491,7 +497,7 @@ public async selectCompany(companyId: string): Promise<void> {
     member: "GetTycoonCookie",
     args: [this.tycoonId!, "LastX.0"]
   });
-  const lastX = this.parsePropertyResponse(lastXPacket.payload!, "res");
+  const lastX = parsePropertyResponseHelper(lastXPacket.payload!, "res");
   this.lastPlayerX = parseInt(lastX, 10) || 0;
   console.log(`[Session] Cookie LastX.0: ${this.lastPlayerX}`);
 
@@ -503,7 +509,7 @@ public async selectCompany(companyId: string): Promise<void> {
     member: "GetTycoonCookie",
     args: [this.tycoonId!, ""]
   });
-  const allCookies = this.parsePropertyResponse(allCookiesPacket.payload!, "res");
+  const allCookies = parsePropertyResponseHelper(allCookiesPacket.payload!, "res");
   console.log(`[Session] All Cookies (1st fetch):\n${allCookies}`);
 
   // 4. ClientAware - Notify ready (first call)
@@ -539,7 +545,7 @@ public async selectCompany(companyId: string): Promise<void> {
     member: "GetTycoonCookie",
     args: [this.tycoonId!, ""]
   });
-  const allCookies2 = this.parsePropertyResponse(allCookiesPacket2.payload!, "res");
+  const allCookies2 = parsePropertyResponseHelper(allCookiesPacket2.payload!, "res");
   console.log(`[Session] All Cookies (2nd fetch):\n${allCookies2}`);
 
   // 7. Second ClientAware
@@ -650,9 +656,9 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 	  });
 
 	  // CRITICAL: Extract the 'res' property first (format is res="%...")
-	  const responseData = this.parsePropertyResponse(packet.payload || '', 'res');
+	  const responseData = parsePropertyResponseHelper(packet.payload || '', 'res');
 
-	  const buildingInfo = this.parseBuildingFocusResponse(responseData, x, y);
+	  const buildingInfo = parseBuildingFocusResponseHelper(responseData, x, y);
 	  
 	  // Store ID without any prefix
 	  this.currentFocusedBuildingId = buildingInfo.buildingId;
@@ -694,147 +700,6 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 	}
 
 
-/**
- * NEW: Parse building focus response
- * Format: buildingId\nname\nowner\nsalesInfo\nrevenue\n-:details-:hints-:
- * Note: RefreshObject pushes may have incomplete format with only 2 sections
- */
-private parseBuildingFocusResponse(payload: string, x: number, y: number): BuildingFocusInfo {
-     // Clean payload (removes quotes and trim)
-    let cleaned = this.cleanPayload(payload);
-    
-    // Remove leading '%' if present
-    if (cleaned.startsWith('%')) {
-        cleaned = cleaned.substring(1);
-    }
-    
-    // console.log(`[Session] Cleaned building payload (first 100 chars):`, cleaned.substring(0, 100));
-    
-    // Split by the special separator "-:"
-    const sections = cleaned.split('-:');
-    
-    // RELAXED: Accept 1+ sections (RefreshObject may have incomplete data)
-    if (sections.length < 1) {
-        console.warn(`[Session] Invalid building focus format, sections:`, sections.length);
-        console.warn(`[Session] Full payload:`, cleaned);
-        throw new Error('Invalid building focus response format');
-    }
-    
-    // Parse header section (before first "-:")
-    // CRITICAL FIX: Handle both \r\n AND \n\r line endings
-    const allHeaderLines = sections[0].split(/\r?\n\r?/);  // Changed regex to handle \n\r
-    
-    // Filter out empty lines
-    const headerLines = allHeaderLines.map(l => l.trim()).filter(l => l.length > 0);
-    
-    console.log(`[Session] Header lines:`, headerLines);
-    
-    if (headerLines.length < 1) {
-        throw new Error('Invalid building focus header format - no data');
-    }
-  
-  // First line is ALWAYS the numeric building ID
-  const buildingId = headerLines[0];
-  
-  let buildingName = '';
-  let ownerName = '';
-  let salesInfo = '';
-  let revenue = '';
-  
-  // CORRECTED: Flexible parsing based on number of lines
-  if (headerLines.length >= 5) {
-    // Full format: ID, name, owner, salesInfo, revenue
-    buildingName = headerLines[1];
-    ownerName = headerLines[2];
-    salesInfo = headerLines[3];
-    revenue = this.extractRevenue(headerLines[4]);
-  } else if (headerLines.length === 4) {
-    // Format: ID, name, owner, revenue (no separate salesInfo)
-    buildingName = headerLines[1];
-    ownerName = headerLines[2];
-    // Check if line 3 contains revenue pattern
-    if (headerLines[3].includes('$')) {
-      revenue = this.extractRevenue(headerLines[3]);
-      salesInfo = ''; // No separate sales info
-    } else {
-      // It's sales info without revenue
-      salesInfo = headerLines[3];
-      revenue = '';
-    }
-  } else if (headerLines.length === 3) {
-    // Format: ID, name, owner/revenue
-    buildingName = headerLines[1];
-    // Check if line 2 contains revenue
-    if (headerLines[2].includes('$')) {
-      revenue = this.extractRevenue(headerLines[2]);
-      ownerName = '';
-      salesInfo = '';
-    } else {
-      ownerName = headerLines[2];
-      salesInfo = '';
-      revenue = '';
-    }
-  } else if (headerLines.length === 2) {
-    // Minimal format: ID, name
-    buildingName = headerLines[1];
-    ownerName = '';
-    salesInfo = '';
-    revenue = '';
-  }
-  
-  // Details text (section 1 after "-:" - may be empty)
-  // CORRECTED: Remove trailing colons and extra separators
-  const detailsText = sections.length > 1 
-    ? sections[1].trim().replace(/:$/, '') // Remove trailing ':'
-    : '';
-  
-  // Hints text (section 2 after "-:" - may be empty or missing)
-  // CORRECTED: Remove trailing colons and extra separators
-  const hintsText = sections.length > 2 
-    ? sections[2].trim().replace(/:$/, '') // Remove trailing ':'
-    : '';
-  
-  /*console.log(`[Session] Parsed building:`, {
-    id: buildingId,
-    name: buildingName,
-    owner: ownerName,
-    sales: salesInfo,
-    revenue: revenue,
-    detailsLength: detailsText.length,
-    hintsLength: hintsText.length
-  });*/
-  
-  return {
-    buildingId: buildingId.replace(/[%#@]/g, ''), // Remove '%', '#', '@' prefixes
-    buildingName,
-    ownerName,
-    salesInfo,
-    revenue,
-    detailsText,
-    hintsText,
-    x,
-    y
-  };
-}
-
-/**
- * NEW: Extract revenue amount from a line
- * Formats: "($26,564/h)" or "(-$39,127/h)" or "(-$28,858/h)"
- */
-private extractRevenue(line: string): string {
-  // Pattern: optional '(', optional '-', '$', digits with optional commas, '/h', optional ')'
-  const revenuePattern = /\(?\-?\$[\d,]+\/h\)?/;
-  const match = revenuePattern.exec(line);
-  
-  if (match) {
-    // Return the matched string, cleaned
-    return match[0].replace(/[()]/g, ''); // Remove parentheses
-  }
-  
-  return '';
-}
-
-
 
 
   /**
@@ -869,7 +734,7 @@ private extractRevenue(line: string): string {
 		let dataString = packet.args[2]; // Format: "%School..." or "School..."
 
 		// Use cleanPayload to remove quotes
-		dataString = this.cleanPayload(dataString);
+		dataString = cleanPayloadHelper(dataString);
 
 		// Remove leading '%' if present
 		if (dataString.startsWith('%')) {
@@ -879,7 +744,7 @@ private extractRevenue(line: string): string {
 		// CRITICAL: Prepend the building ID to the payload for consistent parsing
 		const fullPayload = buildingId + '\n' + dataString;
 
-		return this.parseBuildingFocusResponse(
+		return parseBuildingFocusResponseHelper(
 		  fullPayload,
 		  this.currentFocusedCoords.x,
 		  this.currentFocusedCoords.y
@@ -981,7 +846,7 @@ private extractRevenue(line: string): string {
       verb: RdoVerb.IDOF,
       targetId: 'WSObjectCacher'
     });
-    this.cacherId = this.parseIdOfResponse(idPacket);
+    this.cacherId = parseIdOfResponseHelper(idPacket.payload);
     console.log(`[Session] Map Service Ready. CacherID: ${this.cacherId}`);
   }
 
@@ -1011,7 +876,7 @@ private extractRevenue(line: string): string {
       verb: RdoVerb.IDOF,
       targetId: 'World'
     });
-    this.worldId = this.parseIdOfResponse(idPacket);
+    this.worldId = parseIdOfResponseHelper(idPacket.payload);
     console.log(`[Construction] World ID: ${this.worldId}`);
 
     // Logon to World (no request ID - push command with separator "*")
@@ -1090,11 +955,11 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
         });
 
         // Parse
-        const buildingsRaw = this.splitMultilinePayload(objectsPacket.payload!);
-        const buildings = this.parseBuildings(buildingsRaw);
+        const buildingsRaw = splitMultilinePayloadHelper(objectsPacket.payload!);
+        const buildings = parseBuildingsHelper(buildingsRaw);
 
-        const segmentsRaw = this.splitMultilinePayload(segmentsPacket.payload!);
-        const segments = this.parseSegments(segmentsRaw);
+        const segmentsRaw = splitMultilinePayloadHelper(segmentsPacket.payload!);
+        const segments = parseSegmentsHelper(segmentsRaw);
 
         console.log(`[Session] Parsed ${buildings.length} buildings, ${segments.length} segments`);
 
@@ -1118,109 +983,6 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
 		y: this.lastPlayerY
 	  };
 	}
-
-  
-  private splitMultilinePayload(payload: string): string[] {
-    const raw = this.cleanPayload(payload);
-    return raw
-      .split(/\r?\n|\\n/g)
-      .map(l => l.trim())
-      .filter(l => l.length > 0);
-  }
-/**
- * Parse raw building data from ObjectsInArea response
- *
- * Format (5 lines per building):
- * Line 1: VisualClass - Building visual class ID (string, matches facilities.csv)
- * Line 2: TycoonId - Owner player ID (number, 0 if no owner)
- * Line 3: Options - Encoded byte (bits 4-7: upgrade level, bit 0: profit state)
- * Line 4: xPos - X coordinate (number)
- * Line 5: yPos - Y coordinate (number)
- */
-private parseBuildings(rawLines: string[]): MapBuilding[] {
-  const buildings: MapBuilding[] = [];
-
-  // Buildings come in groups of 5 lines
-  for (let i = 0; i + 4 < rawLines.length; i += 5) {
-    try {
-      const rawVisualClass = rawLines[i].trim();        // Line 1: Raw VisualClass
-      let visualClass = rawVisualClass;
-
-      // Clean visualClass: remove RDO metadata prefixes like 'res="%'
-      // The visualClass should be a numeric string (e.g., "2951", "3801")
-      const match = visualClass.match(/\d+/);
-      if (match) {
-        visualClass = match[0];
-      }
-
-      // Debug log for first 5 buildings
-      if (buildings.length < 5) {
-        console.log(`[Session] Building ${buildings.length + 1}: raw="${rawVisualClass}" -> cleaned="${visualClass}"`);
-      }
-
-      const tycoonId = parseInt(rawLines[i + 1], 10);   // Line 2: TycoonId
-      const options = parseInt(rawLines[i + 2], 10);    // Line 3: Options byte
-      const x = parseInt(rawLines[i + 3], 10);          // Line 4: X position
-      const y = parseInt(rawLines[i + 4], 10);          // Line 5: Y position
-
-      // Validate data (coordinates should be in reasonable range)
-      if (visualClass && !isNaN(tycoonId) && !isNaN(options) &&
-          !isNaN(x) && !isNaN(y) &&
-          x >= 0 && x < 2000 && y >= 0 && y < 2000) {
-        buildings.push({
-          visualClass,
-          tycoonId,
-          options,
-          x,
-          y
-        });
-      } else {
-        console.warn(`[Session] Invalid building data at index ${i}: visualClass="${visualClass}", x=${x}, y=${y}`);
-      }
-    } catch (e) {
-      console.warn(`[Session] Failed to parse building at index ${i}:`, e);
-    }
-  }
-
-  return buildings;
-}
-
-
-/**
- * Parse raw segment data (10 numbers per segment)
- * Format: x1, y1, x2, y2, unknown1, unknown2, unknown3, unknown4, unknown5, unknown6
- */
-private parseSegments(rawLines: string[]): MapSegment[] {
-  const segments: MapSegment[] = [];
-  
-  // Segments come in groups of 10 numbers
-  for (let i = 0; i + 9 < rawLines.length; i += 10) {
-    try {
-      const x1 = parseInt(rawLines[i], 10);
-      const y1 = parseInt(rawLines[i + 1], 10);
-      const x2 = parseInt(rawLines[i + 2], 10);
-      const y2 = parseInt(rawLines[i + 3], 10);
-      const unknown1 = parseInt(rawLines[i + 4], 10);
-      const unknown2 = parseInt(rawLines[i + 5], 10);
-      const unknown3 = parseInt(rawLines[i + 6], 10);
-      const unknown4 = parseInt(rawLines[i + 7], 10);
-      const unknown5 = parseInt(rawLines[i + 8], 10);
-      const unknown6 = parseInt(rawLines[i + 9], 10);
-      
-      // Validate data
-      if (!isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
-        segments.push({
-          x1, y1, x2, y2,
-          unknown1, unknown2, unknown3, unknown4, unknown5, unknown6
-        });
-      }
-    } catch (e) {
-      console.warn(`[Session] Failed to parse segment at index ${i}:`, e);
-    }
-  }
-  
-  return segments;
-}
 
   /**
    * VERIFIED [HIGH-02]: Get property list at specific coordinates
@@ -1267,7 +1029,7 @@ private parseSegments(rawLines: string[]): MapSegment[] {
       member: 'CreateObject',
       args: [this.currentWorldInfo.name]
     });
-    return this.cleanPayload(packet.payload || '');
+    return cleanPayloadHelper(packet.payload || '');
   }
 
   /**
@@ -1296,7 +1058,7 @@ private parseSegments(rawLines: string[]): MapSegment[] {
       member: 'GetPropertyList',
       args: [query]
     });
-    const raw = this.cleanPayload(packet.payload || '');
+    const raw = cleanPayloadHelper(packet.payload || '');
 
     // Handle tab-delimited or space-delimited responses
     if (raw.includes('\t')) {
@@ -1360,7 +1122,7 @@ private parseSegments(rawLines: string[]): MapSegment[] {
         action: RdoAction.GET,
         member: 'RDOAcceptCloning'
       });
-      const cloningValue = this.parsePropertyResponse(initialCloning.payload || '', 'RDOAcceptCloning');
+      const cloningValue = parsePropertyResponseHelper(initialCloning.payload || '', 'RDOAcceptCloning');
       const cloningInt = parseInt(cloningValue, 10);
       console.log(`[Construction] RDOAcceptCloning initial value: ${cloningInt}`);
 
@@ -1430,7 +1192,7 @@ private parseSegments(rawLines: string[]): MapSegment[] {
         action: RdoAction.GET,
         member: 'RDOAcceptCloning'
       });
-      const finalValue = this.parsePropertyResponse(finalCloning.payload || '', 'RDOAcceptCloning');
+      const finalValue = parsePropertyResponseHelper(finalCloning.payload || '', 'RDOAcceptCloning');
       console.log(`[Construction] RDOAcceptCloning final value: ${finalValue}`);
 
       return {
@@ -1891,7 +1653,7 @@ private parseSegments(rawLines: string[]): MapSegment[] {
         action: RdoAction.GET,
         member: prop
       });
-      const value = this.parsePropertyResponse(packet.payload!, prop);
+      const value = parsePropertyResponseHelper(packet.payload!, prop);
       console.log(`[Session] ${prop}: ${value}`);
 
       // Store DAAddr for later use (HTTP requests always use port 80)
@@ -1978,7 +1740,7 @@ private createSocket(name: string, host: string, port: number): Promise<net.Sock
           }, 1000);
         });
 
-        const busyValue = this.parsePropertyResponse(response.payload!, 'ServerBusy');
+        const busyValue = parsePropertyResponseHelper(response.payload!, 'ServerBusy');
         const wasBusy = this.isServerBusy;
         this.isServerBusy = busyValue == '1';
 
@@ -2412,57 +2174,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     return worlds;
   }
 
-  private parseIdOfResponse(packet: RdoPacket): string {
-    const payload = packet.payload || '';
-    const match = payload.match(/objid\s*=\s*"?([^"\s]+)"?/i);
-    if (match && match[1]) {
-      return match[1];
-    }
-
-    const parts = payload.split(/\s+/);
-    if (parts[0] === 'objid' && parts.length > 1) {
-      return parts[1];
-    }
-
-    return parts[0];
-  }
-
-  private parsePropertyResponse(payload: string, propName: string): string {
-    const regex = new RegExp(`${propName}\\s*=\\s*"([^"]*)"`, 'i');
-    const match = payload.match(regex);
-    if (match && match[1]) {
-      return match[1].replace(/^[$#%@]/, '');
-    }
-
-    if (payload.startsWith(propName)) {
-      const cleaned = payload.substring(propName.length).trim();
-      return cleaned.replace(/^[$#%@]/, '');
-    }
-
-    return payload;
-  }
-
-  private cleanPayload(payload: string): string {
-    let cleaned = payload.trim();
-
-    // Handle res="..." format (e.g., res="#6805584" -> 6805584)
-    const resMatch = cleaned.match(/^res="([^"]*)"$/);
-    if (resMatch) {
-      cleaned = resMatch[1];
-    }
-
-    // Remove outer quotes
-    cleaned = cleaned.replace(/^"|"$/g, '');
-
-    // Remove type prefix (#, %, @, $) if present
-    if (cleaned.length > 0 && ['#', '%', '@', '$'].includes(cleaned[0])) {
-      cleaned = cleaned.substring(1);
-    }
-
-    return cleaned.trim();
-  }
-  
-    /**
+  /**
    * Get list of users in current chat channel
    */
   public async getChatUserList(): Promise<ChatUser[]> {
@@ -2477,7 +2189,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       member: 'GetUserList'
     });
     
-    const rawUsers = this.parsePropertyResponse(packet.payload || '', 'GetUserList');
+    const rawUsers = parsePropertyResponseHelper(packet.payload || '', 'GetUserList');
     return this.parseChatUserList(rawUsers);
   }
 
@@ -2498,7 +2210,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       separator: '^'
     });
     
-    const rawChannels = this.parsePropertyResponse(packet.payload || '', 'res');
+    const rawChannels = parsePropertyResponseHelper(packet.payload || '', 'res');
     return this.parseChatChannelList(rawChannels);
   }
 
@@ -2519,7 +2231,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       separator: '^'
     });
     
-    return this.parsePropertyResponse(packet.payload || '', 'res');
+    return parsePropertyResponseHelper(packet.payload || '', 'res');
   }
 
   /**
@@ -2541,7 +2253,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       separator: '^'
     });
     
-    const result = this.parsePropertyResponse(packet.payload || '', 'res');
+    const result = parsePropertyResponseHelper(packet.payload || '', 'res');
     if (result !== '0') {
       throw new Error(`Failed to join channel: ${result}`);
     }
@@ -3423,7 +3135,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
         args: ['0', '0'], // index=0, language=0 (English)
       });
 
-      const inputNamesRaw = this.cleanPayload(inputNamesPacket.payload || '');
+      const inputNamesRaw = cleanPayloadHelper(inputNamesPacket.payload || '');
       if (!inputNamesRaw || inputNamesRaw === '0' || inputNamesRaw === '-1') {
         return supplies;
       }
@@ -3456,7 +3168,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
             args: [path],
           });
 
-          const setPathResult = this.cleanPayload(setPathPacket.payload || '');
+          const setPathResult = cleanPayloadHelper(setPathPacket.payload || '');
           if (setPathResult === '-1' || setPathResult === '0') {
             // Successfully navigated, now get properties
             const supplyProps = await this.cacherGetPropertyList(supplyTempId, [
@@ -3538,7 +3250,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
         args: [subIndex.toString(), query],
       });
 
-      const raw = this.cleanPayload(packet.payload || '');
+      const raw = cleanPayloadHelper(packet.payload || '');
       if (raw.includes('\t')) {
         return raw.split('\t').map(v => v.trim());
       }

@@ -1,0 +1,632 @@
+/**
+ * Message Types - WebSocket Protocol Messages
+ * Contains all request/response types for Gateway <-> Browser communication
+ */
+
+import type {
+  WorldInfo,
+  CompanyInfo,
+  MapData,
+  ChatUser,
+  BuildingFocusInfo,
+  BuildingCategory,
+  BuildingInfo,
+  SurfaceData,
+  FacilityDimensions,
+  BuildingDetailsResponse,
+  SearchMenuCategory,
+  TownInfo,
+  TycoonProfile,
+  RankingCategory,
+  RankingEntry,
+  SurfaceType,
+} from './domain-types';
+
+import type { RdoVerb, RdoAction } from './protocol-types';
+
+// =============================================================================
+// MESSAGE TYPE ENUM
+// =============================================================================
+
+export enum WsMessageType {
+  // Client -> Gateway (Requests)
+  REQ_CONNECT_DIRECTORY = 'REQ_CONNECT_DIRECTORY',
+  REQ_LOGIN_WORLD = 'REQ_LOGIN_WORLD',
+  REQ_RDO_DIRECT = 'REQ_RDO_DIRECT',
+  REQ_MAP_LOAD = 'REQ_MAP_LOAD',
+  REQ_SELECT_COMPANY = 'REQ_SELECT_COMPANY',
+  REQ_SWITCH_COMPANY = 'REQ_SWITCH_COMPANY',
+  REQ_MANAGE_CONSTRUCTION = 'REQ_MANAGE_CONSTRUCTION',
+
+  // Gateway -> Client (Responses)
+  RESP_CONNECT_SUCCESS = 'RESP_CONNECT_SUCCESS',
+  RESP_LOGIN_SUCCESS = 'RESP_LOGIN_SUCCESS',
+  RESP_RDO_RESULT = 'RESP_RDO_RESULT',
+  RESP_ERROR = 'RESP_ERROR',
+  RESP_MAP_DATA = 'RESP_MAP_DATA',
+  RESP_CONSTRUCTION_SUCCESS = 'RESP_CONSTRUCTION_SUCCESS',
+
+  // Gateway -> Client (Async Events / Pushes)
+  EVENT_CHAT_MSG = 'EVENT_CHAT_MSG',
+  EVENT_MAP_DATA = 'EVENT_MAP_DATA',
+  EVENT_TYCOON_UPDATE = 'EVENT_TYCOON_UPDATE',
+  EVENT_RDO_PUSH = 'EVENT_RDO_PUSH',
+
+  // Chat functionality
+  REQ_CHAT_GET_USERS = 'REQ_CHAT_GET_USERS',
+  REQ_CHAT_GET_CHANNELS = 'REQ_CHAT_GET_CHANNELS',
+  REQ_CHAT_GET_CHANNEL_INFO = 'REQ_CHAT_GET_CHANNEL_INFO',
+  REQ_CHAT_JOIN_CHANNEL = 'REQ_CHAT_JOIN_CHANNEL',
+  REQ_CHAT_SEND_MESSAGE = 'REQ_CHAT_SEND_MESSAGE',
+  REQ_CHAT_TYPING_STATUS = 'REQ_CHAT_TYPING_STATUS',
+
+  RESP_CHAT_USER_LIST = 'RESP_CHAT_USER_LIST',
+  RESP_CHAT_CHANNEL_LIST = 'RESP_CHAT_CHANNEL_LIST',
+  RESP_CHAT_CHANNEL_INFO = 'RESP_CHAT_CHANNEL_INFO',
+  RESP_CHAT_SUCCESS = 'RESP_CHAT_SUCCESS',
+
+  EVENT_CHAT_USER_TYPING = 'EVENT_CHAT_USER_TYPING',
+  EVENT_CHAT_CHANNEL_CHANGE = 'EVENT_CHAT_CHANNEL_CHANGE',
+  EVENT_CHAT_USER_LIST_CHANGE = 'EVENT_CHAT_USER_LIST_CHANGE',
+
+  REQ_BUILDING_FOCUS = 'REQ_BUILDING_FOCUS',
+  REQ_BUILDING_UNFOCUS = 'REQ_BUILDING_UNFOCUS',
+  RESP_BUILDING_FOCUS = 'RESP_BUILDING_FOCUS',
+  EVENT_BUILDING_REFRESH = 'EVENT_BUILDING_REFRESH',
+
+  // Building Construction
+  REQ_GET_BUILDING_CATEGORIES = 'REQ_GET_BUILDING_CATEGORIES',
+  REQ_GET_BUILDING_FACILITIES = 'REQ_GET_BUILDING_FACILITIES',
+  REQ_PLACE_BUILDING = 'REQ_PLACE_BUILDING',
+  REQ_GET_SURFACE = 'REQ_GET_SURFACE',
+  REQ_GET_FACILITY_DIMENSIONS = 'REQ_GET_FACILITY_DIMENSIONS',
+
+  RESP_BUILDING_CATEGORIES = 'RESP_BUILDING_CATEGORIES',
+  RESP_BUILDING_FACILITIES = 'RESP_BUILDING_FACILITIES',
+  RESP_BUILDING_PLACED = 'RESP_BUILDING_PLACED',
+  RESP_SURFACE_DATA = 'RESP_SURFACE_DATA',
+  RESP_FACILITY_DIMENSIONS = 'RESP_FACILITY_DIMENSIONS',
+
+  // Building Details
+  REQ_BUILDING_DETAILS = 'REQ_BUILDING_DETAILS',
+  RESP_BUILDING_DETAILS = 'RESP_BUILDING_DETAILS',
+  REQ_BUILDING_SET_PROPERTY = 'REQ_BUILDING_SET_PROPERTY',
+  RESP_BUILDING_SET_PROPERTY = 'RESP_BUILDING_SET_PROPERTY',
+
+  // Building Upgrades
+  REQ_BUILDING_UPGRADE = 'REQ_BUILDING_UPGRADE',
+  RESP_BUILDING_UPGRADE = 'RESP_BUILDING_UPGRADE',
+
+  // Building Rename
+  REQ_RENAME_FACILITY = 'REQ_RENAME_FACILITY',
+  RESP_RENAME_FACILITY = 'RESP_RENAME_FACILITY',
+
+  // Building Deletion
+  REQ_DELETE_FACILITY = 'REQ_DELETE_FACILITY',
+  RESP_DELETE_FACILITY = 'RESP_DELETE_FACILITY',
+
+  // Road Building
+  REQ_BUILD_ROAD = 'REQ_BUILD_ROAD',
+  RESP_BUILD_ROAD = 'RESP_BUILD_ROAD',
+  REQ_GET_ROAD_COST = 'REQ_GET_ROAD_COST',
+  RESP_GET_ROAD_COST = 'RESP_GET_ROAD_COST',
+
+  // Search Menu / Directory
+  REQ_SEARCH_MENU_HOME = 'REQ_SEARCH_MENU_HOME',
+  REQ_SEARCH_MENU_TOWNS = 'REQ_SEARCH_MENU_TOWNS',
+  REQ_SEARCH_MENU_TYCOON_PROFILE = 'REQ_SEARCH_MENU_TYCOON_PROFILE',
+  REQ_SEARCH_MENU_PEOPLE = 'REQ_SEARCH_MENU_PEOPLE',
+  REQ_SEARCH_MENU_PEOPLE_SEARCH = 'REQ_SEARCH_MENU_PEOPLE_SEARCH',
+  REQ_SEARCH_MENU_RANKINGS = 'REQ_SEARCH_MENU_RANKINGS',
+  REQ_SEARCH_MENU_RANKING_DETAIL = 'REQ_SEARCH_MENU_RANKING_DETAIL',
+  REQ_SEARCH_MENU_BANKS = 'REQ_SEARCH_MENU_BANKS',
+
+  RESP_SEARCH_MENU_HOME = 'RESP_SEARCH_MENU_HOME',
+  RESP_SEARCH_MENU_TOWNS = 'RESP_SEARCH_MENU_TOWNS',
+  RESP_SEARCH_MENU_TYCOON_PROFILE = 'RESP_SEARCH_MENU_TYCOON_PROFILE',
+  RESP_SEARCH_MENU_PEOPLE = 'RESP_SEARCH_MENU_PEOPLE',
+  RESP_SEARCH_MENU_PEOPLE_SEARCH = 'RESP_SEARCH_MENU_PEOPLE_SEARCH',
+  RESP_SEARCH_MENU_RANKINGS = 'RESP_SEARCH_MENU_RANKINGS',
+  RESP_SEARCH_MENU_RANKING_DETAIL = 'RESP_SEARCH_MENU_RANKING_DETAIL',
+  RESP_SEARCH_MENU_BANKS = 'RESP_SEARCH_MENU_BANKS',
+
+  // Logout
+  REQ_LOGOUT = 'REQ_LOGOUT',
+  RESP_LOGOUT = 'RESP_LOGOUT',
+}
+
+// =============================================================================
+// BASE MESSAGE INTERFACE
+// =============================================================================
+
+export interface WsMessage {
+  type: WsMessageType;
+  wsRequestId?: string;
+}
+
+// =============================================================================
+// REQUEST PAYLOADS
+// =============================================================================
+
+export interface WsReqConnectDirectory extends WsMessage {
+  type: WsMessageType.REQ_CONNECT_DIRECTORY;
+  username: string;
+  password: string;
+  zonePath?: string;
+}
+
+export interface WsReqLoginWorld extends WsMessage {
+  type: WsMessageType.REQ_LOGIN_WORLD;
+  username: string;
+  password: string;
+  worldName: string;
+}
+
+export interface WsReqRdoDirect extends WsMessage {
+  type: WsMessageType.REQ_RDO_DIRECT;
+  verb: RdoVerb;
+  targetId: string;
+  action?: RdoAction;
+  member?: string;
+  args?: string[];
+}
+
+export interface WsReqMapLoad extends WsMessage {
+  type: WsMessageType.REQ_MAP_LOAD;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface WsReqManageConstruction extends WsMessage {
+  type: WsMessageType.REQ_MANAGE_CONSTRUCTION;
+  x: number;
+  y: number;
+  action: 'START' | 'STOP' | 'DOWN';
+  count?: number;
+}
+
+export interface WsReqSelectCompany extends WsMessage {
+  type: WsMessageType.REQ_SELECT_COMPANY;
+  companyId: string;
+}
+
+export interface WsReqSwitchCompany extends WsMessage {
+  type: WsMessageType.REQ_SWITCH_COMPANY;
+  company: CompanyInfo;
+}
+
+// =============================================================================
+// RESPONSE PAYLOADS
+// =============================================================================
+
+export interface WsRespError extends WsMessage {
+  type: WsMessageType.RESP_ERROR;
+  errorMessage: string;
+  code: number;
+}
+
+export interface WsRespConnectSuccess extends WsMessage {
+  type: WsMessageType.RESP_CONNECT_SUCCESS;
+  worlds: WorldInfo[];
+}
+
+export interface WsRespLoginSuccess extends WsMessage {
+  type: WsMessageType.RESP_LOGIN_SUCCESS;
+  tycoonId: string;
+  contextId: string;
+  companyCount: number;
+  companies?: CompanyInfo[];
+}
+
+export interface WsRespRdoResult extends WsMessage {
+  type: WsMessageType.RESP_RDO_RESULT;
+  result: string | string[];
+}
+
+export interface WsRespConstructionSuccess extends WsMessage {
+  type: WsMessageType.RESP_CONSTRUCTION_SUCCESS;
+  action: string;
+  x: number;
+  y: number;
+}
+
+export interface WsRespMapData extends WsMessage {
+  type: WsMessageType.RESP_MAP_DATA;
+  data: MapData;
+}
+
+// =============================================================================
+// EVENT PAYLOADS
+// =============================================================================
+
+export interface WsEventChatMsg extends WsMessage {
+  type: WsMessageType.EVENT_CHAT_MSG;
+  channel: string;
+  from: string;
+  message: string;
+}
+
+export interface WsEventTycoonUpdate extends WsMessage {
+  type: WsMessageType.EVENT_TYCOON_UPDATE;
+  cash: string;
+  incomePerHour: string;
+  ranking: number;
+  buildingCount: number;
+  maxBuildings: number;
+}
+
+export interface WsEventRdoPush extends WsMessage {
+  type: WsMessageType.EVENT_RDO_PUSH;
+  rawPacket: string;
+}
+
+// =============================================================================
+// CHAT MESSAGES
+// =============================================================================
+
+export interface WsReqChatGetUsers extends WsMessage {
+  type: WsMessageType.REQ_CHAT_GET_USERS;
+}
+
+export interface WsReqChatGetChannels extends WsMessage {
+  type: WsMessageType.REQ_CHAT_GET_CHANNELS;
+}
+
+export interface WsReqChatGetChannelInfo extends WsMessage {
+  type: WsMessageType.REQ_CHAT_GET_CHANNEL_INFO;
+  channelName: string;
+}
+
+export interface WsReqChatJoinChannel extends WsMessage {
+  type: WsMessageType.REQ_CHAT_JOIN_CHANNEL;
+  channelName: string;
+}
+
+export interface WsReqChatSendMessage extends WsMessage {
+  type: WsMessageType.REQ_CHAT_SEND_MESSAGE;
+  message: string;
+}
+
+export interface WsReqChatTypingStatus extends WsMessage {
+  type: WsMessageType.REQ_CHAT_TYPING_STATUS;
+  isTyping: boolean;
+}
+
+export interface WsRespChatUserList extends WsMessage {
+  type: WsMessageType.RESP_CHAT_USER_LIST;
+  users: ChatUser[];
+}
+
+export interface WsRespChatChannelList extends WsMessage {
+  type: WsMessageType.RESP_CHAT_CHANNEL_LIST;
+  channels: string[];
+}
+
+export interface WsRespChatChannelInfo extends WsMessage {
+  type: WsMessageType.RESP_CHAT_CHANNEL_INFO;
+  info: string;
+}
+
+export interface WsRespChatSuccess extends WsMessage {
+  type: WsMessageType.RESP_CHAT_SUCCESS;
+}
+
+export interface WsEventChatUserTyping extends WsMessage {
+  type: WsMessageType.EVENT_CHAT_USER_TYPING;
+  username: string;
+  isTyping: boolean;
+}
+
+export interface WsEventChatChannelChange extends WsMessage {
+  type: WsMessageType.EVENT_CHAT_CHANNEL_CHANGE;
+  channelName: string;
+}
+
+export interface WsEventChatUserListChange extends WsMessage {
+  type: WsMessageType.EVENT_CHAT_USER_LIST_CHANGE;
+  user: ChatUser;
+  action: 'JOIN' | 'LEAVE';
+}
+
+// =============================================================================
+// BUILDING FOCUS MESSAGES
+// =============================================================================
+
+export interface WsReqBuildingFocus extends WsMessage {
+  type: WsMessageType.REQ_BUILDING_FOCUS;
+  x: number;
+  y: number;
+}
+
+export interface WsReqBuildingUnfocus extends WsMessage {
+  type: WsMessageType.REQ_BUILDING_UNFOCUS;
+}
+
+export interface WsRespBuildingFocus extends WsMessage {
+  type: WsMessageType.RESP_BUILDING_FOCUS;
+  building: BuildingFocusInfo;
+}
+
+export interface WsEventBuildingRefresh extends WsMessage {
+  type: WsMessageType.EVENT_BUILDING_REFRESH;
+  building: BuildingFocusInfo;
+}
+
+// =============================================================================
+// BUILDING CONSTRUCTION MESSAGES
+// =============================================================================
+
+export interface WsReqGetBuildingCategories extends WsMessage {
+  type: WsMessageType.REQ_GET_BUILDING_CATEGORIES;
+  companyName: string;
+}
+
+export interface WsReqGetBuildingFacilities extends WsMessage {
+  type: WsMessageType.REQ_GET_BUILDING_FACILITIES;
+  companyName: string;
+  cluster: string;
+  kind: string;
+  kindName: string;
+  folder: string;
+  tycoonLevel: number;
+}
+
+export interface WsReqPlaceBuilding extends WsMessage {
+  type: WsMessageType.REQ_PLACE_BUILDING;
+  facilityClass: string;
+  x: number;
+  y: number;
+}
+
+export interface WsReqGetSurface extends WsMessage {
+  type: WsMessageType.REQ_GET_SURFACE;
+  surfaceType: SurfaceType;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface WsReqGetFacilityDimensions extends WsMessage {
+  type: WsMessageType.REQ_GET_FACILITY_DIMENSIONS;
+  visualClass: string;
+}
+
+export interface WsRespBuildingCategories extends WsMessage {
+  type: WsMessageType.RESP_BUILDING_CATEGORIES;
+  categories: BuildingCategory[];
+}
+
+export interface WsRespBuildingFacilities extends WsMessage {
+  type: WsMessageType.RESP_BUILDING_FACILITIES;
+  facilities: BuildingInfo[];
+}
+
+export interface WsRespBuildingPlaced extends WsMessage {
+  type: WsMessageType.RESP_BUILDING_PLACED;
+  x: number;
+  y: number;
+  buildingId: string;
+}
+
+export interface WsRespSurfaceData extends WsMessage {
+  type: WsMessageType.RESP_SURFACE_DATA;
+  data: SurfaceData;
+}
+
+export interface WsRespFacilityDimensions extends WsMessage {
+  type: WsMessageType.RESP_FACILITY_DIMENSIONS;
+  dimensions: FacilityDimensions | null;
+}
+
+// =============================================================================
+// BUILDING DETAILS MESSAGES
+// =============================================================================
+
+export interface WsReqBuildingDetails extends WsMessage {
+  type: WsMessageType.REQ_BUILDING_DETAILS;
+  x: number;
+  y: number;
+  visualClass: string;
+}
+
+export interface WsRespBuildingDetails extends WsMessage {
+  type: WsMessageType.RESP_BUILDING_DETAILS;
+  details: BuildingDetailsResponse;
+}
+
+export interface WsReqBuildingSetProperty extends WsMessage {
+  type: WsMessageType.REQ_BUILDING_SET_PROPERTY;
+  x: number;
+  y: number;
+  propertyName: string;
+  value: string;
+  additionalParams?: Record<string, string>;
+}
+
+export interface WsRespBuildingSetProperty extends WsMessage {
+  type: WsMessageType.RESP_BUILDING_SET_PROPERTY;
+  success: boolean;
+  propertyName: string;
+  newValue: string;
+}
+
+export interface WsReqBuildingUpgrade extends WsMessage {
+  type: WsMessageType.REQ_BUILDING_UPGRADE;
+  x: number;
+  y: number;
+  action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE';
+  count?: number;
+}
+
+export interface WsRespBuildingUpgrade extends WsMessage {
+  type: WsMessageType.RESP_BUILDING_UPGRADE;
+  success: boolean;
+  action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE';
+  message?: string;
+}
+
+export interface WsReqRenameFacility extends WsMessage {
+  type: WsMessageType.REQ_RENAME_FACILITY;
+  x: number;
+  y: number;
+  newName: string;
+}
+
+export interface WsRespRenameFacility extends WsMessage {
+  type: WsMessageType.RESP_RENAME_FACILITY;
+  success: boolean;
+  newName: string;
+  message?: string;
+}
+
+export interface WsReqDeleteFacility extends WsMessage {
+  type: WsMessageType.REQ_DELETE_FACILITY;
+  x: number;
+  y: number;
+}
+
+export interface WsRespDeleteFacility extends WsMessage {
+  type: WsMessageType.RESP_DELETE_FACILITY;
+  success: boolean;
+  message?: string;
+}
+
+// =============================================================================
+// SEARCH MENU MESSAGES
+// =============================================================================
+
+export interface WsReqSearchMenuHome extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_HOME;
+}
+
+export interface WsRespSearchMenuHome extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_HOME;
+  categories: SearchMenuCategory[];
+}
+
+export interface WsReqSearchMenuTowns extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_TOWNS;
+}
+
+export interface WsRespSearchMenuTowns extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_TOWNS;
+  towns: TownInfo[];
+}
+
+export interface WsReqSearchMenuTycoonProfile extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_TYCOON_PROFILE;
+  tycoonName: string;
+}
+
+export interface WsRespSearchMenuTycoonProfile extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_TYCOON_PROFILE;
+  profile: TycoonProfile;
+}
+
+export interface WsReqSearchMenuPeople extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_PEOPLE;
+}
+
+export interface WsRespSearchMenuPeople extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_PEOPLE;
+}
+
+export interface WsReqSearchMenuPeopleSearch extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_PEOPLE_SEARCH;
+  searchStr: string;
+}
+
+export interface WsRespSearchMenuPeopleSearch extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_PEOPLE_SEARCH;
+  results: string[];
+}
+
+export interface WsReqSearchMenuRankings extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_RANKINGS;
+}
+
+export interface WsRespSearchMenuRankings extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_RANKINGS;
+  categories: RankingCategory[];
+}
+
+export interface WsReqSearchMenuRankingDetail extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_RANKING_DETAIL;
+  rankingPath: string;
+}
+
+export interface WsRespSearchMenuRankingDetail extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_RANKING_DETAIL;
+  title: string;
+  entries: RankingEntry[];
+}
+
+export interface WsReqSearchMenuBanks extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_MENU_BANKS;
+}
+
+export interface WsRespSearchMenuBanks extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_MENU_BANKS;
+  banks: unknown[];
+}
+
+// =============================================================================
+// ROAD BUILDING MESSAGES
+// =============================================================================
+
+export interface WsReqBuildRoad extends WsMessage {
+  type: WsMessageType.REQ_BUILD_ROAD;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface WsRespBuildRoad extends WsMessage {
+  type: WsMessageType.RESP_BUILD_ROAD;
+  success: boolean;
+  cost: number;
+  tileCount: number;
+  message?: string;
+  errorCode?: number;
+}
+
+export interface WsReqGetRoadCost extends WsMessage {
+  type: WsMessageType.REQ_GET_ROAD_COST;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface WsRespGetRoadCost extends WsMessage {
+  type: WsMessageType.RESP_GET_ROAD_COST;
+  cost: number;
+  tileCount: number;
+  costPerTile: number;
+}
+
+// =============================================================================
+// LOGOUT MESSAGES
+// =============================================================================
+
+export interface WsReqLogout extends WsMessage {
+  type: WsMessageType.REQ_LOGOUT;
+}
+
+export interface WsRespLogout extends WsMessage {
+  type: WsMessageType.RESP_LOGOUT;
+  success: boolean;
+  message?: string;
+}
+
+// =============================================================================
+// TYPE GUARDS
+// =============================================================================
+
+export function isWsRequest(msg: WsMessage): boolean {
+  return msg.type.startsWith('REQ_');
+}

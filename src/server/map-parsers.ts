@@ -1,0 +1,244 @@
+/**
+ * Map Parsers - Pure functions for parsing map data
+ * Extracted from spo_session.ts to reduce complexity
+ */
+
+import type { MapBuilding, MapSegment, BuildingFocusInfo } from '../shared/types';
+import { cleanPayload, extractRevenue } from './rdo-helpers';
+
+/**
+ * Parse raw building data from ObjectsInArea response
+ *
+ * ObjectsInArea response format (5 lines per building):
+ * Line 1: VisualClass - Building visual class ID (matches facilities.csv)
+ * Line 2: TycoonId - Owner player ID (number, 0 if no owner)
+ * Line 3: Options - Encoded byte (bits 4-7: upgrade level, bit 0: profit state)
+ * Line 4: xPos - X coordinate (number)
+ * Line 5: yPos - Y coordinate (number)
+ *
+ * @param rawLines Array of raw lines from response
+ * @returns Array of parsed MapBuilding objects
+ */
+export function parseBuildings(rawLines: string[]): MapBuilding[] {
+  const buildings: MapBuilding[] = [];
+
+  // Buildings come in groups of 5 lines
+  for (let i = 0; i + 4 < rawLines.length; i += 5) {
+    try {
+      const rawVisualClass = rawLines[i].trim();
+      let visualClass = rawVisualClass;
+
+      // Clean visualClass: remove RDO metadata prefixes like 'res="%'
+      // The visualClass should be a numeric string (e.g., "2951", "3801")
+      const match = visualClass.match(/\d+/);
+      if (match) {
+        visualClass = match[0];
+      }
+
+      // Debug log for first 5 buildings
+      if (buildings.length < 5) {
+        console.log(
+          `[MapParser] Building ${buildings.length + 1}: raw="${rawVisualClass}" -> cleaned="${visualClass}"`,
+        );
+      }
+
+      const tycoonId = parseInt(rawLines[i + 1], 10);
+      const options = parseInt(rawLines[i + 2], 10);
+      const x = parseInt(rawLines[i + 3], 10);
+      const y = parseInt(rawLines[i + 4], 10);
+
+      // Validate data (coordinates should be in reasonable range)
+      if (
+        visualClass &&
+        !isNaN(tycoonId) &&
+        !isNaN(options) &&
+        !isNaN(x) &&
+        !isNaN(y) &&
+        x >= 0 &&
+        x < 2000 &&
+        y >= 0 &&
+        y < 2000
+      ) {
+        buildings.push({
+          visualClass,
+          tycoonId,
+          options,
+          x,
+          y,
+        });
+      } else {
+        console.warn(
+          `[MapParser] Invalid building data at index ${i}: visualClass="${visualClass}", x=${x}, y=${y}`,
+        );
+      }
+    } catch (e) {
+      console.warn(`[MapParser] Failed to parse building at index ${i}:`, e);
+    }
+  }
+
+  return buildings;
+}
+
+/**
+ * Parse raw segment data from SegmentsInArea response
+ * Format: 10 numbers per segment (x1, y1, x2, y2, unknown1-6)
+ *
+ * @param rawLines Array of raw lines from response
+ * @returns Array of parsed MapSegment objects
+ */
+export function parseSegments(rawLines: string[]): MapSegment[] {
+  const segments: MapSegment[] = [];
+
+  // Segments come in groups of 10 numbers
+  for (let i = 0; i + 9 < rawLines.length; i += 10) {
+    try {
+      const x1 = parseInt(rawLines[i], 10);
+      const y1 = parseInt(rawLines[i + 1], 10);
+      const x2 = parseInt(rawLines[i + 2], 10);
+      const y2 = parseInt(rawLines[i + 3], 10);
+      const unknown1 = parseInt(rawLines[i + 4], 10);
+      const unknown2 = parseInt(rawLines[i + 5], 10);
+      const unknown3 = parseInt(rawLines[i + 6], 10);
+      const unknown4 = parseInt(rawLines[i + 7], 10);
+      const unknown5 = parseInt(rawLines[i + 8], 10);
+      const unknown6 = parseInt(rawLines[i + 9], 10);
+
+      // Validate data
+      if (!isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
+        segments.push({
+          x1,
+          y1,
+          x2,
+          y2,
+          unknown1,
+          unknown2,
+          unknown3,
+          unknown4,
+          unknown5,
+          unknown6,
+        });
+      }
+    } catch (e) {
+      console.warn(`[MapParser] Failed to parse segment at index ${i}:`, e);
+    }
+  }
+
+  return segments;
+}
+
+/**
+ * Parse building focus response payload
+ * Handles various formats with different numbers of header lines
+ *
+ * @param payload Raw payload from SwitchFocusEx or RefreshObject
+ * @param x X coordinate of building
+ * @param y Y coordinate of building
+ * @returns Parsed BuildingFocusInfo object
+ */
+export function parseBuildingFocusResponse(
+  payload: string,
+  x: number,
+  y: number,
+): BuildingFocusInfo {
+  // Clean payload (removes quotes and trim)
+  let cleaned = cleanPayload(payload);
+
+  // Remove leading '%' if present
+  if (cleaned.startsWith('%')) {
+    cleaned = cleaned.substring(1);
+  }
+
+  // Split by the special separator "-:"
+  const sections = cleaned.split('-:');
+
+  // RELAXED: Accept 1+ sections (RefreshObject may have incomplete data)
+  if (sections.length < 1) {
+    console.warn(`[MapParser] Invalid building focus format, sections:`, sections.length);
+    console.warn(`[MapParser] Full payload:`, cleaned);
+    throw new Error('Invalid building focus response format');
+  }
+
+  // Parse header section (before first "-:")
+  // CRITICAL FIX: Handle both \r\n AND \n\r line endings
+  const allHeaderLines = sections[0].split(/\r?\n\r?/);
+
+  // Filter out empty lines
+  const headerLines = allHeaderLines.map((l) => l.trim()).filter((l) => l.length > 0);
+
+  console.log(`[MapParser] Header lines:`, headerLines);
+
+  if (headerLines.length < 1) {
+    throw new Error('Invalid building focus header format - no data');
+  }
+
+  // First line is ALWAYS the numeric building ID
+  const buildingId = headerLines[0];
+
+  let buildingName = '';
+  let ownerName = '';
+  let salesInfo = '';
+  let revenue = '';
+
+  // CORRECTED: Flexible parsing based on number of lines
+  if (headerLines.length >= 5) {
+    // Full format: ID, name, owner, salesInfo, revenue
+    buildingName = headerLines[1];
+    ownerName = headerLines[2];
+    salesInfo = headerLines[3];
+    revenue = extractRevenue(headerLines[4]);
+  } else if (headerLines.length === 4) {
+    // Format: ID, name, owner, revenue (no separate salesInfo)
+    buildingName = headerLines[1];
+    ownerName = headerLines[2];
+    // Check if line 3 contains revenue pattern
+    if (headerLines[3].includes('$')) {
+      revenue = extractRevenue(headerLines[3]);
+      salesInfo = '';
+    } else {
+      salesInfo = headerLines[3];
+      revenue = '';
+    }
+  } else if (headerLines.length === 3) {
+    // Format: ID, name, owner/revenue
+    buildingName = headerLines[1];
+    if (headerLines[2].includes('$')) {
+      revenue = extractRevenue(headerLines[2]);
+      ownerName = '';
+      salesInfo = '';
+    } else {
+      ownerName = headerLines[2];
+      salesInfo = '';
+      revenue = '';
+    }
+  } else if (headerLines.length === 2) {
+    // Minimal format: ID, name
+    buildingName = headerLines[1];
+    ownerName = '';
+    salesInfo = '';
+    revenue = '';
+  }
+
+  // Details text (section 1 after "-:" - may be empty)
+  const detailsText =
+    sections.length > 1
+      ? sections[1].trim().replace(/:$/, '') // Remove trailing ':'
+      : '';
+
+  // Hints text (section 2 after "-:" - may be empty or missing)
+  const hintsText =
+    sections.length > 2
+      ? sections[2].trim().replace(/:$/, '') // Remove trailing ':'
+      : '';
+
+  return {
+    buildingId: buildingId.replace(/[%#@]/g, ''), // Remove '%', '#', '@' prefixes
+    buildingName,
+    ownerName,
+    salesInfo,
+    revenue,
+    detailsText,
+    hintsText,
+    x,
+    y,
+  };
+}
