@@ -21,25 +21,45 @@ This is a **TypeScript web client** for Starpeace Online, a browser-based multip
 - **Entry point:** `src/server/server.ts`
 
 ### Project Structure
+```
 src/
-├── client/ # Browser-side code
-│ ├── client.ts # Main client controller
-│ ├── renderer.ts # Canvas map rendering
-│ └── ui/ # UI components
-│   ├── building-details/ # Building details panel components
-│   ├── chat-ui.ts # Chat modal
-│   ├── login-ui.ts # Login screen
-│   └── ... # Other UI components
-├── server/ # Node.js gateway
-│ ├── server.ts # WebSocket server & routing
-│ ├── spo_session.ts # Game session manager (RDO protocol)
-│ └── rdo.ts # RDO protocol parser/formatter
-└── shared/ # Shared types & config
-├── building-details/ # Building property definitions & templates
-├── types.ts # All TypeScript interfaces
-├── rdo-types.ts # RDO protocol type system (RdoValue, RdoParser, RdoCommand)
-├── config.ts # Server configuration
-└── logger.ts # Logging utility
+├── client/                    # Browser-side code
+│   ├── client.ts              # Main client controller
+│   ├── renderer/              # Isometric map rendering system
+│   │   ├── isometric-map-renderer.ts    # Main renderer
+│   │   ├── isometric-terrain-renderer.ts # Terrain layer
+│   │   ├── texture-cache.ts   # LRU texture cache
+│   │   └── chunk-cache.ts     # Pre-rendered terrain chunks
+│   └── ui/                    # UI components
+│       ├── building-details/  # Building details panel
+│       ├── search-menu/       # Search menu panel
+│       ├── chat-ui.ts         # Chat modal
+│       └── login-ui.ts        # Login screen
+├── server/                    # Node.js gateway
+│   ├── server.ts              # WebSocket server & routing
+│   ├── spo_session.ts         # Game session manager (RDO protocol)
+│   ├── rdo.ts                 # RDO protocol parser/formatter
+│   ├── rdo-helpers.ts         # Pure RDO utility functions
+│   ├── map-parsers.ts         # Map/building parsing functions
+│   ├── cab-extractor.ts       # Cross-platform CAB extraction
+│   └── message-handlers/      # WebSocket handler utilities
+│       ├── handler-utils.ts   # sendResponse, sendError, withErrorHandler
+│       └── index.ts           # Barrel export
+└── shared/                    # Shared types & config
+    ├── types/                 # Modularized type definitions
+    │   ├── protocol-types.ts  # RDO constants, SessionPhase, RdoVerb
+    │   ├── domain-types.ts    # WorldInfo, CompanyInfo, MapBuilding
+    │   ├── message-types.ts   # WsReq*, WsResp* interfaces
+    │   └── index.ts           # Barrel export
+    ├── types.ts               # Re-export barrel (backward compat)
+    ├── rdo-types.ts           # RDO type system (RdoValue, RdoParser)
+    ├── building-details/      # Building property definitions
+    ├── config.ts              # Server configuration
+    ├── constants.ts           # Global constants (URLs, timeouts)
+    ├── fetch-utils.ts         # Fetch wrappers with error handling
+    ├── proxy-utils.ts         # Proxy URL utilities
+    └── logger.ts              # Logging utility
+```
 
 
 ### RDO Protocol Type System
@@ -482,6 +502,56 @@ Provide:
   - Run tests before committing: `npm test`
   - Maintain coverage: don't decrease overall test pass rate
   - Add new test data to `__fixtures__/` if needed
+
+#### Codebase Audit & Refactoring
+- **Status:** ✅ COMPLETED (January 2026)
+- **Goal:** Comprehensive audit to identify and fix code issues, improve maintainability
+- **Documentation:** [AUDIT-TODO.md](AUDIT-TODO.md) - Full audit report with statistics
+- **Phases Completed:**
+  1. **Linux Compatibility** - Replaced Windows-specific tools with cross-platform NPM packages
+  2. **Orphan Code Removal** - Deleted ~740 lines of unused code
+  3. **Type Consolidation** - Resolved duplicate type definitions
+  4. **Shared Utilities Extraction** - Created reusable utility modules
+  5. **Mega-Class Decomposition** - Split large files into focused modules
+- **Key Metrics (Before → After):**
+  - Total lines: 27,281 → 27,266 (optimized)
+  - TypeScript files: 56 → 66 (+10 modules, better modularity)
+  - types.ts: 1,144 → 18 lines (modularized into 3 files)
+  - config.ts: 78 → 42 lines (-46% unused config removed)
+  - spo_session.ts: 3,757 → 3,469 lines (-288 lines extracted)
+  - `any` type usage: 6 → 0 (eliminated)
+- **New Modules Created:**
+  - **Type System Split:**
+    - [src/shared/types/protocol-types.ts](src/shared/types/protocol-types.ts) - RDO constants, enums (SessionPhase, RdoVerb, RdoAction)
+    - [src/shared/types/domain-types.ts](src/shared/types/domain-types.ts) - Business entities (WorldInfo, CompanyInfo, MapBuilding, etc.)
+    - [src/shared/types/message-types.ts](src/shared/types/message-types.ts) - WebSocket message types (WsReq*, WsResp*)
+    - [src/shared/types/index.ts](src/shared/types/index.ts) - Barrel export for backward compatibility
+  - **Session Helpers:**
+    - [src/server/rdo-helpers.ts](src/server/rdo-helpers.ts) - Pure RDO utility functions (cleanPayload, parseIdOfResponse, etc.)
+    - [src/server/map-parsers.ts](src/server/map-parsers.ts) - Map/building parsing (parseBuildings, parseSegments, parseBuildingFocusResponse)
+  - **Handler Utilities:**
+    - [src/server/message-handlers/handler-utils.ts](src/server/message-handlers/handler-utils.ts) - WebSocket handler patterns (sendResponse, sendError, withErrorHandler)
+    - [src/server/message-handlers/index.ts](src/server/message-handlers/index.ts) - Barrel export
+  - **Cross-Platform CAB Extraction:**
+    - [src/server/cab-extractor.ts](src/server/cab-extractor.ts) - Pure JavaScript CAB extraction using `cabarc` package
+  - **Shared Utilities (Phase 4):**
+    - [src/shared/fetch-utils.ts](src/shared/fetch-utils.ts) - `fetchSafe()`, `fetchRequired()`, `fetchJson()`, `fetchBinary()`
+    - [src/shared/proxy-utils.ts](src/shared/proxy-utils.ts) - `toProxyUrl()`, `fileToProxyUrl()`, `isProxyUrl()`
+    - [src/shared/constants.ts](src/shared/constants.ts) - `UPDATE_SERVER`, `CACHE_DIRS`, `TIMEOUTS`, `ROAD_CONSTANTS`
+- **Orphan Code Removed:**
+  - `src/client/ui/player-stats-ui.ts` (206 lines) - Never imported
+  - `src/client/ui/company-details-ui.ts` (518 lines) - Never imported
+  - `getAccountStatusMessage()` in error-codes.ts (17 lines) - Never called
+  - Unused config values: requestTimeout, serverBusyCheckIntervalMs, maxBufferSize, etc.
+- **Type Safety Improvements:**
+  - `config.ts`: `LOG_LEVEL as any` → `LOG_LEVEL as string`
+  - `logger.ts`: `meta?: any` → `meta?: unknown` (5 occurrences)
+- **Benefits:**
+  - **Better modularity:** Large files split into focused, testable modules
+  - **Cross-platform:** Works on Windows, Linux, macOS without external tools
+  - **Type safety:** No more `any` types in codebase
+  - **Maintainability:** Easier to understand and modify individual modules
+  - **Backward compatible:** All imports still work via barrel exports
 
 ### FEATURES
 #### Search Menu
@@ -1262,5 +1332,5 @@ Provide:
 
 ---
 
-**Last Updated:** January 2026 (Logout feature added)
+**Last Updated:** January 2026 (Codebase Audit completed)
 **Project Version:** Alpha (active development)
