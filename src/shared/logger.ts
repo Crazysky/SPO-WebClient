@@ -51,23 +51,23 @@ const currentLogLevel = parseLogLevel(config.logging.level);
 export class Logger {
   constructor(private context: string) {}
 
-  debug(message: string, meta?: any) {
+  debug(message: string, meta?: unknown) {
     this.log(LogLevel.DEBUG, message, meta);
   }
 
-  info(message: string, meta?: any) {
+  info(message: string, meta?: unknown) {
     this.log(LogLevel.INFO, message, meta);
   }
 
-  warn(message: string, meta?: any) {
+  warn(message: string, meta?: unknown) {
     this.log(LogLevel.WARN, message, meta);
   }
 
-  error(message: string, meta?: any) {
+  error(message: string, meta?: unknown) {
     this.log(LogLevel.ERROR, message, meta);
   }
 
-  private log(level: LogLevel, message: string, meta?: any) {
+  private log(level: LogLevel, message: string, meta?: unknown) {
     // Filter by configured level
     if (level < currentLogLevel) {
       return;

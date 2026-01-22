@@ -11,8 +11,6 @@ export const config = {
    */
   server: {
     port: Number(process.env.PORT) || 8080,
-    websocketPath: '/ws',
-    publicDir: 'public',
   },
 
   /**
@@ -25,40 +23,7 @@ export const config = {
     // Ports standards du protocole
     ports: {
       directory: 1111,
-      mapService: 6000,
-      constructionService: 7001,
     },
-
-    // Timeouts et limites
-    requestTimeout: Number(process.env.RDO_TIMEOUT) || 15000, // 15 secondes
-
-    // ServerBusy polling configuration
-    serverBusyCheckIntervalMs: 2000, // Check every 2 seconds
-    maxBufferSize: 5, // Maximum buffered requests when server is busy
-
-    // Map-specific throttling
-    maxConcurrentMapRequests: 3, // Maximum 3 zone requests at once
-
-    // Retry logic (for future implementation)
-    maxRetries: 3,
-    retryDelayMs: 1000,
-  },
-
-  /**
-   * WebSocket client configuration
-   */
-  client: {
-    reconnectMaxAttempts: 5,
-    reconnectDelayMs: 1000,
-    reconnectBackoffMultiplier: 1.5, // Exponential delay
-  },
-
-  /**
-   * Map rendering configuration
-   */
-  renderer: {
-    defaultScale: 8, // Pixels per map cell
-    zoneCheckDebounceMs: 500, // Delay before new zone request
   },
 
   /**
@@ -66,7 +31,7 @@ export const config = {
    */
   logging: {
     // Niveaux: 'debug' | 'info' | 'warn' | 'error'
-    level: (process.env.LOG_LEVEL as any) || 'info',
+    level: (process.env.LOG_LEVEL as string) || 'info',
     colorize: process.env.NODE_ENV !== 'production',
   },
 };
