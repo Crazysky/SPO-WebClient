@@ -102,6 +102,80 @@ The project uses a type-safe system for handling RDO protocol data:
 - **Run tests before committing** - Ensure all tests pass with `npm test`
 - **Maintain test coverage** - Don't decrease overall test coverage (currently 93%)
 
+### RDO Protocol Testing Requirements
+**CRITICAL: All RDO protocol changes MUST include corresponding unit tests.**
+
+#### When to Add/Update RDO Tests
+
+**MANDATORY - Add new RDO tests when:**
+1. **Adding new RDO commands** - Any new `call`, `get`, or `set` command to game server
+   - Example: Adding a new building operation like `RDOSellFacility`
+   - Create test in appropriate file or new file in [src/server/__tests__/rdo/](src/server/__tests__/rdo/)
+2. **Modifying RDO command format** - Changing arguments, type prefixes, or command structure
+   - Example: Changing `RDOSetPrice` from 2 to 3 arguments
+   - Update corresponding tests in [building-operations.test.ts](src/server/__tests__/rdo/building-operations.test.ts)
+3. **Adding new RDO response parsing** - Any new response format from server
+   - Example: New property types in building details
+   - Add parsing validation tests
+4. **Changing RdoValue/RdoCommand APIs** - Modifications to type system
+   - Update tests in [src/shared/rdo-types.test.ts](src/shared/rdo-types.test.ts)
+
+**MANDATORY - Update existing RDO tests when:**
+1. **Fixing RDO protocol bugs** - Bug fix must include regression test
+2. **Refactoring RDO code** - All tests must pass after refactor
+3. **Changing command semantics** - Update tests to reflect new behavior
+
+#### How to Add RDO Tests
+
+**Use MockRdoSession for protocol testing:**
+```typescript
+import { MockRdoSession } from '../../__mocks__/mock-rdo-session';
+
+describe('My New RDO Feature', () => {
+  let mockSession: MockRdoSession;
+
+  beforeEach(() => {
+    mockSession = new MockRdoSession();
+  });
+
+  it('should format command correctly', async () => {
+    const cmd = await mockSession.simulateMyCommand(arg1, arg2);
+
+    expect(cmd).toMatchRdoCallFormat('MyCommand');
+    expect(cmd).toContain('"#123"'); // Validate arguments
+  });
+});
+```
+
+**Test coverage requirements:**
+- **Format validation** - Command matches RDO protocol format
+- **Type prefixes** - Correct prefixes (#, %, !, etc.) for each argument
+- **Argument order** - Parameters in correct sequence
+- **Edge cases** - Empty values, large numbers, special characters
+- **ID usage** - Correct use of worldContextId vs interfaceServerId vs buildingId
+
+**Available custom matchers:**
+- `toContainRdoCommand(method, args?)` - Verify command in history
+- `toMatchRdoFormat()` - Validate RDO command structure
+- `toMatchRdoCallFormat(method)` - Validate CALL command
+- `toMatchRdoSetFormat(property)` - Validate SET command
+- `toHaveRdoTypePrefix(prefix)` - Check type prefix
+- `toMatchRdoResponse(requestId?)` - Validate response format
+
+#### Test Execution Checklist
+
+**Before committing ANY RDO-related code:**
+- [ ] Run `npm test` - All tests must pass
+- [ ] Run `npm test -- --testPathPatterns="rdo"` - Verify RDO tests specifically
+- [ ] Check test coverage hasn't decreased
+- [ ] Add tests for new RDO commands/features
+- [ ] Update tests for modified RDO behavior
+
+**CI/CD Integration:**
+- RDO tests run automatically on every commit
+- Pull requests blocked if RDO tests fail
+- Coverage regression blocks merge
+
 ### Debug & Cleanup
 - **During development:** Use `console.log` with prefixes like `[Client]`, `[Session]`, `[Renderer]`
 - **After bugs are fixed:** Remove all debug `console.log` statements that are not critical for production diagnostics
@@ -1351,17 +1425,23 @@ Provide:
 1. Read task requirements carefully
 2. Propose a plan (if non-trivial) including test strategy
 3. **Write tests first** (TDD approach preferred) or alongside implementation
-4. Implement changes following code style rules
-5. **Run tests** - Execute `npm test` to verify all tests pass
-6. Remove debug logs after testing
-7. Provide clear verification steps (test + manual)
-8. Always code, comment and respond in English
-9. **MANDATORY:** After EVERY task completion:
-   - Run `npm test` to ensure all tests pass
-   - Ask user: "Has this request been fulfilled 100%?"
-   - Update CLAUDE.md with implementation details
-   - Update README.md if user-facing features were added
-   - Create commit following Git nomenclature policy
+4. **RDO Protocol Changes - CRITICAL:**
+   - If adding/modifying ANY RDO command, MUST add/update tests in [src/server/__tests__/rdo/](src/server/__tests__/rdo/)
+   - Use MockRdoSession to simulate RDO commands without real server
+   - Verify command format with custom matchers: `toMatchRdoCallFormat()`, `toMatchRdoFormat()`
+   - Test edge cases: empty values, large numbers, special characters
+   - Run `npm test -- --testPathPatterns="rdo"` to verify RDO tests specifically
+5. Implement changes following code style rules
+6. **Run tests** - Execute `npm test` to verify all tests pass
+7. Remove debug logs after testing
+8. Provide clear verification steps (test + manual)
+9. Always code, comment and respond in English
+10. **MANDATORY:** After EVERY task completion:
+    - Run `npm test` to ensure all tests pass
+    - Ask user: "Has this request been fulfilled 100%?"
+    - Update CLAUDE.md with implementation details
+    - Update README.md if user-facing features were added
+    - Create commit following Git nomenclature policy
 
 ### What You Should NOT Do
 - Do not implement features from backlog unless asked
@@ -1372,5 +1452,5 @@ Provide:
 
 ---
 
-**Last Updated:** January 2026 (Codebase Audit completed)
+**Last Updated:** January 2026 (RDO Protocol Testing Infrastructure added)
 **Project Version:** Alpha (active development)
