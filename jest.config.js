@@ -5,10 +5,13 @@ module.exports = {
   roots: ['<rootDir>/src'],
   testMatch: ['**/*.test.ts', '**/*.test.js'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
+  setupFilesAfterEnv: ['<rootDir>/src/server/__tests__/setup/jest-setup.ts'],
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.test.ts',
     '!src/**/__fixtures__/**',
+    '!src/**/__mocks__/**',
+    '!src/**/__tests__/**',
     '!src/**/*.d.ts',
     '!src/client/**/*', // Exclude client-side code for now
   ],
@@ -33,9 +36,16 @@ module.exports = {
       tsconfig: {
         module: 'commonjs',
         esModuleInterop: true,
-        allowSyntheticDefaultImports: true
-      }
+        allowSyntheticDefaultImports: true,
+        types: ['jest', 'node']
+      },
+      isolatedModules: false
     }]
+  },
+  globals: {
+    'ts-jest': {
+      isolatedModules: false
+    }
   },
   testTimeout: 10000,
   verbose: true
