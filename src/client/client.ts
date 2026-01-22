@@ -528,6 +528,8 @@ export class StarpeaceClient {
       height: 64
     };
 
+    console.log(`[Client] Sending REQ_MAP_LOAD: x=${req.x}, y=${req.y}, w=${req.width}, h=${req.height}`);
+
     // NOTE: Uses send() without awaiting response because response arrives via EVENT_MAP_DATA
     this.ws?.send(JSON.stringify(req));
   }

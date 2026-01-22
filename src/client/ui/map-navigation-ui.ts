@@ -21,6 +21,16 @@ export class MapNavigationUI {
    */
   public setOnLoadZone(callback: (x: number, y: number, w: number, h: number) => void) {
     this.onLoadZone = callback;
+    console.log('[MapNavigationUI] onLoadZone callback set');
+
+    // Trigger initial zone loading now that callback is set
+    if (this.renderer) {
+      console.log('[MapNavigationUI] Triggering initial zone load');
+      // Small delay to ensure all callbacks are set up
+      setTimeout(() => {
+        this.renderer?.triggerZoneCheck();
+      }, 100);
+    }
   }
 
   /**
@@ -68,7 +78,12 @@ export class MapNavigationUI {
     // FIX: Define callbacks WITHOUT condition (they will be called via this.onLoadZone)
     // Callbacks can be defined AFTER initialization via setOnLoadZone/setOnBuildingClick
     this.renderer.setLoadZoneCallback((x, y, w, h) => {
-      if (this.onLoadZone) this.onLoadZone(x, y, w, h);
+      console.log(`[MapNavigationUI] Zone callback triggered: (${x}, ${y}) ${w}x${h}, onLoadZone=${!!this.onLoadZone}`);
+      if (this.onLoadZone) {
+        this.onLoadZone(x, y, w, h);
+      } else {
+        console.warn('[MapNavigationUI] onLoadZone callback not set yet!');
+      }
     });
 
     this.renderer.setBuildingClickCallback((x, y, visualClass) => {

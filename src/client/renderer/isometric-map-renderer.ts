@@ -87,7 +87,7 @@ export class IsometricMapRenderer {
   // Zone loading
   private loadingZones: Set<string> = new Set();
   private zoneCheckDebounceTimer: number | null = null;
-  private readonly ZONE_CHECK_DEBOUNCE_MS = 500;
+  private readonly ZONE_CHECK_DEBOUNCE_MS = 500; // Match old renderer to prevent server spam
 
   // Callbacks
   private onLoadZone: ((x: number, y: number, w: number, h: number) => void) | null = null;
@@ -189,10 +189,15 @@ export class IsometricMapRenderer {
 
     // Clear cached zones when loading new map
     this.cachedZones.clear();
+    this.loadingZones.clear();
     this.allBuildings = [];
     this.allSegments = [];
 
     this.render();
+
+    // Trigger initial zone loading for visible area
+    this.checkVisibleZones();
+
     return terrainData;
   }
 
@@ -209,6 +214,7 @@ export class IsometricMapRenderer {
 
   /**
    * Add a cached zone with buildings and segments
+   * Note: Cache key is aligned to zone grid (64-tile boundaries) for consistency
    */
   public addCachedZone(
     x: number,
@@ -218,8 +224,15 @@ export class IsometricMapRenderer {
     buildings: MapBuilding[],
     segments: MapSegment[]
   ) {
-    const key = `${x},${y}`;
-    this.cachedZones.set(key, { x, y, w, h, buildings, segments });
+    // Align coordinates to zone grid for consistent cache keys
+    const zoneSize = 64;
+    const alignedX = Math.floor(x / zoneSize) * zoneSize;
+    const alignedY = Math.floor(y / zoneSize) * zoneSize;
+    const key = `${alignedX},${alignedY}`;
+
+    console.log(`[IsometricMapRenderer] addCachedZone: original=(${x},${y}) aligned=(${alignedX},${alignedY}) buildings=${buildings.length} segments=${segments.length}`);
+
+    this.cachedZones.set(key, { x: alignedX, y: alignedY, w, h, buildings, segments });
     this.loadingZones.delete(key);
 
     // Rebuild aggregated lists
@@ -320,6 +333,14 @@ export class IsometricMapRenderer {
 
   public setLoadZoneCallback(callback: (x: number, y: number, w: number, h: number) => void) {
     this.onLoadZone = callback;
+  }
+
+  /**
+   * Manually trigger zone checking (useful after callbacks are set up)
+   */
+  public triggerZoneCheck() {
+    console.log('[IsometricMapRenderer] triggerZoneCheck called');
+    this.checkVisibleZones();
   }
 
   public setBuildingClickCallback(callback: (x: number, y: number, visualClass?: string) => void) {
@@ -1090,7 +1111,8 @@ export class IsometricMapRenderer {
       this.lastMouseX = e.clientX;
       this.lastMouseY = e.clientY;
 
-      this.checkVisibleZones();
+      // NOTE: Do NOT call checkVisibleZones() during drag to prevent server spam
+      // Zone loading will be triggered AFTER drag stops (in onMouseUp/onMouseLeave)
     }
 
     if (this.roadDrawingMode && this.roadDrawingState.isDrawing) {
@@ -1114,6 +1136,8 @@ export class IsometricMapRenderer {
     if (e.button === 2 && this.isDragging) {
       this.isDragging = false;
       this.updateCursor();
+      // CRITICAL: Load zones AFTER drag stops (matching old renderer behavior)
+      this.checkVisibleZones();
     }
 
     if (e.button === 0 && this.roadDrawingMode && this.roadDrawingState.isDrawing) {
@@ -1134,6 +1158,8 @@ export class IsometricMapRenderer {
     if (this.isDragging) {
       this.isDragging = false;
       this.updateCursor();
+      // CRITICAL: Load zones AFTER drag stops (matching old renderer behavior)
+      this.checkVisibleZones();
     }
   }
 
@@ -1196,7 +1222,10 @@ export class IsometricMapRenderer {
    * Check and load zones for visible area
    */
   private checkVisibleZones() {
-    if (!this.onLoadZone) return;
+    if (!this.onLoadZone) {
+      console.log('[IsometricMapRenderer] checkVisibleZones: onLoadZone callback not set');
+      return;
+    }
 
     // Debounce zone checking
     if (this.zoneCheckDebounceTimer) {
@@ -1209,16 +1238,28 @@ export class IsometricMapRenderer {
   }
 
   private loadVisibleZones() {
-    if (!this.onLoadZone) return;
+    if (!this.onLoadZone) {
+      console.log('[IsometricMapRenderer] loadVisibleZones: onLoadZone callback not set');
+      return;
+    }
 
     const bounds = this.getVisibleBounds();
     const zoneSize = 64;
 
-    // Calculate zone boundaries
-    const startZoneX = Math.floor(bounds.minJ / zoneSize) * zoneSize;
-    const endZoneX = Math.ceil(bounds.maxJ / zoneSize) * zoneSize;
-    const startZoneY = Math.floor(bounds.minI / zoneSize) * zoneSize;
-    const endZoneY = Math.ceil(bounds.maxI / zoneSize) * zoneSize;
+    // FIX: Ensure min < max (bounds can be inverted depending on camera orientation)
+    const minI = Math.min(bounds.minI, bounds.maxI);
+    const maxI = Math.max(bounds.minI, bounds.maxI);
+    const minJ = Math.min(bounds.minJ, bounds.maxJ);
+    const maxJ = Math.max(bounds.minJ, bounds.maxJ);
+
+    // Calculate zone boundaries (aligned to zoneSize grid)
+    const startZoneX = Math.floor(minJ / zoneSize) * zoneSize;
+    const endZoneX = Math.ceil(maxJ / zoneSize) * zoneSize;
+    const startZoneY = Math.floor(minI / zoneSize) * zoneSize;
+    const endZoneY = Math.ceil(maxI / zoneSize) * zoneSize;
+
+    console.log(`[IsometricMapRenderer] loadVisibleZones: bounds i=[${minI},${maxI}] j=[${minJ},${maxJ}]`);
+    console.log(`[IsometricMapRenderer] loadVisibleZones: zones X=[${startZoneX},${endZoneX}] Y=[${startZoneY},${endZoneY}]`);
 
     const zonesToLoad: Array<{ x: number; y: number }> = [];
 
@@ -1231,10 +1272,13 @@ export class IsometricMapRenderer {
       }
     }
 
+    console.log(`[IsometricMapRenderer] loadVisibleZones: ${zonesToLoad.length} zones to load, ${this.cachedZones.size} cached, ${this.loadingZones.size} loading`);
+
     // Load zones
     for (const zone of zonesToLoad) {
       const key = `${zone.x},${zone.y}`;
       this.loadingZones.add(key);
+      console.log(`[IsometricMapRenderer] Requesting zone (${zone.x}, ${zone.y})`);
       this.onLoadZone(zone.x, zone.y, zoneSize, zoneSize);
     }
   }
