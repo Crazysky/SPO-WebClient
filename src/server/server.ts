@@ -17,6 +17,7 @@ import { serviceRegistry, setupGracefulShutdown } from './service-registry';
 import {
   WsMessageType,
   WsMessage,
+  FacilityDimensions,
   WsReqConnectDirectory,
   WsReqLoginWorld,
   WsReqRdoDirect,
@@ -53,8 +54,8 @@ import {
   WsRespBuildingFacilities,
   WsRespBuildingPlaced,
   WsRespSurfaceData,
-  WsReqGetFacilityDimensions,
-  WsRespFacilityDimensions,
+  WsReqGetAllFacilityDimensions,
+  WsRespAllFacilityDimensions,
   // Building Details
   WsReqBuildingDetails,
   WsRespBuildingDetails,
@@ -1010,25 +1011,32 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
         break;
       }
 
-      case WsMessageType.REQ_GET_FACILITY_DIMENSIONS: {
-        const req = msg as WsReqGetFacilityDimensions;
-        console.log(`[Gateway] Getting facility dimensions for: ${req.visualClass}`);
+      case WsMessageType.REQ_GET_ALL_FACILITY_DIMENSIONS: {
+        console.log('[Gateway] Getting all facility dimensions (preload)');
 
         try {
-          const dimensions = facilityDimensionsCache().getFacility(req.visualClass);
+          const cache = facilityDimensionsCache().getCache();
+          const dimensions: Record<string, FacilityDimensions> = {};
 
-          const response: WsRespFacilityDimensions = {
-            type: WsMessageType.RESP_FACILITY_DIMENSIONS,
+          // Convert Map to plain object for JSON serialization
+          for (const [visualClass, facility] of cache.entries()) {
+            dimensions[visualClass] = facility;
+          }
+
+          const response: WsRespAllFacilityDimensions = {
+            type: WsMessageType.RESP_ALL_FACILITY_DIMENSIONS,
             wsRequestId: msg.wsRequestId,
-            dimensions: dimensions || null
+            dimensions
           };
+
+          console.log(`[Gateway] Sending ${Object.keys(dimensions).length} facility dimensions`);
           ws.send(JSON.stringify(response));
         } catch (err: any) {
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to get facility dimensions',
-            code: ErrorCodes.ERROR_InvalidParameter
+            errorMessage: err.message || 'Failed to get all facility dimensions',
+            code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
         }

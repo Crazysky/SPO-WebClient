@@ -37,8 +37,8 @@ import {
   BuildingCategory,
   BuildingInfo,
   SurfaceType,
-  WsReqGetFacilityDimensions,
-  WsRespFacilityDimensions,
+  WsReqGetAllFacilityDimensions,
+  WsRespAllFacilityDimensions,
   FacilityDimensions,
   // Building Details
   WsReqBuildingDetails,
@@ -66,6 +66,7 @@ import {
 } from '../shared/types';
 import { getErrorMessage } from '../shared/error-codes';
 import { UIManager } from './ui/ui-manager';
+import { getFacilityDimensionsCache } from './facility-dimensions-cache';
 
 export class StarpeaceClient {
   private ws: WebSocket | null = null;
@@ -499,6 +500,9 @@ export class StarpeaceClient {
 
       // Store company name for building construction
       this.currentCompanyName = company.name;
+
+      // Preload all facility dimensions (one-time, ~15KB)
+      await this.preloadFacilityDimensions();
 
       // Switch to game view
       this.switchToGameView();
@@ -1121,21 +1125,41 @@ export class StarpeaceClient {
   }
 
   /**
-   * Get facility dimensions from server
+   * Preload all facility dimensions (called once on startup)
    */
-  private async getFacilityDimensions(visualClass: string): Promise<FacilityDimensions | null> {
+  private async preloadFacilityDimensions(): Promise<void> {
+    this.ui.log('Cache', 'Preloading facility dimensions...');
+
     try {
-      const req: WsReqGetFacilityDimensions = {
-        type: WsMessageType.REQ_GET_FACILITY_DIMENSIONS,
-        visualClass
+      const req: WsReqGetAllFacilityDimensions = {
+        type: WsMessageType.REQ_GET_ALL_FACILITY_DIMENSIONS
       };
 
-      const response = await this.sendRequest(req) as WsRespFacilityDimensions;
-      return response.dimensions;
+      const response = await this.sendRequest(req) as WsRespAllFacilityDimensions;
+
+      // Initialize client-side cache
+      const cache = getFacilityDimensionsCache();
+      cache.initialize(response.dimensions);
+
+      this.ui.log('Cache', `Loaded ${cache.getSize()} facility dimensions`);
     } catch (err: any) {
-      console.error('[Client] Failed to get facility dimensions:', err);
+      console.error('[Client] Failed to preload facility dimensions:', err);
+      this.ui.log('Error', 'Failed to load facility dimensions. Building placement may not work correctly.');
+    }
+  }
+
+  /**
+   * Get facility dimensions from local cache (instant lookup, no network request)
+   */
+  private async getFacilityDimensions(visualClass: string): Promise<FacilityDimensions | null> {
+    const cache = getFacilityDimensionsCache();
+
+    if (!cache.isInitialized()) {
+      console.warn('[Client] Facility cache not initialized yet');
       return null;
     }
+
+    return cache.getFacility(visualClass) || null;
   }
 
   /**

@@ -79,13 +79,13 @@ export enum WsMessageType {
   REQ_GET_BUILDING_FACILITIES = 'REQ_GET_BUILDING_FACILITIES',
   REQ_PLACE_BUILDING = 'REQ_PLACE_BUILDING',
   REQ_GET_SURFACE = 'REQ_GET_SURFACE',
-  REQ_GET_FACILITY_DIMENSIONS = 'REQ_GET_FACILITY_DIMENSIONS',
+  REQ_GET_ALL_FACILITY_DIMENSIONS = 'REQ_GET_ALL_FACILITY_DIMENSIONS',
 
   RESP_BUILDING_CATEGORIES = 'RESP_BUILDING_CATEGORIES',
   RESP_BUILDING_FACILITIES = 'RESP_BUILDING_FACILITIES',
   RESP_BUILDING_PLACED = 'RESP_BUILDING_PLACED',
   RESP_SURFACE_DATA = 'RESP_SURFACE_DATA',
-  RESP_FACILITY_DIMENSIONS = 'RESP_FACILITY_DIMENSIONS',
+  RESP_ALL_FACILITY_DIMENSIONS = 'RESP_ALL_FACILITY_DIMENSIONS',
 
   // Building Details
   REQ_BUILDING_DETAILS = 'REQ_BUILDING_DETAILS',
@@ -389,9 +389,8 @@ export interface WsReqGetSurface extends WsMessage {
   y2: number;
 }
 
-export interface WsReqGetFacilityDimensions extends WsMessage {
-  type: WsMessageType.REQ_GET_FACILITY_DIMENSIONS;
-  visualClass: string;
+export interface WsReqGetAllFacilityDimensions extends WsMessage {
+  type: WsMessageType.REQ_GET_ALL_FACILITY_DIMENSIONS;
 }
 
 export interface WsRespBuildingCategories extends WsMessage {
@@ -416,9 +415,9 @@ export interface WsRespSurfaceData extends WsMessage {
   data: SurfaceData;
 }
 
-export interface WsRespFacilityDimensions extends WsMessage {
-  type: WsMessageType.RESP_FACILITY_DIMENSIONS;
-  dimensions: FacilityDimensions | null;
+export interface WsRespAllFacilityDimensions extends WsMessage {
+  type: WsMessageType.RESP_ALL_FACILITY_DIMENSIONS;
+  dimensions: Record<string, FacilityDimensions>;
 }
 
 // =============================================================================
