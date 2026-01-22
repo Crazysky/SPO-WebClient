@@ -112,8 +112,6 @@ export class IsometricTerrainRenderer {
    * @param mapName - Name of the map (e.g., 'Shamba', 'Antiqua')
    */
   async loadMap(mapName: string): Promise<TerrainData> {
-    console.log(`[IsometricRenderer] Loading map: ${mapName}`);
-
     // Set terrain type for texture loading
     const terrainType = getTerrainTypeForMap(mapName);
     this.textureCache.setTerrainType(terrainType);
@@ -148,8 +146,6 @@ export class IsometricTerrainRenderer {
     this.mapName = mapName;
     this.loaded = true;
 
-    console.log(`[IsometricRenderer] Map loaded: ${terrainData.width}×${terrainData.height}`);
-
     // Render the loaded map
     this.render();
 
@@ -180,7 +176,6 @@ export class IsometricTerrainRenderer {
 
       // If current season is not available, switch to default
       if (!info.availableSeasons.includes(this.season)) {
-        console.log(`[IsometricRenderer] Season ${this.season} not available for ${terrainType}, switching to ${info.defaultSeason}`);
         this.season = info.defaultSeason;
         this.textureCache.setSeason(info.defaultSeason);
         // Clear chunk cache since season changed

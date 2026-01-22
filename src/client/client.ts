@@ -288,7 +288,6 @@ export class StarpeaceClient {
       console.error('[Client] Cannot send message: WebSocket not connected');
       return;
     }
-    console.log('[Client] Sending message (no Promise):', msg);
     this.ws.send(JSON.stringify(msg));
   }
 
@@ -383,7 +382,6 @@ export class StarpeaceClient {
       case WsMessageType.RESP_SEARCH_MENU_RANKINGS:
       case WsMessageType.RESP_SEARCH_MENU_RANKING_DETAIL:
       case WsMessageType.RESP_SEARCH_MENU_BANKS:
-        console.log('[Client] Search menu response received:', msg.type);
         this.ui.handleSearchMenuResponse(msg);
         break;
     }
@@ -438,13 +436,6 @@ export class StarpeaceClient {
         this.availableCompanies = resp.companies;
         this.ui.log('Login', `Found ${resp.companies.length} compan${resp.companies.length > 1 ? 'ies' : 'y'}`);
 
-        // Debug: Log all companies with their roles
-        console.log('[Client] Companies received from server:');
-        resp.companies.forEach((c, idx) => {
-          console.log(`  [${idx}] ID: ${c.id}, Name: ${c.name}, ownerRole: ${c.ownerRole}`);
-        });
-        console.log(`[Client] Current storedUsername: ${this.storedUsername}`);
-
         this.ui.loginUI.showCompanyListLoading('Loading companies...');
 
         // Small delay for loading state visibility
@@ -481,17 +472,8 @@ export class StarpeaceClient {
         throw new Error('Company not found');
       }
 
-      // Debug: Log role detection logic
-      console.log('[Client] Company selection debug:');
-      console.log(`  Selected company: ${company.name} (ID: ${company.id})`);
-      console.log(`  Company ownerRole: ${company.ownerRole}`);
-      console.log(`  Stored username: ${this.storedUsername}`);
-      console.log(`  ownerRole !== storedUsername: ${company.ownerRole !== this.storedUsername}`);
-
       // Check if we need to switch company (role-based)
       const needsSwitch = company.ownerRole && company.ownerRole !== this.storedUsername;
-
-      console.log(`  needsSwitch: ${needsSwitch}`);
 
       if (needsSwitch) {
         this.ui.log('Company', `Switching to role-based company: ${company.name} (${company.ownerRole})...`);
@@ -545,8 +527,6 @@ export class StarpeaceClient {
       height: h
     };
 
-    console.log(`[Client] Sending REQ_MAP_LOAD: x=${req.x}, y=${req.y}, w=${req.width}, h=${req.height}`);
-
     // NOTE: Uses send() without awaiting response because response arrives via EVENT_MAP_DATA
     this.ws?.send(JSON.stringify(req));
   }
@@ -569,7 +549,6 @@ export class StarpeaceClient {
   private async sendChatMessage(message: string) {
     // Double-click prevention
     if (this.isSendingChatMessage) {
-      console.log('[Client] Chat message already sending, ignoring');
       return;
     }
 

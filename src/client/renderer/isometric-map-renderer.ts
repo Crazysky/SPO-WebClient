@@ -181,8 +181,6 @@ export class IsometricMapRenderer {
    * Load terrain for a map
    */
   async loadMap(mapName: string): Promise<TerrainData> {
-    console.log(`[IsometricMapRenderer] Loading map: ${mapName}`);
-
     this.mapName = mapName;
     const terrainData = await this.terrainRenderer.loadMap(mapName);
     this.mapLoaded = true;
@@ -229,8 +227,6 @@ export class IsometricMapRenderer {
     const alignedX = Math.floor(x / zoneSize) * zoneSize;
     const alignedY = Math.floor(y / zoneSize) * zoneSize;
     const key = `${alignedX},${alignedY}`;
-
-    console.log(`[IsometricMapRenderer] addCachedZone: original=(${x},${y}) aligned=(${alignedX},${alignedY}) buildings=${buildings.length} segments=${segments.length}`);
 
     this.cachedZones.set(key, { x: alignedX, y: alignedY, w, h, buildings, segments });
     this.loadingZones.delete(key);
@@ -339,7 +335,6 @@ export class IsometricMapRenderer {
    * Manually trigger zone checking (useful after callbacks are set up)
    */
   public triggerZoneCheck() {
-    console.log('[IsometricMapRenderer] triggerZoneCheck called');
     this.checkVisibleZones();
   }
 
@@ -1226,7 +1221,6 @@ export class IsometricMapRenderer {
    */
   private checkVisibleZones() {
     if (!this.onLoadZone) {
-      console.log('[IsometricMapRenderer] checkVisibleZones: onLoadZone callback not set');
       return;
     }
 
@@ -1242,7 +1236,6 @@ export class IsometricMapRenderer {
 
   private loadVisibleZones() {
     if (!this.onLoadZone) {
-      console.log('[IsometricMapRenderer] loadVisibleZones: onLoadZone callback not set');
       return;
     }
 
@@ -1261,9 +1254,6 @@ export class IsometricMapRenderer {
     const startZoneY = Math.floor(minI / zoneSize) * zoneSize;
     const endZoneY = Math.ceil(maxI / zoneSize) * zoneSize;
 
-    console.log(`[IsometricMapRenderer] loadVisibleZones: bounds i=[${minI},${maxI}] j=[${minJ},${maxJ}]`);
-    console.log(`[IsometricMapRenderer] loadVisibleZones: zones X=[${startZoneX},${endZoneX}] Y=[${startZoneY},${endZoneY}]`);
-
     const zonesToLoad: Array<{ x: number; y: number }> = [];
 
     for (let zx = startZoneX; zx < endZoneX; zx += zoneSize) {
@@ -1280,13 +1270,10 @@ export class IsometricMapRenderer {
     const MAX_ZONES_PER_BATCH = 2;
     const zonesToRequest = zonesToLoad.slice(0, MAX_ZONES_PER_BATCH);
 
-    console.log(`[IsometricMapRenderer] loadVisibleZones: ${zonesToLoad.length} zones needed, requesting ${zonesToRequest.length} (max ${MAX_ZONES_PER_BATCH}), ${this.cachedZones.size} cached, ${this.loadingZones.size} loading`);
-
     // Load zones (limited batch)
     for (const zone of zonesToRequest) {
       const key = `${zone.x},${zone.y}`;
       this.loadingZones.add(key);
-      console.log(`[IsometricMapRenderer] Requesting zone (${zone.x}, ${zone.y})`);
       this.onLoadZone(zone.x, zone.y, zoneSize, zoneSize);
     }
   }

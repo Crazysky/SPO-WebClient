@@ -60,8 +60,6 @@ export class TerrainLoader {
    * @returns TerrainData with pixel indices and metadata
    */
   async loadMap(mapName: string): Promise<TerrainData> {
-    console.log(`[TerrainLoader] Loading map: ${mapName}`);
-
     // 1. Fetch metadata + BMP URL from server API
     const apiUrl = `/api/map-data/${encodeURIComponent(mapName)}`;
     const response = await fetch(apiUrl);
@@ -74,9 +72,6 @@ export class TerrainLoader {
     const mapFileData: MapFileData = await response.json();
     const { metadata, bmpUrl } = mapFileData;
 
-    console.log(`[TerrainLoader] Metadata loaded: ${metadata.name} (${metadata.width}×${metadata.height})`);
-    console.log(`[TerrainLoader] BMP URL: ${bmpUrl}`);
-
     // 2. Download BMP file as ArrayBuffer
     const bmpResponse = await fetch(bmpUrl);
 
@@ -85,7 +80,6 @@ export class TerrainLoader {
     }
 
     const bmpBuffer = await bmpResponse.arrayBuffer();
-    console.log(`[TerrainLoader] BMP downloaded: ${bmpBuffer.byteLength} bytes`);
 
     // 3. Parse BMP file
     const parsedBmp = this.parseBmp(bmpBuffer);
@@ -102,8 +96,6 @@ export class TerrainLoader {
     this.metadata = metadata;
     this.mapName = mapName;
     this.loaded = true;
-
-    console.log(`[TerrainLoader] Loaded ${mapName}: ${this.width}×${this.height}, ${this.pixelData.length} pixels`);
 
     return {
       width: this.width,
