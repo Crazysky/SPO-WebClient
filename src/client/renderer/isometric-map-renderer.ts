@@ -1073,18 +1073,17 @@ export class IsometricMapRenderer {
       const dy = e.clientY - this.lastMouseY;
 
       // Convert screen delta to map delta for grab-and-move behavior
-      // Based on isometric projection: screenX = u*(cols-i+j), screenY = (u/2)*((cols-i)+(rows-j))
-      // Solving for camera delta that makes content follow mouse:
-      // dCameraI = (dx + 2*dy) / (2*u)
-      // dCameraJ = (2*dy - dx) / (2*u)
+      // Using equal coefficients for dx and dy ensures uniform sensitivity
+      // in all diagonal directions (top-right/bottom-left = top-left/bottom-right)
       const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
       const u = config.u;
 
-      // Sensitivity factor (0.85) dampens movement for smoother feel
-      // Without it, the math is perfect but movement can feel too responsive
+      // Factor sqrt(2) normalizes for 45° rotation between screen and map axes
+      // Sensitivity (0.85) dampens movement for smoother feel
       const sensitivity = 0.85;
-      const deltaI = sensitivity * (dx + 2 * dy) / (2 * u);
-      const deltaJ = sensitivity * (2 * dy - dx) / (2 * u);
+      const factor = Math.SQRT2 * u;
+      const deltaI = sensitivity * (dx + dy) / factor;
+      const deltaJ = sensitivity * (dy - dx) / factor;
 
       this.terrainRenderer.pan(deltaI, deltaJ);
 
