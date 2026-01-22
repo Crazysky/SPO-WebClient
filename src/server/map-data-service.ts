@@ -5,7 +5,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { MapMetadata, TownInfo } from '../shared/map-config';
+import { MapMetadata, MapTownInfo } from '../shared/map-config';
 import type { Service } from './service-registry';
 
 export class MapDataService implements Service {
@@ -89,7 +89,7 @@ export class MapDataService implements Service {
     };
 
     let currentSection = '';
-    const towns: Map<number, Partial<TownInfo>> = new Map();
+    const towns: Map<number, Partial<MapTownInfo>> = new Map();
 
     for (const line of lines) {
       // Skip empty lines and comments

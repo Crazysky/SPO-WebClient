@@ -8,11 +8,11 @@ export interface MapMetadata {
   width: number;
   height: number;
   groundHref: string;
-  towns: TownInfo[];
+  towns: MapTownInfo[];
   clusters: string[];
 }
 
-export interface TownInfo {
+export interface MapTownInfo {
   name: string;
   cluster: string;
   x: number;

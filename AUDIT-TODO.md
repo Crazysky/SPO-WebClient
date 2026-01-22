@@ -346,13 +346,13 @@ config.renderer.zoneCheckDebounceMs   // ligne 61
 **Code supprimé:** ~740 lignes (2 fichiers UI orphelins + 1 fonction inutilisée + 1 import)
 
 ### Phase 3: Consolidation des Types
-**Priorité:** MOYENNE | **Effort:** ~2 heures
+**Priorité:** MOYENNE | **Effort:** ~2 heures | **Statut:** ✅ TERMINÉ (Janvier 2026)
 
-- [ ] Renommer `TownInfo` → `MapTownInfo` dans map-config.ts
-- [ ] Fusionner `ConnectionData` → utiliser `BuildingConnectionData`
-- [ ] Fusionner `SupplyData` → utiliser `BuildingSupplyData`
-- [ ] Fusionner `PropertyValue` → utiliser `BuildingPropertyValue`
-- [ ] Mettre à jour tous les imports affectés
+- [x] Renommer `TownInfo` → `MapTownInfo` dans map-config.ts
+- [x] Supprimer interfaces orphelines de property-definitions.ts (ConnectionData, SupplyData, PropertyValue, ServiceData, WorkerData, BuildingDetailsData)
+- [x] Mettre à jour import dans map-data-service.ts
+
+**Note:** Les types dans types.ts (BuildingConnectionData, BuildingSupplyData, BuildingPropertyValue) sont les versions utilisées. Les duplicats dans property-definitions.ts étaient du code orphelin jamais importé - supprimés (~140 lignes).
 
 ### Phase 4: Extraction Utilitaires Partagés
 **Priorité:** MOYENNE | **Effort:** ~3 heures
