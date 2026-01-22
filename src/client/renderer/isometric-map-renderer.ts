@@ -137,8 +137,8 @@ export class IsometricMapRenderer {
     }
     this.ctx = ctx;
 
-    // Create terrain renderer (shares canvas)
-    this.terrainRenderer = new IsometricTerrainRenderer(canvas);
+    // Create terrain renderer (shares canvas, mouse controls handled by this class)
+    this.terrainRenderer = new IsometricTerrainRenderer(canvas, { disableMouseControls: true });
 
     // Create game object texture cache (roads, buildings, etc.)
     this.gameObjectTextureCache = new GameObjectTextureCache(500);
@@ -1073,17 +1073,17 @@ export class IsometricMapRenderer {
       const dy = e.clientY - this.lastMouseY;
 
       // Convert screen delta to map delta for grab-and-move behavior
-      // Using equal coefficients for dx and dy ensures uniform sensitivity
-      // in all diagonal directions (top-right/bottom-left = top-left/bottom-right)
+      // Derived from inverting the isometric projection:
+      //   screenX = u * (rows - i + j)
+      //   screenY = (u/2) * ((rows - i) + (cols - j))
+      // Solving for camera delta when screen moves by (dx, dy):
+      //   deltaI = (dx + 2*dy) / (2*u)
+      //   deltaJ = (2*dy - dx) / (2*u)
       const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
       const u = config.u;
 
-      // Factor sqrt(2) normalizes for 45° rotation between screen and map axes
-      // Sensitivity (0.85) dampens movement for smoother feel
-      const sensitivity = 0.85;
-      const factor = Math.SQRT2 * u;
-      const deltaI = sensitivity * (dx + dy) / factor;
-      const deltaJ = sensitivity * (dy - dx) / factor;
+      const deltaI = (dx + 2 * dy) / (2 * u);
+      const deltaJ = (2 * dy - dx) / (2 * u);
 
       this.terrainRenderer.pan(deltaI, deltaJ);
 

@@ -84,7 +84,7 @@ export class IsometricTerrainRenderer {
   private lastMouseX: number = 0;
   private lastMouseY: number = 0;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, options?: { disableMouseControls?: boolean }) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d');
     if (!ctx) {
@@ -97,8 +97,10 @@ export class IsometricTerrainRenderer {
     this.coordMapper = new CoordinateMapper(2000, 2000);
     this.textureCache = new TextureCache(200); // LRU cache with 200 texture limit
 
-    // Setup event handlers
-    this.setupMouseControls();
+    // Setup event handlers (can be disabled when used as a sub-renderer)
+    if (!options?.disableMouseControls) {
+      this.setupMouseControls();
+    }
     this.setupResizeHandler();
 
     // Initial render (loading state)

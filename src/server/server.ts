@@ -102,6 +102,7 @@ import {
 const logger = createLogger('Gateway');
 const PORT = config.server.port;
 const PUBLIC_DIR = path.join(__dirname, '../../public');
+const CACHE_DIR = path.join(__dirname, '../../cache');
 
 // =============================================================================
 // Service Registration
@@ -424,6 +425,47 @@ const server = http.createServer(async (req, res) => {
     }
 
     await proxyImage(imageUrl, res);
+    return;
+  }
+
+  // Cache endpoint: /cache/{category}/{filename}
+  // Serves files from the update server cache (roads, buildings, etc.)
+  if (safePath.startsWith('/cache/')) {
+    const relativePath = safePath.substring('/cache/'.length);
+    const filePath = path.join(CACHE_DIR, relativePath);
+
+    // Security check: ensure path doesn't escape cache directory
+    const normalizedPath = path.normalize(filePath);
+    if (!normalizedPath.startsWith(path.normalize(CACHE_DIR))) {
+      res.writeHead(403);
+      res.end('Access Denied');
+      return;
+    }
+
+    // Determine content type
+    const ext = path.extname(filePath).toLowerCase();
+    const contentTypes: Record<string, string> = {
+      '.bmp': 'image/bmp',
+      '.gif': 'image/gif',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+    };
+
+    fs.readFile(filePath, (err, content) => {
+      if (err) {
+        if (err.code === 'ENOENT') {
+          res.writeHead(404);
+          res.end(`File not found: ${relativePath}`);
+        } else {
+          res.writeHead(500);
+          res.end('Server Error: ' + err.code);
+        }
+      } else {
+        res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'application/octet-stream' });
+        res.end(content);
+      }
+    });
     return;
   }
 
