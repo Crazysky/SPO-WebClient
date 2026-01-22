@@ -933,6 +933,7 @@
           ctx.fill();
         }
       }
+      tallTiles.sort((a, b) => b.i + b.j - (a.i + a.j));
       for (const tile of tallTiles) {
         const localI = tile.i - startI;
         const localJ = tile.j - startJ;
@@ -1133,7 +1134,7 @@
     return MAP_TERRAIN_TYPES[mapName] || "Earth";
   }
   var IsometricTerrainRenderer = class {
-    constructor(canvas) {
+    constructor(canvas, options) {
       this.chunkCache = null;
       // Rendering mode
       this.useTextures = true;
@@ -1174,7 +1175,9 @@
       this.terrainLoader = new TerrainLoader();
       this.coordMapper = new CoordinateMapper(2e3, 2e3);
       this.textureCache = new TextureCache(200);
-      this.setupMouseControls();
+      if (!options?.disableMouseControls) {
+        this.setupMouseControls();
+      }
       this.setupResizeHandler();
       this.render();
     }
@@ -1368,7 +1371,7 @@
             isTall = texture !== null && texture.height > BASE_TILE_HEIGHT;
           }
           if (isTall) {
-            tallTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
+            tallTiles.push({ i, j, screenX: screenPos.x, screenY: screenPos.y, textureId });
           } else {
             standardTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
           }
@@ -1377,6 +1380,7 @@
       for (const tile of standardTiles) {
         this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
       }
+      tallTiles.sort((a, b) => b.i + b.j - (a.i + a.j));
       for (const tile of tallTiles) {
         this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
       }
@@ -1412,7 +1416,7 @@
             isTall = texture !== null && texture.height > BASE_TILE_HEIGHT;
           }
           if (isTall) {
-            tallTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
+            tallTiles.push({ i, j, screenX: screenPos.x, screenY: screenPos.y, textureId });
           } else {
             standardTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
           }
@@ -1421,6 +1425,7 @@
       for (const tile of standardTiles) {
         this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
       }
+      tallTiles.sort((a, b) => b.i + b.j - (a.i + a.j));
       for (const tile of tallTiles) {
         this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
       }
