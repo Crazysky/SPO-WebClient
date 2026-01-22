@@ -334,14 +334,16 @@ config.renderer.zoneCheckDebounceMs   // ligne 61
 - ✅ Build réussi, 215/216 tests passent
 
 ### Phase 2: Suppression Code Orphelin
-**Priorité:** HAUTE | **Effort:** ~1 heure
+**Priorité:** HAUTE | **Effort:** ~1 heure | **Statut:** ✅ TERMINÉ (Janvier 2026)
 
-- [ ] Supprimer `src/client/ui/player-stats-ui.ts` (206 lignes)
-- [ ] Supprimer `src/client/ui/company-details-ui.ts` (518 lignes)
-- [ ] Supprimer `getAccountStatusMessage()` dans error-codes.ts
-- [ ] Supprimer constantes d'erreur non utilisées dans error-codes.ts
-- [ ] Supprimer import `start` dans property-templates.ts
-- [ ] Vérifier et nettoyer `terrain-test.ts`
+- [x] Supprimer `src/client/ui/player-stats-ui.ts` (206 lignes)
+- [x] Supprimer `src/client/ui/company-details-ui.ts` (518 lignes)
+- [x] Supprimer `getAccountStatusMessage()` dans error-codes.ts
+- [x] Constantes serveur conservées (ACCOUNT_*, cirRoads, poolId*) - pour implémentation future
+- [x] Supprimer import `start` dans property-templates.ts
+- [ ] ~~Vérifier et nettoyer `terrain-test.ts`~~ (conservé - fichier de test terrain)
+
+**Code supprimé:** ~740 lignes (2 fichiers UI orphelins + 1 fonction inutilisée + 1 import)
 
 ### Phase 3: Consolidation des Types
 **Priorité:** MOYENNE | **Effort:** ~2 heures

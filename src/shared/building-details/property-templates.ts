@@ -5,7 +5,6 @@
  * Each template represents a building category (Retail, Industry, Public Service, etc.)
  */
 
-import { start } from 'repl';
 import { BuildingTemplate, PropertyGroup } from './property-definitions';
 import {
   OVERVIEW_GROUP,  

@@ -52,7 +52,7 @@ export const ERROR_SerialMaxed = 113;
 export const ERROR_InvalidSerial = 114;
 export const ERROR_SubscriberIdNotFound = 115;
 
-// Account status codes
+// Account status codes (server protocol values - for future implementation)
 export const ACCOUNT_Valid = 0;
 export const ACCOUNT_UnknownError = 1;
 export const ACCOUNT_Unexisting = 2;
@@ -60,11 +60,11 @@ export const ACCOUNT_InvalidName = 3;
 export const ACCOUNT_InvalidPassword = 4;
 export const ACCOUNT_Forbiden = 5;
 
-// Supported circuits identifiers
+// Supported circuits identifiers (server protocol values - for future implementation)
 export const cirRoads = 1;
 export const cirRailRoads = 2;
 
-// Actor pools
+// Actor pools (server protocol values - for future implementation)
 export const poolIdTrains = 1;
 export const poolTrainsInterval = 1000;
 
@@ -162,24 +162,3 @@ export function getErrorMessage(errorCode: number): string {
   }
 }
 
-/**
- * Get account status message
- */
-export function getAccountStatusMessage(statusCode: number): string {
-  switch (statusCode) {
-    case ACCOUNT_Valid:
-      return 'Account valid';
-    case ACCOUNT_UnknownError:
-      return 'Unknown account error';
-    case ACCOUNT_Unexisting:
-      return 'Account does not exist';
-    case ACCOUNT_InvalidName:
-      return 'Invalid account name';
-    case ACCOUNT_InvalidPassword:
-      return 'Incorrect password';
-    case ACCOUNT_Forbiden:
-      return 'Account forbidden';
-    default:
-      return `Unknown account status (${statusCode})`;
-  }
-}
