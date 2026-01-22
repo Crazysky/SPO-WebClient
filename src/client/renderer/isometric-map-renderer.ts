@@ -1079,8 +1079,12 @@ export class IsometricMapRenderer {
       // dCameraJ = (2*dy - dx) / (2*u)
       const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
       const u = config.u;
-      const deltaI = (dx + 2 * dy) / (2 * u);
-      const deltaJ = (2 * dy - dx) / (2 * u);
+
+      // Sensitivity factor (0.85) dampens movement for smoother feel
+      // Without it, the math is perfect but movement can feel too responsive
+      const sensitivity = 0.85;
+      const deltaI = sensitivity * (dx + 2 * dy) / (2 * u);
+      const deltaJ = sensitivity * (2 * dy - dx) / (2 * u);
 
       this.terrainRenderer.pan(deltaI, deltaJ);
 
