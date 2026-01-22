@@ -203,6 +203,10 @@ export enum WsMessageType {
   RESP_SEARCH_MENU_RANKING_DETAIL = 'RESP_SEARCH_MENU_RANKING_DETAIL',
   RESP_SEARCH_MENU_BANKS = 'RESP_SEARCH_MENU_BANKS',
 
+  // Logout
+  REQ_LOGOUT = 'REQ_LOGOUT',
+  RESP_LOGOUT = 'RESP_LOGOUT',
+
 }
 
 export interface WsMessage {
@@ -1115,4 +1119,26 @@ export interface RoadDrawingState {
   isMouseDown: boolean;
   /** Timestamp when mouse was pressed */
   mouseDownTime: number;
+}
+
+// =============================================================================
+// 10. LOGOUT FEATURE
+// =============================================================================
+
+/**
+ * Request to logout and end RDO session
+ */
+export interface WsReqLogout extends WsMessage {
+  type: WsMessageType.REQ_LOGOUT;
+}
+
+/**
+ * Response after logout attempt
+ */
+export interface WsRespLogout extends WsMessage {
+  type: WsMessageType.RESP_LOGOUT;
+  /** Whether the logout was successful */
+  success: boolean;
+  /** Optional message */
+  message?: string;
 }

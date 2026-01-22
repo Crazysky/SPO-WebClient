@@ -89,6 +89,9 @@ import {
   WsRespSearchMenuRankingDetail,
   WsReqSearchMenuBanks,
   WsRespSearchMenuBanks,
+  // Logout
+  WsReqLogout,
+  WsRespLogout,
 } from '../shared/types';
 
 /**
@@ -590,8 +593,14 @@ wss.on('connection', (ws: WebSocket) => {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', async () => {
     console.log('[Gateway] Client Disconnected');
+    // Send RDOEndSession before cleanup to gracefully close game server session
+    try {
+      await spSession.endSession();
+    } catch (err) {
+      console.error('[Gateway] Error sending EndSession on close:', err);
+    }
     spSession.destroy();
   });
 });
@@ -1506,6 +1515,42 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      // ========================================================================
+      // LOGOUT HANDLER
+      // ========================================================================
+
+      case WsMessageType.REQ_LOGOUT: {
+        console.log('[Gateway] Processing logout request');
+
+        try {
+          // Send RDOEndSession to gracefully close game server session
+          await session.endSession();
+
+          const response: WsRespLogout = {
+            type: WsMessageType.RESP_LOGOUT,
+            wsRequestId: msg.wsRequestId,
+            success: true,
+            message: 'Logged out successfully'
+          };
+          ws.send(JSON.stringify(response));
+
+          // Close WebSocket connection after sending response
+          setTimeout(() => {
+            ws.close(1000, 'User logged out');
+          }, 100);
+        } catch (err: any) {
+          console.error('[Gateway] Logout error:', err);
+          const response: WsRespLogout = {
+            type: WsMessageType.RESP_LOGOUT,
+            wsRequestId: msg.wsRequestId,
+            success: false,
+            message: err.message || 'Logout failed'
+          };
+          ws.send(JSON.stringify(response));
         }
         break;
       }

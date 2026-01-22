@@ -58,6 +58,11 @@ import {
   // Road Building
   WsReqBuildRoad,
   WsRespBuildRoad,
+  // Company Switching
+  WsReqSwitchCompany,
+  // Logout
+  WsReqLogout,
+  WsRespLogout,
 } from '../shared/types';
 import { getErrorMessage } from '../shared/error-codes';
 import { UIManager } from './ui/ui-manager';
@@ -97,6 +102,9 @@ export class StarpeaceClient {
   // Road building state
   private isRoadBuildingMode: boolean = false;
   private isBuildingRoad: boolean = false;
+
+  // Logout state
+  private isLoggingOut: boolean = false;
 
   constructor() {
     this.uiGamePanel = document.getElementById('game-panel')!;
@@ -156,7 +164,7 @@ export class StarpeaceClient {
     if (this.ui.mapNavigationUI) {
       this.ui.mapNavigationUI.setOnLoadZone((x, y, w, h) => {
         this.ui.log('Map', `Requesting zone (${x}, ${y}) ${w}x${h}`);
-        this.loadMapArea(x, y);
+        this.loadMapArea(x, y, w, h);
       });
 
       this.ui.mapNavigationUI.setOnBuildingClick((x, y, visualClass) => {
@@ -188,6 +196,10 @@ export class StarpeaceClient {
 
       this.ui.toolbarUI.setOnMail(() => {
         this.ui.log('Info', 'Mail feature not yet implemented');
+      });
+
+      this.ui.toolbarUI.setOnLogout(() => {
+        this.logout();
       });
     }
 
@@ -243,6 +255,11 @@ export class StarpeaceClient {
       this.uiStatus.style.color = "#f00";
       this.ui.log('System', 'Gateway Disconnected.');
     };
+
+    // Handle browser close/refresh - send logout request
+    window.addEventListener('beforeunload', () => {
+      this.sendLogoutBeacon();
+    });
   }
 
   private sendRequest(msg: Partial<WsMessage>): Promise<WsMessage> {
@@ -515,17 +532,17 @@ export class StarpeaceClient {
     }
   }
 
-  private loadMapArea(x?: number, y?: number) {
+  private loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64) {
     const coords = x !== undefined && y !== undefined ? ` at (${x}, ${y})` : ' at player position';
-    this.ui.log('Map', `Loading area${coords}...`);
+    this.ui.log('Map', `Loading area${coords} ${w}x${h}...`);
 
-    // FIX: Use provided coordinates or 0,0 (server will use player position)
+    // Use provided coordinates or 0,0 (server will use player position)
     const req: WsReqMapLoad = {
       type: WsMessageType.REQ_MAP_LOAD,
       x: x !== undefined ? x : 0,
       y: y !== undefined ? y : 0,
-      width: 64,
-      height: 64
+      width: w,
+      height: h
     };
 
     console.log(`[Client] Sending REQ_MAP_LOAD: x=${req.x}, y=${req.y}, w=${req.width}, h=${req.height}`);
@@ -941,8 +958,8 @@ export class StarpeaceClient {
 
       if (response.success) {
         this.ui.log('Building', 'Building deleted successfully');
-        // Refresh the map to remove the deleted building
-        await this.loadMapArea(this.currentX, this.currentY, 50, 50);
+        // Refresh the map to remove the deleted building (use building coordinates as center)
+        this.loadMapArea(x, y);
         return true;
       } else {
         this.ui.log('Error', response.message || 'Failed to delete building');
@@ -1042,8 +1059,8 @@ export class StarpeaceClient {
 
       if (response.success) {
         this.ui.log('Road', `Road built: ${response.tileCount} tiles, cost $${response.cost}`);
-        // Refresh the map to show the new road
-        await this.loadMapArea(this.currentX, this.currentY, 50, 50);
+        // Refresh the map to show the new road (use road start as center)
+        this.loadMapArea(x1, y1);
       } else {
         this.ui.log('Error', response.message || 'Failed to build road');
       }
@@ -1329,8 +1346,9 @@ export class StarpeaceClient {
 
     try {
       // Get current camera position to request zone data
-      const cameraX = Math.floor(renderer['cameraX']);
-      const cameraY = Math.floor(renderer['cameraY']);
+      const cameraPos = renderer.getCameraPosition();
+      const cameraX = Math.floor(cameraPos.x);
+      const cameraY = Math.floor(cameraPos.y);
 
       // Request 65x65 area centered on camera
       const x1 = cameraX - 32;
@@ -1358,6 +1376,66 @@ export class StarpeaceClient {
       if (this.ui.zoneOverlayUI) {
         this.ui.zoneOverlayUI.setEnabled(false);
       }
+    }
+  }
+
+  // =========================================================================
+  // LOGOUT METHODS
+  // =========================================================================
+
+  /**
+   * Logout from the game - sends RDOEndSession to server
+   * Called when user clicks logout button
+   */
+  public async logout(): Promise<void> {
+    if (this.isLoggingOut) {
+      return;
+    }
+
+    this.isLoggingOut = true;
+    this.ui.log('System', 'Logging out...');
+
+    try {
+      const req: WsReqLogout = {
+        type: WsMessageType.REQ_LOGOUT
+      };
+
+      const response = await this.sendRequest(req) as WsRespLogout;
+
+      if (response.success) {
+        this.ui.log('System', 'Logged out successfully');
+        // Server will close the WebSocket connection
+        // onclose handler will update UI state
+      } else {
+        this.ui.log('Error', response.message || 'Logout failed');
+      }
+    } catch (err: any) {
+      this.ui.log('Error', `Logout error: ${err.message}`);
+      // Force close connection on error
+      this.ws?.close();
+    } finally {
+      this.isLoggingOut = false;
+    }
+  }
+
+  /**
+   * Send logout request as a beacon when page is closing
+   * Uses sendBeacon for reliable delivery during page unload
+   */
+  private sendLogoutBeacon(): void {
+    if (!this.isConnected || !this.ws) {
+      return;
+    }
+
+    // Try to send a synchronous close message
+    // WebSocket doesn't support sendBeacon, so we send message and close
+    try {
+      const req: WsReqLogout = {
+        type: WsMessageType.REQ_LOGOUT
+      };
+      this.ws.send(JSON.stringify(req));
+    } catch (err) {
+      // Ignore errors during page unload
     }
   }
 }

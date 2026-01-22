@@ -2606,6 +2606,45 @@ private handlePush(socketName: string, packet: RdoPacket) {
   // =========================================================================
 
   /**
+   * Send RDOEndSession to gracefully close the game server session
+   * Should be called before destroy() when user logs out
+   * RDO Command: C <RID> sel <worldContextId> call RDOEndSession "*" ;
+   */
+  public async endSession(): Promise<void> {
+    if (!this.worldContextId) {
+      console.log('[Session] No active world session to end');
+      return;
+    }
+
+    console.log(`[Session] Ending session for worldContextId: ${this.worldContextId}`);
+
+    // Build RDOEndSession command
+    const endSessionCmd = RdoCommand.sel(this.worldContextId)
+      .call('RDOEndSession')
+      .push()
+      .build();
+
+    // Send to all active world sockets
+    const worldSocketNames = ['world', 'construction'];
+    for (const socketName of worldSocketNames) {
+      const socket = this.sockets.get(socketName);
+      if (socket && !socket.destroyed) {
+        try {
+          socket.write(endSessionCmd);
+          console.log(`[Session] Sent RDOEndSession to ${socketName} socket`);
+        } catch (err) {
+          console.error(`[Session] Error sending RDOEndSession to ${socketName}:`, err);
+        }
+      }
+    }
+
+    // Small delay to allow the command to be sent before cleanup
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    console.log('[Session] Session ended successfully');
+  }
+
+  /**
    * Cleanup all resources and close all connections
    * Should be called when the WebSocket client disconnects
    */

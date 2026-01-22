@@ -14,6 +14,7 @@ export class ToolbarUI {
   private onCompanyMenu: (() => void) | null = null;
   private onMail: (() => void) | null = null;
   private onSettings: (() => void) | null = null;
+  private onLogout: (() => void) | null = null;
 
   // Button reference for road building state
   private roadBuildingBtn: HTMLElement | null = null;
@@ -77,6 +78,13 @@ export class ToolbarUI {
   }
 
   /**
+   * Définit le callback pour Logout
+   */
+  public setOnLogout(callback: () => void) {
+    this.onLogout = callback;
+  }
+
+  /**
    * Creates the toolbar
    */
   private createToolbar() {
@@ -129,6 +137,13 @@ export class ToolbarUI {
         label: 'Settings',
         tooltip: 'Game Settings',
         callback: () => this.onSettings?.()
+      },
+      {
+        icon: '🚪',
+        label: 'Logout',
+        tooltip: 'Logout',
+        callback: () => this.onLogout?.(),
+        isLogoutButton: true
       }
     ];
 
@@ -137,6 +152,10 @@ export class ToolbarUI {
       // Store reference to road button for state updates
       if ('isRoadButton' in btnConfig && btnConfig.isRoadButton) {
         this.roadBuildingBtn = btn;
+      }
+      // Add logout button styling class
+      if ('isLogoutButton' in btnConfig && btnConfig.isLogoutButton) {
+        btn.classList.add('logout-btn');
       }
       this.toolbar!.appendChild(btn);
     });

@@ -1422,6 +1422,23 @@ body {
   cursor: crosshair !important;
 }
 
+/* ============================================================================
+   LOGOUT BUTTON STYLES
+   ============================================================================ */
+
+/* Logout button - positioned at end with separator space */
+.toolbar-btn.logout-btn {
+  margin-left: var(--space-3);
+  border-left: 1px solid var(--glass-border);
+  padding-left: var(--space-4);
+}
+
+.toolbar-btn.logout-btn:hover {
+  background: rgba(239, 68, 68, 0.3) !important;
+  border-color: #ef4444 !important;
+  color: #fca5a5 !important;
+}
+
 /* Road preview tooltip */
 .road-preview-tooltip {
   position: absolute;

@@ -874,6 +874,12 @@ Provide:
     - [src/client/renderer/isometric-map-renderer.ts](src/client/renderer/isometric-map-renderer.ts) - Complete map renderer with layered rendering
   - **Shared types:** [src/shared/map-config.ts](src/shared/map-config.ts) - Map metadata, terrain data, zoom configs, rotation enum
   - **Integration:** [src/client/ui/map-navigation-ui.ts](src/client/ui/map-navigation-ui.ts) - Main client now uses IsometricMapRenderer
+  - **Cleanup (January 2026):**
+    - **DELETED:** `src/client/renderer.ts` - Old rectangular MapRenderer class (1315 lines, completely orphaned)
+    - **Fixed:** `loadMapArea()` signature to accept width/height parameters from zone loading
+    - **Fixed:** `deleteFacility()` and `buildRoadSegment()` to use function parameters instead of non-existent `currentX/Y` properties
+    - **Fixed:** `toggleZoneOverlay()` to use `getCameraPosition()` API instead of direct `cameraX/Y` property access
+    - **Fixed:** Missing `WsReqSwitchCompany` import in client.ts
 - **Features:**
   - ✅ **4 zoom levels:** 4×8, 8×16, 16×32, 32×64 pixels per tile
   - ✅ **Real terrain textures:** Loaded from BMP files, displayed via texture cache
@@ -1187,6 +1193,42 @@ Provide:
   - Auto-refresh eliminates need for manual refresh after actions
   - Cleaner UI: STOP button only shown when relevant
 
+#### Logout Feature
+- **Status:** ✅ COMPLETED (January 2026)
+- **Goal:** Gracefully end RDO session when user logs out, closes browser, or server shuts down
+- **Implementation:**
+  - **WebSocket Protocol:** [src/shared/types.ts](src/shared/types.ts)
+    - Message types: `REQ_LOGOUT` / `RESP_LOGOUT`
+    - `WsReqLogout` and `WsRespLogout` interfaces
+  - **Server-side Session:** [src/server/spo_session.ts](src/server/spo_session.ts)
+    - `endSession()` method sends RDOEndSession to all active world sockets
+    - RDO command: `C sel <worldContextId> call RDOEndSession "*" ;`
+    - Sends to both `world` and `construction` sockets if connected
+  - **Gateway Handler:** [src/server/server.ts](src/server/server.ts)
+    - `REQ_LOGOUT` message handler calls `session.endSession()` then closes WebSocket
+    - WebSocket `close` event updated to call `endSession()` before `destroy()`
+    - Ensures RDOEndSession sent on all disconnect scenarios
+  - **Client Controller:** [src/client/client.ts](src/client/client.ts)
+    - `logout()` method for button-triggered logout
+    - `sendLogoutBeacon()` for browser close/refresh
+    - `beforeunload` event listener sends logout on page unload
+  - **Toolbar UI:** [src/client/ui/toolbar-ui.ts](src/client/ui/toolbar-ui.ts)
+    - Logout button (🚪 icon) added to toolbar
+    - `setOnLogout()` callback method
+  - **CSS Styling:** [public/design-system.css](public/design-system.css)
+    - Red hover effect for logout button
+    - Visual separator from other toolbar buttons
+- **RDO Protocol Format:** `C sel <worldContextId> call RDOEndSession "*" ;`
+- **Triggers:**
+  1. User clicks logout button → `REQ_LOGOUT` → `endSession()` → WebSocket closed
+  2. User closes browser/tab → `beforeunload` → `REQ_LOGOUT` → `endSession()`
+  3. Connection drops → WebSocket `close` event → `endSession()` → cleanup
+- **Benefits:**
+  - Proper session cleanup on game server
+  - Graceful disconnect prevents orphaned sessions
+  - User-initiated logout via toolbar button
+  - Automatic logout on browser close/refresh
+
 ## Session Context for AI Agent
 
 ### What You Should Know
@@ -1220,5 +1262,5 @@ Provide:
 
 ---
 
-**Last Updated:** January 2026 (ServiceRegistry & Graceful Shutdown added)
+**Last Updated:** January 2026 (Logout feature added)
 **Project Version:** Alpha (active development)
