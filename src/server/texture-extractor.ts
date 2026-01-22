@@ -23,15 +23,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { Season, SEASON_NAMES } from '../shared/map-config';
 import type { Service } from './service-registry';
-
-const execAsync = promisify(exec);
-
-// Path to 7-Zip executable
-const SEVENZIP_PATH = 'C:\\Program Files\\7-Zip\\7z.exe';
+import { extractCabArchive } from './cab-extractor';
 
 /**
  * Mapping from palette index to texture filename, parsed from LandClasses INI files
@@ -359,18 +353,14 @@ export class TextureExtractor implements Service {
   }
 
   /**
-   * Extract a CAB file using 7-Zip
+   * Extract a CAB file using the cross-platform cabarc package
+   * No external tools required (works on Windows, Linux, macOS)
    */
   private async extractCab(cabPath: string, targetDir: string): Promise<void> {
-    const cmd = `"${SEVENZIP_PATH}" x -y -o"${targetDir}" "${cabPath}"`;
+    const result = await extractCabArchive(cabPath, targetDir);
 
-    try {
-      await execAsync(cmd);
-    } catch (error: any) {
-      // 7z may return non-zero for warnings, check if files were extracted
-      if (!error.stdout?.includes('Everything is Ok')) {
-        throw error;
-      }
+    if (!result.success && result.errors.length > 0) {
+      throw new Error(result.errors.join('; '));
     }
   }
 

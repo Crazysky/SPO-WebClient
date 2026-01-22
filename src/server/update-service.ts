@@ -5,8 +5,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
 import { createLogger } from '../shared/logger';
+import { extractCabArchive, isCabExtractorAvailable } from './cab-extractor';
 
 const logger = createLogger('UpdateService');
 
@@ -80,6 +80,14 @@ export class UpdateService implements Service {
       logger.info('[UpdateService] Already initialized');
       return;
     }
+
+    // Verify cabarc package is available for CAB extraction
+    const cabAvailable = await isCabExtractorAvailable();
+    if (!cabAvailable) {
+      logger.error('[UpdateService] cabarc package not available. Run: npm install cabarc');
+      throw new Error('CAB extraction not available. Install cabarc package: npm install cabarc');
+    }
+
     await this.syncAll();
     this.initialized = true;
   }
@@ -118,75 +126,40 @@ export class UpdateService implements Service {
   }
 
   /**
-   * Extract a CAB file using Windows expand.exe utility or cabextract
+   * Extract a CAB file using the cross-platform cabarc package
+   * No external tools required (works on Windows, Linux, macOS)
    */
-  private extractCabFile(cabPath: string): string[] {
-    const extractedFiles: string[] = [];
+  private async extractCabFile(cabPath: string): Promise<string[]> {
     const cabDir = path.dirname(cabPath);
+    const cabRelative = path.relative(this.CACHE_ROOT, cabPath);
 
     try {
-      logger.info(`[UpdateService] Extracting CAB: ${path.relative(this.CACHE_ROOT, cabPath)}`);
+      logger.info(`[UpdateService] Extracting CAB: ${cabRelative}`);
 
-      // Take snapshot of files BEFORE extraction
-      const filesBefore = new Set<string>();
-      if (fs.existsSync(cabDir)) {
-        const entries = fs.readdirSync(cabDir);
-        for (const entry of entries) {
-          const fullPath = path.join(cabDir, entry);
-          if (fs.statSync(fullPath).isFile()) {
-            filesBefore.add(entry.toLowerCase());
-          }
+      // Use the cross-platform cab-extractor module
+      const result = await extractCabArchive(cabPath, cabDir);
+
+      if (!result.success) {
+        for (const error of result.errors) {
+          logger.error(`[UpdateService] CAB extraction error: ${error}`);
         }
+        return [];
       }
 
-      // Use full path to Windows expand.exe to avoid conflicts with Unix expand tool
-      // Windows expand.exe: C:\Windows\System32\expand.exe -F:* "source.cab" "destination_directory"
-      const isWindows = process.platform === 'win32';
-      let command: string;
-
-      if (isWindows) {
-        // Use full path to Windows expand.exe
-        const expandPath = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'expand.exe');
-        command = `"${expandPath}" -F:* "${cabPath}" "${cabDir}"`;
-      } else {
-        // Linux/Mac: use cabextract if available
-        command = `cabextract -q -d "${cabDir}" "${cabPath}"`;
-      }
-
-      execSync(command, {
-        cwd: cabDir,
-        stdio: 'pipe',
-        windowsHide: true,
-        shell: isWindows ? 'cmd.exe' : undefined
-      });
-
-      // Scan directory to find NEW extracted files (files that weren't there before)
-      const entries = fs.readdirSync(cabDir);
-      for (const entry of entries) {
-        const fullPath = path.join(cabDir, entry);
-        const stats = fs.statSync(fullPath);
-
-        // Include files that are:
-        // 1. Regular files (not directories)
-        // 2. Not CAB files themselves
-        // 3. Either new OR already existed (for initial scan)
-        if (stats.isFile() && !entry.toLowerCase().endsWith('.cab')) {
-          const relativePath = path.relative(this.CACHE_ROOT, fullPath).replace(/\\/g, '/');
-
-          // If this is first run (filesBefore only contains CAB), include all non-CAB files
-          // If this is re-extraction, only include files that weren't there before
-          if (filesBefore.size <= 1 || !filesBefore.has(entry.toLowerCase())) {
-            extractedFiles.push(relativePath);
-          }
-        }
+      // Convert extracted file names to relative paths from CACHE_ROOT
+      const extractedFiles: string[] = [];
+      for (const fileName of result.extractedFiles) {
+        const fullPath = path.join(cabDir, fileName);
+        const relativePath = path.relative(this.CACHE_ROOT, fullPath).replace(/\\/g, '/');
+        extractedFiles.push(relativePath);
       }
 
       this.stats.extracted++;
-      logger.info(`[UpdateService] ✓ Extracted ${extractedFiles.length} files from CAB`);
+      logger.info(`[UpdateService] Extracted ${extractedFiles.length} files from CAB`);
 
       return extractedFiles;
     } catch (error) {
-      logger.error(`[UpdateService] ✗ Failed to extract CAB ${path.relative(this.CACHE_ROOT, cabPath)}:`, error);
+      logger.error(`[UpdateService] Failed to extract CAB ${cabRelative}:`, error);
       return [];
     }
   }
@@ -382,7 +355,7 @@ export class UpdateService implements Service {
 
       // Auto-extract CAB files
       if (isCabFile) {
-        const extractedFiles = this.extractCabFile(localPath);
+        const extractedFiles = await this.extractCabFile(localPath);
 
         // Update metadata
         const stats = fs.statSync(localPath);
@@ -517,7 +490,7 @@ export class UpdateService implements Service {
             }
 
             // Extract CAB
-            const extractedFiles = this.extractCabFile(localPath);
+            const extractedFiles = await this.extractCabFile(localPath);
             this.cabMetadata[remoteFile.path] = {
               extractedFiles: extractedFiles,
               cabModifiedTime: stats.mtimeMs
