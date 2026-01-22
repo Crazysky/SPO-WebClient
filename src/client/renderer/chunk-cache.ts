@@ -401,6 +401,11 @@ export class ChunkCache {
     }
 
     // Pass 2: Render tall tiles on top
+    // Sort by screen Y ascending (= i+j descending) for correct painter's algorithm:
+    // Tiles higher on screen (lower Y, far from viewer) are drawn first,
+    // Tiles lower on screen (higher Y, closer to viewer) are drawn last (on top)
+    tallTiles.sort((a, b) => (b.i + b.j) - (a.i + a.j));
+
     for (const tile of tallTiles) {
       const localI = tile.i - startI;
       const localJ = tile.j - startJ;

@@ -351,7 +351,7 @@ export class IsometricTerrainRenderer {
 
     // Collect tiles for two-pass rendering
     const standardTiles: Array<{ screenX: number; screenY: number; textureId: number }> = [];
-    const tallTiles: Array<{ screenX: number; screenY: number; textureId: number }> = [];
+    const tallTiles: Array<{ i: number; j: number; screenX: number; screenY: number; textureId: number }> = [];
 
     for (let i = startI; i < endI; i++) {
       for (let j = startJ; j < endJ; j++) {
@@ -377,7 +377,7 @@ export class IsometricTerrainRenderer {
         }
 
         if (isTall) {
-          tallTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
+          tallTiles.push({ i, j, screenX: screenPos.x, screenY: screenPos.y, textureId });
         } else {
           standardTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
         }
@@ -390,6 +390,11 @@ export class IsometricTerrainRenderer {
     }
 
     // Pass 2: Render tall tiles on top
+    // Sort by screen Y ascending (= i+j descending) for correct painter's algorithm:
+    // Tiles higher on screen (lower Y, far from viewer) are drawn first,
+    // Tiles lower on screen (higher Y, closer to viewer) are drawn last (on top)
+    tallTiles.sort((a, b) => (b.i + b.j) - (a.i + a.j));
+
     for (const tile of tallTiles) {
       this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
     }
@@ -411,7 +416,7 @@ export class IsometricTerrainRenderer {
 
     // Collect tiles for two-pass rendering
     const standardTiles: Array<{ screenX: number; screenY: number; textureId: number }> = [];
-    const tallTiles: Array<{ screenX: number; screenY: number; textureId: number }> = [];
+    const tallTiles: Array<{ i: number; j: number; screenX: number; screenY: number; textureId: number }> = [];
 
     // Render tiles in back-to-front order (painter's algorithm)
     for (let i = bounds.minI; i <= bounds.maxI; i++) {
@@ -439,7 +444,7 @@ export class IsometricTerrainRenderer {
         }
 
         if (isTall) {
-          tallTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
+          tallTiles.push({ i, j, screenX: screenPos.x, screenY: screenPos.y, textureId });
         } else {
           standardTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
         }
@@ -452,6 +457,10 @@ export class IsometricTerrainRenderer {
     }
 
     // Pass 2: Render tall tiles on top
+    // Sort by screen Y ascending (= i+j descending) for correct painter's algorithm:
+    // Tiles higher on screen (lower Y, far from viewer) are drawn first,
+    // Tiles lower on screen (higher Y, closer to viewer) are drawn last (on top)
+    tallTiles.sort((a, b) => (b.i + b.j) - (a.i + a.j));
     for (const tile of tallTiles) {
       this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
     }
