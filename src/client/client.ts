@@ -504,8 +504,8 @@ export class StarpeaceClient {
       // Switch to game view
       this.switchToGameView();
 
-      // Load initial map area
-      this.loadMapArea();
+      // NOTE: Initial map area is loaded by the zone system via triggerZoneCheck()
+      // Do NOT call loadMapArea() here to avoid duplicate requests
     } catch (err: any) {
       this.ui.log('Error', `Company selection failed: ${err.message}`);
       this.ui.loginUI.showCompanyListLoading('Failed to load world. Please try again.');

@@ -1276,7 +1276,8 @@ export class IsometricMapRenderer {
     }
 
     // Limit to prevent server spam (server has max 3 concurrent requests)
-    const MAX_ZONES_PER_BATCH = 4;
+    // Use 2 to stay well under limit and allow other requests to go through
+    const MAX_ZONES_PER_BATCH = 2;
     const zonesToRequest = zonesToLoad.slice(0, MAX_ZONES_PER_BATCH);
 
     console.log(`[IsometricMapRenderer] loadVisibleZones: ${zonesToLoad.length} zones needed, requesting ${zonesToRequest.length} (max ${MAX_ZONES_PER_BATCH}), ${this.cachedZones.size} cached, ${this.loadingZones.size} loading`);
