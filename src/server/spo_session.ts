@@ -47,6 +47,7 @@ import {
   RdoCommand,
   rdoArgs
 } from '../shared/rdo-types';
+import { config } from '../shared/config';
 
 export class StarpeaceSession extends EventEmitter {
   private sockets: Map<string, net.Socket> = new Map();
@@ -223,7 +224,7 @@ export class StarpeaceSession extends EventEmitter {
    * Helper Phase 1: Auth -> EndSession
    */
   private async performDirectoryAuth(username: string, pass: string): Promise<void> {
-    const socket = await this.createSocket('directory_auth', 'www.starpeaceonline.com', RDO_PORTS.DIRECTORY);
+    const socket = await this.createSocket('directory_auth', config.rdo.directoryHost, config.rdo.ports.directory);
     try {
       // 1. Resolve & Open Session
       const idPacket = await this.sendRdoRequest('directory_auth', { verb: RdoVerb.IDOF, targetId: 'DirectoryServer' });
@@ -261,7 +262,7 @@ export class StarpeaceSession extends EventEmitter {
    * Helper Phase 2: OpenSession -> QueryKey -> EndSession
    */
   private async performDirectoryQuery(zonePath?: string): Promise<WorldInfo[]> {
-    const socket = await this.createSocket('directory_query', 'www.starpeaceonline.com', RDO_PORTS.DIRECTORY);
+    const socket = await this.createSocket('directory_query', config.rdo.directoryHost, config.rdo.ports.directory);
     try {
       // 1. Resolve & Open NEW Session
       const idPacket = await this.sendRdoRequest('directory_query', { verb: RdoVerb.IDOF, targetId: 'DirectoryServer' });
@@ -916,8 +917,8 @@ private extractRevenue(line: string): string {
       ClientViewId: '0',
       WorldName: this.currentWorldInfo?.name || 'Shamba',
       UserName: username,
-      DSAddr: 'www.starpeaceonline.com',
-      DSPort: '1111',
+      DSAddr: config.rdo.directoryHost,
+      DSPort: String(config.rdo.ports.directory),
       ISAddr: worldIp,
       ISPort: '8000',
       LangId: '0'
