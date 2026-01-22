@@ -1658,6 +1658,13 @@
       return { i: this.cameraI, j: this.cameraJ };
     }
     /**
+     * Get the current screen origin (for coordinate mapping)
+     * Origin is computed so that camera position appears at canvas center
+     */
+    getOrigin() {
+      return this.origin;
+    }
+    /**
      * Convert screen coordinates to map coordinates
      */
     screenToMap(screenX, screenY) {

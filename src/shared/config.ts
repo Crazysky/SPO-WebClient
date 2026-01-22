@@ -19,7 +19,7 @@ export const config = {
    * Configuration du protocole RDO
    */
   rdo: {
-    // Host du serveur Directory (utiliser 'localhost' pour mock_srv)
+    // Host du serveur Directory (utiliser 'localhost' pour mock_srv et www.starpeaceonline.com pour la production.)
     directoryHost: process.env.RDO_DIR_HOST || 'www.starpeaceonline.com',
 
     // Ports standards du protocole
