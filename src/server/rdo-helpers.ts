@@ -67,12 +67,32 @@ export function extractRevenue(line: string): string {
 
 /**
  * Parse property response payload extracting a specific property value
+ * Handles formats like: Property="value", Property="#123", res="value"
  * @param payload Raw payload containing property value
- * @param propName Property name for error messages
- * @returns Extracted property value
+ * @param propName Property name to extract
+ * @returns Extracted property value (with type prefix removed)
  */
 export function parsePropertyResponse(payload: string, propName: string): string {
-  // Clean and extract the value
+  // Try to extract value using Property="value" format
+  const regex = new RegExp(`${propName}\\s*=\\s*"([^"]*)"`, 'i');
+  const match = payload.match(regex);
+  if (match && match[1]) {
+    // Remove type prefix (#, $, %, @) if present
+    return match[1].replace(/^[$#%@]/, '');
+  }
+
+  // Handle case where payload starts directly with property name
+  if (payload.startsWith(propName)) {
+    const cleaned = payload.substring(propName.length).trim();
+    // Remove = and quotes if present, then type prefix
+    const valueMatch = cleaned.match(/^=\s*"?([^"]*)"?$/);
+    if (valueMatch) {
+      return valueMatch[1].replace(/^[$#%@]/, '');
+    }
+    return cleaned.replace(/^[$#%@]/, '');
+  }
+
+  // Fallback: clean and return payload as-is (for backward compatibility)
   const cleaned = cleanPayload(payload);
 
   // Handle multi-line responses - take first non-empty line
@@ -88,6 +108,7 @@ export function parsePropertyResponse(payload: string, propName: string): string
 
 /**
  * Parse idof response to extract object ID
+ * Handles format: objid="39751288" or objid="#39751288"
  * @param payload Response payload from idof command
  * @returns Extracted object ID
  */
@@ -96,9 +117,15 @@ export function parseIdOfResponse(payload: string | undefined): string {
     throw new Error('Empty idof response');
   }
 
-  const cleaned = cleanPayload(payload);
+  // Handle objid="value" format (standard idof response)
+  const objidMatch = payload.match(/objid\s*=\s*"([^"]*)"/i);
+  if (objidMatch && objidMatch[1]) {
+    // Remove type prefix (#, $, %, @) if present
+    return objidMatch[1].replace(/^[$#%@]/, '').trim();
+  }
 
-  // Some responses might be wrapped in quotes or have type prefix
+  // Fallback: clean payload and remove type prefixes
+  const cleaned = cleanPayload(payload);
   return cleaned.replace(/[#%@$"]/g, '').trim();
 }
 
