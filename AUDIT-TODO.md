@@ -64,19 +64,19 @@ src/shared/
 
 ---
 
-### 2. Code Orphelin Identifié
+### 2. ~~Code Orphelin Identifié~~ ✅ RÉSOLU (Phase 2)
 
-#### Classes Jamais Importées
-| Fichier | Export | Lignes | Action |
+#### ~~Classes Jamais Importées~~ SUPPRIMÉES
+| Fichier | Export | Lignes | Statut |
 |---------|--------|--------|--------|
-| `src/client/ui/player-stats-ui.ts` | `PlayerStatsUI` class | 206 | ❌ SUPPRIMER |
-| `src/client/ui/player-stats-ui.ts` | `PlayerStats` interface | 8 | ❌ SUPPRIMER |
-| `src/client/ui/company-details-ui.ts` | `CompanyDetailsUI` class | 518 | ❌ SUPPRIMER |
+| `src/client/ui/player-stats-ui.ts` | `PlayerStatsUI` class | 206 | ✅ Supprimé |
+| `src/client/ui/player-stats-ui.ts` | `PlayerStats` interface | 8 | ✅ Supprimé |
+| `src/client/ui/company-details-ui.ts` | `CompanyDetailsUI` class | 518 | ✅ Supprimé |
 
-#### Fonctions Jamais Appelées
-| Fichier | Fonction | Lignes | Action |
+#### ~~Fonctions Jamais Appelées~~ SUPPRIMÉES
+| Fichier | Fonction | Lignes | Statut |
 |---------|----------|--------|--------|
-| `src/shared/error-codes.ts:168-185` | `getAccountStatusMessage()` | 17 | ❌ SUPPRIMER |
+| `src/shared/error-codes.ts:168-185` | `getAccountStatusMessage()` | 17 | ✅ Supprimé |
 
 #### Constantes Jamais Référencées (error-codes.ts)
 ```typescript
@@ -110,11 +110,13 @@ poolTrainsInterval
 |---------|--------|--------|
 | `src/client/terrain-test.ts` | 154 | ⚠️ Fichier de test standalone |
 
-#### Exports Partiellement Utilisés
+#### ~~Exports Partiellement Utilisés~~ ✅ VÉRIFIÉ (Janvier 2026)
 | Fichier | Export | Utilisé par |
 |---------|--------|-------------|
-| `src/client/renderer/game-object-texture-cache.ts` | Instance methods (getTextureSync, getTextureAsync, preload, clear, getStats) | ❌ Non utilisés |
+| `src/client/renderer/game-object-texture-cache.ts` | Instance methods (getTextureSync, preload) | ✅ Utilisés par isometric-map-renderer.ts |
 | `src/client/renderer/game-object-texture-cache.ts` | Static methods (getRoadTextureType, getRoadTextureFilename, getBuildingTextureFilename) | ✅ Utilisés |
+
+**Note:** L'analyse initiale était incorrecte. Les méthodes d'instance sont utilisées par le renderer isométrique.
 
 ---
 
@@ -257,11 +259,11 @@ return `/proxy-image?url=${encodeURIComponent(fullUrl)}`;
 
 ---
 
-### 6. Import Inutilisé
+### 6. ~~Import Inutilisé~~ ✅ RÉSOLU (Phase 2)
 
-| Fichier | Ligne | Import | Action |
+| Fichier | Ligne | Import | Statut |
 |---------|-------|--------|--------|
-| `src/shared/building-details/property-templates.ts` | 8 | `import { start } from 'repl';` | ❌ SUPPRIMER |
+| `src/shared/building-details/property-templates.ts` | 8 | `import { start } from 'repl';` | ✅ Supprimé |
 
 ---
 
