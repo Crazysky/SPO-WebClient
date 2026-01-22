@@ -954,6 +954,27 @@ Provide:
     - **Infinite loop fix:** Added `loaded` flag to CacheEntry in [src/client/renderer/texture-cache.ts](src/client/renderer/texture-cache.ts) to prevent repeated requests for missing textures
     - **Index format fix:** Deleted old index.json files with `zoomLevel` field, regenerated with correct `season` field
     - **Refactored texture system:** Changed from zoom-level to season-based organization throughout codebase
+    - **INI-based texture mapping (January 2026):**
+      - **Problem:** Special textures (e.g., `GrassSpecial1.bmp`) not loading because filename parsing failed
+      - **Root cause:** Code parsed filenames to extract palette index, but special textures don't follow `land.<index>.<type>.bmp` pattern
+      - **Solution:** Parse INI files from `cache/LandClasses/` to get authoritative palette index → filename mapping
+      - **Implementation:**
+        - Added `parseLandClassesINI()` and `parseINIFile()` methods in [src/server/texture-extractor.ts](src/server/texture-extractor.ts)
+        - INI format: `[General] Id=<paletteIndex> MapColor=<color> [Images] 64x32=<filename>`
+        - 182 INI files parsed, providing definitive mapping for all terrain textures
+        - Index version bumped to v2 to invalidate old cached indices
+    - **Dynamic transparency color detection (January 2026):**
+      - **Problem:** Special textures displayed with colored backgrounds instead of transparency
+      - **Root cause:** Different textures use different chroma key colors (blue, orange, magenta, cyan, red, white)
+      - **Solution:** Detect transparency color dynamically from each texture's corner pixel
+      - **Implementation:** [src/client/renderer/texture-cache.ts](src/client/renderer/texture-cache.ts) `applyColorKeyTransparency()`
+        - Reads top-left corner pixel (0,0) which is always outside the isometric diamond
+        - Uses that color as the transparency key for that specific texture
+        - Tight tolerance (5) prevents false positives on actual content
+      - **Colors detected per texture type:**
+        - Standard textures: RGB(0,0,255) - Blue
+        - Earth special: RGB(255,255,255) - White
+        - Alien Swamp special: Various (orange, magenta, cyan, red)
 - **Testing:**
   - **Unit tests:** 28 IsometricTerrainRenderer + 25 TextureCache = 53 tests passing
   - **Test page:** [public/terrain-test.html](public/terrain-test.html) - Standalone test page

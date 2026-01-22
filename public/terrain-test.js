@@ -593,8 +593,11 @@
       }
     }
     /**
-     * Apply blue color key transparency to terrain textures
-     * Terrain textures use RGB(0,0,255) as the transparency key color
+     * Apply color key transparency to terrain textures
+     *
+     * Detects the transparency color dynamically by reading the corner pixels
+     * of each texture. Corner pixels are always outside the isometric diamond
+     * shape and contain the chroma key color.
      */
     async applyColorKeyTransparency(bitmap) {
       if (typeof OffscreenCanvas === "undefined") {
@@ -608,12 +611,15 @@
       ctx.drawImage(bitmap, 0, 0);
       const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
       const data = imageData.data;
-      const tolerance = 10;
+      const tr = data[0];
+      const tg = data[1];
+      const tb = data[2];
+      const tolerance = 5;
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
-        if (r <= tolerance && g <= tolerance && b >= 255 - tolerance) {
+        if (Math.abs(r - tr) <= tolerance && Math.abs(g - tg) <= tolerance && Math.abs(b - tb) <= tolerance) {
           data[i + 3] = 0;
         }
       }

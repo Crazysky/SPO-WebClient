@@ -33,6 +33,15 @@ const execAsync = promisify(exec);
 // Path to 7-Zip executable
 const SEVENZIP_PATH = 'C:\\Program Files\\7-Zip\\7z.exe';
 
+/**
+ * Mapping from palette index to texture filename, parsed from LandClasses INI files
+ */
+export interface LandClassMapping {
+  id: number;           // Palette index (0-255)
+  mapColor: number;     // Color value for minimap
+  filename: string;     // Texture filename (e.g., "land.0.GrassCenter0.bmp" or "GrassSpecial1.bmp")
+}
+
 export interface TextureInfo {
   paletteIndex: number;
   terrainType: string;
@@ -53,13 +62,16 @@ export class TextureExtractor implements Service {
 
   private cacheDir: string;
   private landImagesDir: string;
+  private landClassesDir: string;
   private extractedDir: string;
   private textureIndex: Map<string, TextureIndex> = new Map(); // "terrainType-season" -> TextureIndex
+  private landClassMappings: Map<number, LandClassMapping> = new Map(); // paletteIndex -> mapping
   private initialized: boolean = false;
 
   constructor(cacheDir: string = 'cache') {
     this.cacheDir = cacheDir;
     this.landImagesDir = path.join(cacheDir, 'landimages');
+    this.landClassesDir = path.join(cacheDir, 'LandClasses');
     this.extractedDir = path.join('webclient-cache', 'textures');
   }
 
@@ -79,6 +91,9 @@ export class TextureExtractor implements Service {
       fs.mkdirSync(this.extractedDir, { recursive: true });
     }
 
+    // Parse LandClasses INI files to get authoritative palette→filename mapping
+    await this.parseLandClassesINI();
+
     // Get available terrain types
     const terrainTypes = await this.getTerrainTypes();
     console.log(`[TextureExtractor] Found terrain types: ${terrainTypes.join(', ')}`);
@@ -94,6 +109,71 @@ export class TextureExtractor implements Service {
 
     this.initialized = true;
     console.log('[TextureExtractor] Initialization complete');
+  }
+
+  /**
+   * Parse all INI files in cache/LandClasses/ to build palette→filename mapping
+   * INI format:
+   *   [General]
+   *   Id=<paletteIndex>
+   *   MapColor=<color>
+   *   [Images]
+   *   64x32=<filename>
+   */
+  private async parseLandClassesINI(): Promise<void> {
+    if (!fs.existsSync(this.landClassesDir)) {
+      console.log(`[TextureExtractor] LandClasses directory not found: ${this.landClassesDir}`);
+      return;
+    }
+
+    const iniFiles = fs.readdirSync(this.landClassesDir)
+      .filter(f => f.endsWith('.ini'));
+
+    console.log(`[TextureExtractor] Parsing ${iniFiles.length} LandClasses INI files...`);
+
+    for (const iniFile of iniFiles) {
+      const filePath = path.join(this.landClassesDir, iniFile);
+      const mapping = this.parseINIFile(filePath);
+
+      if (mapping) {
+        this.landClassMappings.set(mapping.id, mapping);
+      }
+    }
+
+    console.log(`[TextureExtractor] Loaded ${this.landClassMappings.size} palette→filename mappings from INI files`);
+  }
+
+  /**
+   * Parse a single INI file to extract Id, MapColor and 64x32 filename
+   */
+  private parseINIFile(filePath: string): LandClassMapping | null {
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+
+      // Extract Id from [General] section
+      const idMatch = content.match(/^Id\s*=\s*(\d+)/m);
+      if (!idMatch) {
+        return null;
+      }
+
+      // Extract MapColor from [General] section
+      const mapColorMatch = content.match(/^MapColor\s*=\s*(\d+)/m);
+
+      // Extract filename from [Images] section (64x32=)
+      const filenameMatch = content.match(/^64x32\s*=\s*(.+\.bmp)/mi);
+      if (!filenameMatch) {
+        return null;
+      }
+
+      return {
+        id: parseInt(idMatch[1], 10),
+        mapColor: mapColorMatch ? parseInt(mapColorMatch[1], 10) : 0,
+        filename: filenameMatch[1].trim()
+      };
+    } catch (error) {
+      console.error(`[TextureExtractor] Error parsing INI file ${filePath}:`, error);
+      return null;
+    }
   }
 
   /**
@@ -145,25 +225,31 @@ export class TextureExtractor implements Service {
       return;
     }
 
-    // Check if already extracted (by checking for index file)
+    // Check if already extracted (by checking for index file with correct version)
     const indexFile = path.join(targetDir, 'index.json');
     if (fs.existsSync(indexFile)) {
       // Load existing index
       const indexData = JSON.parse(fs.readFileSync(indexFile, 'utf-8'));
-      const textureMap = new Map<number, TextureInfo[]>();
 
-      for (const [key, value] of Object.entries(indexData.textures)) {
-        textureMap.set(parseInt(key, 10), value as TextureInfo[]);
+      // Check if index was built with INI mapping (version 2)
+      if (indexData.version === 2) {
+        const textureMap = new Map<number, TextureInfo[]>();
+
+        for (const [key, value] of Object.entries(indexData.textures)) {
+          textureMap.set(parseInt(key, 10), value as TextureInfo[]);
+        }
+
+        this.textureIndex.set(`${terrainType}-${season}`, {
+          terrainType,
+          season,
+          textures: textureMap
+        });
+
+        console.log(`[TextureExtractor] Loaded cached index (v2): ${terrainType}/${seasonName}`);
+        return;
+      } else {
+        console.log(`[TextureExtractor] Rebuilding index (old version): ${terrainType}/${seasonName}`);
       }
-
-      this.textureIndex.set(`${terrainType}-${season}`, {
-        terrainType,
-        season,
-        textures: textureMap
-      });
-
-      console.log(`[TextureExtractor] Loaded cached index: ${terrainType}/${seasonName}`);
-      return;
     }
 
     // Create target directory
@@ -175,30 +261,41 @@ export class TextureExtractor implements Service {
     const cabFiles = fs.readdirSync(sourceDir)
       .filter(f => f.endsWith('.cab'));
 
-    const textureMap = new Map<number, TextureInfo[]>();
-
     // Extract each CAB file
     for (const cabFile of cabFiles) {
       const cabPath = path.join(sourceDir, cabFile);
 
       try {
         await this.extractCab(cabPath, targetDir);
-
-        // Parse extracted files
-        const extracted = fs.readdirSync(targetDir)
-          .filter(f => f.endsWith('.bmp') && f.startsWith('land.'));
-
-        for (const file of extracted) {
-          const info = this.parseTextureFileName(file, targetDir);
-          if (info) {
-            if (!textureMap.has(info.paletteIndex)) {
-              textureMap.set(info.paletteIndex, []);
-            }
-            textureMap.get(info.paletteIndex)!.push(info);
-          }
-        }
       } catch (error) {
         console.error(`[TextureExtractor] Failed to extract ${cabFile}:`, error);
+      }
+    }
+
+    // Build texture map using INI mappings as source of truth
+    const textureMap = new Map<number, TextureInfo[]>();
+
+    // Get all extracted BMP files
+    const extractedFiles = fs.readdirSync(targetDir)
+      .filter(f => f.endsWith('.bmp'));
+
+    // Create a case-insensitive filename lookup map
+    const filenameLookup = new Map<string, string>();
+    for (const file of extractedFiles) {
+      filenameLookup.set(file.toLowerCase(), file);
+    }
+
+    // For each palette index in INI mappings, find the corresponding texture file
+    for (const [paletteIndex, mapping] of this.landClassMappings) {
+      const expectedFilename = mapping.filename;
+      const actualFilename = filenameLookup.get(expectedFilename.toLowerCase());
+
+      if (actualFilename) {
+        const info = this.buildTextureInfo(paletteIndex, actualFilename, targetDir);
+        if (!textureMap.has(paletteIndex)) {
+          textureMap.set(paletteIndex, []);
+        }
+        textureMap.get(paletteIndex)!.push(info);
       }
     }
 
@@ -210,8 +307,9 @@ export class TextureExtractor implements Service {
     };
     this.textureIndex.set(`${terrainType}-${season}`, index);
 
-    // Save index to file for faster startup next time
+    // Save index to file for faster startup next time (version 2 = INI-based)
     const indexData = {
+      version: 2,
       terrainType,
       season,
       seasonName,
@@ -219,7 +317,45 @@ export class TextureExtractor implements Service {
     };
     fs.writeFileSync(indexFile, JSON.stringify(indexData, null, 2));
 
-    console.log(`[TextureExtractor] Extracted ${textureMap.size} textures: ${terrainType}/${seasonName}`);
+    console.log(`[TextureExtractor] Indexed ${textureMap.size} textures using INI mapping: ${terrainType}/${seasonName}`);
+  }
+
+  /**
+   * Build TextureInfo from palette index and filename
+   */
+  private buildTextureInfo(paletteIndex: number, fileName: string, baseDir: string): TextureInfo {
+    // Try to extract terrain type and direction from filename
+    // Pattern: land.128.DryGroundCenter0.bmp or GrassSpecial1.bmp
+    let terrainType = 'Unknown';
+    let direction = 'Center';
+    let variant = 0;
+
+    // Try standard format: land.<index>.<Type><Direction><Variant>.bmp
+    // Types: Grass, MidGrass, DryGround, Water
+    // Directions: Center, NEi, NEo, NWi, NWo, SEi, SEo, SWi, SWo, Ni, No, Si, So, Ei, Eo, Wi, Wo
+    const standardMatch = fileName.match(/^land\.\d+\.(Grass|MidGrass|DryGround|Water)(Center|[NS][EW]?[io])(\d)\.bmp$/i);
+    if (standardMatch) {
+      terrainType = standardMatch[1];
+      direction = standardMatch[2] || 'Center';
+      variant = parseInt(standardMatch[3], 10);
+    } else {
+      // Try special format: <Type>Special<N>.bmp
+      const specialMatch = fileName.match(/^(Grass|MidGrass|DryGround|Water)Special(\d+)\.bmp$/i);
+      if (specialMatch) {
+        terrainType = specialMatch[1];
+        direction = 'Special';
+        variant = parseInt(specialMatch[2], 10);
+      }
+    }
+
+    return {
+      paletteIndex,
+      terrainType,
+      direction,
+      variant,
+      filePath: path.join(baseDir, fileName),
+      fileName
+    };
   }
 
   /**
@@ -236,40 +372,6 @@ export class TextureExtractor implements Service {
         throw error;
       }
     }
-  }
-
-  /**
-   * Parse texture file name to extract metadata
-   * Format: land.<paletteIndex>.<TerrainType><Direction><Variant>.bmp
-   */
-  private parseTextureFileName(fileName: string, baseDir: string): TextureInfo | null {
-    // Pattern: land.128.DryGroundCenter0.bmp
-    const match = fileName.match(/^land\.(\d+)\.(\w+?)([A-Z][a-z]*[io]?)(\d)\.bmp$/);
-
-    if (!match) {
-      // Try alternate pattern without direction: land.0.GrassCenter0.bmp
-      const altMatch = fileName.match(/^land\.(\d+)\.(\w+)(\d)\.bmp$/);
-      if (altMatch) {
-        return {
-          paletteIndex: parseInt(altMatch[1], 10),
-          terrainType: altMatch[2].replace(/\d$/, ''),
-          direction: 'Center',
-          variant: parseInt(altMatch[3], 10),
-          filePath: path.join(baseDir, fileName),
-          fileName
-        };
-      }
-      return null;
-    }
-
-    return {
-      paletteIndex: parseInt(match[1], 10),
-      terrainType: match[2],
-      direction: match[3] || 'Center',
-      variant: parseInt(match[4], 10),
-      filePath: path.join(baseDir, fileName),
-      fileName
-    };
   }
 
   /**

@@ -299,8 +299,11 @@ export class TextureCache {
   }
 
   /**
-   * Apply blue color key transparency to terrain textures
-   * Terrain textures use RGB(0,0,255) as the transparency key color
+   * Apply color key transparency to terrain textures
+   *
+   * Detects the transparency color dynamically by reading the corner pixels
+   * of each texture. Corner pixels are always outside the isometric diamond
+   * shape and contain the chroma key color.
    */
   private async applyColorKeyTransparency(bitmap: ImageBitmap): Promise<ImageBitmap> {
     // Check if OffscreenCanvas is available (not available in Node.js tests)
@@ -323,17 +326,26 @@ export class TextureCache {
     const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
     const data = imageData.data;
 
-    // Blue color key: RGB(0, 0, 255)
-    // Allow small tolerance for compression artifacts
-    const tolerance = 10;
+    // Detect transparency color from corner pixel (top-left corner is always outside the diamond)
+    // Read pixel at (0, 0)
+    const tr = data[0];
+    const tg = data[1];
+    const tb = data[2];
 
+    // Tolerance for color matching (handles compression artifacts)
+    const tolerance = 5;
+
+    // Apply transparency for pixels matching the detected corner color
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
 
-      // Check for blue color key (R≈0, G≈0, B≈255)
-      if (r <= tolerance && g <= tolerance && b >= 255 - tolerance) {
+      if (
+        Math.abs(r - tr) <= tolerance &&
+        Math.abs(g - tg) <= tolerance &&
+        Math.abs(b - tb) <= tolerance
+      ) {
         data[i + 3] = 0; // Set alpha to 0 (fully transparent)
       }
     }
