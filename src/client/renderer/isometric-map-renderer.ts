@@ -1575,7 +1575,8 @@ export class IsometricMapRenderer {
     const screenY = clientY - rect.top;
 
     const mapPos = this.terrainRenderer.screenToMap(screenX, screenY);
-    return { i: Math.floor(mapPos.y), j: Math.floor(mapPos.x) };
+    // mapPos.x = row (i), mapPos.y = column (j) from coordinate-mapper
+    return { i: Math.floor(mapPos.x), j: Math.floor(mapPos.y) };
   }
 
   /**
