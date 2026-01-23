@@ -12,15 +12,15 @@
  *
  * Transparency handling (color keying):
  * Textures are isometric diamond shapes inside square images.
- * The corners outside the diamond use specific "transparency key" colors:
- * - Road* textures: RGB(120, 120, 120)
- * - CountryRoad* textures: RGB(104, 104, 104)
- * - *Bridge* textures: RGB(39, 84, 99)
+ * The corners outside the diamond use "transparency key" colors:
+ * - Road textures: Dynamic detection from corner pixel (0,0)
+ *   Handles various background colors (blue, gray, teal for bridges, etc.)
  * - Building textures: RGB(0, 128, 0) - green background
  */
 
 /**
  * Color key definitions for transparency processing
+ * Used as fallback when dynamic detection isn't applicable
  */
 interface ColorKey {
   r: number;
@@ -29,9 +29,6 @@ interface ColorKey {
 }
 
 const TRANSPARENCY_KEYS: Record<string, ColorKey> = {
-  'Road': { r: 120, g: 120, b: 120 },
-  'CountryRoad': { r: 104, g: 104, b: 104 },
-  'Bridge': { r: 39, g: 84, b: 99 },
   'Building': { r: 0, g: 128, b: 0 },  // Green background for buildings
 };
 
@@ -217,7 +214,12 @@ export class GameObjectTextureCache {
       const blob = await response.blob();
       const rawBitmap = await createImageBitmap(blob);
 
-      // Apply color key transparency based on texture type
+      // Check if this category uses dynamic transparency detection
+      if (this.shouldUseDynamicTransparency(category)) {
+        return this.applyDynamicColorKeyTransparency(rawBitmap);
+      }
+
+      // Apply static color key transparency based on texture type
       const colorKey = this.getColorKeyForTexture(category, name);
       if (colorKey) {
         return this.applyColorKeyTransparency(rawBitmap, colorKey);
@@ -231,31 +233,27 @@ export class GameObjectTextureCache {
   }
 
   /**
+   * Check if a category should use dynamic corner-pixel transparency detection
+   * Dynamic detection reads the corner pixel (0,0) to determine the transparency color,
+   * which handles textures with varying background colors (blue, gray, teal, etc.)
+   */
+  private shouldUseDynamicTransparency(category: TextureCategory): boolean {
+    // Road textures use various background colors (blue, gray, teal for bridges)
+    // Dynamic detection handles all cases automatically
+    return category === 'RoadBlockImages';
+  }
+
+  /**
    * Determine the color key for transparency based on texture category and name
+   * Returns null for categories that should use dynamic detection
    */
   private getColorKeyForTexture(category: TextureCategory, name: string): ColorKey | null {
-    const nameLower = name.toLowerCase();
-
-    if (category === 'RoadBlockImages') {
-      // Check for Bridge textures first (more specific)
-      if (nameLower.includes('bridge')) {
-        return TRANSPARENCY_KEYS['Bridge'];
-      }
-      // CountryRoad textures
-      if (nameLower.startsWith('countryroad')) {
-        return TRANSPARENCY_KEYS['CountryRoad'];
-      }
-      // Regular Road textures
-      if (nameLower.startsWith('road')) {
-        return TRANSPARENCY_KEYS['Road'];
-      }
-    }
-
     if (category === 'BuildingImages') {
       return TRANSPARENCY_KEYS['Building'];
     }
 
-    // No color key for other categories (yet)
+    // No static color key for other categories
+    // RoadBlockImages uses dynamic detection
     return null;
   }
 
@@ -297,6 +295,68 @@ export class GameObjectTextureCache {
         Math.abs(r - colorKey.r) <= tolerance &&
         Math.abs(g - colorKey.g) <= tolerance &&
         Math.abs(b - colorKey.b) <= tolerance
+      ) {
+        data[i + 3] = 0; // Set alpha to 0 (fully transparent)
+      }
+    }
+
+    // Put processed data back
+    ctx.putImageData(imageData, 0, 0);
+
+    // Close the original bitmap to free memory
+    bitmap.close();
+
+    // Create new ImageBitmap from processed canvas
+    return canvas.transferToImageBitmap();
+  }
+
+  /**
+   * Apply dynamic color key transparency to an ImageBitmap
+   * Detects the transparency color by reading the corner pixel (0,0)
+   * which is always outside the isometric diamond shape.
+   *
+   * This handles textures with varying background colors (blue, gray, teal for bridges, etc.)
+   */
+  private async applyDynamicColorKeyTransparency(bitmap: ImageBitmap): Promise<ImageBitmap> {
+    // Check if OffscreenCanvas is available (not available in Node.js tests)
+    if (typeof OffscreenCanvas === 'undefined') {
+      return bitmap;
+    }
+
+    // Create an OffscreenCanvas to process the image
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) {
+      return bitmap;
+    }
+
+    // Draw the original bitmap
+    ctx.drawImage(bitmap, 0, 0);
+
+    // Get pixel data
+    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    const data = imageData.data;
+
+    // Detect transparency color from corner pixel (top-left corner is always outside the diamond)
+    // Read pixel at (0, 0)
+    const tr = data[0];
+    const tg = data[1];
+    const tb = data[2];
+
+    // Tolerance for color matching (handles compression artifacts)
+    const tolerance = 5;
+
+    // Apply transparency for pixels matching the detected corner color
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+
+      if (
+        Math.abs(r - tr) <= tolerance &&
+        Math.abs(g - tg) <= tolerance &&
+        Math.abs(b - tb) <= tolerance
       ) {
         data[i + 3] = 0; // Set alpha to 0 (fully transparent)
       }
