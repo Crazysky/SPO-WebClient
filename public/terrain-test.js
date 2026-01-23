@@ -16,7 +16,6 @@
      * @returns TerrainData with pixel indices and metadata
      */
     async loadMap(mapName) {
-      console.log(`[TerrainLoader] Loading map: ${mapName}`);
       const apiUrl = `/api/map-data/${encodeURIComponent(mapName)}`;
       const response = await fetch(apiUrl);
       if (!response.ok) {
@@ -25,14 +24,11 @@
       }
       const mapFileData = await response.json();
       const { metadata, bmpUrl } = mapFileData;
-      console.log(`[TerrainLoader] Metadata loaded: ${metadata.name} (${metadata.width}\xD7${metadata.height})`);
-      console.log(`[TerrainLoader] BMP URL: ${bmpUrl}`);
       const bmpResponse = await fetch(bmpUrl);
       if (!bmpResponse.ok) {
         throw new Error(`Failed to fetch BMP file: ${bmpResponse.status}`);
       }
       const bmpBuffer = await bmpResponse.arrayBuffer();
-      console.log(`[TerrainLoader] BMP downloaded: ${bmpBuffer.byteLength} bytes`);
       const parsedBmp = this.parseBmp(bmpBuffer);
       if (parsedBmp.width !== metadata.width || parsedBmp.height !== metadata.height) {
         console.warn(`[TerrainLoader] Dimension mismatch: BMP is ${parsedBmp.width}\xD7${parsedBmp.height}, metadata says ${metadata.width}\xD7${metadata.height}`);
@@ -43,7 +39,6 @@
       this.metadata = metadata;
       this.mapName = mapName;
       this.loaded = true;
-      console.log(`[TerrainLoader] Loaded ${mapName}: ${this.width}\xD7${this.height}, ${this.pixelData.length} pixels`);
       return {
         width: this.width,
         height: this.height,
@@ -1166,6 +1161,8 @@
       this.isDragging = false;
       this.lastMouseX = 0;
       this.lastMouseY = 0;
+      // Render debouncing (prevents flickering when multiple chunks become ready)
+      this.pendingRenderRequest = null;
       this.canvas = canvas;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
@@ -1186,7 +1183,6 @@
      * @param mapName - Name of the map (e.g., 'Shamba', 'Antiqua')
      */
     async loadMap(mapName) {
-      console.log(`[IsometricRenderer] Loading map: ${mapName}`);
       const terrainType = getTerrainTypeForMap(mapName);
       this.textureCache.setTerrainType(terrainType);
       await this.fetchAvailableSeasons(terrainType);
@@ -1200,13 +1196,12 @@
         (x, y) => this.terrainLoader.getTextureId(x, y)
       );
       this.chunkCache.setMapDimensions(terrainData.width, terrainData.height);
-      this.chunkCache.setOnChunkReady(() => this.render());
+      this.chunkCache.setOnChunkReady(() => this.requestRender());
       this.cameraI = Math.floor(terrainData.height / 2);
       this.cameraJ = Math.floor(terrainData.width / 2);
       this.updateOrigin();
       this.mapName = mapName;
       this.loaded = true;
-      console.log(`[IsometricRenderer] Map loaded: ${terrainData.width}\xD7${terrainData.height}`);
       this.render();
       return terrainData;
     }
@@ -1225,7 +1220,6 @@
         const info = await response.json();
         this.availableSeasons = info.availableSeasons;
         if (!info.availableSeasons.includes(this.season)) {
-          console.log(`[IsometricRenderer] Season ${this.season} not available for ${terrainType}, switching to ${info.defaultSeason}`);
           this.season = info.defaultSeason;
           this.textureCache.setSeason(info.defaultSeason);
           this.chunkCache?.clearAll();
@@ -1250,6 +1244,19 @@
         x: cameraScreenX - this.canvas.width / 2,
         y: cameraScreenY - this.canvas.height / 2
       };
+    }
+    /**
+     * Request a render (debounced via requestAnimationFrame)
+     * This prevents flickering when multiple chunks become ready simultaneously
+     */
+    requestRender() {
+      if (this.pendingRenderRequest !== null) {
+        return;
+      }
+      this.pendingRenderRequest = requestAnimationFrame(() => {
+        this.pendingRenderRequest = null;
+        this.render();
+      });
     }
     /**
      * Main render loop

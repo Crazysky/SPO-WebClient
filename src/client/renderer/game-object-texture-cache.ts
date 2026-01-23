@@ -71,8 +71,18 @@ export class GameObjectTextureCache {
   private misses: number = 0;
   private evictions: number = 0;
 
+  // Callback for texture load events
+  private onTextureLoadedCallback?: (category: TextureCategory, name: string) => void;
+
   constructor(maxSize: number = 500) {
     this.maxSize = maxSize;
+  }
+
+  /**
+   * Set callback to be notified when textures are loaded
+   */
+  setOnTextureLoaded(callback: (category: TextureCategory, name: string) => void): void {
+    this.onTextureLoadedCallback = callback;
   }
 
   /**
@@ -176,6 +186,11 @@ export class GameObjectTextureCache {
 
       // Evict if over capacity
       this.evictIfNeeded();
+
+      // Notify callback if texture loaded successfully
+      if (texture && this.onTextureLoadedCallback) {
+        this.onTextureLoadedCallback(category, name);
+      }
 
       return texture;
     } catch (error) {
@@ -392,18 +407,20 @@ export class GameObjectTextureCache {
     }
 
     if (count === 2) {
-      // Straight or corner
+      // Straight roads
       if (hasNorth && hasSouth) return 'Roadvert';
       if (hasEast && hasWest) return 'Roadhorz';
 
-      // Corners
-      if (hasNorth && hasEast) return 'RoadcornerE';
-      if (hasEast && hasSouth) return 'RoadcornerS';
-      if (hasSouth && hasWest) return 'RoadcornerW';
-      if (hasWest && hasNorth) return 'RoadcornerN';
+      // Corners - follow official client logic:
+      // Corner name indicates the direction the road "turns towards"
+      // In isometric view, this creates diagonal staircase patterns
+      if (hasNorth && hasEast) return 'RoadcornerE';  // Turns towards East
+      if (hasEast && hasSouth) return 'RoadcornerS';  // Turns towards South
+      if (hasSouth && hasWest) return 'RoadcornerW';  // Turns towards West
+      if (hasWest && hasNorth) return 'RoadcornerN';  // Turns towards North
     }
 
-    // Single connection or no connections - default to horizontal
+    // Single connection or no connections - default to vertical
     if (hasNorth || hasSouth) return 'Roadvert';
     return 'Roadhorz';
   }

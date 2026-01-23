@@ -148,10 +148,18 @@ export class IsometricMapRenderer {
     // Create game object texture cache (roads, buildings, etc.)
     this.gameObjectTextureCache = new GameObjectTextureCache(500);
 
+    // Setup callback to re-render when road textures are loaded
+    this.gameObjectTextureCache.setOnTextureLoaded((category, name) => {
+      if (category === 'RoadBlockImages') {
+        // Re-render when road textures become available
+        this.render();
+      }
+    });
+
     // Create road rendering system (max map size 2000x2000)
     this.roadSystem = new RoadRendererSystem(2000, 2000);
 
-    // Preload common road textures
+    // Preload common road textures (async, will trigger re-render via callback)
     this.preloadRoadTextures();
 
     // Setup event handlers
@@ -163,8 +171,9 @@ export class IsometricMapRenderer {
 
   /**
    * Preload common road textures for faster rendering
+   * Returns a promise that resolves when all textures are loaded
    */
-  private preloadRoadTextures(): void {
+  private async preloadRoadTextures(): Promise<void> {
     const roadTextures = [
       'Roadhorz.bmp',
       'Roadvert.bmp',
@@ -178,7 +187,7 @@ export class IsometricMapRenderer {
       'RoadTS.bmp',
       'RoadTW.bmp'
     ];
-    this.gameObjectTextureCache.preload('RoadBlockImages', roadTextures);
+    await this.gameObjectTextureCache.preload('RoadBlockImages', roadTextures);
   }
 
   // =========================================================================

@@ -3,14 +3,21 @@
  *
  * Utilise les variables d'environnement avec des valeurs par défaut.
  * Permet de configurer facilement dev/prod et mock_srv.
+ *
+ * Browser-safe: Vérifie l'existence de process avant de l'utiliser.
  */
+
+// Helper pour accéder à process.env de manière sécurisée (browser-safe)
+const getEnv = (key: string): string | undefined => {
+  return typeof process !== 'undefined' && process.env ? process.env[key] : undefined;
+};
 
 export const config = {
   /**
    * Configuration du serveur WebSocket
    */
   server: {
-    port: Number(process.env.PORT) || 8080,
+    port: Number(getEnv('PORT')) || 8080,
   },
 
   /**
@@ -18,7 +25,7 @@ export const config = {
    */
   rdo: {
     // Host du serveur Directory (utiliser 'localhost' pour mock_srv et www.starpeaceonline.com pour la production.)
-    directoryHost: process.env.RDO_DIR_HOST || 'localhost',
+    directoryHost: getEnv('RDO_DIR_HOST') || 'localhost',
 
     // Ports standards du protocole
     ports: {
@@ -31,8 +38,8 @@ export const config = {
    */
   logging: {
     // Niveaux: 'debug' | 'info' | 'warn' | 'error'
-    level: (process.env.LOG_LEVEL as string) || 'info',
-    colorize: process.env.NODE_ENV !== 'production',
+    level: getEnv('LOG_LEVEL') || 'info',
+    colorize: getEnv('NODE_ENV') !== 'production',
   },
 };
 

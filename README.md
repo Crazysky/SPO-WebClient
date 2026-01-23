@@ -12,6 +12,7 @@ This project provides a web-based client that communicates with legacy Starpeace
   - 4 zoom levels (4×8, 8×16, 16×32, 32×64 pixels per tile)
   - Authentic terrain textures loaded from original game files
   - Layered rendering: terrain, roads, buildings, zone overlays, placement previews
+  - Advanced road rendering with 16 topology types (corners, T-junctions, intersections) and 11 surface types (land, urban, bridges)
   - Smooth pan and zoom controls
 - **Road Building:** Draw horizontal, vertical, and diagonal road segments with visual preview and cost estimation
 - **Public Office Roles:** Support for Mayor, Minister, and President roles with automatic company switching

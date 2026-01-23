@@ -84,6 +84,9 @@ export class IsometricTerrainRenderer {
   private lastMouseX: number = 0;
   private lastMouseY: number = 0;
 
+  // Render debouncing (prevents flickering when multiple chunks become ready)
+  private pendingRenderRequest: number | null = null;
+
   constructor(canvas: HTMLCanvasElement, options?: { disableMouseControls?: boolean }) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d');
@@ -134,7 +137,7 @@ export class IsometricTerrainRenderer {
       (x, y) => this.terrainLoader.getTextureId(x, y)
     );
     this.chunkCache.setMapDimensions(terrainData.width, terrainData.height);
-    this.chunkCache.setOnChunkReady(() => this.render());
+    this.chunkCache.setOnChunkReady(() => this.requestRender());
 
     // Center camera on map
     this.cameraI = Math.floor(terrainData.height / 2);
@@ -208,6 +211,22 @@ export class IsometricTerrainRenderer {
       x: cameraScreenX - this.canvas.width / 2,
       y: cameraScreenY - this.canvas.height / 2
     };
+  }
+
+  /**
+   * Request a render (debounced via requestAnimationFrame)
+   * This prevents flickering when multiple chunks become ready simultaneously
+   */
+  private requestRender(): void {
+    if (this.pendingRenderRequest !== null) {
+      // Render already scheduled for next frame
+      return;
+    }
+
+    this.pendingRenderRequest = requestAnimationFrame(() => {
+      this.pendingRenderRequest = null;
+      this.render();
+    });
   }
 
   /**
