@@ -2313,34 +2313,38 @@ private handlePush(socketName: string, packet: RdoPacket) {
   // =========================================================================
 
   /**
-   * Send RDOEndSession to gracefully close the game server session
+   * Send Logoff to gracefully close the game server session
    * Should be called before destroy() when user logs out
-   * RDO Command: C <RID> sel <worldContextId> call RDOEndSession "*" ;
+   * RDO Command: C <RID> sel <interfaceServerId> call Logoff "*" ;
+   * Schedules socket closure 2 seconds after Logoff is sent
    */
   public async endSession(): Promise<void> {
-    if (!this.worldContextId) {
-      console.log('[Session] No active world session to end');
+    if (!this.interfaceServerId) {
+      console.log('[Session] No active world session to end (no interfaceServerId)');
       return;
     }
 
-    console.log(`[Session] Ending session for worldContextId: ${this.worldContextId}`);
+    console.log(`[Session] Ending session for interfaceServerId: ${this.interfaceServerId}`);
 
-    // Build RDOEndSession command
-    const endSessionCmd = RdoCommand.sel(this.worldContextId)
-      .call('RDOEndSession')
+    // Build Logoff command (same target as Logon)
+    const logoffCmd = RdoCommand.sel(this.interfaceServerId)
+      .call('Logoff')
       .push()
       .build();
 
-    // Send to all active world sockets
+    // Send to all active world sockets and schedule delayed closure
     const worldSocketNames = ['world', 'construction'];
     for (const socketName of worldSocketNames) {
       const socket = this.sockets.get(socketName);
       if (socket && !socket.destroyed) {
         try {
-          socket.write(endSessionCmd);
-          console.log(`[Session] Sent RDOEndSession to ${socketName} socket`);
+          socket.write(logoffCmd);
+          console.log(`[Session] Sent Logoff to ${socketName} socket`);
+
+          // Schedule socket closure 2 seconds after Logoff
+          this.scheduleSocketClosure(socketName, socket, 2000);
         } catch (err) {
-          console.error(`[Session] Error sending RDOEndSession to ${socketName}:`, err);
+          console.error(`[Session] Error sending Logoff to ${socketName}:`, err);
         }
       }
     }
@@ -2348,7 +2352,34 @@ private handlePush(socketName: string, packet: RdoPacket) {
     // Small delay to allow the command to be sent before cleanup
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    console.log('[Session] Session ended successfully');
+    console.log('[Session] Session ended successfully (sockets will close in 2 seconds)');
+  }
+
+  /**
+   * Schedule a socket to be closed after a delay
+   * @param socketName Name identifier for logging
+   * @param socket The TCP socket to close
+   * @param delayMs Delay in milliseconds before closing
+   */
+  private scheduleSocketClosure(socketName: string, socket: net.Socket, delayMs: number): void {
+    setTimeout(() => {
+      if (!socket.destroyed) {
+        console.log(`[Session] Closing ${socketName} socket after ${delayMs}ms delay`);
+        try {
+          socket.end(); // Graceful close
+          // Force destroy after another second if still open
+          setTimeout(() => {
+            if (!socket.destroyed) {
+              console.log(`[Session] Force destroying ${socketName} socket`);
+              socket.destroy();
+            }
+          }, 1000);
+        } catch (err) {
+          console.error(`[Session] Error closing ${socketName} socket:`, err);
+          socket.destroy();
+        }
+      }
+    }, delayMs);
   }
 
   /**

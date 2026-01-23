@@ -1026,6 +1026,17 @@ export class StarpeaceClient {
       return;
     }
 
+    // Validate road path before sending to server
+    const renderer = this.ui.mapNavigationUI?.getRenderer();
+    if (renderer) {
+      const validation = renderer.validateRoadPath(x1, y1, x2, y2);
+      if (!validation.valid) {
+        this.ui.log('Road', `Cannot build road: ${validation.error}`);
+        this.showNotification(validation.error || 'Invalid road placement', 'error');
+        return;
+      }
+    }
+
     this.isBuildingRoad = true;
     this.ui.log('Road', `Building road from (${x1}, ${y1}) to (${x2}, ${y2})...`);
 
@@ -1387,7 +1398,7 @@ export class StarpeaceClient {
   // =========================================================================
 
   /**
-   * Logout from the game - sends RDOEndSession to server
+   * Logout from the game - sends Logoff to server
    * Called when user clicks logout button
    */
   public async logout(): Promise<void> {

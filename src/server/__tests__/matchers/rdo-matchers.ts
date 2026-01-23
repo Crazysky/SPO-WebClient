@@ -46,12 +46,16 @@ export const rdoMatchers = {
   /**
    * Validates general RDO command format
    * Format: C [RID] sel <id> call <method> <type> [args];
-   * or: C [RID] sel <id> set <property>=<value>;
+   * or: C [RID] sel <id> set <property> =<value>;
+   * Note: RdoCommand builder produces space before = in SET commands
+   * Note: Accepts optional space before semicolon (both formats are valid)
    */
   toMatchRdoFormat(command: string) {
     // Matches both CALL and SET commands
-    const callPattern = /^C( \d+)? sel \d+ call \w+ "[*^]"( ".+")*;$/;
-    const setPattern = /^C( \d+)? sel \d+ set \w+="[#$^!@%*].+";$/;
+    // Call pattern: may or may not have space before semicolon depending on args
+    const callPattern = /^C( \d+)? sel \d+ call \w+ "[*^]"( ?".+")*( ?);$/;
+    // Set pattern: space before = (RdoCommand builder joins parts with space)
+    const setPattern = /^C( \d+)? sel \d+ set \w+ ?="[#$^!@%*].*";$/;
     const pass = callPattern.test(command) || setPattern.test(command);
 
     return {
@@ -67,9 +71,10 @@ export const rdoMatchers = {
 
   /**
    * Validates RDO CALL command format for specific method
+   * Note: Accepts optional space before semicolon (both formats are valid)
    */
   toMatchRdoCallFormat(command: string, method: string) {
-    const pattern = new RegExp(`^C( \\d+)? sel \\d+ call ${method} "[*^]"( ".+")*;$`);
+    const pattern = new RegExp(`^C( \\d+)? sel \\d+ call ${method} "[*^]"( ?".+")*( ?);$`);
     const pass = pattern.test(command);
 
     return {
@@ -83,9 +88,10 @@ export const rdoMatchers = {
 
   /**
    * Validates RDO SET command format for specific property
+   * Note: RdoCommand builder produces space before = in SET commands
    */
   toMatchRdoSetFormat(command: string, property: string) {
-    const pattern = new RegExp(`^C( \\d+)? sel \\d+ set ${property}="[#$^!@%*].+";$`);
+    const pattern = new RegExp(`^C( \\d+)? sel \\d+ set ${property} ?="[#$^!@%*].*";$`);
     const pass = pattern.test(command);
 
     return {

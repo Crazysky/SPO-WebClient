@@ -632,11 +632,12 @@ wss.on('connection', (ws: WebSocket) => {
 
   ws.on('close', async () => {
     console.log('[Gateway] Client Disconnected');
-    // Send RDOEndSession before cleanup to gracefully close game server session
+    // Send Logoff before cleanup to gracefully close game server session
+    // Note: endSession() schedules socket closure 2 seconds after Logoff
     try {
       await spSession.endSession();
     } catch (err) {
-      console.error('[Gateway] Error sending EndSession on close:', err);
+      console.error('[Gateway] Error sending Logoff on close:', err);
     }
     spSession.destroy();
   });
@@ -1571,7 +1572,7 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
         console.log('[Gateway] Processing logout request');
 
         try {
-          // Send RDOEndSession to gracefully close game server session
+          // Send Logoff to gracefully close game server session
           await session.endSession();
 
           const response: WsRespLogout = {

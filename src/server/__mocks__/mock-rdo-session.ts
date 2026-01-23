@@ -300,7 +300,25 @@ export class MockRdoSession {
   }
 
   /**
-   * Simulates RDOEndSession command
+   * Simulates Logoff command (replaces RDOEndSession)
+   * Uses interfaceServerId (same target as Logon)
+   */
+  async simulateLogoff(interfaceServerId: number): Promise<string> {
+    const rid = this.getNextRequestId();
+    const cmd = RdoCommand
+      .sel(interfaceServerId)
+      .withRequestId(rid)
+      .call('Logoff')
+      .args()
+      .build();
+
+    this.send(cmd);
+    return cmd;
+  }
+
+  /**
+   * @deprecated Use simulateLogoff instead
+   * Simulates RDOEndSession command (kept for backward compatibility with directory sessions)
    */
   async simulateEndSession(worldContextId: number): Promise<string> {
     const rid = this.getNextRequestId();

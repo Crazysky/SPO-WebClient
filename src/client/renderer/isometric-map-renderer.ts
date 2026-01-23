@@ -356,6 +356,59 @@ export class IsometricMapRenderer {
   }
 
   /**
+   * Check if a tile is adjacent to an existing road (including diagonal adjacency)
+   * Returns true if any of the 8 surrounding tiles has a road
+   */
+  private isAdjacentToRoad(x: number, y: number): boolean {
+    const neighbors = [
+      { x: x - 1, y: y },     // West
+      { x: x + 1, y: y },     // East
+      { x: x, y: y - 1 },     // North
+      { x: x, y: y + 1 },     // South
+      { x: x - 1, y: y - 1 }, // NW
+      { x: x + 1, y: y - 1 }, // NE
+      { x: x - 1, y: y + 1 }, // SW
+      { x: x + 1, y: y + 1 }  // SE
+    ];
+
+    return neighbors.some(n => this.hasRoadAt(n.x, n.y));
+  }
+
+  /**
+   * Check if a road path connects to existing roads
+   * Returns true if:
+   * - Any tile of the path is adjacent to an existing road, OR
+   * - No roads exist yet (first road on map)
+   */
+  public checkRoadPathConnectsToExisting(pathTiles: Point[]): boolean {
+    // If no roads exist, any road can be built (first road)
+    if (this.roadTilesMap.size === 0) {
+      return true;
+    }
+
+    // Check if any tile of the path connects to existing roads
+    for (const tile of pathTiles) {
+      // Check if this tile is adjacent to an existing road
+      if (this.isAdjacentToRoad(tile.x, tile.y)) {
+        return true;
+      }
+      // Also check if the tile itself overlaps with an existing road (extending from endpoint)
+      if (this.hasRoadAt(tile.x, tile.y)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Get the number of existing road tiles (for checking if any roads exist)
+   */
+  public getRoadTileCount(): number {
+    return this.roadTilesMap.size;
+  }
+
+  /**
    * Fetch facility dimensions for buildings and preload their textures
    */
   private async fetchDimensionsForBuildings(buildings: MapBuilding[]) {
@@ -559,6 +612,36 @@ export class IsometricMapRenderer {
 
   public setOnRoadDrawingCancel(callback: () => void) {
     this.onCancelRoadDrawing = callback;
+  }
+
+  /**
+   * Validate if a road can be built between two points
+   * Returns an object with valid flag and optional error message
+   */
+  public validateRoadPath(x1: number, y1: number, x2: number, y2: number): { valid: boolean; error?: string } {
+    // Generate the staircase path
+    const pathTiles = this.generateStaircasePath(x1, y1, x2, y2);
+
+    // Check for building collisions
+    for (const tile of pathTiles) {
+      for (const building of this.allBuildings) {
+        const dims = this.facilityDimensionsCache.get(building.visualClass);
+        const bw = dims?.xsize || 1;
+        const bh = dims?.ysize || 1;
+
+        if (tile.x >= building.x && tile.x < building.x + bw &&
+            tile.y >= building.y && tile.y < building.y + bh) {
+          return { valid: false, error: 'Road blocked by building' };
+        }
+      }
+    }
+
+    // Check if road connects to existing roads
+    if (!this.checkRoadPathConnectsToExisting(pathTiles)) {
+      return { valid: false, error: 'Road must connect to existing road network' };
+    }
+
+    return { valid: true };
   }
 
   // =========================================================================
@@ -1089,9 +1172,12 @@ export class IsometricMapRenderer {
 
   /**
    * Draw road drawing preview
+   * Shows either:
+   * - A hover indicator for the current tile (when not drawing)
+   * - The full path preview (when drawing/dragging)
    */
   private drawRoadDrawingPreview() {
-    if (!this.roadDrawingMode || !this.roadDrawingState.isDrawing) return;
+    if (!this.roadDrawingMode) return;
 
     const ctx = this.ctx;
     const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
@@ -1099,14 +1185,20 @@ export class IsometricMapRenderer {
     const halfHeight = config.tileHeight / 2;
     const state = this.roadDrawingState;
 
+    // If not drawing, show hover preview for current mouse tile
+    if (!state.isDrawing) {
+      this.drawRoadHoverIndicator(ctx, config, halfWidth, halfHeight);
+      return;
+    }
+
     // Generate staircase path
     const pathTiles = this.generateStaircasePath(
       state.startX, state.startY,
       state.endX, state.endY
     );
 
-    // Check for collisions along path
-    let hasCollision = false;
+    // Check for collisions along path (buildings)
+    let hasBuildingCollision = false;
     for (const tile of pathTiles) {
       for (const building of this.allBuildings) {
         const dims = this.facilityDimensionsCache.get(building.visualClass);
@@ -1115,15 +1207,21 @@ export class IsometricMapRenderer {
 
         if (tile.x >= building.x && tile.x < building.x + bw &&
             tile.y >= building.y && tile.y < building.y + bh) {
-          hasCollision = true;
+          hasBuildingCollision = true;
           break;
         }
       }
-      if (hasCollision) break;
+      if (hasBuildingCollision) break;
     }
 
-    const fillColor = hasCollision ? 'rgba(255, 100, 100, 0.5)' : 'rgba(100, 200, 100, 0.5)';
-    const strokeColor = hasCollision ? '#ff4444' : '#88ff88';
+    // Check if road connects to existing roads (or is first road)
+    const connectsToRoad = this.checkRoadPathConnectsToExisting(pathTiles);
+    const hasConnectionError = !connectsToRoad;
+
+    // Determine colors based on validation
+    const hasError = hasBuildingCollision || hasConnectionError;
+    const fillColor = hasError ? 'rgba(255, 100, 100, 0.5)' : 'rgba(100, 200, 100, 0.5)';
+    const strokeColor = hasError ? '#ff4444' : '#88ff88';
 
     // Draw path tiles
     for (const tile of pathTiles) {
@@ -1144,19 +1242,112 @@ export class IsometricMapRenderer {
       ctx.stroke();
     }
 
-    // Draw cost tooltip
+    // Draw cost tooltip (expanded to show connection status)
     const endPos = this.terrainRenderer.mapToScreen(state.endY, state.endX);
     const tileCount = pathTiles.length;
     const cost = tileCount * this.roadCostPerTile;
 
+    // Determine error message
+    let errorMessage = '';
+    if (hasBuildingCollision) {
+      errorMessage = 'Blocked by building';
+    } else if (hasConnectionError) {
+      errorMessage = 'Must connect to road';
+    }
+
+    const tooltipHeight = errorMessage ? 55 : 40;
     ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-    ctx.fillRect(endPos.x + 10, endPos.y - 30, 140, 40);
+    ctx.fillRect(endPos.x + 10, endPos.y - 30, 160, tooltipHeight);
 
     ctx.fillStyle = '#fff';
     ctx.font = '11px monospace';
     ctx.textAlign = 'left';
     ctx.fillText(`Tiles: ${tileCount}`, endPos.x + 20, endPos.y - 12);
     ctx.fillText(`Cost: $${cost.toLocaleString()}`, endPos.x + 20, endPos.y + 4);
+
+    if (errorMessage) {
+      ctx.fillStyle = '#ff6666';
+      ctx.fillText(`⚠ ${errorMessage}`, endPos.x + 20, endPos.y + 20);
+    }
+  }
+
+  /**
+   * Draw hover indicator for road drawing start point
+   * Shows a highlighted tile where the road will start when user clicks
+   */
+  private drawRoadHoverIndicator(
+    ctx: CanvasRenderingContext2D,
+    config: { tileWidth: number; tileHeight: number },
+    halfWidth: number,
+    halfHeight: number
+  ) {
+    const x = this.mouseMapJ;
+    const y = this.mouseMapI;
+
+    // Check if this tile connects to existing roads (or is first road)
+    const connectsToRoad = this.checkRoadPathConnectsToExisting([{ x, y }]);
+    const hasExistingRoad = this.hasRoadAt(x, y);
+
+    // Check for building collision at this tile
+    let hasBuildingCollision = false;
+    for (const building of this.allBuildings) {
+      const dims = this.facilityDimensionsCache.get(building.visualClass);
+      const bw = dims?.xsize || 1;
+      const bh = dims?.ysize || 1;
+
+      if (x >= building.x && x < building.x + bw &&
+          y >= building.y && y < building.y + bh) {
+        hasBuildingCollision = true;
+        break;
+      }
+    }
+
+    // Determine color based on validity
+    const isValid = !hasBuildingCollision && (connectsToRoad || hasExistingRoad);
+    const fillColor = isValid ? 'rgba(100, 200, 255, 0.4)' : 'rgba(255, 150, 100, 0.4)';
+    const strokeColor = isValid ? '#66ccff' : '#ff9966';
+
+    // Draw the tile
+    const screenPos = this.terrainRenderer.mapToScreen(y, x);
+
+    ctx.beginPath();
+    ctx.moveTo(screenPos.x, screenPos.y);
+    ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
+    ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
+    ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
+    ctx.closePath();
+
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Draw tooltip with info
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.fillRect(screenPos.x + 15, screenPos.y - 25, 180, 45);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Tile: (${x}, ${y})`, screenPos.x + 25, screenPos.y - 8);
+
+    // Show status
+    const roadTileCount = this.roadTilesMap.size;
+    if (hasBuildingCollision) {
+      ctx.fillStyle = '#ff6666';
+      ctx.fillText('Blocked by building', screenPos.x + 25, screenPos.y + 8);
+    } else if (roadTileCount === 0) {
+      ctx.fillStyle = '#66ff66';
+      ctx.fillText('Click to start first road', screenPos.x + 25, screenPos.y + 8);
+    } else if (connectsToRoad || hasExistingRoad) {
+      ctx.fillStyle = '#66ff66';
+      ctx.fillText('Click to start drawing', screenPos.x + 25, screenPos.y + 8);
+    } else {
+      ctx.fillStyle = '#ff6666';
+      ctx.fillText(`Must connect to road (${roadTileCount} tiles)`, screenPos.x + 25, screenPos.y + 8);
+    }
   }
 
   /**
@@ -1205,7 +1396,7 @@ export class IsometricMapRenderer {
     ctx.fillStyle = '#fff';
     ctx.font = '11px monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`Buildings: ${this.allBuildings.length} | Roads: ${this.allSegments.length}`, 20, this.canvas.height - 32);
+    ctx.fillText(`Buildings: ${this.allBuildings.length} | Segments: ${this.allSegments.length} | Road tiles: ${this.roadTilesMap.size}`, 20, this.canvas.height - 32);
     ctx.fillText(`Zones: ${this.cachedZones.size} | Mouse: (${this.mouseMapJ}, ${this.mouseMapI})`, 20, this.canvas.height - 16);
   }
 

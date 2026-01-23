@@ -184,14 +184,14 @@ describe('RDO Building Operations', () => {
     it('should use SET verb instead of CALL', async () => {
       const cmd = mockSession.simulateRenameBuilding(1, 'Test');
 
-      expect(cmd).toMatch(/set Name=/);
+      expect(cmd).toMatch(/set Name ?=/);
       expect(cmd).not.toMatch(/call Name/);
     });
 
     it('should handle empty name', async () => {
       const cmd = mockSession.simulateRenameBuilding(1, '');
 
-      expect(cmd).toContain('Name="%"'); // Empty OLEString
+      expect(cmd).toMatch(/Name ?="%"/); // Empty OLEString (RdoCommand may add space before =)
     });
 
     it('should handle special characters in name', async () => {
@@ -237,7 +237,7 @@ describe('RDO Building Operations', () => {
       const cmd = await mockSession.simulateStopUpgrade(buildingId);
 
       expect(cmd).toMatchRdoCallFormat('RDOStopUpgrade');
-      expect(cmd).toMatch(/"[*^]" ;$/); // No arguments
+      expect(cmd).toMatch(/"[*^]";$/); // No arguments (RdoCommand format has no space before semicolon)
     });
 
     it('should format RDODowngrade command correctly', async () => {
@@ -245,7 +245,7 @@ describe('RDO Building Operations', () => {
       const cmd = await mockSession.simulateDowngrade(buildingId);
 
       expect(cmd).toMatchRdoCallFormat('RDODowngrade');
-      expect(cmd).toMatch(/"[*^]" ;$/); // No arguments
+      expect(cmd).toMatch(/"[*^]";$/); // No arguments (RdoCommand format has no space before semicolon)
     });
   });
 

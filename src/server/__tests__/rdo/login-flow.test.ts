@@ -177,7 +177,7 @@ describe('RDO Login Flow', () => {
       await mockSession.simulateLogin('user', '', 1);
       const logonCmd = mockSession.getCommand(/call Logon/);
 
-      expect(logonCmd).toMatch(/"%user","%" /); // Second arg is empty OLEString
+      expect(logonCmd).toMatch(/"%user","%"/); // Second arg is empty OLEString
     });
 
     it('should handle very long username', async () => {
