@@ -1458,7 +1458,7 @@ Provide:
     - `WsReqLogout` and `WsRespLogout` interfaces
   - **Server-side Session:** [src/server/spo_session.ts](src/server/spo_session.ts)
     - `endSession()` method sends RDOEndSession to all active world sockets
-    - RDO command: `C sel <worldContextId> call RDOEndSession "*" ;`
+    - RDO command: `C sel <interfaceServerId> call RDOEndSession "*" ;`
     - Sends to both `world` and `construction` sockets if connected
   - **Gateway Handler:** [src/server/server.ts](src/server/server.ts)
     - `REQ_LOGOUT` message handler calls `session.endSession()` then closes WebSocket
@@ -1474,7 +1474,7 @@ Provide:
   - **CSS Styling:** [public/design-system.css](public/design-system.css)
     - Red hover effect for logout button
     - Visual separator from other toolbar buttons
-- **RDO Protocol Format:** `C sel <worldContextId> call RDOEndSession "*" ;`
+- **RDO Protocol Format:** `C sel <interfaceServerId> call RDOEndSession "*" ;`
 - **Triggers:**
   1. User clicks logout button → `REQ_LOGOUT` → `endSession()` → WebSocket closed
   2. User closes browser/tab → `beforeunload` → `REQ_LOGOUT` → `endSession()`

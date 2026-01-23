@@ -25,7 +25,7 @@ export const config = {
    */
   rdo: {
     // Host du serveur Directory (utiliser 'localhost' pour mock_srv et www.starpeaceonline.com pour la production.)
-    directoryHost: getEnv('RDO_DIR_HOST') || 'localhost',
+    directoryHost: getEnv('RDO_DIR_HOST') || 'www.starpeaceonline.com',
 
     // Ports standards du protocole
     ports: {

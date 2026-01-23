@@ -1,7 +1,7 @@
 // @ts-nocheck
 /**
  * RDO Protocol Tests - Company Selection and Session Management
- * Tests for SelectCompany and Logoff commands
+ * Tests for SelectCompany and RDOEndSession commands
  */
 
 /// <reference path="../matchers/rdo-matchers.d.ts" />
@@ -106,13 +106,13 @@ describe('RDO Company and Session Management', () => {
     });
   });
 
-  describe('Logoff Command', () => {
-    it('should format Logoff command correctly', async () => {
+  describe('RDOEndSession Command', () => {
+    it('should format RDOEndSession command correctly', async () => {
       const interfaceServerId = 6892548;
 
-      const cmd = await mockSession.simulateLogoff(interfaceServerId);
+      const cmd = await mockSession.simulateEndSession(interfaceServerId);
 
-      expect(cmd).toMatchRdoCallFormat('Logoff');
+      expect(cmd).toMatchRdoCallFormat('RDOEndSession');
       expect(cmd).toContain(`sel ${interfaceServerId}`);
     });
 
@@ -120,85 +120,79 @@ describe('RDO Company and Session Management', () => {
       const interfaceServerId = 6892548; // Static, same as Logon target
       const worldContextId = 125086508; // From Logon response
 
-      const cmd = await mockSession.simulateLogoff(interfaceServerId);
+      const cmd = await mockSession.simulateEndSession(interfaceServerId);
 
       expect(cmd).toContain(`sel ${interfaceServerId}`);
       expect(cmd).not.toContain(`sel ${worldContextId}`);
     });
 
     it('should have no arguments', async () => {
-      const cmd = await mockSession.simulateLogoff(1);
+      const cmd = await mockSession.simulateEndSession(1);
 
       // Command should end with "^"; (no arguments)
       // Note: RdoCommand format is "^"; without space before semicolon
       expect(cmd).toMatch(/"[*^]";$/);
     });
 
-    it('should use method separator (^) for Logoff', async () => {
-      const cmd = await mockSession.simulateLogoff(1);
+    it('should use method separator (^) for RDOEndSession', async () => {
+      const cmd = await mockSession.simulateEndSession(1);
 
       expect(cmd).toContain('"^"');
     });
   });
 
   describe('Logout Flow', () => {
-    it('should send Logoff before disconnect', async () => {
+    it('should send RDOEndSession before disconnect', async () => {
       // Simulate login
       await mockSession.simulateLogin('user', 'pass', 1);
 
       // Simulate session work...
       await mockSession.simulateBuildingFocus(1, 10, 20);
 
-      // Logout - send Logoff
+      // Logout - send RDOEndSession
       const interfaceServerId = 6892548;
-      await mockSession.simulateLogoff(interfaceServerId);
+      await mockSession.simulateEndSession(interfaceServerId);
 
       const commands = mockSession.getCommandHistory();
 
-      // Last command should be Logoff
+      // Last command should be RDOEndSession
       const lastCmd = commands[commands.length - 1];
-      expect(lastCmd).toMatchRdoCallFormat('Logoff');
+      expect(lastCmd).toMatchRdoCallFormat('RDOEndSession');
     });
 
-    it('should send Logoff to all active sockets', async () => {
-      // In real scenario, session has multiple sockets (world, construction)
-      // Mock sending to both
-
+    it('should send RDOEndSession to world socket only', async () => {
       const interfaceServerId = 6892548;
 
       // End session on world socket
-      await mockSession.simulateLogoff(interfaceServerId);
-
-      // End session on construction socket (if connected)
-      await mockSession.simulateLogoff(interfaceServerId);
+      await mockSession.simulateEndSession(interfaceServerId);
 
       const commands = mockSession.getCommandHistory();
 
-      // Should have 2 Logoff commands
-      const logoffCmds = commands.filter(cmd => cmd.includes('Logoff'));
-      expect(logoffCmds).toHaveLength(2);
+      // Should have 1 RDOEndSession command (world socket only)
+      const endSessionCmds = commands.filter(cmd => cmd.includes('RDOEndSession'));
+      expect(endSessionCmds).toHaveLength(1);
     });
   });
 
   describe('Session ID Management', () => {
-    it('should use static interfaceServerId for Logoff (same as Logon target)', async () => {
+    it('should use static interfaceServerId for RDOEndSession (same as Logon target)', async () => {
       // interfaceServerId is static per world, same target as Logon
       const interfaceServerId = 6892548;
 
-      await mockSession.simulateLogoff(interfaceServerId);
+      await mockSession.simulateEndSession(interfaceServerId);
 
-      const cmd = mockSession.getCommand(/Logoff/);
+      const cmd = mockSession.getCommand(/RDOEndSession/);
       expect(cmd).toContain(`sel ${interfaceServerId}`);
     });
 
-    it('should use worldContextId for building operations, interfaceServerId for Logoff', async () => {
-      const interfaceServerId = 6892548; // Static per world, used for Logon/Logoff
+    it('should use worldContextId for building operations, interfaceServerId for RDOEndSession', async () => {
+      const interfaceServerId = 6892548; // Static per world, used for Logon/RDOEndSession
       const worldContextId = 125086508; // Dynamic per session, used for building ops
 
       // Building operations use worldContextId
       await mockSession.simulateBuildingFocus(worldContextId, 10, 20);
-      // Logoff uses interfaceServerId (same as Logon)
-      await mockSession.simulateLogoff(interfaceServerId);
+      // RDOEndSession uses interfaceServerId (same as Logon)
+      await mockSession.simulateEndSession(interfaceServerId);
 
       const commands = mockSession.getCommandHistory();
 
@@ -206,7 +200,7 @@ describe('RDO Company and Session Management', () => {
         if (cmd.includes('RDOFocusObject')) {
           expect(cmd).toContain(`sel ${worldContextId}`);
         }
-        if (cmd.includes('Logoff')) {
+        if (cmd.includes('RDOEndSession')) {
           expect(cmd).toContain(`sel ${interfaceServerId}`);
         }
       });
@@ -218,7 +212,7 @@ describe('RDO Company and Session Management', () => {
       // Login then immediately logout
       await mockSession.simulateLogin('user', 'pass', 1);
       const interfaceServerId = 6892548;
-      await mockSession.simulateLogoff(interfaceServerId);
+      await mockSession.simulateEndSession(interfaceServerId);
 
       const commands = mockSession.getCommandHistory();
       expect(commands).toHaveLength(4); // 3 login + 1 logout
@@ -234,7 +228,7 @@ describe('RDO Company and Session Management', () => {
   describe('RDO Format Validation', () => {
     it('should generate valid RDO format for company/session commands', async () => {
       await mockSession.simulateSelectCompany(1, 123);
-      await mockSession.simulateLogoff(6892548);
+      await mockSession.simulateEndSession(6892548);
 
       const commands = mockSession.getCommandHistory();
 
