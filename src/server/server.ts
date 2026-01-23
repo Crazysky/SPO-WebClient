@@ -347,6 +347,42 @@ const server = http.createServer(async (req, res) => {
   // Terrain info endpoint: /api/terrain-info/:terrainType
   // Returns available seasons and default season for a terrain type
   // Example: /api/terrain-info/Alien%20Swamp
+  // Road block classes endpoint: /api/road-block-classes
+  // Returns a list of all road block class INI files with their content
+  if (safePath === '/api/road-block-classes') {
+    const roadBlockClassesDir = path.join(CACHE_DIR, 'RoadBlockClasses');
+
+    try {
+      if (!fs.existsSync(roadBlockClassesDir)) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ files: [] }));
+        return;
+      }
+
+      const files = fs.readdirSync(roadBlockClassesDir)
+        .filter(f => f.toLowerCase().endsWith('.ini'));
+
+      // Read content of each INI file
+      const iniContents: Array<{ filename: string; content: string }> = [];
+      for (const file of files) {
+        const filePath = path.join(roadBlockClassesDir, file);
+        const content = fs.readFileSync(filePath, 'utf-8');
+        iniContents.push({ filename: file, content });
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=3600' // Cache for 1 hour
+      });
+      res.end(JSON.stringify({ files: iniContents }));
+    } catch (error: any) {
+      console.error('[RoadBlockClasses] Failed to read INI files:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to read road block classes' }));
+    }
+    return;
+  }
+
   if (safePath.startsWith('/api/terrain-info/')) {
     const terrainType = decodeURIComponent(safePath.substring('/api/terrain-info/'.length).split('?')[0]);
 

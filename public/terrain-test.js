@@ -39,10 +39,12 @@
       this.metadata = metadata;
       this.mapName = mapName;
       this.loaded = true;
+      const paletteData = this.generatePaletteData2D(this.pixelData, this.width, this.height);
       return {
         width: this.width,
         height: this.height,
         pixelData: this.pixelData,
+        paletteData,
         metadata: this.metadata
       };
     }
@@ -126,6 +128,25 @@
         }
       }
       return pixelData;
+    }
+    /**
+     * Generate 2D palette data array from flat pixelData
+     * Used by road system for water detection
+     * @param pixelData - Flat Uint8Array of palette indices
+     * @param width - Map width
+     * @param height - Map height
+     * @returns 2D array [row][col] of palette indices
+     */
+    generatePaletteData2D(pixelData, width, height) {
+      const result = [];
+      for (let row = 0; row < height; row++) {
+        const rowData = [];
+        for (let col = 0; col < width; col++) {
+          rowData.push(pixelData[row * width + col]);
+        }
+        result.push(rowData);
+      }
+      return result;
     }
     /**
      * Get texture ID (palette index) for a tile coordinate

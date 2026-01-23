@@ -15,18 +15,13 @@
  */
 
 import { IsometricTerrainRenderer } from './isometric-terrain-renderer';
-import { CoordinateMapper } from './coordinate-mapper';
-import { TextureCache } from './texture-cache';
 import { GameObjectTextureCache } from './game-object-texture-cache';
-import { RoadRendererSystem, type RoadSegment } from './road-renderer-system';
-import { type UrbanBuilding } from './road-terrain-grid';
 import {
   Point,
   Rect,
   TileBounds,
   ZOOM_LEVELS,
   ZoomConfig,
-  Rotation,
   TerrainData
 } from '../../shared/map-config';
 import {
@@ -36,6 +31,16 @@ import {
   FacilityDimensions,
   RoadDrawingState
 } from '../../shared/types';
+import {
+  RoadsRendering,
+  RoadBlockClassManager,
+  renderRoadSegment,
+  loadRoadBlockClassFromIni,
+  RoadBlockId,
+  roadBlockId,
+  ROAD_TYPE,
+  LandClass
+} from './road-texture-system';
 
 interface CachedZone {
   x: number;
@@ -67,9 +72,6 @@ export class IsometricMapRenderer {
   // Game object texture cache (roads, buildings, etc.)
   private gameObjectTextureCache: GameObjectTextureCache;
 
-  // Road rendering system (topology + surface detection)
-  private roadSystem: RoadRendererSystem;
-
   // Game objects
   private cachedZones: Map<string, CachedZone> = new Map();
   private allBuildings: MapBuilding[] = [];
@@ -77,6 +79,11 @@ export class IsometricMapRenderer {
 
   // Road tiles map for texture type detection
   private roadTilesMap: Map<string, boolean> = new Map();
+
+  // Road texture system
+  private roadBlockClassManager: RoadBlockClassManager;
+  private roadsRendering: RoadsRendering | null = null;
+  private roadBlockClassesLoaded: boolean = false;
 
   // Building dimensions cache
   private facilityDimensionsCache: Map<string, FacilityDimensions> = new Map();
@@ -148,46 +155,26 @@ export class IsometricMapRenderer {
     // Create game object texture cache (roads, buildings, etc.)
     this.gameObjectTextureCache = new GameObjectTextureCache(500);
 
-    // Setup callback to re-render when road textures are loaded
+    // Setup callback to re-render when textures are loaded
     this.gameObjectTextureCache.setOnTextureLoaded((category, name) => {
-      if (category === 'RoadBlockImages') {
-        // Re-render when road textures become available
+      if (category === 'BuildingImages' || category === 'RoadBlockImages') {
+        // Re-render when textures become available
         this.render();
       }
     });
 
-    // Create road rendering system (max map size 2000x2000)
-    this.roadSystem = new RoadRendererSystem(2000, 2000);
+    // Initialize road block class manager
+    this.roadBlockClassManager = new RoadBlockClassManager();
+    this.roadBlockClassManager.setBasePath('/cache/');
 
-    // Preload common road textures (async, will trigger re-render via callback)
-    this.preloadRoadTextures();
+    // Load road block classes asynchronously
+    this.loadRoadBlockClasses();
 
     // Setup event handlers
     this.setupMouseControls();
 
     // Initial render
     this.render();
-  }
-
-  /**
-   * Preload common road textures for faster rendering
-   * Returns a promise that resolves when all textures are loaded
-   */
-  private async preloadRoadTextures(): Promise<void> {
-    const roadTextures = [
-      'Roadhorz.bmp',
-      'Roadvert.bmp',
-      'Roadcross.bmp',
-      'RoadcornerN.bmp',
-      'RoadcornerE.bmp',
-      'RoadcornerS.bmp',
-      'RoadcornerW.bmp',
-      'RoadTN.bmp',
-      'RoadTE.bmp',
-      'RoadTS.bmp',
-      'RoadTW.bmp'
-    ];
-    await this.gameObjectTextureCache.preload('RoadBlockImages', roadTextures);
   }
 
   // =========================================================================
@@ -199,20 +186,15 @@ export class IsometricMapRenderer {
    */
   async loadMap(mapName: string): Promise<TerrainData> {
     this.mapName = mapName;
+
     const terrainData = await this.terrainRenderer.loadMap(mapName);
     this.mapLoaded = true;
-
-    // Load terrain data into road system (for water/concrete detection)
-    if (terrainData.paletteData) {
-      this.roadSystem.loadTerrainFromPalette(terrainData.paletteData);
-    }
 
     // Clear cached zones when loading new map
     this.cachedZones.clear();
     this.loadingZones.clear();
     this.allBuildings = [];
     this.allSegments = [];
-    this.roadSystem.clearAllRoads();
 
     this.render();
 
@@ -227,6 +209,36 @@ export class IsometricMapRenderer {
    */
   isLoaded(): boolean {
     return this.mapLoaded && this.terrainRenderer.isLoaded();
+  }
+
+  /**
+   * Load road block class configurations from the server
+   */
+  private async loadRoadBlockClasses(): Promise<void> {
+    try {
+      const response = await fetch('/api/road-block-classes');
+      if (!response.ok) {
+        console.error('[IsometricMapRenderer] Failed to load road block classes:', response.status);
+        return;
+      }
+
+      const data = await response.json();
+      const files: Array<{ filename: string; content: string }> = data.files || [];
+
+      console.log(`[IsometricMapRenderer] Loading ${files.length} road block classes...`);
+
+      for (const file of files) {
+        this.roadBlockClassManager.loadFromIni(file.content);
+      }
+
+      this.roadBlockClassesLoaded = true;
+      console.log(`[IsometricMapRenderer] Road block classes loaded successfully`);
+
+      // Re-render to show road textures
+      this.render();
+    } catch (error) {
+      console.error('[IsometricMapRenderer] Error loading road block classes:', error);
+    }
   }
 
   // =========================================================================
@@ -276,7 +288,7 @@ export class IsometricMapRenderer {
       this.allSegments.push(...zone.segments);
     });
 
-    // Build road tiles map for connectivity detection (legacy system)
+    // Build road tiles map for connectivity detection
     this.allSegments.forEach(seg => {
       const minX = Math.min(seg.x1, seg.x2);
       const maxX = Math.max(seg.x1, seg.x2);
@@ -290,64 +302,50 @@ export class IsometricMapRenderer {
       }
     });
 
-    // Update road rendering system
-    this.updateRoadSystem();
+    // Rebuild road topology rendering buffer
+    this.rebuildRoadsRendering();
   }
 
   /**
-   * Update road system with current buildings and segments
+   * Rebuild the RoadsRendering buffer from all segments
+   * This computes the topology (shape) of each road tile
    */
-  private updateRoadSystem() {
-    // Clear existing roads
-    this.roadSystem.clearAllRoads();
+  private rebuildRoadsRendering() {
+    if (this.allSegments.length === 0) {
+      this.roadsRendering = null;
+      return;
+    }
 
-    // Convert MapSegments to RoadSegments and add to system
-    const roadSegments: RoadSegment[] = [];
-    this.allSegments.forEach(seg => {
-      const minX = Math.min(seg.x1, seg.x2);
-      const maxX = Math.max(seg.x1, seg.x2);
-      const minY = Math.min(seg.y1, seg.y2);
-      const maxY = Math.max(seg.y1, seg.y2);
+    // Calculate bounds of all road segments
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
 
-      // Add each tile in the segment
-      for (let y = minY; y <= maxY; y++) {
-        for (let x = minX; x <= maxX; x++) {
-          roadSegments.push({ x, y });
-        }
-      }
-    });
-    this.roadSystem.addRoadSegments(roadSegments);
+    for (const seg of this.allSegments) {
+      minX = Math.min(minX, seg.x1, seg.x2);
+      maxX = Math.max(maxX, seg.x1, seg.x2);
+      minY = Math.min(minY, seg.y1, seg.y2);
+      maxY = Math.max(maxY, seg.y1, seg.y2);
+    }
 
-    // Convert MapBuildings to UrbanBuildings and update concrete grid
-    const urbanBuildings: UrbanBuilding[] = this.allBuildings.map(building => {
-      const dims = this.facilityDimensionsCache.get(building.visualClass);
-      return {
-        x: building.i,  // Building uses i/j coordinates
-        y: building.j,
-        xSize: dims?.xsize || 1,
-        ySize: dims?.ysize || 1,
-        isUrban: this.isUrbanBuilding(building.visualClass),
-      };
-    });
-    this.roadSystem.updateConcreteFromBuildings(urbanBuildings);
-  }
+    // Add padding for edge cases
+    const padding = 1;
+    const left = minX - padding;
+    const top = minY - padding;
+    const width = maxX - minX + 1 + 2 * padding;
+    const height = maxY - minY + 1 + 2 * padding;
 
-  /**
-   * Check if a building type is urban (generates concrete roads)
-   * Urban buildings: stores, offices, parks, public facilities
-   */
-  private isUrbanBuilding(visualClass: string): boolean {
-    // Buildings with class names containing these keywords are urban
-    const urbanKeywords = [
-      'store', 'shop', 'market', 'mall', 'retail',
-      'office', 'bank', 'headquarters',
-      'park', 'plaza', 'monument',
-      'school', 'hospital', 'police', 'fire',
-      'city', 'town', 'municipal',
-    ];
+    // Create rendering buffer
+    this.roadsRendering = new RoadsRendering(top, left, width, height);
 
-    const lowerClass = visualClass.toLowerCase();
-    return urbanKeywords.some(keyword => lowerClass.includes(keyword));
+    // Render all segments into the buffer
+    for (const seg of this.allSegments) {
+      renderRoadSegment(this.roadsRendering, {
+        x1: seg.x1,
+        y1: seg.y1,
+        x2: seg.x2,
+        y2: seg.y2
+      });
+    }
   }
 
   /**
@@ -638,7 +636,7 @@ export class IsometricMapRenderer {
 
   /**
    * Draw road segments as isometric tiles with textures
-   * Uses RoadRendererSystem for topology and surface detection
+   * Uses the road texture system to determine correct textures based on topology
    */
   private drawRoads(bounds: TileBounds, occupiedTiles: Set<string>) {
     const ctx = this.ctx;
@@ -646,25 +644,24 @@ export class IsometricMapRenderer {
     const halfWidth = config.tileWidth / 2;
     const halfHeight = config.tileHeight / 2;
 
-    // Get roads in current viewport from road system
-    const roads = this.roadSystem.getRoadsInViewport(
-      bounds.minJ,
-      bounds.minI,
-      bounds.maxJ,
-      bounds.maxI
-    );
-
-    // Draw each road tile
-    for (const road of roads) {
-      const tileKey = `${road.x},${road.y}`;
+    // Iterate through road tiles map
+    for (const [key] of this.roadTilesMap) {
+      const [xStr, yStr] = key.split(',');
+      const x = parseInt(xStr, 10);
+      const y = parseInt(yStr, 10);
 
       // Skip if occupied by building
-      if (occupiedTiles.has(tileKey)) continue;
+      if (occupiedTiles.has(key)) continue;
+
+      // Viewport culling
+      if (x < bounds.minJ || x > bounds.maxJ || y < bounds.minI || y > bounds.maxI) {
+        continue;
+      }
 
       // Convert to isometric coordinates (x = j, y = i)
-      const screenPos = this.terrainRenderer.mapToScreen(road.y, road.x);
+      const screenPos = this.terrainRenderer.mapToScreen(y, x);
 
-      // Cull if off-screen (additional check)
+      // Cull if off-screen
       if (screenPos.x < -config.tileWidth || screenPos.x > this.canvas.width + config.tileWidth ||
           screenPos.y < -config.tileHeight || screenPos.y > this.canvas.height + config.tileHeight) {
         continue;
@@ -674,20 +671,58 @@ export class IsometricMapRenderer {
       const sx = Math.round(screenPos.x);
       const sy = Math.round(screenPos.y);
 
-      // Try to get road texture (uses topology + surface from road system)
-      const texture = this.gameObjectTextureCache.getTextureSync('RoadBlockImages', road.textureFilename);
+      // Try to get road texture if road block classes are loaded
+      let textureDrawn = false;
 
-      if (texture) {
-        // Draw road texture directly (textures are already diamond-shaped)
-        ctx.drawImage(
-          texture,
-          sx - halfWidth,
-          sy,
-          config.tileWidth,
-          config.tileHeight
-        );
-      } else {
-        // Fallback to solid color
+      if (this.roadBlockClassesLoaded && this.roadsRendering) {
+        // Get topology from the roads rendering buffer
+        const topology = this.roadsRendering.get(y, x);
+
+        if (topology !== RoadBlockId.None) {
+          // Calculate the full road block ID
+          // For now, use simple land road type (no concrete/water/railroad detection yet)
+          const landId = 0; // Default land ID (center, grass)
+          const onConcrete = this.isOnConcrete(x, y);
+          const onRailroad = false; // No railroad support yet
+
+          const fullRoadBlockId = roadBlockId(
+            topology,
+            landId,
+            onConcrete,
+            onRailroad,
+            false // not dummy
+          );
+
+          // Get texture path for this road block
+          const texturePath = this.roadBlockClassManager.getImagePath(fullRoadBlockId);
+
+          if (texturePath) {
+            // Extract filename from path for texture cache
+            const filename = texturePath.split('/').pop() || '';
+
+            // Try to get texture from cache
+            const texture = this.gameObjectTextureCache.getTextureSync('RoadBlockImages', filename);
+
+            if (texture) {
+              // Draw texture centered on tile
+              const drawX = sx - halfWidth;
+              const drawY = sy;
+
+              ctx.drawImage(
+                texture,
+                drawX,
+                drawY,
+                config.tileWidth,
+                config.tileHeight
+              );
+              textureDrawn = true;
+            }
+          }
+        }
+      }
+
+      // Fallback: draw colored diamond if texture not available
+      if (!textureDrawn) {
         ctx.beginPath();
         ctx.moveTo(sx, sy);
         ctx.lineTo(sx - halfWidth, sy + halfHeight);
@@ -695,9 +730,92 @@ export class IsometricMapRenderer {
         ctx.lineTo(sx + halfWidth, sy + halfHeight);
         ctx.closePath();
 
-        ctx.fillStyle = '#666';
+        // Use different colors based on topology for debugging
+        if (this.roadsRendering) {
+          const topology = this.roadsRendering.get(y, x);
+          ctx.fillStyle = this.getDebugColorForTopology(topology);
+        } else {
+          ctx.fillStyle = '#666';
+        }
         ctx.fill();
       }
+    }
+  }
+
+  /**
+   * Check if a tile is on concrete (urban area)
+   * Simple heuristic: check if adjacent to an urban building
+   */
+  private isOnConcrete(x: number, y: number): boolean {
+    const checkRadius = 2;
+
+    for (const building of this.allBuildings) {
+      const dims = this.facilityDimensionsCache.get(building.visualClass);
+      const xsize = dims?.xsize || 1;
+      const ysize = dims?.ysize || 1;
+
+      // Check if road tile is within radius of building
+      const nearX = x >= building.x - checkRadius && x < building.x + xsize + checkRadius;
+      const nearY = y >= building.y - checkRadius && y < building.y + ysize + checkRadius;
+
+      if (nearX && nearY) {
+        // Check if building is urban (simplified check)
+        const name = dims?.Name?.toLowerCase() || '';
+        if (this.isUrbanBuilding(name)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if a building name suggests it's an urban building
+   */
+  private isUrbanBuilding(name: string): boolean {
+    const urbanKeywords = [
+      'office', 'store', 'shop', 'mall', 'bank', 'hotel',
+      'hospital', 'clinic', 'school', 'university',
+      'restaurant', 'bar', 'club', 'theater', 'cinema',
+      'apartment', 'condo', 'tower', 'headquarters'
+    ];
+
+    return urbanKeywords.some(keyword => name.includes(keyword));
+  }
+
+  /**
+   * Get debug color for road topology (used when texture not available)
+   */
+  private getDebugColorForTopology(topology: RoadBlockId): string {
+    switch (topology) {
+      case RoadBlockId.NSRoad:
+      case RoadBlockId.NSRoadStart:
+      case RoadBlockId.NSRoadEnd:
+        return '#777'; // Vertical roads - lighter gray
+
+      case RoadBlockId.WERoad:
+      case RoadBlockId.WERoadStart:
+      case RoadBlockId.WERoadEnd:
+        return '#555'; // Horizontal roads - darker gray
+
+      case RoadBlockId.CornerN:
+      case RoadBlockId.CornerE:
+      case RoadBlockId.CornerS:
+      case RoadBlockId.CornerW:
+        return '#886'; // Corners - brownish
+
+      case RoadBlockId.LeftPlug:
+      case RoadBlockId.RightPlug:
+      case RoadBlockId.TopPlug:
+      case RoadBlockId.BottomPlug:
+        return '#868'; // T-junctions - purplish
+
+      case RoadBlockId.CrossRoads:
+        return '#688'; // Crossroads - teal
+
+      default:
+        return '#666'; // Default gray
     }
   }
 

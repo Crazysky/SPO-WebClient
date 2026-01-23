@@ -97,10 +97,14 @@ export class TerrainLoader {
     this.mapName = mapName;
     this.loaded = true;
 
+    // 6. Generate 2D palette array for road system water detection
+    const paletteData = this.generatePaletteData2D(this.pixelData, this.width, this.height);
+
     return {
       width: this.width,
       height: this.height,
       pixelData: this.pixelData,
+      paletteData: paletteData,
       metadata: this.metadata
     };
   }
@@ -210,6 +214,26 @@ export class TerrainLoader {
     }
 
     return pixelData;
+  }
+
+  /**
+   * Generate 2D palette data array from flat pixelData
+   * Used by road system for water detection
+   * @param pixelData - Flat Uint8Array of palette indices
+   * @param width - Map width
+   * @param height - Map height
+   * @returns 2D array [row][col] of palette indices
+   */
+  private generatePaletteData2D(pixelData: Uint8Array, width: number, height: number): number[][] {
+    const result: number[][] = [];
+    for (let row = 0; row < height; row++) {
+      const rowData: number[] = [];
+      for (let col = 0; col < width; col++) {
+        rowData.push(pixelData[row * width + col]);
+      }
+      result.push(rowData);
+    }
+    return result;
   }
 
   /**

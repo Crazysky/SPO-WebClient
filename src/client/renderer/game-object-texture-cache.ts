@@ -411,13 +411,13 @@ export class GameObjectTextureCache {
       if (hasNorth && hasSouth) return 'Roadvert';
       if (hasEast && hasWest) return 'Roadhorz';
 
-      // Corners - follow official client logic:
-      // Corner name indicates the direction the road "turns towards"
+      // Corners - based on official client transition tables:
+      // The corner name indicates the "missing" direction in the L-shape
       // In isometric view, this creates diagonal staircase patterns
-      if (hasNorth && hasEast) return 'RoadcornerE';  // Turns towards East
-      if (hasEast && hasSouth) return 'RoadcornerS';  // Turns towards South
-      if (hasSouth && hasWest) return 'RoadcornerW';  // Turns towards West
-      if (hasWest && hasNorth) return 'RoadcornerN';  // Turns towards North
+      if (hasNorth && hasEast) return 'RoadcornerW';  // L-shape: road from N and E
+      if (hasEast && hasSouth) return 'RoadcornerN';  // L-shape: road from E and S
+      if (hasSouth && hasWest) return 'RoadcornerE';  // L-shape: road from S and W
+      if (hasWest && hasNorth) return 'RoadcornerS';  // L-shape: road from W and N
     }
 
     // Single connection or no connections - default to vertical

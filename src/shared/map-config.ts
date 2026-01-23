@@ -22,7 +22,8 @@ export interface MapTownInfo {
 export interface TerrainData {
   width: number;
   height: number;
-  pixelData: Uint8Array; // 8-bit palette indices from BMP
+  pixelData: Uint8Array; // 8-bit palette indices from BMP (flat array)
+  paletteData: number[][]; // 8-bit palette indices as 2D array [row][col] for road system
   metadata: MapMetadata;
 }
 
