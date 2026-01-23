@@ -558,16 +558,16 @@ Provide:
 - **Implementation:**
   - **Framework:** Jest 30.2.0 with ts-jest for TypeScript support
   - **Configuration:** [jest.config.js](jest.config.js) - CommonJS module system, 60% coverage thresholds
-  - **Test Files:** 12 test suites, 403 total tests, 375 passing (93.0%), 18 skipped
+  - **Test Files:** 12 test suites, 414 total tests, 386 passing (93.2%), 18 skipped
   - **Test Documentation:** [TESTING.md](TESTING.md) - Comprehensive testing guide
   - **Coverage:**
     - ✅ RDO Type System ([src/shared/rdo-types.test.ts](src/shared/rdo-types.test.ts)) - 85/85 tests (100%)
     - ✅ RDO Protocol Parser ([src/server/rdo.test.ts](src/server/rdo.test.ts)) - 59/59 tests (100%)
-    - ✅ **RDO Protocol Integration** ([src/server/__tests__/rdo/](src/server/__tests__/rdo/)) - 215/225 tests (95.6%)
+    - ✅ **RDO Protocol Integration** ([src/server/__tests__/rdo/](src/server/__tests__/rdo/)) - 195/205 tests (95.1%)
       - Login Flow ([login-flow.test.ts](src/server/__tests__/rdo/login-flow.test.ts)) - 119/129 tests
       - Building Operations ([building-operations.test.ts](src/server/__tests__/rdo/building-operations.test.ts)) - 46/46 tests (100%)
-      - Road Construction ([road-construction.test.ts](src/server/__tests__/rdo/road-construction.test.ts)) - 20/20 tests (100%)
       - Company/Session Management ([company-session.test.ts](src/server/__tests__/rdo/company-session.test.ts)) - 30/30 tests (100%)
+    - ✅ Road Texture System ([src/client/renderer/road-texture-system.test.ts](src/client/renderer/road-texture-system.test.ts)) - 31/31 tests (100%)
     - ✅ Property Formatting ([src/shared/building-details/property-definitions.test.ts](src/shared/building-details/property-definitions.test.ts)) - 70/70 tests (100%)
     - ✅ CSV Parser ([src/server/facility-csv-parser.test.ts](src/server/facility-csv-parser.test.ts)) - 16/33 tests (18 skipped due to Jest mock limitations)
     - ✅ Terrain Loader ([src/client/renderer/terrain-loader.test.ts](src/client/renderer/terrain-loader.test.ts)) - 17/17 tests (100%)
@@ -586,7 +586,7 @@ Provide:
     - 13 simulation methods covering all RDO commands
     - Command history tracking with request ID management
     - Mock response configuration system
-    - Methods: `simulateLogin()`, `simulateBuildingFocus()`, `simulateBuildingUpdate()`, `simulateSetSalaries()`, `simulateCreateRoadSegment()`, `simulateDeleteBuilding()`, `simulateRenameBuilding()`, `simulateSelectCompany()`, `simulateStartUpgrade()`, `simulateStopUpgrade()`, `simulateDowngrade()`, `simulateEndSession()`
+    - Methods: `simulateLogin()`, `simulateBuildingFocus()`, `simulateBuildingUpdate()`, `simulateSetSalaries()`, `simulateDeleteBuilding()`, `simulateRenameBuilding()`, `simulateSelectCompany()`, `simulateStartUpgrade()`, `simulateStopUpgrade()`, `simulateDowngrade()`, `simulateEndSession()`
   - **Custom Jest Matchers** ([src/server/__tests__/matchers/rdo-matchers.ts](src/server/__tests__/matchers/rdo-matchers.ts))
     - `toContainRdoCommand(method, args?)` - Checks command array for specific RDO call
     - `toMatchRdoFormat()` - Validates general RDO command format
@@ -598,8 +598,8 @@ Provide:
   - **Test Coverage by Feature:**
     - **Login Flow** (129 tests): SetLanguage, ClientAware, Logon commands with request ID sequencing
     - **Building Operations** (46 tests): Focus, property updates (price, salaries), deletion, rename, upgrades/downgrades
-    - **Road Construction** (20 tests): CreateCircuitSeg with 7 parameters, staircase pattern for diagonal roads
     - **Company/Session** (30 tests): SelectCompany, RDOEndSession, worldContextId vs interfaceServerId validation
+    - **Road Texture System** (31 tests): INI parsing, topology computation, texture mapping, Delphi hex ID support
   - **Benefits:**
     - **Protection against regressions:** 225 tests validate RDO protocol format changes
     - **Living documentation:** Tests demonstrate correct RDO command syntax
@@ -1042,77 +1042,60 @@ Provide:
     - Tile occupation map tracks which cells are occupied by buildings
     - Roads skip rendering on tiles occupied by buildings
     - Prevents visual overlapping of objects
-- **Road Texture System (January 2026):**
-  - **Module:** [src/client/renderer/game-object-texture-cache.ts](src/client/renderer/game-object-texture-cache.ts) - Road texture selection and caching
-  - **Current implementation:** Simplified neighbor-based analysis
-    - Analyzes 4 neighbors (N/E/S/W) to determine texture type
-    - 11 texture variants: horz, vert, corners (N/E/S/W), T-junctions (N/E/S/W), cross
-    - Corner mapping follows official client logic: turns towards direction name
-      - `RoadcornerE`: North + East connections → turns towards East
-      - `RoadcornerS`: East + South connections → turns towards South
-      - `RoadcornerW`: South + West connections → turns towards West
-      - `RoadcornerN`: West + North connections → turns towards North
-  - **Full system specification:** [doc/road_rendering_algorithm.md](doc/road_rendering_algorithm.md)
-    - 16 topology types (with start/end differentiation)
-    - 11 surface types (land, urban, bridges, crossings, smooth corners)
-    - 78+ texture combinations total
-    - State machine with transition tables
-    - Requires terrain data (water, concrete, rails)
-  - **Reference data (reverse engineered):** [doc/road_rendering_reference_data.md](doc/road_rendering_reference_data.md)
-    - **TerrainGrid:** Palette indices 0x80-0x88 = 9 water types (CENTER, N, E, NE, S, SW, W, SE, NW)
-    - **ConcreteGrid:** Calculated dynamically from urban buildings (no .concrete file)
-    - **RailroadGrid:** RDO protocol with cirRailRoads=2, segments {x1,y1,x2,y2}
-    - **Textures:** 16 base road types in cache/RoadBlockImages/ (64×32 BMP)
-    - **Sources:** Concrete.pas, Roads.pas, Map.pas from official Delphi client
-  - **Bug Fixes (January 2026):**
-    - Fixed corner texture mapping to match official client behavior
-    - Diagonal roads now use correct corner textures for staircase patterns
-  - **Complete Road Rendering System (January 2026):**
-    - **Status:** ✅ IMPLEMENTED - Full system with topology detection, surface detection, and texture mapping
-    - **Architecture:** 5-module system matching official Delphi client (Concrete.pas, Roads.pas, Map.pas)
-    - **Modules Created:**
-      - [src/client/renderer/road-topology-analyzer.ts](src/client/renderer/road-topology-analyzer.ts) - 16 topology types with state transitions
-      - [src/client/renderer/road-terrain-grid.ts](src/client/renderer/road-terrain-grid.ts) - Water/concrete grid management
-      - [src/client/renderer/road-surface-detector.ts](src/client/renderer/road-surface-detector.ts) - 11 surface types detection
-      - [src/client/renderer/road-texture-mapper.ts](src/client/renderer/road-texture-mapper.ts) - Topology+Surface → BMP filename
-      - [src/client/renderer/road-renderer-system.ts](src/client/renderer/road-renderer-system.ts) - Main orchestrator
-    - **Test Coverage:** 153 unit tests (100% passing)
-      - road-topology-analyzer.test.ts: 27 tests (topology detection, state transitions)
-      - road-terrain-grid.test.ts: 33 tests (water/concrete grid operations)
-      - road-surface-detector.test.ts: 26 tests (surface type detection)
-      - road-texture-mapper.test.ts: 40 tests (texture filename generation)
-      - road-renderer-system.test.ts: 27 tests (system integration)
-    - **Features Implemented:**
-      - **16 Topology Types:** NS/WE/NWSE/NESW (START/END/MIDDLE), TCROSS, XCROSS, TWOCROSS, NONE
-      - **State Transitions:** 6 transition tables (NS_START, NS_END, NS_MIDDLE, WE_START, WE_END, WE_MIDDLE)
-      - **11 Surface Types:** LAND, URBAN, BRIDGE_WATER_CENTER, BRIDGE_WATER_N/E/S/W/NE/SE/SW/NW, SMOOTH
-      - **Water Detection:** TerrainGrid decodes palette indices 0x80-0x88 (9 water types)
-      - **Concrete Expansion:** ConcreteGrid expands urban buildings with radius 2
-      - **Texture Variants:** 78+ combinations (16 topology × 11 surface, with fallbacks)
-      - **Topology Caching:** O(1) lookups after initial calculation
-      - **Viewport Culling:** Only process roads in visible viewport
-      - **Neighbor Analysis:** T-junction and corner direction detection
-    - **Integration:** [src/client/renderer/isometric-map-renderer.ts](src/client/renderer/isometric-map-renderer.ts)
-      - Replaced old `drawRoads()` method with `roadSystem.getRoadsInViewport()`
-      - Added `updateRoadSystem()` for terrain data synchronization
-      - Added `isUrbanBuilding()` heuristic (14 keywords: store, office, park, etc.)
-      - Converts MapSegments → RoadSegments, MapBuildings → UrbanBuildings
-    - **Documentation:**
-      - [doc/road_rendering_algorithm.md](doc/road_rendering_algorithm.md) - Complete algorithm specification
-      - [doc/road_rendering_reference_data.md](doc/road_rendering_reference_data.md) - Reverse-engineered Delphi data
-      - [doc/road_rendering_implementation.md](doc/road_rendering_implementation.md) - API guide
-      - [doc/road_rendering_integration_complete.md](doc/road_rendering_integration_complete.md) - Phase 6 status
-    - **Performance:**
-      - Bundle size: +59 KB (5 modules + tests)
-      - Topology cache hit rate: >90% after warm-up
-      - Viewport culling reduces processing by ~95% (only visible roads)
-      - Texture cache: LRU with 200 entries (shared with terrain textures)
-    - **Excluded Features:** Railroad rendering (not in official client yet, future update)
-    - **Known Limitations:**
-      - SMOOTH surface corners not fully implemented (placeholder logic)
-      - Diagonal roads (NWSE/NESW) use fallback textures (horz/vert)
-      - Railroad grid excluded (cirRailRoads=2 protocol exists but textures unavailable)
-    - **Next Phase:** Visual testing on real maps (Antiqua, Shamba, Zyrane)
+- **Road Texture System (January 2026) - Refactored:**
+  - **Status:** ✅ REFACTORED - Complete rewrite using Delphi-converted algorithm
+  - **Module:** [src/client/renderer/road-texture-system.ts](src/client/renderer/road-texture-system.ts) - Single unified module converted from Delphi Roads.pas
+  - **Architecture:** Single-module system replacing previous 5-module architecture
+    - Converted directly from official Delphi client source (Roads.pas, LocalCacheManager.pas, Map.pas, Land.pas)
+    - All road logic consolidated in one file for easier maintenance
+  - **Core Classes:**
+    - `RoadsRendering` - Topology buffer for tracking road shapes across the map
+    - `RoadBlockClassManager` - Loads and manages INI configurations from cache/RoadBlockClasses/
+    - `RoadTextureResolver` - Combines topology + surface type → texture path lookup
+  - **Key Functions:**
+    - `renderRoadSegment()` - Renders segment into topology buffer using mapping tables
+    - `roadBlockId()` - Calculates full road block ID from topology + land + concrete + railroad
+    - `loadRoadBlockClassFromIni()` - Parses INI files with Delphi hex ID support ($XX format)
+    - `parseDelphiInt()` - Handles Delphi-style hex notation (e.g., `$15` → 21, `$65` → 101)
+  - **Topology System:**
+    - **16 Road Block IDs:** NSRoadStart/End, WERoadStart/End, NSRoad, WERoad, LeftPlug, RightPlug, TopPlug, BottomPlug, CornerW/S/N/E, CrossRoads, None
+    - **6 Mapping Tables:** NS_ROAD_START/BLOCK/END_MAPPINGS, WE_ROAD_START/BLOCK/END_MAPPINGS
+    - **State machine:** Each segment modifies topology buffer using transition tables
+  - **Road Types:**
+    - LAND_ROAD (0), URBAN_ROAD (1), NORTH/SOUTH/EAST/WEST_BRIDGE (2-5), FULL_BRIDGE (6)
+    - LEVEL_PASS (7), URBAN_LEVEL_PASS (8), SMOOTH_ROAD (9), URBAN_SMOOTH_ROAD (10)
+  - **INI Configuration:**
+    - **60 INI files** in `cache/RoadBlockClasses/` define road textures
+    - **55 BMP textures** in `cache/RoadBlockImages/` (64×32 isometric tiles)
+    - **18 railing textures** for bridge overlays (e.g., WEBridgeCover.bmp)
+    - Format: `[General] Id=<decimal or $hex>` + `[Images] 64x32=<filename>`
+  - **Server Endpoint:**
+    - `GET /api/road-block-classes` - Returns all INI file contents as JSON
+    - Loaded at client startup via `loadRoadBlockClasses()` in IsometricMapRenderer
+  - **Integration:** [src/client/renderer/isometric-map-renderer.ts](src/client/renderer/isometric-map-renderer.ts)
+    - `loadRoadBlockClasses()` - Fetches INI files from server at startup
+    - `rebuildRoadsRendering()` - Computes topology from MapSegments
+    - `drawRoads()` - Renders textures using RoadBlockClassManager lookups
+    - `isOnConcrete()` - Heuristic for urban road detection (radius 2 from urban buildings)
+    - Fallback colored diamonds when textures not available (debug colors by topology)
+  - **Test Coverage:** 31/31 tests passing
+    - INI parsing with hex ID support
+    - Land ID functions (landClassOf, landTypeOf, isWater)
+    - Road ID manipulation (roadIdOf, highRoadIdOf, makeRoadBlockOf)
+    - Segment rendering (vertical, horizontal, intersections, T-junctions, corners)
+    - Integration tests validating all 60 INI files reference existing textures
+  - **Bug Fixes:**
+    - Fixed Delphi hex ID parsing: 45 INI files use `$XX` format (e.g., `Id=$15` = 21 decimal)
+    - Fixed corner/T-junction topology mapping to match official client behavior
+  - **Performance:**
+    - Bundle size: 324.8kb client.js (includes texture system)
+    - Topology buffer: O(1) lookup after segment rendering
+    - Texture cache: LRU with 500 entries via GameObjectTextureCache
+    - Re-render triggered when road textures load asynchronously
+  - **Known Limitations:**
+    - Water/bridge detection uses simplified landId=0 (full terrain integration pending)
+    - Railroad crossing detection not implemented (onRailroad always false)
+    - Smooth corner detection requires full map context
 - **Rendering Performance Fix (January 2026):**
   - **Problem:** Roads and buildings flickered after camera movement
   - **Root cause:** Multiple chunks becoming ready simultaneously, each triggering a full render
