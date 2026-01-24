@@ -2,10 +2,31 @@
  * TerrainLoader - Client-side BMP loading and parsing for terrain data
  *
  * Loads terrain data from the server API and parses 8-bit BMP files
- * to extract palette indices for each tile.
+ * to extract palette indices (landId) for each tile.
+ *
+ * LandId Encoding (8-bit byte):
+ * - Bits 7-6: LandClass (terrain zone: Grass, MidGrass, DryGround, Water)
+ * - Bits 5-2: LandType (shape/orientation: Center, N, E, S, W, corners, Special)
+ * - Bits 1-0: LandVar (variation 0-3)
  */
 
 import { TerrainData, MapMetadata, MapFileData } from '../../shared/map-config';
+import {
+  LandClass,
+  LandType,
+  DecodedLandId,
+  landClassOf,
+  landTypeOf,
+  landVarOf,
+  isWater as isWaterFn,
+  isDeepWater as isDeepWaterFn,
+  isWaterEdge as isWaterEdgeFn,
+  isWaterCorner as isWaterCornerFn,
+  canBuildOn as canBuildOnFn,
+  isSpecialTile as isSpecialTileFn,
+  decodeLandId,
+  formatLandId,
+} from '../../shared/land-utils';
 
 /**
  * BMP file header structure (14 bytes)
@@ -284,6 +305,131 @@ export class TerrainLoader {
    */
   getMapName(): string {
     return this.mapName;
+  }
+
+  // ===========================================================================
+  // LAND METADATA METHODS
+  // ===========================================================================
+
+  /**
+   * Get raw landId for a tile coordinate
+   * @param x - X coordinate (0 to width-1)
+   * @param y - Y coordinate (0 to height-1)
+   * @returns Raw landId byte (0-255) or 0 if out of bounds
+   */
+  getLandId(x: number, y: number): number {
+    return this.getTextureId(x, y);
+  }
+
+  /**
+   * Get LandClass for a tile coordinate
+   * @param x - X coordinate
+   * @param y - Y coordinate
+   * @returns LandClass enum value (ZoneA, ZoneB, ZoneC, ZoneD)
+   */
+  getLandClass(x: number, y: number): LandClass {
+    return landClassOf(this.getLandId(x, y));
+  }
+
+  /**
+   * Get LandType for a tile coordinate
+   * @param x - X coordinate
+   * @param y - Y coordinate
+   * @returns LandType enum value (Center, N, E, S, W, corners, Special)
+   */
+  getLandType(x: number, y: number): LandType {
+    return landTypeOf(this.getLandId(x, y));
+  }
+
+  /**
+   * Get LandVar for a tile coordinate
+   * @param x - X coordinate
+   * @param y - Y coordinate
+   * @returns Variation index (0-3)
+   */
+  getLandVar(x: number, y: number): number {
+    return landVarOf(this.getLandId(x, y));
+  }
+
+  /**
+   * Check if a tile is water (ZoneD)
+   * @param x - X coordinate
+   * @param y - Y coordinate
+   * @returns true if water tile
+   */
+  isWater(x: number, y: number): boolean {
+    return isWaterFn(this.getLandId(x, y));
+  }
+
+  /**
+   * Check if a tile is deep water (water center)
+   * @param x - X coordinate
+   * @param y - Y coordinate
+   * @returns true if deep water (water + center type)
+   */
+  isDeepWater(x: number, y: number): boolean {
+    return isDeepWaterFn(this.getLandId(x, y));
+  }
+
+  /**
+   * Check if a tile is a water edge (water but not center)
+   * @param x - X coordinate
+   * @param y - Y coordinate
+   * @returns true if water edge tile
+   */
+  isWaterEdge(x: number, y: number): boolean {
+    return isWaterEdgeFn(this.getLandId(x, y));
+  }
+
+  /**
+   * Check if a tile is a water corner (inner or outer)
+   * @param x - X coordinate
+   * @param y - Y coordinate
+   * @returns true if water corner tile
+   */
+  isWaterCorner(x: number, y: number): boolean {
+    return isWaterCornerFn(this.getLandId(x, y));
+  }
+
+  /**
+   * Check if buildings can be placed on a tile
+   * Buildings cannot be placed on water or special tiles
+   * @param x - X coordinate
+   * @param y - Y coordinate
+   * @returns true if building placement is allowed
+   */
+  canBuildOn(x: number, y: number): boolean {
+    return canBuildOnFn(this.getLandId(x, y));
+  }
+
+  /**
+   * Check if a tile is a special tile (trees, decorations, etc.)
+   * @param x - X coordinate
+   * @param y - Y coordinate
+   * @returns true if special tile
+   */
+  isSpecialTile(x: number, y: number): boolean {
+    return isSpecialTileFn(this.getLandId(x, y));
+  }
+
+  /**
+   * Get fully decoded land information for a tile
+   * @param x - X coordinate
+   * @param y - Y coordinate
+   * @returns Complete DecodedLandId object
+   */
+  getLandInfo(x: number, y: number): DecodedLandId {
+    return decodeLandId(this.getLandId(x, y));
+  }
+
+  /**
+   * Get formatted landId string for debugging
+   * @param x - X coordinate
+   * @param y - Y coordinate
+   * @returns Formatted string like "0xDE (Water, SWo, var=2)"
+   */
+  formatLandId(x: number, y: number): string {
+    return formatLandId(this.getLandId(x, y));
   }
 
   /**

@@ -8,39 +8,21 @@
  * 3. Texture loading from INI configuration
  */
 
+// Import and re-export land utilities from shared module
+import {
+  LandClass,
+  LandType,
+  landClassOf,
+  landTypeOf,
+  isWater,
+} from '../../shared/land-utils';
+
+// Re-export for backward compatibility
+export { LandClass, LandType, landClassOf, landTypeOf, isWater };
+
 // =============================================================================
 // ENUMERATIONS & CONSTANTS
 // =============================================================================
-
-/**
- * Land class types - determines base terrain category
- */
-export enum LandClass {
-  ZoneA = 0,  // grass
-  ZoneB = 1,  // midgrass
-  ZoneC = 2,  // dryground
-  ZoneD = 3   // water
-}
-
-/**
- * Land type - determines terrain edge/transition type
- */
-export enum LandType {
-  Center = 0,
-  N = 1,
-  E = 2,
-  S = 3,
-  W = 4,
-  NEo = 5,  // outer corner NE
-  SEo = 6,  // outer corner SE
-  SWo = 7,  // outer corner SW
-  NWo = 8,  // outer corner NW
-  NEi = 9,  // inner corner NE
-  SEi = 10, // inner corner SE
-  SWi = 11, // inner corner SW
-  NWi = 12, // inner corner NW
-  Special = 13
-}
 
 /**
  * Road block topology identifiers
@@ -96,12 +78,6 @@ export const HIGH_ROAD_ID_MASK = 0x0F0;
 export const FREQ_ROAD = 0xF00;
 export const LAND_TYPE_SHIFT = 4;
 export const DUMMY_ROAD_MASK = 0x100;
-
-// Land encoding constants
-const LND_CLASS_SHIFT = 6;
-const LND_TYPE_SHIFT = 2;
-const LND_CLASS_MASK = 0xFF << LND_CLASS_SHIFT;
-const LND_TYPE_MASK = (0xFF << LND_TYPE_SHIFT) & ~LND_CLASS_MASK;
 
 // Special value for no road
 export const ROAD_NONE = 0xFFFFFFFF;
@@ -427,35 +403,6 @@ export interface RoadBlockClass {
   imagePath: string;
   railingImgPath: string;
   frequency: number;
-}
-
-// =============================================================================
-// LAND FUNCTIONS
-// =============================================================================
-
-/**
- * Extract land class from land ID
- */
-export function landClassOf(landId: number): LandClass {
-  return (landId & LND_CLASS_MASK) >> LND_CLASS_SHIFT;
-}
-
-/**
- * Extract land type from land ID
- */
-export function landTypeOf(landId: number): LandType {
-  const typeIdx = (landId & LND_TYPE_MASK) >> LND_TYPE_SHIFT;
-  if (typeIdx < LandType.Special) {
-    return typeIdx as LandType;
-  }
-  return LandType.Special;
-}
-
-/**
- * Check if land is water (ZoneD)
- */
-export function isWater(landId: number): boolean {
-  return landClassOf(landId) === LandClass.ZoneD;
 }
 
 // =============================================================================

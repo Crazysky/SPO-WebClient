@@ -53,6 +53,7 @@ src/
     │   └── index.ts           # Barrel export
     ├── types.ts               # Re-export barrel (backward compat)
     ├── rdo-types.ts           # RDO type system (RdoValue, RdoParser)
+    ├── land-utils.ts          # LandId decoding (landClass, landType, water detection)
     ├── building-details/      # Building property definitions
     ├── config.ts              # Server configuration
     ├── constants.ts           # Global constants (URLs, timeouts)
@@ -1075,9 +1076,35 @@ Provide:
   - **Integration:** [src/client/renderer/isometric-map-renderer.ts](src/client/renderer/isometric-map-renderer.ts)
     - `loadRoadBlockClasses()` - Fetches INI files from server at startup
     - `rebuildRoadsRendering()` - Computes topology from MapSegments
-    - `drawRoads()` - Renders textures using RoadBlockClassManager lookups
+    - `drawRoads()` - Two-pass rendering with painter's algorithm for bridges
     - `isOnConcrete()` - Heuristic for urban road detection (radius 2 from urban buildings)
     - Fallback colored diamonds when textures not available (debug colors by topology)
+  - **Two-Pass Bridge Rendering (January 2026):**
+    - **Problem:** Bridge arches extend below standard tile height (64×32), causing incorrect overlap
+    - **Solution:** Same approach as terrain special textures - two-pass rendering with painter's algorithm
+    - **Bridge texture dimensions:**
+      - Standard roads: 64×32 (Roadvert.bmp, Roadhorz.bmp)
+      - NSBridge/WEBridge: 64×49 (+17 pixels for arches)
+      - NorthBridge/EastBridge: 64×37 (+5 pixels)
+      - SouthBridge: 64×49 (+17 pixels)
+      - WestBridge: 64×48 (+16 pixels)
+    - **Pass 1:** Render standard tiles (height ≤ 32) - no sorting needed
+    - **Pass 2:** Render tall tiles (bridges) sorted by (i+j) descending
+      - Higher (i+j) = higher on screen = drawn first
+      - Lower (i+j) = lower on screen = drawn last (on top)
+    - **Tall texture rendering:**
+      - `scale = config.tileWidth / 64`
+      - `scaledHeight = texture.height * scale`
+      - `yOffset = scaledHeight - config.tileHeight`
+      - Draw at `(sx - halfWidth, sy - yOffset)` with actual scaled height
+    - **Result:** Bridge arches correctly overlap with lower tiles on top
+  - **LandId Integration (January 2026):**
+    - **Module:** [src/shared/land-utils.ts](src/shared/land-utils.ts) - Shared landId decoding utilities
+    - **Encoding:** bits 7-6 = LandClass, bits 5-2 = LandType, bits 1-0 = LandVar
+    - **LandClass values:** ZoneA (0=Grass), ZoneB (1=MidGrass), ZoneC (2=DryGround), ZoneD (3=Water)
+    - **Water detection:** LandClass=3 AND LandType in [0,4,8,12] = deep water
+    - **Bridge detection:** `roadBlockId()` uses real landId from terrain BMP for water/bridge type
+    - **Debug overlay:** Press 'D' to toggle, shows landId, landClass, landType, road topology per tile
   - **Test Coverage:** 31/31 tests passing
     - INI parsing with hex ID support
     - Land ID functions (landClassOf, landTypeOf, isWater)
@@ -1087,13 +1114,13 @@ Provide:
   - **Bug Fixes:**
     - Fixed Delphi hex ID parsing: 45 INI files use `$XX` format (e.g., `Id=$15` = 21 decimal)
     - Fixed corner/T-junction topology mapping to match official client behavior
+    - Fixed bridge rendering with proper painter's algorithm (lower tiles on top)
   - **Performance:**
-    - Bundle size: 324.8kb client.js (includes texture system)
+    - Bundle size: 349.4kb client.js (includes texture system + landId utils)
     - Topology buffer: O(1) lookup after segment rendering
     - Texture cache: LRU with 500 entries via GameObjectTextureCache
     - Re-render triggered when road textures load asynchronously
   - **Known Limitations:**
-    - Water/bridge detection uses simplified landId=0 (full terrain integration pending)
     - Railroad crossing detection not implemented (onRailroad always false)
     - Smooth corner detection requires full map context
 - **Rendering Performance Fix (January 2026):**

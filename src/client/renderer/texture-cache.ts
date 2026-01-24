@@ -10,11 +10,12 @@
  * Features:
  * - LRU (Least Recently Used) eviction policy
  * - Async texture loading with Promise-based API
- * - Fallback colors for missing textures
+ * - Fallback colors for missing textures (using proper landId decoding)
  * - Pre-loading support for visible tiles
  */
 
 import { Season, SEASON_NAMES } from '../../shared/map-config';
+import { LandClass, landClassOf } from '../../shared/land-utils';
 
 // Fallback colors for palette indices when texture is not available
 const TERRAIN_COLORS: Record<number, string> = {
@@ -39,37 +40,49 @@ const TERRAIN_COLORS: Record<number, string> = {
 
 /**
  * Generate a deterministic fallback color for unmapped palette indices
+ * Uses proper landId decoding (bits 7-6 = LandClass) instead of arbitrary ranges
+ *
+ * @param paletteIndex - The raw landId byte (0-255)
+ * @returns CSS color string
  */
 function getFallbackColor(paletteIndex: number): string {
   if (TERRAIN_COLORS[paletteIndex]) {
     return TERRAIN_COLORS[paletteIndex];
   }
 
-  // Determine terrain type based on index range
-  if (paletteIndex >= 192) {
-    // Water range - blue tones
-    const hue = 200 + (paletteIndex % 20);
-    const sat = 40 + (paletteIndex % 20);
-    const light = 25 + (paletteIndex % 15);
-    return `hsl(${hue}, ${sat}%, ${light}%)`;
-  } else if (paletteIndex >= 128) {
-    // DryGround range - brown tones
-    const hue = 30 + (paletteIndex % 15);
-    const sat = 30 + (paletteIndex % 20);
-    const light = 35 + (paletteIndex % 20);
-    return `hsl(${hue}, ${sat}%, ${light}%)`;
-  } else if (paletteIndex >= 64) {
-    // MidGrass range - yellow-green tones
-    const hue = 70 + (paletteIndex % 30);
-    const sat = 35 + (paletteIndex % 25);
-    const light = 35 + (paletteIndex % 20);
-    return `hsl(${hue}, ${sat}%, ${light}%)`;
-  } else {
-    // Grass range - green tones
-    const hue = 90 + (paletteIndex % 30);
-    const sat = 40 + (paletteIndex % 25);
-    const light = 30 + (paletteIndex % 20);
-    return `hsl(${hue}, ${sat}%, ${light}%)`;
+  // Use proper bit decoding to determine terrain type
+  const landClass = landClassOf(paletteIndex);
+
+  switch (landClass) {
+    case LandClass.ZoneD: {
+      // Water (bits 7-6 = 11) - blue tones
+      const hue = 200 + (paletteIndex % 20);
+      const sat = 40 + (paletteIndex % 20);
+      const light = 25 + (paletteIndex % 15);
+      return `hsl(${hue}, ${sat}%, ${light}%)`;
+    }
+    case LandClass.ZoneC: {
+      // DryGround (bits 7-6 = 10) - brown tones
+      const hue = 30 + (paletteIndex % 15);
+      const sat = 30 + (paletteIndex % 20);
+      const light = 35 + (paletteIndex % 20);
+      return `hsl(${hue}, ${sat}%, ${light}%)`;
+    }
+    case LandClass.ZoneB: {
+      // MidGrass (bits 7-6 = 01) - yellow-green tones
+      const hue = 70 + (paletteIndex % 30);
+      const sat = 35 + (paletteIndex % 25);
+      const light = 35 + (paletteIndex % 20);
+      return `hsl(${hue}, ${sat}%, ${light}%)`;
+    }
+    case LandClass.ZoneA:
+    default: {
+      // Grass (bits 7-6 = 00) - green tones
+      const hue = 90 + (paletteIndex % 30);
+      const sat = 40 + (paletteIndex % 25);
+      const light = 30 + (paletteIndex % 20);
+      return `hsl(${hue}, ${sat}%, ${light}%)`;
+    }
   }
 }
 

@@ -39,8 +39,11 @@ import {
   RoadBlockId,
   roadBlockId,
   ROAD_TYPE,
-  LandClass
+  LandClass,
+  landClassOf,
+  landTypeOf
 } from './road-texture-system';
+import { formatLandId, landTypeName, landClassName, decodeLandId } from '../../shared/land-utils';
 
 interface CachedZone {
   x: number;
@@ -136,6 +139,11 @@ export class IsometricMapRenderer {
   private mapLoaded: boolean = false;
   private mapName: string = '';
 
+  // Debug mode
+  private debugMode: boolean = false;
+  private debugShowTileInfo: boolean = true;
+  private debugShowRoadInfo: boolean = true;
+
   constructor(canvasId: string) {
     const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
     if (!canvas) {
@@ -172,9 +180,34 @@ export class IsometricMapRenderer {
 
     // Setup event handlers
     this.setupMouseControls();
+    this.setupKeyboardControls();
 
     // Initial render
     this.render();
+  }
+
+  /**
+   * Setup keyboard controls for debug mode
+   */
+  private setupKeyboardControls() {
+    document.addEventListener('keydown', (e) => {
+      // 'D' key toggles debug mode
+      if (e.key === 'd' || e.key === 'D') {
+        this.debugMode = !this.debugMode;
+        console.log(`[IsometricMapRenderer] Debug mode: ${this.debugMode ? 'ON' : 'OFF'}`);
+        this.render();
+      }
+      // '1' toggles tile info in debug mode
+      if (e.key === '1' && this.debugMode) {
+        this.debugShowTileInfo = !this.debugShowTileInfo;
+        this.render();
+      }
+      // '2' toggles road info in debug mode
+      if (e.key === '2' && this.debugMode) {
+        this.debugShowRoadInfo = !this.debugShowRoadInfo;
+        this.render();
+      }
+    });
   }
 
   // =========================================================================
@@ -670,6 +703,11 @@ export class IsometricMapRenderer {
     this.drawPlacementPreview();
     this.drawRoadDrawingPreview();
 
+    // Draw debug overlay if enabled
+    if (this.debugMode) {
+      this.drawDebugOverlay(bounds);
+    }
+
     // Draw additional info (game-specific overlay)
     this.drawGameInfo();
   }
@@ -720,14 +758,38 @@ export class IsometricMapRenderer {
   /**
    * Draw road segments as isometric tiles with textures
    * Uses the road texture system to determine correct textures based on topology
+   *
+   * Two-pass rendering (same as terrain special textures):
+   * - Pass 1: Standard road tiles (texture height <= 32)
+   * - Pass 2: Tall road tiles (bridges) sorted by (i+j) ascending for painter's algorithm
    */
   private drawRoads(bounds: TileBounds, occupiedTiles: Set<string>) {
     const ctx = this.ctx;
     const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
     const halfWidth = config.tileWidth / 2;
     const halfHeight = config.tileHeight / 2;
+    const terrainLoader = this.terrainRenderer.getTerrainLoader();
 
-    // Iterate through road tiles map
+    // Standard tile height at base resolution (64×32)
+    const BASE_TILE_HEIGHT = 32;
+
+    // Collect road tiles for two-pass rendering
+    const standardTiles: Array<{
+      sx: number;
+      sy: number;
+      topology: RoadBlockId;
+      texture: ImageBitmap | null;
+    }> = [];
+
+    const tallTiles: Array<{
+      x: number;
+      y: number;
+      sx: number;
+      sy: number;
+      topology: RoadBlockId;
+      texture: ImageBitmap;
+    }> = [];
+
     for (const [key] of this.roadTilesMap) {
       const [xStr, yStr] = key.split(',');
       const x = parseInt(xStr, 10);
@@ -744,9 +806,9 @@ export class IsometricMapRenderer {
       // Convert to isometric coordinates (x = j, y = i)
       const screenPos = this.terrainRenderer.mapToScreen(y, x);
 
-      // Cull if off-screen
+      // Cull if off-screen (extra margin for tall textures)
       if (screenPos.x < -config.tileWidth || screenPos.x > this.canvas.width + config.tileWidth ||
-          screenPos.y < -config.tileHeight || screenPos.y > this.canvas.height + config.tileHeight) {
+          screenPos.y < -config.tileHeight * 2 || screenPos.y > this.canvas.height + config.tileHeight * 2) {
         continue;
       }
 
@@ -754,74 +816,77 @@ export class IsometricMapRenderer {
       const sx = Math.round(screenPos.x);
       const sy = Math.round(screenPos.y);
 
-      // Try to get road texture if road block classes are loaded
-      let textureDrawn = false;
+      let topology = RoadBlockId.None;
+      let texture: ImageBitmap | null = null;
 
       if (this.roadBlockClassesLoaded && this.roadsRendering) {
-        // Get topology from the roads rendering buffer
-        const topology = this.roadsRendering.get(y, x);
+        topology = this.roadsRendering.get(y, x);
 
         if (topology !== RoadBlockId.None) {
-          // Calculate the full road block ID
-          // For now, use simple land road type (no concrete/water/railroad detection yet)
-          const landId = 0; // Default land ID (center, grass)
+          const landId = terrainLoader.getLandId(x, y);
           const onConcrete = this.isOnConcrete(x, y);
-          const onRailroad = false; // No railroad support yet
 
           const fullRoadBlockId = roadBlockId(
             topology,
             landId,
             onConcrete,
-            onRailroad,
-            false // not dummy
+            false, // onRailroad
+            false  // isDummy
           );
 
-          // Get texture path for this road block
+          // Get texture
           const texturePath = this.roadBlockClassManager.getImagePath(fullRoadBlockId);
-
           if (texturePath) {
-            // Extract filename from path for texture cache
             const filename = texturePath.split('/').pop() || '';
-
-            // Try to get texture from cache
-            const texture = this.gameObjectTextureCache.getTextureSync('RoadBlockImages', filename);
-
-            if (texture) {
-              // Draw texture centered on tile
-              const drawX = sx - halfWidth;
-              const drawY = sy;
-
-              ctx.drawImage(
-                texture,
-                drawX,
-                drawY,
-                config.tileWidth,
-                config.tileHeight
-              );
-              textureDrawn = true;
-            }
+            texture = this.gameObjectTextureCache.getTextureSync('RoadBlockImages', filename);
           }
         }
       }
 
-      // Fallback: draw colored diamond if texture not available
-      if (!textureDrawn) {
-        ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        ctx.lineTo(sx - halfWidth, sy + halfHeight);
-        ctx.lineTo(sx, sy + config.tileHeight);
-        ctx.lineTo(sx + halfWidth, sy + halfHeight);
-        ctx.closePath();
+      // Separate tall textures (bridges) from standard textures
+      if (texture && texture.height > BASE_TILE_HEIGHT) {
+        tallTiles.push({ x, y, sx, sy, topology, texture });
+      } else {
+        standardTiles.push({ sx, sy, topology, texture });
+      }
+    }
 
-        // Use different colors based on topology for debugging
-        if (this.roadsRendering) {
-          const topology = this.roadsRendering.get(y, x);
-          ctx.fillStyle = this.getDebugColorForTopology(topology);
-        } else {
-          ctx.fillStyle = '#666';
-        }
+    // Pass 1: Render standard tiles (no sorting needed, they don't overlap)
+    for (const tile of standardTiles) {
+      if (tile.texture) {
+        ctx.drawImage(tile.texture, tile.sx - halfWidth, tile.sy, config.tileWidth, config.tileHeight);
+      } else {
+        // Fallback: draw colored diamond
+        ctx.beginPath();
+        ctx.moveTo(tile.sx, tile.sy);
+        ctx.lineTo(tile.sx - halfWidth, tile.sy + halfHeight);
+        ctx.lineTo(tile.sx, tile.sy + config.tileHeight);
+        ctx.lineTo(tile.sx + halfWidth, tile.sy + halfHeight);
+        ctx.closePath();
+        ctx.fillStyle = this.getDebugColorForTopology(tile.topology);
         ctx.fill();
       }
+    }
+
+    // Pass 2: Render tall tiles (bridges) sorted by (i+j) descending
+    // Higher (i+j) = higher on screen = drawn first
+    // Lower (i+j) = lower on screen = drawn last (on top)
+    tallTiles.sort((a, b) => (b.y + b.x) - (a.y + a.x));
+
+    for (const tile of tallTiles) {
+      // Calculate scale and height for tall texture
+      const scale = config.tileWidth / 64;
+      const scaledHeight = tile.texture.height * scale;
+      const yOffset = scaledHeight - config.tileHeight;
+
+      // Draw at actual height with upward offset (same as terrain tall textures)
+      ctx.drawImage(
+        tile.texture,
+        tile.sx - halfWidth,
+        tile.sy - yOffset,
+        config.tileWidth,
+        scaledHeight
+      );
     }
   }
 
@@ -1380,6 +1445,168 @@ export class IsometricMapRenderer {
     }
 
     return tiles;
+  }
+
+  /**
+   * Draw debug overlay showing tile and road metadata
+   */
+  private drawDebugOverlay(bounds: TileBounds) {
+    const ctx = this.ctx;
+    const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
+    const terrainLoader = this.terrainRenderer.getTerrainLoader();
+
+    // Only show detailed info for hovered tile area
+    const hoverRadius = 2; // Show info for 2 tiles around mouse
+    const centerI = this.mouseMapI;
+    const centerJ = this.mouseMapJ;
+
+    // Draw debug info panel at top-left
+    this.drawDebugPanel(ctx);
+
+    // Draw tile metadata for tiles near mouse
+    if (this.debugShowTileInfo || this.debugShowRoadInfo) {
+      for (let i = centerI - hoverRadius; i <= centerI + hoverRadius; i++) {
+        for (let j = centerJ - hoverRadius; j <= centerJ + hoverRadius; j++) {
+          const screenPos = this.terrainRenderer.mapToScreen(i, j);
+
+          // Skip if off-screen
+          if (screenPos.x < -100 || screenPos.x > this.canvas.width + 100 ||
+              screenPos.y < -100 || screenPos.y > this.canvas.height + 100) {
+            continue;
+          }
+
+          const landId = terrainLoader.getLandId(j, i);
+          const decoded = decodeLandId(landId);
+          const hasRoad = this.roadTilesMap.has(`${j},${i}`);
+          const isCenter = (i === centerI && j === centerJ);
+
+          // Highlight center tile
+          if (isCenter) {
+            const halfWidth = config.tileWidth / 2;
+            const halfHeight = config.tileHeight / 2;
+
+            ctx.beginPath();
+            ctx.moveTo(screenPos.x, screenPos.y);
+            ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
+            ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
+            ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
+            ctx.closePath();
+
+            ctx.strokeStyle = '#ffff00';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+          }
+
+          // Draw tile coordinates
+          ctx.font = '9px monospace';
+          ctx.textAlign = 'center';
+
+          if (this.debugShowTileInfo) {
+            // Draw landId info
+            const landClassChar = ['G', 'M', 'D', 'W'][decoded.landClass] || '?';
+            const landTypeChar = decoded.landType.toString(16).toUpperCase();
+
+            ctx.fillStyle = decoded.isWater ? '#00ffff' : '#ffffff';
+            ctx.fillText(`${landClassChar}${landTypeChar}`, screenPos.x, screenPos.y + config.tileHeight / 2 - 4);
+
+            // Show hex value for center tile
+            if (isCenter) {
+              ctx.fillStyle = '#ffff00';
+              ctx.fillText(`0x${landId.toString(16).toUpperCase().padStart(2, '0')}`, screenPos.x, screenPos.y + config.tileHeight / 2 + 8);
+            }
+          }
+
+          if (this.debugShowRoadInfo && hasRoad && this.roadsRendering) {
+            const topology = this.roadsRendering.get(i, j);
+            const fullRoadBlockId = roadBlockId(
+              topology,
+              landId,
+              this.isOnConcrete(j, i),
+              false,
+              false
+            );
+
+            // Show road block ID
+            ctx.fillStyle = '#ff8800';
+            const roadIdStr = `R:${fullRoadBlockId.toString(16).toUpperCase()}`;
+            ctx.fillText(roadIdStr, screenPos.x, screenPos.y + config.tileHeight / 2 + 20);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Draw debug info panel
+   */
+  private drawDebugPanel(ctx: CanvasRenderingContext2D) {
+    const terrainLoader = this.terrainRenderer.getTerrainLoader();
+    const x = this.mouseMapJ;
+    const y = this.mouseMapI;
+
+    const landId = terrainLoader.getLandId(x, y);
+    const decoded = decodeLandId(landId);
+    const hasRoad = this.roadTilesMap.has(`${x},${y}`);
+
+    // Panel background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(10, 10, 320, hasRoad ? 200 : 140);
+
+    ctx.fillStyle = '#ffff00';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('DEBUG MODE [D=toggle, 1=tile, 2=road]', 20, 28);
+
+    ctx.font = '11px monospace';
+    ctx.fillStyle = '#ffffff';
+
+    // Tile info
+    ctx.fillText(`Tile: (${x}, ${y})`, 20, 50);
+    ctx.fillText(`LandId: 0x${landId.toString(16).toUpperCase().padStart(2, '0')} (${landId})`, 20, 66);
+    ctx.fillText(`LandClass: ${landClassName(decoded.landClass)} (${decoded.landClass})`, 20, 82);
+    ctx.fillText(`LandType: ${landTypeName(decoded.landType)} (${decoded.landType})`, 20, 98);
+    ctx.fillText(`LandVar: ${decoded.landVar}`, 20, 114);
+
+    // Water indicator
+    if (decoded.isWater) {
+      ctx.fillStyle = '#00ffff';
+      ctx.fillText(`>>> WATER TILE <<<`, 20, 130);
+      if (decoded.isDeepWater) {
+        ctx.fillText(`  Type: Deep Water (Center)`, 20, 146);
+      } else if (decoded.isWaterEdge) {
+        ctx.fillText(`  Type: Water Edge`, 20, 146);
+      }
+    }
+
+    // Road info
+    if (hasRoad && this.roadsRendering) {
+      const topology = this.roadsRendering.get(y, x);
+      const onConcrete = this.isOnConcrete(x, y);
+      const fullRoadBlockId = roadBlockId(topology, landId, onConcrete, false, false);
+      const highId = (fullRoadBlockId & 0xF0) >> 4;
+
+      ctx.fillStyle = '#ff8800';
+      const yOffset = decoded.isWater ? 166 : 130;
+
+      ctx.fillText(`Road Topology: ${RoadBlockId[topology]} (${topology})`, 20, yOffset);
+      ctx.fillText(`RoadBlockId: 0x${fullRoadBlockId.toString(16).toUpperCase().padStart(2, '0')} (${fullRoadBlockId})`, 20, yOffset + 16);
+
+      // Road type
+      const roadTypes = ['LAND', 'URBAN', 'N_BRIDGE', 'S_BRIDGE', 'E_BRIDGE', 'W_BRIDGE', 'FULL_BRIDGE', 'LEVEL_PASS', 'URB_LEVEL', 'SMOOTH', 'URB_SMOOTH'];
+      const roadTypeName = roadTypes[highId] || `TYPE_${highId}`;
+      ctx.fillText(`Road Type: ${roadTypeName}`, 20, yOffset + 32);
+
+      // Texture path
+      const texturePath = this.roadBlockClassManager.getImagePath(fullRoadBlockId);
+      if (texturePath) {
+        const filename = texturePath.split('/').pop() || '';
+        ctx.fillStyle = '#00ff00';
+        ctx.fillText(`Texture: ${filename}`, 20, yOffset + 48);
+      } else {
+        ctx.fillStyle = '#ff0000';
+        ctx.fillText(`Texture: NOT FOUND`, 20, yOffset + 48);
+      }
+    }
   }
 
   /**
