@@ -1,5 +1,129 @@
 "use strict";
 (() => {
+  // src/shared/land-utils.ts
+  var LND_CLASS_MASK = 192;
+  var LND_TYPE_MASK = 60;
+  var LND_VAR_MASK = 3;
+  var LND_CLASS_SHIFT = 6;
+  var LND_TYPE_SHIFT = 2;
+  function landClassOf(landId) {
+    return (landId & LND_CLASS_MASK) >> LND_CLASS_SHIFT;
+  }
+  function landTypeOf(landId) {
+    const typeIdx = (landId & LND_TYPE_MASK) >> LND_TYPE_SHIFT;
+    return typeIdx <= 13 /* Special */ ? typeIdx : 13 /* Special */;
+  }
+  function landVarOf(landId) {
+    return landId & LND_VAR_MASK;
+  }
+  function isWater(landId) {
+    return landClassOf(landId) === 3 /* ZoneD */;
+  }
+  function isDeepWater(landId) {
+    return isWater(landId) && landTypeOf(landId) === 0 /* Center */;
+  }
+  function isWaterEdge(landId) {
+    return isWater(landId) && landTypeOf(landId) !== 0 /* Center */;
+  }
+  function isWaterCorner(landId) {
+    if (!isWater(landId)) return false;
+    const type = landTypeOf(landId);
+    return type >= 5 /* NEo */ && type <= 12 /* NWi */;
+  }
+  function canBuildOn(landId) {
+    if (isWater(landId)) return false;
+    if (landTypeOf(landId) === 13 /* Special */) return false;
+    return true;
+  }
+  function getEdgeDirection(landId) {
+    const type = landTypeOf(landId);
+    switch (type) {
+      case 1 /* N */:
+        return "N";
+      case 2 /* E */:
+        return "E";
+      case 3 /* S */:
+        return "S";
+      case 4 /* W */:
+        return "W";
+      default:
+        return null;
+    }
+  }
+  function isSpecialTile(landId) {
+    return landTypeOf(landId) === 13 /* Special */;
+  }
+  function decodeLandId(landId) {
+    const landClass = landClassOf(landId);
+    const landType = landTypeOf(landId);
+    const landVar = landVarOf(landId);
+    const water = landClass === 3 /* ZoneD */;
+    return {
+      raw: landId,
+      landClass,
+      landType,
+      landVar,
+      isWater: water,
+      isWaterEdge: water && landType !== 0 /* Center */,
+      isDeepWater: water && landType === 0 /* Center */,
+      canBuild: !water && landType !== 13 /* Special */,
+      edgeDirection: getEdgeDirection(landId)
+    };
+  }
+  function landClassName(landClass) {
+    switch (landClass) {
+      case 0 /* ZoneA */:
+        return "Grass";
+      case 1 /* ZoneB */:
+        return "MidGrass";
+      case 2 /* ZoneC */:
+        return "DryGround";
+      case 3 /* ZoneD */:
+        return "Water";
+      default:
+        return "Unknown";
+    }
+  }
+  function landTypeName(landType) {
+    switch (landType) {
+      case 0 /* Center */:
+        return "Center";
+      case 1 /* N */:
+        return "North";
+      case 2 /* E */:
+        return "East";
+      case 3 /* S */:
+        return "South";
+      case 4 /* W */:
+        return "West";
+      case 5 /* NEo */:
+        return "NE Outer";
+      case 6 /* SEo */:
+        return "SE Outer";
+      case 7 /* SWo */:
+        return "SW Outer";
+      case 8 /* NWo */:
+        return "NW Outer";
+      case 9 /* NEi */:
+        return "NE Inner";
+      case 10 /* SEi */:
+        return "SE Inner";
+      case 11 /* SWi */:
+        return "SW Inner";
+      case 12 /* NWi */:
+        return "NW Inner";
+      case 13 /* Special */:
+        return "Special";
+      default:
+        return "Unknown";
+    }
+  }
+  function formatLandId(landId) {
+    const decoded = decodeLandId(landId);
+    const hex = "0x" + landId.toString(16).toUpperCase().padStart(2, "0");
+    return `${hex} (${landClassName(decoded.landClass)}, ${landTypeName(decoded.landType)}, var=${decoded.landVar})`;
+  }
+
   // src/client/renderer/terrain-loader.ts
   var TerrainLoader = class {
     constructor() {
@@ -191,6 +315,118 @@
      */
     getMapName() {
       return this.mapName;
+    }
+    // ===========================================================================
+    // LAND METADATA METHODS
+    // ===========================================================================
+    /**
+     * Get raw landId for a tile coordinate
+     * @param x - X coordinate (0 to width-1)
+     * @param y - Y coordinate (0 to height-1)
+     * @returns Raw landId byte (0-255) or 0 if out of bounds
+     */
+    getLandId(x, y) {
+      return this.getTextureId(x, y);
+    }
+    /**
+     * Get LandClass for a tile coordinate
+     * @param x - X coordinate
+     * @param y - Y coordinate
+     * @returns LandClass enum value (ZoneA, ZoneB, ZoneC, ZoneD)
+     */
+    getLandClass(x, y) {
+      return landClassOf(this.getLandId(x, y));
+    }
+    /**
+     * Get LandType for a tile coordinate
+     * @param x - X coordinate
+     * @param y - Y coordinate
+     * @returns LandType enum value (Center, N, E, S, W, corners, Special)
+     */
+    getLandType(x, y) {
+      return landTypeOf(this.getLandId(x, y));
+    }
+    /**
+     * Get LandVar for a tile coordinate
+     * @param x - X coordinate
+     * @param y - Y coordinate
+     * @returns Variation index (0-3)
+     */
+    getLandVar(x, y) {
+      return landVarOf(this.getLandId(x, y));
+    }
+    /**
+     * Check if a tile is water (ZoneD)
+     * @param x - X coordinate
+     * @param y - Y coordinate
+     * @returns true if water tile
+     */
+    isWater(x, y) {
+      return isWater(this.getLandId(x, y));
+    }
+    /**
+     * Check if a tile is deep water (water center)
+     * @param x - X coordinate
+     * @param y - Y coordinate
+     * @returns true if deep water (water + center type)
+     */
+    isDeepWater(x, y) {
+      return isDeepWater(this.getLandId(x, y));
+    }
+    /**
+     * Check if a tile is a water edge (water but not center)
+     * @param x - X coordinate
+     * @param y - Y coordinate
+     * @returns true if water edge tile
+     */
+    isWaterEdge(x, y) {
+      return isWaterEdge(this.getLandId(x, y));
+    }
+    /**
+     * Check if a tile is a water corner (inner or outer)
+     * @param x - X coordinate
+     * @param y - Y coordinate
+     * @returns true if water corner tile
+     */
+    isWaterCorner(x, y) {
+      return isWaterCorner(this.getLandId(x, y));
+    }
+    /**
+     * Check if buildings can be placed on a tile
+     * Buildings cannot be placed on water or special tiles
+     * @param x - X coordinate
+     * @param y - Y coordinate
+     * @returns true if building placement is allowed
+     */
+    canBuildOn(x, y) {
+      return canBuildOn(this.getLandId(x, y));
+    }
+    /**
+     * Check if a tile is a special tile (trees, decorations, etc.)
+     * @param x - X coordinate
+     * @param y - Y coordinate
+     * @returns true if special tile
+     */
+    isSpecialTile(x, y) {
+      return isSpecialTile(this.getLandId(x, y));
+    }
+    /**
+     * Get fully decoded land information for a tile
+     * @param x - X coordinate
+     * @param y - Y coordinate
+     * @returns Complete DecodedLandId object
+     */
+    getLandInfo(x, y) {
+      return decodeLandId(this.getLandId(x, y));
+    }
+    /**
+     * Get formatted landId string for debugging
+     * @param x - X coordinate
+     * @param y - Y coordinate
+     * @returns Formatted string like "0xDE (Water, SWo, var=2)"
+     */
+    formatLandId(x, y) {
+      return formatLandId(this.getLandId(x, y));
     }
     /**
      * Unload terrain data to free memory
@@ -417,26 +653,33 @@
     if (TERRAIN_COLORS[paletteIndex]) {
       return TERRAIN_COLORS[paletteIndex];
     }
-    if (paletteIndex >= 192) {
-      const hue = 200 + paletteIndex % 20;
-      const sat = 40 + paletteIndex % 20;
-      const light = 25 + paletteIndex % 15;
-      return `hsl(${hue}, ${sat}%, ${light}%)`;
-    } else if (paletteIndex >= 128) {
-      const hue = 30 + paletteIndex % 15;
-      const sat = 30 + paletteIndex % 20;
-      const light = 35 + paletteIndex % 20;
-      return `hsl(${hue}, ${sat}%, ${light}%)`;
-    } else if (paletteIndex >= 64) {
-      const hue = 70 + paletteIndex % 30;
-      const sat = 35 + paletteIndex % 25;
-      const light = 35 + paletteIndex % 20;
-      return `hsl(${hue}, ${sat}%, ${light}%)`;
-    } else {
-      const hue = 90 + paletteIndex % 30;
-      const sat = 40 + paletteIndex % 25;
-      const light = 30 + paletteIndex % 20;
-      return `hsl(${hue}, ${sat}%, ${light}%)`;
+    const landClass = landClassOf(paletteIndex);
+    switch (landClass) {
+      case 3 /* ZoneD */: {
+        const hue = 200 + paletteIndex % 20;
+        const sat = 40 + paletteIndex % 20;
+        const light = 25 + paletteIndex % 15;
+        return `hsl(${hue}, ${sat}%, ${light}%)`;
+      }
+      case 2 /* ZoneC */: {
+        const hue = 30 + paletteIndex % 15;
+        const sat = 30 + paletteIndex % 20;
+        const light = 35 + paletteIndex % 20;
+        return `hsl(${hue}, ${sat}%, ${light}%)`;
+      }
+      case 1 /* ZoneB */: {
+        const hue = 70 + paletteIndex % 30;
+        const sat = 35 + paletteIndex % 25;
+        const light = 35 + paletteIndex % 20;
+        return `hsl(${hue}, ${sat}%, ${light}%)`;
+      }
+      case 0 /* ZoneA */:
+      default: {
+        const hue = 90 + paletteIndex % 30;
+        const sat = 40 + paletteIndex % 25;
+        const light = 30 + paletteIndex % 20;
+        return `hsl(${hue}, ${sat}%, ${light}%)`;
+      }
     }
   }
   var TextureCache = class {

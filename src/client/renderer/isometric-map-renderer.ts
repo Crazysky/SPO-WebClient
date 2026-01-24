@@ -698,6 +698,7 @@ export class IsometricMapRenderer {
 
     // Draw game object layers on top of terrain
     this.drawRoads(bounds, occupiedTiles);
+    this.drawTallTerrainOverRoads(bounds);
     this.drawBuildings(bounds);
     this.drawZoneOverlay(bounds);
     this.drawPlacementPreview();
@@ -880,6 +881,85 @@ export class IsometricMapRenderer {
       const yOffset = scaledHeight - config.tileHeight;
 
       // Draw at actual height with upward offset (same as terrain tall textures)
+      ctx.drawImage(
+        tile.texture,
+        tile.sx - halfWidth,
+        tile.sy - yOffset,
+        config.tileWidth,
+        scaledHeight
+      );
+    }
+  }
+
+  /**
+   * Re-render tall terrain textures over roads
+   * This ensures terrain special textures (plants, decorations) correctly overlap roads
+   * Uses painter's algorithm: lower tiles (closer to viewer) drawn last (on top)
+   */
+  private drawTallTerrainOverRoads(bounds: TileBounds) {
+    const ctx = this.ctx;
+    const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
+    const halfWidth = config.tileWidth / 2;
+    const terrainLoader = this.terrainRenderer.getTerrainLoader();
+    const textureCache = this.terrainRenderer.getTextureCache();
+
+    // Standard tile height at base resolution
+    const BASE_TILE_HEIGHT = 32;
+
+    // Collect tall terrain tiles that need to be re-rendered over roads
+    const tallTerrainTiles: Array<{
+      i: number;
+      j: number;
+      sx: number;
+      sy: number;
+      texture: ImageBitmap;
+    }> = [];
+
+    // Check tiles around roads (roads might be under tall terrain textures from adjacent tiles)
+    // We need to check a wider area because tall textures can visually extend into neighboring tiles
+    for (let i = bounds.minI - 2; i <= bounds.maxI + 2; i++) {
+      for (let j = bounds.minJ - 2; j <= bounds.maxJ + 2; j++) {
+        // Skip tiles that have a road - the road covers the terrain texture on that tile
+        // (as if the plant was removed to build the road)
+        if (this.roadTilesMap.has(`${j},${i}`)) {
+          continue;
+        }
+
+        const textureId = terrainLoader.getTextureId(j, i);
+        const texture = textureCache.getTextureSync(textureId);
+
+        // Only process tall textures
+        if (!texture || texture.height <= BASE_TILE_HEIGHT) {
+          continue;
+        }
+
+        const screenPos = this.terrainRenderer.mapToScreen(i, j);
+
+        // Cull if off-screen (with extra margin for tall textures)
+        if (screenPos.x < -config.tileWidth * 2 || screenPos.x > this.canvas.width + config.tileWidth * 2 ||
+            screenPos.y < -config.tileHeight * 3 || screenPos.y > this.canvas.height + config.tileHeight * 2) {
+          continue;
+        }
+
+        tallTerrainTiles.push({
+          i,
+          j,
+          sx: Math.round(screenPos.x),
+          sy: Math.round(screenPos.y),
+          texture
+        });
+      }
+    }
+
+    // Sort by (i+j) descending: higher values drawn first, lower values (closer to viewer) drawn last
+    tallTerrainTiles.sort((a, b) => (b.i + b.j) - (a.i + a.j));
+
+    // Re-render tall terrain textures on top of roads
+    for (const tile of tallTerrainTiles) {
+      const scale = config.tileWidth / 64;
+      const scaledHeight = tile.texture.height * scale;
+      const yOffset = scaledHeight - config.tileHeight;
+
       ctx.drawImage(
         tile.texture,
         tile.sx - halfWidth,
