@@ -1115,6 +1115,15 @@ Provide:
     - Fixed Delphi hex ID parsing: 45 INI files use `$XX` format (e.g., `Id=$15` = 21 decimal)
     - Fixed corner/T-junction topology mapping to match official client behavior
     - Fixed bridge rendering with proper painter's algorithm (lower tiles on top)
+  - **Tall Terrain Textures & Roads (January 2026):**
+    - **Problem:** Tall terrain textures (plants, decorations) on road tiles were overlapping roads
+    - **Expected behavior:** Road construction removes plants on that tile
+    - **Solution:** `drawTallTerrainOverRoads()` method with road tile exclusion
+    - **Logic:**
+      - Tiles WITH a road: Terrain texture covered by road (not re-rendered)
+      - Tiles WITHOUT a road: Tall textures re-rendered on top of roads (for visual overlap from adjacent tiles)
+    - **Implementation:** Check `roadTilesMap.has(${j},${i})` before adding to re-render list
+    - **Result:** Roads properly cover terrain on their tile, adjacent tall plants still extend over roads
   - **Performance:**
     - Bundle size: 349.4kb client.js (includes texture system + landId utils)
     - Topology buffer: O(1) lookup after segment rendering
