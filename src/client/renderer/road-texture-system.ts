@@ -889,7 +889,7 @@ export interface RoadBlockClassConfig {
  * Parse a Delphi-style integer that may be decimal or hex ($XX)
  * Examples: "5" -> 5, "$15" -> 21, "$65" -> 101
  */
-function parseDelphiInt(value: string, defaultValue: number = 0): number {
+export function parseDelphiInt(value: string, defaultValue: number = 0): number {
   if (!value) return defaultValue;
   const trimmed = value.trim();
   if (trimmed.startsWith('$')) {

@@ -6,12 +6,13 @@
  *
  * Layers (back to front):
  * 1. Terrain (IsometricTerrainRenderer)
- * 2. Roads (gray diamond tiles)
- * 3. Buildings (blue diamond tiles)
- * 4. Zone overlay (colored zones)
- * 5. Placement preview
- * 6. Road drawing preview
- * 7. UI overlays
+ * 2. Concrete (pavement around buildings)
+ * 3. Roads (gray diamond tiles)
+ * 4. Buildings (blue diamond tiles)
+ * 5. Zone overlay (colored zones)
+ * 6. Placement preview
+ * 7. Road drawing preview
+ * 8. UI overlays
  */
 
 import { IsometricTerrainRenderer } from './isometric-terrain-renderer';
@@ -44,6 +45,13 @@ import {
   landTypeOf
 } from './road-texture-system';
 import { formatLandId, landTypeName, landClassName, decodeLandId } from '../../shared/land-utils';
+import {
+  ConcreteBlockClassManager,
+  loadConcreteBlockClassFromIni,
+  getConcreteId,
+  CONCRETE_NONE,
+  ConcreteMapData
+} from './concrete-texture-system';
 
 interface CachedZone {
   x: number;
@@ -87,6 +95,10 @@ export class IsometricMapRenderer {
   private roadBlockClassManager: RoadBlockClassManager;
   private roadsRendering: RoadsRendering | null = null;
   private roadBlockClassesLoaded: boolean = false;
+
+  // Concrete texture system
+  private concreteBlockClassManager: ConcreteBlockClassManager;
+  private concreteBlockClassesLoaded: boolean = false;
 
   // Building dimensions cache
   private facilityDimensionsCache: Map<string, FacilityDimensions> = new Map();
@@ -160,12 +172,15 @@ export class IsometricMapRenderer {
     // Create terrain renderer (shares canvas, mouse controls handled by this class)
     this.terrainRenderer = new IsometricTerrainRenderer(canvas, { disableMouseControls: true });
 
+    // Disable terrain renderer's debug info - this renderer handles its own overlay at the end
+    this.terrainRenderer.setShowDebugInfo(false);
+
     // Create game object texture cache (roads, buildings, etc.)
     this.gameObjectTextureCache = new GameObjectTextureCache(500);
 
     // Setup callback to re-render when textures are loaded
     this.gameObjectTextureCache.setOnTextureLoaded((category, name) => {
-      if (category === 'BuildingImages' || category === 'RoadBlockImages') {
+      if (category === 'BuildingImages' || category === 'RoadBlockImages' || category === 'ConcreteImages') {
         // Re-render when textures become available
         this.render();
       }
@@ -177,6 +192,13 @@ export class IsometricMapRenderer {
 
     // Load road block classes asynchronously
     this.loadRoadBlockClasses();
+
+    // Initialize concrete block class manager
+    this.concreteBlockClassManager = new ConcreteBlockClassManager();
+    this.concreteBlockClassManager.setBasePath('/cache/');
+
+    // Load concrete block classes asynchronously
+    this.loadConcreteBlockClasses();
 
     // Setup event handlers
     this.setupMouseControls();
@@ -271,6 +293,36 @@ export class IsometricMapRenderer {
       this.render();
     } catch (error) {
       console.error('[IsometricMapRenderer] Error loading road block classes:', error);
+    }
+  }
+
+  /**
+   * Load concrete block class configurations from the server
+   */
+  private async loadConcreteBlockClasses(): Promise<void> {
+    try {
+      const response = await fetch('/api/concrete-block-classes');
+      if (!response.ok) {
+        console.error('[IsometricMapRenderer] Failed to load concrete block classes:', response.status);
+        return;
+      }
+
+      const data = await response.json();
+      const files: Array<{ filename: string; content: string }> = data.files || [];
+
+      console.log(`[IsometricMapRenderer] Loading ${files.length} concrete block classes...`);
+
+      for (const file of files) {
+        this.concreteBlockClassManager.loadFromIni(file.content);
+      }
+
+      this.concreteBlockClassesLoaded = true;
+      console.log(`[IsometricMapRenderer] Concrete block classes loaded successfully (${this.concreteBlockClassManager.getClassCount()} classes)`);
+
+      // Re-render to show concrete textures
+      this.render();
+    } catch (error) {
+      console.error('[IsometricMapRenderer] Error loading concrete block classes:', error);
     }
   }
 
@@ -697,6 +749,7 @@ export class IsometricMapRenderer {
     const bounds = this.getVisibleBounds();
 
     // Draw game object layers on top of terrain
+    this.drawConcrete(bounds);
     this.drawRoads(bounds, occupiedTiles);
     this.drawTallTerrainOverRoads(bounds);
     this.drawBuildings(bounds);
@@ -754,6 +807,146 @@ export class IsometricMapRenderer {
     });
 
     return occupied;
+  }
+
+  /**
+   * Check if a tile has concrete (building adjacency approach)
+   * Returns true if the tile is occupied by a building or within 1 tile of any building
+   */
+  private hasConcrete(x: number, y: number): boolean {
+    // Check if any building occupies or is adjacent to this tile
+    for (const building of this.allBuildings) {
+      const dims = this.facilityDimensionsCache.get(building.visualClass);
+      const bw = dims?.xsize || 1;
+      const bh = dims?.ysize || 1;
+
+      // Expand building bounds by 1 tile in each direction for adjacency check
+      if (x >= building.x - 1 && x < building.x + bw + 1 &&
+          y >= building.y - 1 && y < building.y + bh + 1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Check if a building occupies a specific tile
+   */
+  private isTileOccupiedByBuilding(x: number, y: number): boolean {
+    for (const building of this.allBuildings) {
+      const dims = this.facilityDimensionsCache.get(building.visualClass);
+      const bw = dims?.xsize || 1;
+      const bh = dims?.ysize || 1;
+
+      if (x >= building.x && x < building.x + bw &&
+          y >= building.y && y < building.y + bh) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Draw concrete tiles around buildings
+   * Concrete appears on tiles adjacent to buildings to create paved areas
+   */
+  private drawConcrete(bounds: TileBounds): void {
+    if (!this.concreteBlockClassesLoaded) return;
+
+    const ctx = this.ctx;
+    const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
+    const halfWidth = config.tileWidth / 2;
+    const terrainLoader = this.terrainRenderer.getTerrainLoader();
+
+    // Create map data adapter for concrete calculations
+    const mapData: ConcreteMapData = {
+      getLandId: (row, col) => {
+        if (!terrainLoader) return 0;
+        return terrainLoader.getLandId(col, row);
+      },
+      hasConcrete: (row, col) => this.hasConcrete(col, row),
+      hasRoad: (row, col) => this.roadTilesMap.has(`${col},${row}`),
+      hasBuilding: (row, col) => this.isTileOccupiedByBuilding(col, row)
+    };
+
+    // Iterate visible tiles
+    for (let i = bounds.minI; i <= bounds.maxI; i++) {
+      for (let j = bounds.minJ; j <= bounds.maxJ; j++) {
+        // Skip tiles without concrete
+        if (!mapData.hasConcrete(i, j)) continue;
+
+        // Calculate concrete ID based on neighbors
+        const concreteId = getConcreteId(i, j, mapData);
+        if (concreteId === CONCRETE_NONE) continue;
+
+        // Get screen position
+        const screenPos = this.terrainRenderer.mapToScreen(i, j);
+
+        // Get texture filename from class manager
+        const filename = this.concreteBlockClassManager.getImageFilename(concreteId);
+        if (filename) {
+          const texture = this.gameObjectTextureCache.getTextureSync('ConcreteImages', filename);
+
+          if (texture) {
+            // Draw texture centered on tile
+            ctx.drawImage(
+              texture,
+              screenPos.x - halfWidth,
+              screenPos.y,
+              config.tileWidth,
+              config.tileHeight
+            );
+            continue;
+          }
+        }
+
+        // Fallback: draw debug colored tile if texture not available
+        this.drawDebugConcreteTile(ctx, screenPos.x, screenPos.y, concreteId, config);
+      }
+    }
+  }
+
+  /**
+   * Draw a debug colored tile for concrete (when texture not available)
+   */
+  private drawDebugConcreteTile(
+    ctx: CanvasRenderingContext2D,
+    sx: number,
+    sy: number,
+    concreteId: number,
+    config: ZoomConfig
+  ): void {
+    const halfWidth = config.tileWidth / 2;
+    const halfHeight = config.tileHeight / 2;
+
+    // Choose color based on concrete type
+    let color: string;
+    if ((concreteId & 0x80) !== 0) {
+      // Water platform - blue-gray
+      color = 'rgba(100, 120, 140, 0.7)';
+    } else if ((concreteId & 0x10) !== 0) {
+      // Road concrete - dark gray
+      color = 'rgba(80, 80, 80, 0.7)';
+    } else if (concreteId === 15) {
+      // Special decorative - light pattern
+      color = 'rgba(160, 160, 160, 0.7)';
+    } else if (concreteId === 12) {
+      // Full concrete - medium gray
+      color = 'rgba(140, 140, 140, 0.7)';
+    } else {
+      // Edge/corner concrete - slightly lighter
+      color = 'rgba(130, 130, 130, 0.7)';
+    }
+
+    // Draw isometric diamond
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + halfWidth, sy + halfHeight);
+    ctx.lineTo(sx, sy + config.tileHeight);
+    ctx.lineTo(sx - halfWidth, sy + halfHeight);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
   }
 
   /**
@@ -825,7 +1018,8 @@ export class IsometricMapRenderer {
 
         if (topology !== RoadBlockId.None) {
           const landId = terrainLoader.getLandId(x, y);
-          const onConcrete = this.isOnConcrete(x, y);
+          // Use hasConcrete to determine if road should be urban
+          const onConcrete = this.hasConcrete(x, y);
 
           const fullRoadBlockId = roadBlockId(
             topology,
@@ -919,9 +1113,9 @@ export class IsometricMapRenderer {
     // We need to check a wider area because tall textures can visually extend into neighboring tiles
     for (let i = bounds.minI - 2; i <= bounds.maxI + 2; i++) {
       for (let j = bounds.minJ - 2; j <= bounds.maxJ + 2; j++) {
-        // Skip tiles that have a road - the road covers the terrain texture on that tile
-        // (as if the plant was removed to build the road)
-        if (this.roadTilesMap.has(`${j},${i}`)) {
+        // Skip tiles that have a road or concrete - these cover the terrain texture
+        // (as if the plant was removed to build the road/pavement)
+        if (this.roadTilesMap.has(`${j},${i}`) || this.hasConcrete(j, i)) {
           continue;
         }
 

@@ -238,9 +238,9 @@ export class GameObjectTextureCache {
    * which handles textures with varying background colors (blue, gray, teal, etc.)
    */
   private shouldUseDynamicTransparency(category: TextureCategory): boolean {
-    // Road textures use various background colors (blue, gray, teal for bridges)
+    // Road and concrete textures use various background colors (blue, gray, teal for bridges)
     // Dynamic detection handles all cases automatically
-    return category === 'RoadBlockImages';
+    return category === 'RoadBlockImages' || category === 'ConcreteImages';
   }
 
   /**

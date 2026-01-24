@@ -383,6 +383,42 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Concrete block classes endpoint: /api/concrete-block-classes
+  // Returns a list of all concrete block class INI files with their content
+  if (safePath === '/api/concrete-block-classes') {
+    const concreteBlockClassesDir = path.join(CACHE_DIR, 'ConcreteClasses');
+
+    try {
+      if (!fs.existsSync(concreteBlockClassesDir)) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ files: [] }));
+        return;
+      }
+
+      const files = fs.readdirSync(concreteBlockClassesDir)
+        .filter(f => f.toLowerCase().endsWith('.ini'));
+
+      // Read content of each INI file
+      const iniContents: Array<{ filename: string; content: string }> = [];
+      for (const file of files) {
+        const filePath = path.join(concreteBlockClassesDir, file);
+        const content = fs.readFileSync(filePath, 'utf-8');
+        iniContents.push({ filename: file, content });
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=3600' // Cache for 1 hour
+      });
+      res.end(JSON.stringify({ files: iniContents }));
+    } catch (error: any) {
+      console.error('[ConcreteBlockClasses] Failed to read INI files:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to read concrete block classes' }));
+    }
+    return;
+  }
+
   if (safePath.startsWith('/api/terrain-info/')) {
     const terrainType = decodeURIComponent(safePath.substring('/api/terrain-info/'.length).split('?')[0]);
 

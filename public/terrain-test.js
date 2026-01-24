@@ -1399,6 +1399,8 @@
       this.useTextures = true;
       this.useChunks = true;
       // Use chunk-based rendering (10-20x faster)
+      this.showDebugInfo = true;
+      // Show debug info overlay
       // View state
       this.zoomLevel = 2;
       // Default zoom (16×32 pixels per tile)
@@ -1553,7 +1555,9 @@
         this.origin
       );
       const tilesRendered = this.renderTerrainLayer(bounds);
-      this.renderDebugInfo(bounds, tilesRendered);
+      if (this.showDebugInfo) {
+        this.renderDebugInfo(bounds, tilesRendered);
+      }
       this.lastRenderStats = {
         tilesRendered,
         renderTimeMs: performance.now() - startTime,
@@ -1886,6 +1890,13 @@
      */
     getZoomLevel() {
       return this.zoomLevel;
+    }
+    /**
+     * Enable/disable debug info rendering
+     * Used when a parent renderer handles its own debug overlay
+     */
+    setShowDebugInfo(show) {
+      this.showDebugInfo = show;
     }
     /**
      * Set rotation (currently disabled - always NORTH)

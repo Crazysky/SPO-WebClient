@@ -52,6 +52,7 @@ export class IsometricTerrainRenderer {
   // Rendering mode
   private useTextures: boolean = true;
   private useChunks: boolean = true; // Use chunk-based rendering (10-20x faster)
+  private showDebugInfo: boolean = true; // Show debug info overlay
 
   // View state
   private zoomLevel: number = 2;  // Default zoom (16×32 pixels per tile)
@@ -274,8 +275,10 @@ export class IsometricTerrainRenderer {
     // Render terrain layer
     const tilesRendered = this.renderTerrainLayer(bounds);
 
-    // Render debug info
-    this.renderDebugInfo(bounds, tilesRendered);
+    // Render debug info (if not disabled by parent renderer)
+    if (this.showDebugInfo) {
+      this.renderDebugInfo(bounds, tilesRendered);
+    }
 
     // Update stats
     this.lastRenderStats = {
@@ -727,6 +730,14 @@ export class IsometricTerrainRenderer {
    */
   getZoomLevel(): number {
     return this.zoomLevel;
+  }
+
+  /**
+   * Enable/disable debug info rendering
+   * Used when a parent renderer handles its own debug overlay
+   */
+  setShowDebugInfo(show: boolean): void {
+    this.showDebugInfo = show;
   }
 
   /**
