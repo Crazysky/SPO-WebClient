@@ -971,6 +971,14 @@
     }
   };
 
+  // src/client/renderer/painter-algorithm.ts
+  function painterSort(a, b) {
+    return b.i + b.j - (a.i + a.j);
+  }
+  function sortForPainter(tiles) {
+    return tiles.sort(painterSort);
+  }
+
   // src/client/renderer/chunk-cache.ts
   var CHUNK_SIZE = 32;
   var MAX_CHUNKS_PER_ZOOM = 64;
@@ -1192,7 +1200,7 @@
           ctx.fill();
         }
       }
-      tallTiles.sort((a, b) => b.i + b.j - (a.i + a.j));
+      sortForPainter(tallTiles);
       for (const tile of tallTiles) {
         const localI = tile.i - startI;
         const localJ = tile.j - startJ;
@@ -1655,7 +1663,7 @@
       for (const tile of standardTiles) {
         this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
       }
-      tallTiles.sort((a, b) => b.i + b.j - (a.i + a.j));
+      sortForPainter(tallTiles);
       for (const tile of tallTiles) {
         this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
       }
@@ -1700,7 +1708,7 @@
       for (const tile of standardTiles) {
         this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
       }
-      tallTiles.sort((a, b) => b.i + b.j - (a.i + a.j));
+      sortForPainter(tallTiles);
       for (const tile of tallTiles) {
         this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
       }

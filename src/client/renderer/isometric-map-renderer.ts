@@ -939,14 +939,28 @@ export class IsometricMapRenderer {
         const texture = this.gameObjectTextureCache.getTextureSync('ConcreteImages', filename);
 
         if (texture) {
-          // Draw texture centered on tile
-          ctx.drawImage(
-            texture,
-            tile.screenX - halfWidth,
-            tile.screenY,
-            config.tileWidth,
-            config.tileHeight
-          );
+          // Check if this is a water platform texture (ID >= 0x80)
+          const isWaterPlatform = (tile.concreteId & 0x80) !== 0;
+
+          if (isWaterPlatform) {
+            // Water platform textures are already isometric - draw at native size
+            // Center the 64x32 texture on the tile position
+            const nativeHalfWidth = texture.width / 2;
+            ctx.drawImage(
+              texture,
+              tile.screenX - nativeHalfWidth,
+              tile.screenY
+            );
+          } else {
+            // Land concrete textures - scale to current zoom level
+            ctx.drawImage(
+              texture,
+              tile.screenX - halfWidth,
+              tile.screenY,
+              config.tileWidth,
+              config.tileHeight
+            );
+          }
           continue;
         }
       }
