@@ -115,21 +115,27 @@ export interface ConcreteMapData {
  * Water platform INI IDs
  * These are the actual IDs from the INI files (platC, platE, platN, etc.)
  *
- * The naming convention refers to the EDGE direction:
- * - platN = North edge (missing south neighbor)
- * - platE = East edge (missing west neighbor)
- * - platNE = NE corner (missing south and west neighbors)
+ * The naming convention refers to which EDGE of the platform is exposed (no neighbor):
+ * - platN = tile at North edge of platform (missing N neighbor, exposed to the north)
+ * - platE = tile at East edge of platform (missing E neighbor, exposed to the east)
+ * - platNE = tile at NE corner of platform (missing N and E neighbors)
+ *
+ * Isometric coordinate mapping:
+ * - N (North) = row-1 = top-right on screen
+ * - S (South) = row+1 = bottom-left on screen
+ * - E (East) = col+1 = bottom-right on screen
+ * - W (West) = col-1 = top-left on screen
  */
 export const PLATFORM_IDS = {
-  CENTER: 0x80, // platC - all 4 neighbors
-  E: 0x81,      // platE - East edge (missing W)
-  N: 0x82,      // platN - North edge (missing S)
-  NE: 0x83,     // platNE - NE corner (missing S,W)
-  NW: 0x84,     // platNW - NW corner (missing S,E)
-  S: 0x85,      // platS - South edge (missing N)
-  SE: 0x86,     // platSE - SE corner (missing N,W)
-  SW: 0x87,     // platSW - SW corner (missing N,E)
-  W: 0x88,      // platW - West edge (missing E)
+  CENTER: 0x80, // platC - all 4 cardinal neighbors present (center tile)
+  E: 0x81,      // platE - East edge exposed (missing E neighbor)
+  N: 0x82,      // platN - North edge exposed (missing N neighbor)
+  NE: 0x83,     // platNE - NE corner exposed (missing N,E neighbors)
+  NW: 0x84,     // platNW - NW corner exposed (missing N,W neighbors)
+  S: 0x85,      // platS - South edge exposed (missing S neighbor)
+  SE: 0x86,     // platSE - SE corner exposed (missing S,E neighbors)
+  SW: 0x87,     // platSW - SW corner exposed (missing S,W neighbors)
+  W: 0x88,      // platW - West edge exposed (missing W neighbor)
 } as const;
 
 /**
@@ -240,8 +246,8 @@ function getLandConcreteIdFromDecisionTree(cfg: ConcreteCfg): number {
           if (!bottomLeft) return 5;   // Right edge, missing BL
           return 5;                     // Right edge exposed
         } else {
-          // Top, Left present; Right, Bottom missing
-          return 3;                     // Top-right corner piece
+          // Top, Left present; Right, Bottom missing = NW corner visually
+          return 3;                     // NW corner piece (Conc4.bmp)
         }
       }
     } else {
@@ -269,17 +275,17 @@ function getLandConcreteIdFromDecisionTree(cfg: ConcreteCfg): number {
     if (left) {
       if (right) {
         if (bottom) {
-          if (!bottomLeft) return 2;   // Bottom edge, missing BL
-          if (!bottomRight) return 2;  // Bottom edge, missing BR
-          return 2;                     // Bottom edge exposed
+          if (!bottomLeft) return 0;   // North edge, missing BL (Conc1.bmp)
+          if (!bottomRight) return 0;  // North edge, missing BR (Conc1.bmp)
+          return 0;                     // North edge exposed (Conc1.bmp)
         } else {
           // Left, Right present; Top, Bottom missing
           return 0;                     // Horizontal strip
         }
       } else {
-        // Left present; Top, Right missing
+        // Left present; Top, Right missing = NE corner exposed
         if (bottom) {
-          return 9;                     // Actually maps to left corner
+          return 2;                     // NE corner piece (Conc3.bmp)
         } else {
           return 10;                    // Isolated left
         }
@@ -288,7 +294,7 @@ function getLandConcreteIdFromDecisionTree(cfg: ConcreteCfg): number {
       // Top, Left missing
       if (right) {
         if (bottom) {
-          return 3;                     // Bottom-right corner piece
+          return 10;                    // SE corner visually (Conc11.bmp)
         } else {
           return 10;                    // Isolated right
         }
@@ -391,12 +397,41 @@ export function getWaterConcreteId(cfg: ConcreteCfg): number {
 }
 
 /**
+ * Check if a tile is on water or adjacent to water (for water platform detection)
+ * Water platforms extend from buildings over water, so edge tiles are on land but adjacent to water
+ */
+function isWaterPlatformTile(row: number, col: number, mapData: ConcreteMapData): boolean {
+  // Check if tile itself is on water
+  const landId = mapData.getLandId(row, col);
+  if (landClassOf(landId) === LandClass.ZoneD) {
+    return true;
+  }
+
+  // Check if any cardinal neighbor is on water (platform edge case)
+  const neighbors = [
+    [row - 1, col], // N (top)
+    [row + 1, col], // S (bottom)
+    [row, col - 1], // W (left)
+    [row, col + 1]  // E (right)
+  ];
+
+  for (const [nRow, nCol] of neighbors) {
+    const neighborLandId = mapData.getLandId(nRow, nCol);
+    if (landClassOf(neighborLandId) === LandClass.ZoneD) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Main entry point: Calculate the concrete texture ID for a tile
  *
  * Decision flow:
  * 1. No concrete at tile → return CONCRETE_NONE
- * 2. Building exists AND not water zone → return CONCRETE_FULL (12)
- * 3. Water zone → use 4-cardinal lookup + PLATFORM_FLAG
+ * 2. Building exists AND not water platform → return CONCRETE_FULL (12)
+ * 3. Water platform (on water OR adjacent to water) → use 4-cardinal lookup (plat*.bmp)
  * 4. Land zone → use 8-neighbor lookup, apply road/special flags
  *
  * @param row - Map row (i coordinate)
@@ -414,34 +449,36 @@ export function getConcreteId(
     return CONCRETE_NONE;
   }
 
-  const landId = mapData.getLandId(row, col);
-  const isWaterZone = landClassOf(landId) === LandClass.ZoneD;
   const hasBuilding = mapData.hasBuilding(row, col);
   const hasRoad = mapData.hasRoad(row, col);
 
-  // Step 2: Building on non-water always gets full concrete
-  if (hasBuilding && !isWaterZone) {
+  // Step 2: Check if this is a water platform tile
+  // Water platforms are tiles on water OR land tiles adjacent to water
+  const isWaterPlatform = isWaterPlatformTile(row, col, mapData);
+
+  // Step 3: Building on pure land (not near water) gets full concrete
+  if (hasBuilding && !isWaterPlatform) {
     return CONCRETE_FULL;
   }
 
-  // Step 3: Build neighbor configuration
+  // Step 4: Build neighbor configuration
   const cfg = buildNeighborConfig(row, col, mapData);
 
-  // Step 4: Water zone - use cardinal-only lookup
+  // Step 5: Water platform - use cardinal-only lookup (plat*.bmp textures)
   // getWaterConcreteId returns the full INI platform ID ($80-$88) directly
-  if (isWaterZone) {
+  if (isWaterPlatform) {
     return getWaterConcreteId(cfg);
   }
 
-  // Step 5: Land zone - use full 8-neighbor lookup
+  // Step 6: Land zone - use full 8-neighbor lookup
   let concreteId = getLandConcreteId(cfg);
 
-  // Step 6: Apply road flag if road present and not full concrete
+  // Step 7: Apply road flag if road present and not full concrete
   if (hasRoad && concreteId < CONCRETE_FULL) {
     concreteId |= CONCRETE_ROAD_FLAG;
   }
 
-  // Step 7: Check for special decorative concrete
+  // Step 8: Check for special decorative concrete
   if (concreteId === CONCRETE_FULL &&
       !hasBuilding &&
       !hasRoad &&

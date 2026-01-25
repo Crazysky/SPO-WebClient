@@ -49,8 +49,12 @@ import {
   ConcreteBlockClassManager,
   loadConcreteBlockClassFromIni,
   getConcreteId,
+  buildNeighborConfig,
   CONCRETE_NONE,
-  ConcreteMapData
+  CONCRETE_FULL,
+  PLATFORM_IDS,
+  ConcreteMapData,
+  ConcreteCfg
 } from './concrete-texture-system';
 
 interface CachedZone {
@@ -155,6 +159,7 @@ export class IsometricMapRenderer {
   private debugMode: boolean = false;
   private debugShowTileInfo: boolean = true;
   private debugShowRoadInfo: boolean = true;
+  private debugShowConcreteInfo: boolean = true;
 
   constructor(canvasId: string) {
     const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
@@ -227,6 +232,11 @@ export class IsometricMapRenderer {
       // '2' toggles road info in debug mode
       if (e.key === '2' && this.debugMode) {
         this.debugShowRoadInfo = !this.debugShowRoadInfo;
+        this.render();
+      }
+      // '3' toggles concrete info in debug mode
+      if (e.key === '3' && this.debugMode) {
+        this.debugShowConcreteInfo = !this.debugShowConcreteInfo;
         this.render();
       }
     });
@@ -313,11 +323,26 @@ export class IsometricMapRenderer {
       console.log(`[IsometricMapRenderer] Loading ${files.length} concrete block classes...`);
 
       for (const file of files) {
+        const config = loadConcreteBlockClassFromIni(file.content);
+        console.log(`[ConcreteINI] ${file.filename}: ID=${config.id} (0x${config.id.toString(16)}) -> ${config.imagePath}`);
         this.concreteBlockClassManager.loadFromIni(file.content);
       }
 
       this.concreteBlockClassesLoaded = true;
       console.log(`[IsometricMapRenderer] Concrete block classes loaded successfully (${this.concreteBlockClassManager.getClassCount()} classes)`);
+
+      // Debug: Check if platform IDs are loaded
+      const platformIds = [0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88];
+      console.log('[ConcreteDebug] === PLATFORM ID CHECK ===');
+      for (const id of platformIds) {
+        const hasClass = this.concreteBlockClassManager.hasClass(id);
+        const filename = this.concreteBlockClassManager.getImageFilename(id);
+        console.log(`[ConcreteDebug] Platform ID 0x${id.toString(16)} (${id}): loaded=${hasClass}, texture=${filename}`);
+      }
+
+      // List all loaded IDs
+      const allIds = this.concreteBlockClassManager.getAllIds();
+      console.log(`[ConcreteDebug] All ${allIds.length} loaded IDs:`, allIds.map(id => `0x${id.toString(16)}(${id})`).join(', '));
 
       // Re-render to show concrete textures
       this.render();
@@ -869,7 +894,16 @@ export class IsometricMapRenderer {
       hasBuilding: (row, col) => this.isTileOccupiedByBuilding(col, row)
     };
 
-    // Iterate visible tiles
+    // Collect concrete tiles for painter's algorithm sorting
+    const concreteTiles: Array<{
+      i: number;
+      j: number;
+      concreteId: number;
+      screenX: number;
+      screenY: number;
+    }> = [];
+
+    // Iterate visible tiles and collect concrete tiles
     for (let i = bounds.minI; i <= bounds.maxI; i++) {
       for (let j = bounds.minJ; j <= bounds.maxJ; j++) {
         // Skip tiles without concrete
@@ -881,28 +915,43 @@ export class IsometricMapRenderer {
 
         // Get screen position
         const screenPos = this.terrainRenderer.mapToScreen(i, j);
-
-        // Get texture filename from class manager
-        const filename = this.concreteBlockClassManager.getImageFilename(concreteId);
-        if (filename) {
-          const texture = this.gameObjectTextureCache.getTextureSync('ConcreteImages', filename);
-
-          if (texture) {
-            // Draw texture centered on tile
-            ctx.drawImage(
-              texture,
-              screenPos.x - halfWidth,
-              screenPos.y,
-              config.tileWidth,
-              config.tileHeight
-            );
-            continue;
-          }
-        }
-
-        // Fallback: draw debug colored tile if texture not available
-        this.drawDebugConcreteTile(ctx, screenPos.x, screenPos.y, concreteId, config);
+        concreteTiles.push({
+          i,
+          j,
+          concreteId,
+          screenX: screenPos.x,
+          screenY: screenPos.y
+        });
       }
+    }
+
+    // Sort by (i+j) ascending for painter's algorithm
+    // Lower (i+j) = back (top of screen) = drawn first
+    // Higher (i+j) = front (bottom of screen) = drawn last (on top)
+    concreteTiles.sort((a, b) => (a.i + a.j) - (b.i + b.j));
+
+    // Draw sorted concrete tiles
+    for (const tile of concreteTiles) {
+      // Get texture filename from class manager
+      const filename = this.concreteBlockClassManager.getImageFilename(tile.concreteId);
+      if (filename) {
+        const texture = this.gameObjectTextureCache.getTextureSync('ConcreteImages', filename);
+
+        if (texture) {
+          // Draw texture centered on tile
+          ctx.drawImage(
+            texture,
+            tile.screenX - halfWidth,
+            tile.screenY,
+            config.tileWidth,
+            config.tileHeight
+          );
+          continue;
+        }
+      }
+
+      // Fallback: draw debug colored tile if texture not available
+      this.drawDebugConcreteTile(ctx, tile.screenX, tile.screenY, tile.concreteId, config);
     }
   }
 
@@ -1805,6 +1854,43 @@ export class IsometricMapRenderer {
             const roadIdStr = `R:${fullRoadBlockId.toString(16).toUpperCase()}`;
             ctx.fillText(roadIdStr, screenPos.x, screenPos.y + config.tileHeight / 2 + 20);
           }
+
+          // Show concrete info on tiles
+          if (this.debugShowConcreteInfo && this.hasConcrete(j, i)) {
+            const mapData: ConcreteMapData = {
+              getLandId: (row, col) => terrainLoader.getLandId(col, row),
+              hasConcrete: (row, col) => this.hasConcrete(col, row),
+              hasRoad: (row, col) => this.roadTilesMap.has(`${col},${row}`),
+              hasBuilding: (row, col) => this.isTileOccupiedByBuilding(col, row)
+            };
+
+            const concreteId = getConcreteId(i, j, mapData);
+            if (concreteId !== CONCRETE_NONE) {
+              const isPlatform = (concreteId & 0x80) !== 0;
+
+              // Show concrete ID with color coding
+              ctx.fillStyle = isPlatform ? '#00ccff' : '#cc88ff';
+              const concreteIdStr = `C:${concreteId.toString(16).toUpperCase().padStart(2, '0')}`;
+              ctx.fillText(concreteIdStr, screenPos.x, screenPos.y + config.tileHeight / 2 + (hasRoad ? 32 : 20));
+
+              // For center tile, show texture filename and debug info
+              if (isCenter) {
+                const filename = this.concreteBlockClassManager.getImageFilename(concreteId);
+                const hasClass = this.concreteBlockClassManager.hasClass(concreteId);
+
+                // Log to console for debugging
+                console.log(`[TileDebug] Center tile (${i},${j}): concreteId=0x${concreteId.toString(16)} (${concreteId}), hasClass=${hasClass}, filename=${filename}`);
+
+                if (filename) {
+                  ctx.fillStyle = '#00ff00';
+                  ctx.fillText(filename, screenPos.x, screenPos.y + config.tileHeight / 2 + (hasRoad ? 44 : 32));
+                } else {
+                  ctx.fillStyle = '#ff0000';
+                  ctx.fillText(`NO TEX:${concreteId}`, screenPos.x, screenPos.y + config.tileHeight / 2 + (hasRoad ? 44 : 32));
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -1821,35 +1907,46 @@ export class IsometricMapRenderer {
     const landId = terrainLoader.getLandId(x, y);
     const decoded = decodeLandId(landId);
     const hasRoad = this.roadTilesMap.has(`${x},${y}`);
+    const hasConcrete = this.hasConcrete(x, y);
+
+    // Calculate panel height based on what info we're showing
+    let panelHeight = 140;
+    if (decoded.isWater) panelHeight += 32;
+    if (hasRoad) panelHeight += 64;
+    if (hasConcrete && this.debugShowConcreteInfo) panelHeight += 96;
 
     // Panel background
     ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-    ctx.fillRect(10, 10, 320, hasRoad ? 200 : 140);
+    ctx.fillRect(10, 10, 340, panelHeight);
 
     ctx.fillStyle = '#ffff00';
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'left';
-    ctx.fillText('DEBUG MODE [D=toggle, 1=tile, 2=road]', 20, 28);
+    ctx.fillText('DEBUG MODE [D=toggle, 1=tile, 2=road, 3=concrete]', 20, 28);
 
     ctx.font = '11px monospace';
     ctx.fillStyle = '#ffffff';
 
     // Tile info
-    ctx.fillText(`Tile: (${x}, ${y})`, 20, 50);
+    ctx.fillText(`Tile: (${x}, ${y}) | i=${y}, j=${x}`, 20, 50);
     ctx.fillText(`LandId: 0x${landId.toString(16).toUpperCase().padStart(2, '0')} (${landId})`, 20, 66);
     ctx.fillText(`LandClass: ${landClassName(decoded.landClass)} (${decoded.landClass})`, 20, 82);
     ctx.fillText(`LandType: ${landTypeName(decoded.landType)} (${decoded.landType})`, 20, 98);
     ctx.fillText(`LandVar: ${decoded.landVar}`, 20, 114);
 
+    let yOffset = 130;
+
     // Water indicator
     if (decoded.isWater) {
       ctx.fillStyle = '#00ffff';
-      ctx.fillText(`>>> WATER TILE <<<`, 20, 130);
+      ctx.fillText(`>>> WATER TILE <<<`, 20, yOffset);
+      yOffset += 16;
       if (decoded.isDeepWater) {
-        ctx.fillText(`  Type: Deep Water (Center)`, 20, 146);
+        ctx.fillText(`  Type: Deep Water (Center)`, 20, yOffset);
       } else if (decoded.isWaterEdge) {
-        ctx.fillText(`  Type: Water Edge`, 20, 146);
+        ctx.fillText(`  Type: Water Edge`, 20, yOffset);
       }
+      yOffset += 16;
     }
 
     // Road info
@@ -1860,26 +1957,120 @@ export class IsometricMapRenderer {
       const highId = (fullRoadBlockId & 0xF0) >> 4;
 
       ctx.fillStyle = '#ff8800';
-      const yOffset = decoded.isWater ? 166 : 130;
 
       ctx.fillText(`Road Topology: ${RoadBlockId[topology]} (${topology})`, 20, yOffset);
-      ctx.fillText(`RoadBlockId: 0x${fullRoadBlockId.toString(16).toUpperCase().padStart(2, '0')} (${fullRoadBlockId})`, 20, yOffset + 16);
+      yOffset += 16;
+      ctx.fillText(`RoadBlockId: 0x${fullRoadBlockId.toString(16).toUpperCase().padStart(2, '0')} (${fullRoadBlockId})`, 20, yOffset);
+      yOffset += 16;
 
       // Road type
       const roadTypes = ['LAND', 'URBAN', 'N_BRIDGE', 'S_BRIDGE', 'E_BRIDGE', 'W_BRIDGE', 'FULL_BRIDGE', 'LEVEL_PASS', 'URB_LEVEL', 'SMOOTH', 'URB_SMOOTH'];
       const roadTypeName = roadTypes[highId] || `TYPE_${highId}`;
-      ctx.fillText(`Road Type: ${roadTypeName}`, 20, yOffset + 32);
+      ctx.fillText(`Road Type: ${roadTypeName}`, 20, yOffset);
+      yOffset += 16;
 
       // Texture path
       const texturePath = this.roadBlockClassManager.getImagePath(fullRoadBlockId);
       if (texturePath) {
         const filename = texturePath.split('/').pop() || '';
         ctx.fillStyle = '#00ff00';
-        ctx.fillText(`Texture: ${filename}`, 20, yOffset + 48);
+        ctx.fillText(`Texture: ${filename}`, 20, yOffset);
       } else {
         ctx.fillStyle = '#ff0000';
-        ctx.fillText(`Texture: NOT FOUND`, 20, yOffset + 48);
+        ctx.fillText(`Texture: NOT FOUND`, 20, yOffset);
       }
+      yOffset += 16;
+    }
+
+    // Concrete info
+    if (hasConcrete && this.debugShowConcreteInfo) {
+      ctx.fillStyle = '#cc88ff';
+      ctx.fillText(`>>> CONCRETE <<<`, 20, yOffset);
+      yOffset += 16;
+
+      // Build mapData adapter for this tile
+      const mapData: ConcreteMapData = {
+        getLandId: (row, col) => terrainLoader.getLandId(col, row),
+        hasConcrete: (row, col) => this.hasConcrete(col, row),
+        hasRoad: (row, col) => this.roadTilesMap.has(`${col},${row}`),
+        hasBuilding: (row, col) => this.isTileOccupiedByBuilding(col, row)
+      };
+
+      const concreteId = getConcreteId(y, x, mapData);
+      const cfg = buildNeighborConfig(y, x, mapData);
+
+      // Show neighbor config as visual diagram
+      // Format: [TL][T][TR] / [L][X][R] / [BL][B][BR]
+      const neighborStr = this.formatNeighborConfig(cfg);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`Neighbors: ${neighborStr}`, 20, yOffset);
+      yOffset += 16;
+
+      // Show cardinal neighbors explicitly (for water platforms)
+      const cardinals = `T:${cfg[1]?'Y':'N'} L:${cfg[3]?'Y':'N'} R:${cfg[4]?'Y':'N'} B:${cfg[6]?'Y':'N'}`;
+      ctx.fillText(`Cardinals: ${cardinals}`, 20, yOffset);
+      yOffset += 16;
+
+      // Show concrete ID
+      const isPlatform = (concreteId & 0x80) !== 0;
+      const hasRoadFlag = (concreteId & 0x10) !== 0;
+      const baseId = concreteId & 0x0F;
+      ctx.fillStyle = '#cc88ff';
+      ctx.fillText(`ConcreteId: 0x${concreteId.toString(16).toUpperCase().padStart(2, '0')} (${concreteId})`, 20, yOffset);
+      yOffset += 16;
+
+      // Decode ID
+      let idType = '';
+      if (isPlatform) {
+        idType = this.getPlatformIdName(concreteId);
+      } else if (hasRoadFlag) {
+        idType = `ROAD_CONC (base=${baseId})`;
+      } else if (concreteId === CONCRETE_FULL) {
+        idType = 'FULL';
+      } else if (concreteId === 15) {
+        idType = 'SPECIAL';
+      } else {
+        idType = `EDGE/CORNER (${baseId})`;
+      }
+      ctx.fillText(`Type: ${idType}`, 20, yOffset);
+      yOffset += 16;
+
+      // Show texture file
+      const texturePath = this.concreteBlockClassManager.getImageFilename(concreteId);
+      if (texturePath) {
+        ctx.fillStyle = '#00ff00';
+        ctx.fillText(`Texture: ${texturePath}`, 20, yOffset);
+      } else {
+        ctx.fillStyle = '#ff0000';
+        ctx.fillText(`Texture: NOT FOUND for ID ${concreteId}`, 20, yOffset);
+      }
+    }
+  }
+
+  /**
+   * Format neighbor configuration as visual string
+   * Shows [TL T TR / L X R / BL B BR]
+   */
+  private formatNeighborConfig(cfg: ConcreteCfg): string {
+    const c = (b: boolean) => b ? '■' : '□';
+    return `${c(cfg[0])}${c(cfg[1])}${c(cfg[2])} ${c(cfg[3])}X${c(cfg[4])} ${c(cfg[5])}${c(cfg[6])}${c(cfg[7])}`;
+  }
+
+  /**
+   * Get platform ID name for debug display
+   */
+  private getPlatformIdName(concreteId: number): string {
+    switch (concreteId) {
+      case PLATFORM_IDS.CENTER: return 'PLATFORM_CENTER ($80)';
+      case PLATFORM_IDS.E: return 'PLATFORM_E ($81)';
+      case PLATFORM_IDS.N: return 'PLATFORM_N ($82)';
+      case PLATFORM_IDS.NE: return 'PLATFORM_NE ($83)';
+      case PLATFORM_IDS.NW: return 'PLATFORM_NW ($84)';
+      case PLATFORM_IDS.S: return 'PLATFORM_S ($85)';
+      case PLATFORM_IDS.SE: return 'PLATFORM_SE ($86)';
+      case PLATFORM_IDS.SW: return 'PLATFORM_SW ($87)';
+      case PLATFORM_IDS.W: return 'PLATFORM_W ($88)';
+      default: return `PLATFORM_??? ($${concreteId.toString(16)})`;
     }
   }
 
@@ -1899,6 +2090,97 @@ export class IsometricMapRenderer {
     ctx.textAlign = 'left';
     ctx.fillText(`Buildings: ${this.allBuildings.length} | Segments: ${this.allSegments.length} | Road tiles: ${this.roadTilesMap.size}`, 20, this.canvas.height - 32);
     ctx.fillText(`Zones: ${this.cachedZones.size} | Mouse: (${this.mouseMapJ}, ${this.mouseMapI})`, 20, this.canvas.height - 16);
+
+    // Draw compass indicator
+    this.drawCompass(ctx);
+  }
+
+  /**
+   * Draw compass indicator showing cardinal directions in ISOMETRIC orientation
+   *
+   * Isometric grid mapping (45° rotation from top-down view):
+   * - Grid row (i) increases toward bottom-left on screen
+   * - Grid col (j) increases toward bottom-right on screen
+   *
+   * Cardinal directions (rotated 45° for isometric):
+   * - N (North) = top-right on screen (decreasing row)
+   * - E (East) = bottom-right on screen (increasing col)
+   * - S (South) = bottom-left on screen (increasing row)
+   * - W (West) = top-left on screen (decreasing col)
+   */
+  private drawCompass(ctx: CanvasRenderingContext2D) {
+    const compassX = this.canvas.width - 55;
+    const compassY = this.canvas.height - 55;
+    const radius = 35;
+
+    // Background rounded rectangle
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.beginPath();
+    ctx.roundRect(compassX - radius - 12, compassY - radius - 12, (radius + 12) * 2, (radius + 12) * 2, 8);
+    ctx.fill();
+
+    // Draw isometric tile shape in center
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.lineWidth = 1;
+    const tileW = radius * 0.6;
+    const tileH = radius * 0.3;
+    ctx.beginPath();
+    ctx.moveTo(compassX, compassY - tileH);       // top
+    ctx.lineTo(compassX + tileW, compassY);       // right
+    ctx.lineTo(compassX, compassY + tileH);       // bottom
+    ctx.lineTo(compassX - tileW, compassY);       // left
+    ctx.closePath();
+    ctx.stroke();
+
+    // Direction labels at 45° angles (isometric orientation)
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // N - top-right (red, primary direction indicator)
+    ctx.fillStyle = '#ff6666';
+    ctx.fillText('N', compassX + radius * 0.65, compassY - radius * 0.65);
+
+    // E - bottom-right (blue)
+    ctx.fillStyle = '#6699ff';
+    ctx.fillText('E', compassX + radius * 0.65, compassY + radius * 0.65);
+
+    // S - bottom-left (yellow)
+    ctx.fillStyle = '#ffcc44';
+    ctx.fillText('S', compassX - radius * 0.65, compassY + radius * 0.65);
+
+    // W - top-left (green)
+    ctx.fillStyle = '#66cc66';
+    ctx.fillText('W', compassX - radius * 0.65, compassY - radius * 0.65);
+
+    // Arrow pointing North (toward top-right)
+    ctx.strokeStyle = '#ff6666';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(compassX, compassY);
+    ctx.lineTo(compassX + radius * 0.4, compassY - radius * 0.4);
+    ctx.stroke();
+
+    // Arrow head
+    ctx.fillStyle = '#ff6666';
+    ctx.beginPath();
+    ctx.moveTo(compassX + radius * 0.5, compassY - radius * 0.5);
+    ctx.lineTo(compassX + radius * 0.25, compassY - radius * 0.35);
+    ctx.lineTo(compassX + radius * 0.35, compassY - radius * 0.25);
+    ctx.closePath();
+    ctx.fill();
+
+    // Center dot
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(compassX, compassY, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Small grid hints
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = '7px monospace';
+    ctx.fillText('i-', compassX + radius * 0.2, compassY - radius * 0.2);
+    ctx.fillText('j+', compassX + radius * 0.2, compassY + radius * 0.2);
   }
 
   // =========================================================================
