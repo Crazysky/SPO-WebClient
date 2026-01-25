@@ -56,6 +56,7 @@ import {
   ConcreteMapData,
   ConcreteCfg
 } from './concrete-texture-system';
+import { painterSort } from './painter-algorithm';
 
 interface CachedZone {
   x: number;
@@ -925,10 +926,8 @@ export class IsometricMapRenderer {
       }
     }
 
-    // Sort by (i+j) ascending for painter's algorithm
-    // Lower (i+j) = back (top of screen) = drawn first
-    // Higher (i+j) = front (bottom of screen) = drawn last (on top)
-    concreteTiles.sort((a, b) => (a.i + a.j) - (b.i + b.j));
+    // Painter's algorithm: higher (i+j) drawn first, lower drawn last (on top)
+    concreteTiles.sort(painterSort);
 
     // Draw sorted concrete tiles
     for (const tile of concreteTiles) {
@@ -938,14 +937,26 @@ export class IsometricMapRenderer {
         const texture = this.gameObjectTextureCache.getTextureSync('ConcreteImages', filename);
 
         if (texture) {
-          // Draw texture centered on tile
-          ctx.drawImage(
-            texture,
-            tile.screenX - halfWidth,
-            tile.screenY,
-            config.tileWidth,
-            config.tileHeight
-          );
+          // Water platform textures (ID >= 0x80) are already isometric - draw at native size
+          const isWaterPlatform = (tile.concreteId & 0x80) !== 0;
+
+          if (isWaterPlatform) {
+            // Draw at native size, centered on tile
+            ctx.drawImage(
+              texture,
+              tile.screenX - texture.width / 2,
+              tile.screenY
+            );
+          } else {
+            // Land concrete - scale to current zoom level
+            ctx.drawImage(
+              texture,
+              tile.screenX - halfWidth,
+              tile.screenY,
+              config.tileWidth,
+              config.tileHeight
+            );
+          }
           continue;
         }
       }
