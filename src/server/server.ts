@@ -1088,13 +1088,8 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
         console.log('[Gateway] Getting all facility dimensions (preload)');
 
         try {
-          const cache = facilityDimensionsCache().getCache();
-          const dimensions: Record<string, FacilityDimensions> = {};
-
-          // Convert Map to plain object for JSON serialization
-          for (const [visualClass, facility] of cache.entries()) {
-            dimensions[visualClass] = facility;
-          }
+          // Get all facilities as FacilityDimensions objects for client preload
+          const dimensions = facilityDimensionsCache().getAllFacilitiesAsObject();
 
           const response: WsRespAllFacilityDimensions = {
             type: WsMessageType.RESP_ALL_FACILITY_DIMENSIONS,

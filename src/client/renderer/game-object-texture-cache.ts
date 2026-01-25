@@ -18,6 +18,8 @@
  * - Building textures: RGB(0, 128, 0) - green background
  */
 
+import { getFacilityDimensionsCache } from '../facility-dimensions-cache';
+
 /**
  * Color key definitions for transparency processing
  * Used as fallback when dynamic detection isn't applicable
@@ -494,12 +496,57 @@ export class GameObjectTextureCache {
 
   /**
    * Get building texture filename from visualClass
-   * Building textures follow the pattern: Map{VisualClassName}64x32x0.gif
+   * Looks up the correct texture filename from the facility dimensions cache.
+   * Falls back to a generated pattern if the building is not found in cache.
+   *
+   * @param visualClass - The runtime VisualClass from ObjectsInArea
+   * @returns The correct texture filename (e.g., "MapPGIFoodStore64x32x0.gif")
    */
-  static getBuildingTextureFilename(visualClass: string, width: number = 64, height: number = 32): string {
-    // Try common patterns
-    // Pattern 1: Map{Name}64x32x0.gif
-    // Pattern 2: {name}64x32x0.gif (lowercase)
-    return `Map${visualClass}${width}x${height}x0.gif`;
+  static getBuildingTextureFilename(visualClass: string): string {
+    // Look up in facility dimensions cache for correct texture filename
+    const cache = getFacilityDimensionsCache();
+    const facility = cache.getFacility(visualClass);
+
+    if (facility?.textureFilename) {
+      return facility.textureFilename;
+    }
+
+    // Fallback: generate pattern for unknown buildings
+    // This handles buildings not yet in our database
+    console.warn(`[GameObjectTextureCache] Unknown visualClass ${visualClass}, using fallback pattern`);
+    return `Map${visualClass}64x32x0.gif`;
+  }
+
+  /**
+   * Get construction texture filename based on building size
+   * Construction textures are shared across all buildings based on their footprint size.
+   *
+   * @param visualClass - The runtime VisualClass from ObjectsInArea
+   * @returns Construction texture filename (e.g., "Construction64.gif")
+   */
+  static getConstructionTextureFilename(visualClass: string): string {
+    const cache = getFacilityDimensionsCache();
+    const facility = cache.getFacility(visualClass);
+
+    if (facility?.constructionTextureFilename) {
+      return facility.constructionTextureFilename;
+    }
+
+    // Fallback to default construction texture
+    return 'Construction64.gif';
+  }
+
+  /**
+   * Get empty residential texture filename
+   * Used for residential buildings that have no occupants.
+   *
+   * @param visualClass - The runtime VisualClass from ObjectsInArea
+   * @returns Empty texture filename or undefined if not a residential building
+   */
+  static getEmptyTextureFilename(visualClass: string): string | undefined {
+    const cache = getFacilityDimensionsCache();
+    const facility = cache.getFacility(visualClass);
+
+    return facility?.emptyTextureFilename;
   }
 }

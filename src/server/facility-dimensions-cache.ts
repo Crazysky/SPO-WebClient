@@ -1,28 +1,31 @@
 /**
- * Facility Dimensions Cache Manager - Manages building dimensions from CSV
- * Replaces complex CLASSES.BIN parsing with simple CSV approach
+ * Facility Dimensions Cache Manager - Manages building dimensions from buildings.json
+ * Provides backward compatibility while using new BuildingDataService
  */
 
 import * as path from 'path';
 import { createLogger } from '../shared/logger';
-import { FacilityCSVParser, FacilityDimensions } from './facility-csv-parser';
+import { BuildingDataService, FacilityDimensions } from './building-data-service';
+import { BuildingData } from '../shared/types/building-data';
 import type { Service } from './service-registry';
 
 const logger = createLogger('FacilityDimensionsCache');
 
+// Re-export FacilityDimensions for backward compatibility
+export type { FacilityDimensions };
+
 export class FacilityDimensionsCache implements Service {
   public readonly name = 'facilities';
 
-  private cache: Map<string, FacilityDimensions> = new Map();
-  private parser: FacilityCSVParser;
+  private buildingService: BuildingDataService;
   private initialized: boolean = false;
 
   constructor() {
-    this.parser = new FacilityCSVParser();
+    this.buildingService = new BuildingDataService();
   }
 
   /**
-   * Initialize the cache - parse facility_db.csv
+   * Initialize the cache - load buildings.json
    */
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -31,11 +34,9 @@ export class FacilityDimensionsCache implements Service {
     }
 
     try {
-      logger.info('[FacilityDimensionsCache] Initializing...');
+      logger.info('[FacilityDimensionsCache] Initializing with BuildingDataService...');
 
-      // Parse facility_db.csv
-      const csvPath = path.join(__dirname, '../../BuildingClasses/facility_db.csv');
-      this.cache = await this.parser.parseFile(csvPath);
+      await this.buildingService.initialize();
 
       this.initialized = true;
       logger.info('[FacilityDimensionsCache] Initialization complete');
@@ -48,16 +49,53 @@ export class FacilityDimensionsCache implements Service {
 
   /**
    * Get facility dimensions by visualClass or name
+   * Returns backward-compatible FacilityDimensions object
    */
   getFacility(key: string): FacilityDimensions | undefined {
-    return this.parser.getFacility(key);
+    return this.buildingService.getFacility(key);
   }
 
   /**
-   * Get all facilities
+   * Get building data (new format with full information)
+   */
+  getBuilding(visualClass: string): BuildingData | undefined {
+    return this.buildingService.getBuilding(visualClass);
+  }
+
+  /**
+   * Get texture filename for a visualClass
+   * Handles construction, empty, and complete states automatically
+   */
+  getTextureFilename(visualClass: string): string | undefined {
+    return this.buildingService.getTextureFilename(visualClass);
+  }
+
+  /**
+   * Check if a visualClass represents a construction state
+   */
+  isConstructionState(visualClass: string): boolean {
+    return this.buildingService.isConstructionState(visualClass);
+  }
+
+  /**
+   * Check if a visualClass represents an empty residential state
+   */
+  isEmptyState(visualClass: string): boolean {
+    return this.buildingService.isEmptyState(visualClass);
+  }
+
+  /**
+   * Get all facilities (backward compatible)
    */
   getAllFacilities(): FacilityDimensions[] {
-    return Array.from(this.cache.values());
+    return this.buildingService.getAllBuildings().map(b => this.buildingService.getFacility(b.visualClass)!);
+  }
+
+  /**
+   * Get all buildings (new format)
+   */
+  getAllBuildings(): BuildingData[] {
+    return this.buildingService.getAllBuildings();
   }
 
   /**
@@ -68,33 +106,58 @@ export class FacilityDimensionsCache implements Service {
   }
 
   /**
-   * Get the entire cache
+   * Get the entire cache as BuildingData map
    */
-  getCache(): Map<string, FacilityDimensions> {
-    return this.cache;
+  getCache(): Map<string, BuildingData> {
+    return this.buildingService.getCache();
+  }
+
+  /**
+   * Get all buildings as a plain object (for client preload)
+   */
+  getAllBuildingsAsObject(): Record<string, BuildingData> {
+    return this.buildingService.getAllBuildingsAsObject();
+  }
+
+  /**
+   * Get all facilities as a plain object (for client preload)
+   * Returns backward-compatible FacilityDimensions objects
+   */
+  getAllFacilitiesAsObject(): Record<string, FacilityDimensions> {
+    const result: Record<string, FacilityDimensions> = {};
+    const buildings = this.buildingService.getAllBuildings();
+
+    for (const building of buildings) {
+      const facility = this.buildingService.getFacility(building.visualClass);
+      if (facility) {
+        result[building.visualClass] = facility;
+      }
+    }
+
+    return result;
   }
 
   /**
    * Log cache statistics
    */
   private logCacheStats(): void {
+    const stats = this.buildingService.getStats();
     logger.info(`[FacilityDimensionsCache] Cache Statistics:`);
-    logger.info(`  Total: ${this.cache.size} facilities`);
+    logger.info(`  Total: ${stats.total} buildings`);
+    logger.info(`  Clusters: ${JSON.stringify(stats.clusters)}`);
   }
 
   /**
    * Get cache statistics
    */
-  getStats(): { total: number } {
-    return {
-      total: this.cache.size
-    };
+  getStats(): { total: number; clusters?: Record<string, number>; categories?: Record<string, number> } {
+    return this.buildingService.getStats();
   }
 
   /**
    * Service interface: Check if service is healthy
    */
   isHealthy(): boolean {
-    return this.initialized && this.cache.size > 0;
+    return this.initialized && this.buildingService.isHealthy();
   }
 }

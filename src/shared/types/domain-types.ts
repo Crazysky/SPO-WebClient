@@ -161,6 +161,9 @@ export interface FacilityDimensions {
   xsize: number;              // Building width in tiles
   ysize: number;              // Building height in tiles
   level: number;              // Building level/tier
+  textureFilename?: string;   // Complete building texture filename
+  emptyTextureFilename?: string;  // Empty residential texture filename
+  constructionTextureFilename?: string;  // Construction state texture filename
 }
 
 export interface ZoneOverlayState {

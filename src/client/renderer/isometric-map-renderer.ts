@@ -1303,6 +1303,7 @@ export class IsometricMapRenderer {
 
   /**
    * Draw buildings as isometric tiles with textures
+   * Uses Painter's algorithm: sort by depth (y + x) so buildings closer to viewer are drawn last
    */
   private drawBuildings(bounds: TileBounds) {
     const ctx = this.ctx;
@@ -1310,7 +1311,16 @@ export class IsometricMapRenderer {
     const halfWidth = config.tileWidth / 2;
     const halfHeight = config.tileHeight / 2;
 
-    this.allBuildings.forEach(building => {
+    // Sort buildings by depth for Painter's algorithm
+    // In isometric view, buildings with higher (y + x) are closer to the viewer
+    // and should be drawn later (on top)
+    const sortedBuildings = [...this.allBuildings].sort((a, b) => {
+      const aDepth = a.y + a.x;
+      const bDepth = b.y + b.x;
+      return aDepth - bDepth;
+    });
+
+    sortedBuildings.forEach(building => {
       const dims = this.facilityDimensionsCache.get(building.visualClass);
       const xsize = dims?.xsize || 1;
       const ysize = dims?.ysize || 1;
@@ -1322,31 +1332,24 @@ export class IsometricMapRenderer {
       const texture = this.gameObjectTextureCache.getTextureSync('BuildingImages', textureFilename);
 
       if (texture) {
-        // Calculate the anchor point for the building (bottom-left corner in isometric view)
-        // For multi-tile buildings, we need to find the correct anchor position
-        // The anchor is at (x, y) and the building extends to (x+xsize-1, y+ysize-1)
+        // Calculate the anchor point: the front corner of the building footprint
+        // This is the bottom-most point on screen at (x + xsize - 1, y + ysize - 1)
+        const frontCornerX = building.x + xsize - 1;
+        const frontCornerY = building.y + ysize - 1;
+        const anchorScreenPos = this.terrainRenderer.mapToScreen(frontCornerY, frontCornerX);
 
-        // For isometric rendering, we need the top-most point of the building footprint
-        // which is at map coordinates (x + xsize - 1, y) - the top corner of the diamond
-        const anchorScreenPos = this.terrainRenderer.mapToScreen(building.y, building.x + xsize - 1);
-
-        // Calculate the full building size in screen space
-        // Building width spans from (x, y+ysize-1) to (x+xsize-1, y) in screen X
-        // Building height spans the full isometric height
-        const buildingScreenWidth = config.tileWidth * xsize;
-        const buildingScreenHeight = config.tileHeight * ysize;
+        // Draw texture at native size (no scaling)
+        // The texture bottom-center aligns with the front corner of the footprint
+        const drawX = Math.round(anchorScreenPos.x - texture.width / 2);
+        const drawY = Math.round(anchorScreenPos.y + config.tileHeight - texture.height);
 
         // Cull if completely off-screen
-        if (anchorScreenPos.x + buildingScreenWidth / 2 < 0 ||
-            anchorScreenPos.x - buildingScreenWidth / 2 > this.canvas.width ||
-            anchorScreenPos.y < -buildingScreenHeight ||
-            anchorScreenPos.y > this.canvas.height + buildingScreenHeight) {
+        if (drawX + texture.width < 0 ||
+            drawX > this.canvas.width ||
+            drawY + texture.height < 0 ||
+            drawY > this.canvas.height) {
           return;
         }
-
-        // Draw the texture scaled to fit the building footprint
-        const drawX = anchorScreenPos.x - buildingScreenWidth / 2;
-        const drawY = anchorScreenPos.y;
 
         if (isHovered) {
           // Draw highlight behind the texture
@@ -1356,7 +1359,11 @@ export class IsometricMapRenderer {
           ctx.globalAlpha = 1.0;
         }
 
-        ctx.drawImage(texture, drawX, drawY, buildingScreenWidth, buildingScreenHeight);
+        // Draw texture at native size (no scaling)
+        ctx.drawImage(texture, drawX, drawY);
+
+        // Draw VisualClass label for debugging/identification
+        this.drawBuildingLabel(building.visualClass, anchorScreenPos.x, anchorScreenPos.y + halfHeight);
       } else {
         // Fallback: draw solid colored tiles for each tile of building footprint
         for (let dy = 0; dy < ysize; dy++) {
@@ -1389,8 +1396,38 @@ export class IsometricMapRenderer {
             ctx.fill();
           }
         }
+
+        // Draw VisualClass label on fallback placeholder
+        const centerX = building.x + (xsize - 1) / 2;
+        const centerY = building.y + (ysize - 1) / 2;
+        const centerPos = this.terrainRenderer.mapToScreen(centerY, centerX);
+        this.drawBuildingLabel(building.visualClass, centerPos.x, centerPos.y + halfHeight);
       }
     });
+  }
+
+  /**
+   * Draw building VisualClass label for identification
+   */
+  private drawBuildingLabel(visualClass: string, x: number, y: number): void {
+    const ctx = this.ctx;
+
+    // Draw label background
+    ctx.font = '10px monospace';
+    const text = visualClass;
+    const metrics = ctx.measureText(text);
+    const padding = 2;
+    const bgWidth = metrics.width + padding * 2;
+    const bgHeight = 12;
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(Math.round(x - bgWidth / 2), Math.round(y - bgHeight / 2), bgWidth, bgHeight);
+
+    // Draw label text
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, Math.round(x), Math.round(y));
   }
 
   /**
