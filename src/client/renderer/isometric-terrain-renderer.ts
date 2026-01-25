@@ -23,6 +23,7 @@ import {
   Season,
   SEASON_NAMES
 } from '../../shared/map-config';
+import { sortForPainter } from './painter-algorithm';
 
 /**
  * Map name to terrain type mapping
@@ -408,11 +409,8 @@ export class IsometricTerrainRenderer {
       this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
     }
 
-    // Pass 2: Render tall tiles on top
-    // Sort by screen Y ascending (= i+j descending) for correct painter's algorithm:
-    // Tiles higher on screen (lower Y, far from viewer) are drawn first,
-    // Tiles lower on screen (higher Y, closer to viewer) are drawn last (on top)
-    tallTiles.sort((a, b) => (b.i + b.j) - (a.i + a.j));
+    // Pass 2: Render tall tiles on top using painter's algorithm
+    sortForPainter(tallTiles);
 
     for (const tile of tallTiles) {
       this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
@@ -475,11 +473,8 @@ export class IsometricTerrainRenderer {
       this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
     }
 
-    // Pass 2: Render tall tiles on top
-    // Sort by screen Y ascending (= i+j descending) for correct painter's algorithm:
-    // Tiles higher on screen (lower Y, far from viewer) are drawn first,
-    // Tiles lower on screen (higher Y, closer to viewer) are drawn last (on top)
-    tallTiles.sort((a, b) => (b.i + b.j) - (a.i + a.j));
+    // Pass 2: Render tall tiles on top using painter's algorithm
+    sortForPainter(tallTiles);
     for (const tile of tallTiles) {
       this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
     }

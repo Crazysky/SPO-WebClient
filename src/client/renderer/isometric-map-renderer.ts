@@ -56,6 +56,7 @@ import {
   ConcreteMapData,
   ConcreteCfg
 } from './concrete-texture-system';
+import { painterSort, sortForPainter } from './painter-algorithm';
 
 interface CachedZone {
   x: number;
@@ -925,10 +926,10 @@ export class IsometricMapRenderer {
       }
     }
 
-    // Sort by (i+j) ascending for painter's algorithm
-    // Lower (i+j) = back (top of screen) = drawn first
-    // Higher (i+j) = front (bottom of screen) = drawn last (on top)
-    concreteTiles.sort((a, b) => (a.i + a.j) - (b.i + b.j));
+    // Painter's algorithm: back-to-front rendering
+    // Higher (i+j) = back (top of screen) = drawn first
+    // Lower (i+j) = front (bottom of screen) = drawn last (on top)
+    sortForPainter(concreteTiles);
 
     // Draw sorted concrete tiles
     for (const tile of concreteTiles) {
@@ -1194,8 +1195,8 @@ export class IsometricMapRenderer {
       }
     }
 
-    // Sort by (i+j) descending: higher values drawn first, lower values (closer to viewer) drawn last
-    tallTerrainTiles.sort((a, b) => (b.i + b.j) - (a.i + a.j));
+    // Painter's algorithm: back-to-front rendering
+    sortForPainter(tallTerrainTiles);
 
     // Re-render tall terrain textures on top of roads
     for (const tile of tallTerrainTiles) {
