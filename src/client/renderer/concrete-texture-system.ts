@@ -397,32 +397,14 @@ export function getWaterConcreteId(cfg: ConcreteCfg): number {
 }
 
 /**
- * Check if a tile is on water or adjacent to water (for water platform detection)
- * Water platforms extend from buildings over water, so edge tiles are on land but adjacent to water
+ * Check if a tile is on water (for water platform texture selection)
+ *
+ * IMPORTANT: Only tiles ACTUALLY on water use platform textures.
+ * Land tiles adjacent to water should use regular land concrete textures.
  */
 function isWaterPlatformTile(row: number, col: number, mapData: ConcreteMapData): boolean {
-  // Check if tile itself is on water
   const landId = mapData.getLandId(row, col);
-  if (landClassOf(landId) === LandClass.ZoneD) {
-    return true;
-  }
-
-  // Check if any cardinal neighbor is on water (platform edge case)
-  const neighbors = [
-    [row - 1, col], // N (top)
-    [row + 1, col], // S (bottom)
-    [row, col - 1], // W (left)
-    [row, col + 1]  // E (right)
-  ];
-
-  for (const [nRow, nCol] of neighbors) {
-    const neighborLandId = mapData.getLandId(nRow, nCol);
-    if (landClassOf(neighborLandId) === LandClass.ZoneD) {
-      return true;
-    }
-  }
-
-  return false;
+  return landClassOf(landId) === LandClass.ZoneD;
 }
 
 /**
