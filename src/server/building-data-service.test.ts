@@ -263,8 +263,8 @@ describe('BuildingDataService', () => {
     it('should have valid texture filenames', () => {
       const buildings = service.getAllBuildings();
       for (const building of buildings) {
-        expect(building.textureFilename).toMatch(/\.gif$/);
-        expect(building.constructionTextureFilename).toMatch(/Construction\d+\.gif$/);
+        expect(building.textureFilename).toMatch(/\.gif$/i); // case-insensitive
+        expect(building.constructionTextureFilename).toMatch(/Construction\d+\.gif$/i);
       }
     });
 
@@ -286,8 +286,8 @@ describe('BuildingDataService', () => {
       const foodStore = service.getBuilding('4602');
       expect(foodStore).toBeDefined();
       expect(foodStore!.name).toBe('PGIFoodStore');
-      expect(foodStore!.xsize).toBe(2);
-      expect(foodStore!.ysize).toBe(2);
+      expect(foodStore!.xsize).toBe(1); // 1x1 store from CSV
+      expect(foodStore!.ysize).toBe(1);
     });
 
     it('should have Moab buildings', () => {

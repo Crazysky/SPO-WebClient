@@ -159,7 +159,7 @@ export class IsometricMapRenderer {
   // Debug mode
   private debugMode: boolean = false;
   private debugShowTileInfo: boolean = true;
-  private debugShowRoadInfo: boolean = true;
+  private debugShowBuildingInfo: boolean = true;
   private debugShowConcreteInfo: boolean = true;
 
   constructor(canvasId: string) {
@@ -230,9 +230,9 @@ export class IsometricMapRenderer {
         this.debugShowTileInfo = !this.debugShowTileInfo;
         this.render();
       }
-      // '2' toggles road info in debug mode
+      // '2' toggles building info in debug mode
       if (e.key === '2' && this.debugMode) {
-        this.debugShowRoadInfo = !this.debugShowRoadInfo;
+        this.debugShowBuildingInfo = !this.debugShowBuildingInfo;
         this.render();
       }
       // '3' toggles concrete info in debug mode
@@ -873,6 +873,24 @@ export class IsometricMapRenderer {
   }
 
   /**
+   * Get building at a specific tile position
+   * Returns the building object if found, undefined otherwise
+   */
+  private getBuildingAtTile(x: number, y: number): MapBuilding | undefined {
+    for (const building of this.allBuildings) {
+      const dims = this.facilityDimensionsCache.get(building.visualClass);
+      const bw = dims?.xsize || 1;
+      const bh = dims?.ysize || 1;
+
+      if (x >= building.x && x < building.x + bw &&
+          y >= building.y && y < building.y + bh) {
+        return building;
+      }
+    }
+    return undefined;
+  }
+
+  /**
    * Draw concrete tiles around buildings
    * Concrete appears on tiles adjacent to buildings to create paved areas
    */
@@ -1311,13 +1329,13 @@ export class IsometricMapRenderer {
     const halfWidth = config.tileWidth / 2;
     const halfHeight = config.tileHeight / 2;
 
-    // Sort buildings by depth for Painter's algorithm
-    // In isometric view, buildings with higher (y + x) are closer to the viewer
-    // and should be drawn later (on top)
+    // Painter's algorithm: sort by depth (x+y)
+    // In isometric view, lower (x+y) = closer to viewer = lower on screen = draw LAST (on top)
+    // Higher (x+y) = farther from viewer = higher on screen = draw FIRST (behind)
     const sortedBuildings = [...this.allBuildings].sort((a, b) => {
       const aDepth = a.y + a.x;
       const bDepth = b.y + b.x;
-      return aDepth - bDepth;
+      return bDepth - aDepth; // Descending: draw farther buildings first, closer ones last
     });
 
     sortedBuildings.forEach(building => {
@@ -1332,21 +1350,28 @@ export class IsometricMapRenderer {
       const texture = this.gameObjectTextureCache.getTextureSync('BuildingImages', textureFilename);
 
       if (texture) {
-        // Calculate the anchor point: the front corner of the building footprint
-        // This is the bottom-most point on screen at (x + xsize - 1, y + ysize - 1)
-        const frontCornerX = building.x + xsize - 1;
-        const frontCornerY = building.y + ysize - 1;
-        const anchorScreenPos = this.terrainRenderer.mapToScreen(frontCornerY, frontCornerX);
+        // Calculate zoom scale factor
+        // Building textures are designed for 64x32 tile size (zoom level 3)
+        // Scale proportionally to current zoom level
+        const scaleFactor = config.tileWidth / 64;
+        const scaledWidth = texture.width * scaleFactor;
+        const scaledHeight = texture.height * scaleFactor;
 
-        // Draw texture at native size (no scaling)
-        // The texture bottom-center aligns with the front corner of the footprint
-        const drawX = Math.round(anchorScreenPos.x - texture.width / 2);
-        const drawY = Math.round(anchorScreenPos.y + config.tileHeight - texture.height);
+        // Calculate the anchor point: the SOUTH corner of the building footprint
+        // In isometric: lower i,j values = closer to viewer (higher screen Y)
+        // The south corner (front, closest to viewer) is at (building.x, building.y)
+        // But we need the SOUTH VERTEX of that tile, which is at the bottom of the tile
+        const southCornerScreenPos = this.terrainRenderer.mapToScreen(building.y, building.x);
+
+        // The texture bottom-center should align with the south vertex of the south corner tile
+        // South vertex is at screenPos.y + tileHeight
+        const drawX = Math.round(southCornerScreenPos.x - scaledWidth / 2);
+        const drawY = Math.round(southCornerScreenPos.y + config.tileHeight - scaledHeight);
 
         // Cull if completely off-screen
-        if (drawX + texture.width < 0 ||
+        if (drawX + scaledWidth < 0 ||
             drawX > this.canvas.width ||
-            drawY + texture.height < 0 ||
+            drawY + scaledHeight < 0 ||
             drawY > this.canvas.height) {
           return;
         }
@@ -1359,11 +1384,11 @@ export class IsometricMapRenderer {
           ctx.globalAlpha = 1.0;
         }
 
-        // Draw texture at native size (no scaling)
-        ctx.drawImage(texture, drawX, drawY);
+        // Draw texture scaled to match current zoom level
+        ctx.drawImage(texture, drawX, drawY, scaledWidth, scaledHeight);
 
         // Draw VisualClass label for debugging/identification
-        this.drawBuildingLabel(building.visualClass, anchorScreenPos.x, anchorScreenPos.y + halfHeight);
+        this.drawBuildingLabel(building.visualClass, southCornerScreenPos.x, southCornerScreenPos.y + halfHeight);
       } else {
         // Fallback: draw solid colored tiles for each tile of building footprint
         for (let dy = 0; dy < ysize; dy++) {
@@ -1954,13 +1979,15 @@ export class IsometricMapRenderer {
 
     const landId = terrainLoader.getLandId(x, y);
     const decoded = decodeLandId(landId);
-    const hasRoad = this.roadTilesMap.has(`${x},${y}`);
     const hasConcrete = this.hasConcrete(x, y);
+
+    // Find building at current mouse position
+    const buildingAtMouse = this.getBuildingAtTile(x, y);
 
     // Calculate panel height based on what info we're showing
     let panelHeight = 140;
     if (decoded.isWater) panelHeight += 32;
-    if (hasRoad) panelHeight += 64;
+    if (buildingAtMouse && this.debugShowBuildingInfo) panelHeight += 144;
     if (hasConcrete && this.debugShowConcreteInfo) panelHeight += 96;
 
     // Panel background
@@ -1970,7 +1997,7 @@ export class IsometricMapRenderer {
     ctx.fillStyle = '#ffff00';
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'left';
-    ctx.fillText('DEBUG MODE [D=toggle, 1=tile, 2=road, 3=concrete]', 20, 28);
+    ctx.fillText('DEBUG MODE [D=toggle, 1=tile, 2=building, 3=concrete]', 20, 28);
 
     ctx.font = '11px monospace';
     ctx.fillStyle = '#ffffff';
@@ -1997,35 +2024,54 @@ export class IsometricMapRenderer {
       yOffset += 16;
     }
 
-    // Road info
-    if (hasRoad && this.roadsRendering) {
-      const topology = this.roadsRendering.get(y, x);
-      const onConcrete = this.isOnConcrete(x, y);
-      const fullRoadBlockId = roadBlockId(topology, landId, onConcrete, false, false);
-      const highId = (fullRoadBlockId & 0xF0) >> 4;
+    // Building info
+    if (buildingAtMouse && this.debugShowBuildingInfo) {
+      const visualClass = buildingAtMouse.visualClass;
+      const dims = this.facilityDimensionsCache.get(visualClass);
+      const textureFilename = GameObjectTextureCache.getBuildingTextureFilename(visualClass);
+      const texture = this.gameObjectTextureCache.getTextureSync('BuildingImages', textureFilename);
 
       ctx.fillStyle = '#ff8800';
-
-      ctx.fillText(`Road Topology: ${RoadBlockId[topology]} (${topology})`, 20, yOffset);
-      yOffset += 16;
-      ctx.fillText(`RoadBlockId: 0x${fullRoadBlockId.toString(16).toUpperCase().padStart(2, '0')} (${fullRoadBlockId})`, 20, yOffset);
+      ctx.fillText(`>>> BUILDING <<<`, 20, yOffset);
       yOffset += 16;
 
-      // Road type
-      const roadTypes = ['LAND', 'URBAN', 'N_BRIDGE', 'S_BRIDGE', 'E_BRIDGE', 'W_BRIDGE', 'FULL_BRIDGE', 'LEVEL_PASS', 'URB_LEVEL', 'SMOOTH', 'URB_SMOOTH'];
-      const roadTypeName = roadTypes[highId] || `TYPE_${highId}`;
-      ctx.fillText(`Road Type: ${roadTypeName}`, 20, yOffset);
+      // VisualClass from ObjectsInArea
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`VisualClass: ${visualClass}`, 20, yOffset);
       yOffset += 16;
 
-      // Texture path
-      const texturePath = this.roadBlockClassManager.getImagePath(fullRoadBlockId);
-      if (texturePath) {
-        const filename = texturePath.split('/').pop() || '';
+      // Building position
+      ctx.fillText(`Position: (${buildingAtMouse.x}, ${buildingAtMouse.y})`, 20, yOffset);
+      yOffset += 16;
+
+      // Facility lookup result
+      if (dims) {
         ctx.fillStyle = '#00ff00';
-        ctx.fillText(`Texture: ${filename}`, 20, yOffset);
+        ctx.fillText(`Lookup: FOUND - ${dims.name}`, 20, yOffset);
+        yOffset += 16;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(`Size: ${dims.xsize}x${dims.ysize}`, 20, yOffset);
+        yOffset += 16;
       } else {
         ctx.fillStyle = '#ff0000';
-        ctx.fillText(`Texture: NOT FOUND`, 20, yOffset);
+        ctx.fillText(`Lookup: NOT FOUND in buildings.json`, 20, yOffset);
+        yOffset += 16;
+        ctx.fillText(`(Add entry for visualClass ${visualClass})`, 20, yOffset);
+        yOffset += 16;
+      }
+
+      // Texture filename
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`Texture: ${textureFilename}`, 20, yOffset);
+      yOffset += 16;
+
+      // Texture load status
+      if (texture) {
+        ctx.fillStyle = '#00ff00';
+        ctx.fillText(`Status: LOADED (${texture.width}x${texture.height})`, 20, yOffset);
+      } else {
+        ctx.fillStyle = '#ff0000';
+        ctx.fillText(`Status: NOT LOADED (file missing?)`, 20, yOffset);
       }
       yOffset += 16;
     }
