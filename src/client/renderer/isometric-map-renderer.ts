@@ -837,10 +837,18 @@ export class IsometricMapRenderer {
 
   /**
    * Check if a tile has concrete (building adjacency approach)
-   * Returns true if the tile is occupied by a building or within 1 tile of any building
+   * Returns true if the tile should have concrete:
+   * - Adjacent to a building (on land or water)
+   * - On water AND adjacent to a road on water
+   * - But NOT if the tile itself has a road or building
    */
   private hasConcrete(x: number, y: number): boolean {
-    // Check if any building occupies or is adjacent to this tile
+    // Tiles with roads or buildings don't get concrete - roads/buildings are drawn instead
+    if (this.roadTilesMap.has(`${x},${y}`) || this.isTileOccupiedByBuilding(x, y)) {
+      return false;
+    }
+
+    // Check if adjacent to any building
     for (const building of this.allBuildings) {
       const dims = this.facilityDimensionsCache.get(building.visualClass);
       const bw = dims?.xsize || 1;
@@ -852,6 +860,30 @@ export class IsometricMapRenderer {
         return true;
       }
     }
+
+    // Check if on water and adjacent to a road on water
+    const terrainLoader = this.terrainRenderer.getTerrainLoader();
+    if (terrainLoader) {
+      const landId = terrainLoader.getLandId(x, y);
+      const isOnWater = landClassOf(landId) === LandClass.ZoneD;
+
+      if (isOnWater) {
+        // Check cardinal neighbors for roads on water
+        const neighbors = [
+          [x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]
+        ];
+        for (const [nx, ny] of neighbors) {
+          if (this.roadTilesMap.has(`${nx},${ny}`)) {
+            // Check if the road neighbor is also on water
+            const neighborLandId = terrainLoader.getLandId(nx, ny);
+            if (landClassOf(neighborLandId) === LandClass.ZoneD) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+
     return false;
   }
 
