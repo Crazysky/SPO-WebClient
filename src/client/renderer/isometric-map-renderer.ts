@@ -56,7 +56,6 @@ import {
   ConcreteMapData,
   ConcreteCfg
 } from './concrete-texture-system';
-import { painterSort, sortForPainter } from './painter-algorithm';
 
 interface CachedZone {
   x: number;
@@ -837,18 +836,10 @@ export class IsometricMapRenderer {
 
   /**
    * Check if a tile has concrete (building adjacency approach)
-   * Returns true if the tile should have concrete:
-   * - Adjacent to a building (on land or water)
-   * - On water AND adjacent to a road on water
-   * - But NOT if the tile itself has a road or building
+   * Returns true if the tile is occupied by a building or within 1 tile of any building
    */
   private hasConcrete(x: number, y: number): boolean {
-    // Tiles with roads or buildings don't get concrete - roads/buildings are drawn instead
-    if (this.roadTilesMap.has(`${x},${y}`) || this.isTileOccupiedByBuilding(x, y)) {
-      return false;
-    }
-
-    // Check if adjacent to any building
+    // Check if any building occupies or is adjacent to this tile
     for (const building of this.allBuildings) {
       const dims = this.facilityDimensionsCache.get(building.visualClass);
       const bw = dims?.xsize || 1;
@@ -860,30 +851,6 @@ export class IsometricMapRenderer {
         return true;
       }
     }
-
-    // Check if on water and adjacent to a road on water
-    const terrainLoader = this.terrainRenderer.getTerrainLoader();
-    if (terrainLoader) {
-      const landId = terrainLoader.getLandId(x, y);
-      const isOnWater = landClassOf(landId) === LandClass.ZoneD;
-
-      if (isOnWater) {
-        // Check cardinal neighbors for roads on water
-        const neighbors = [
-          [x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]
-        ];
-        for (const [nx, ny] of neighbors) {
-          if (this.roadTilesMap.has(`${nx},${ny}`)) {
-            // Check if the road neighbor is also on water
-            const neighborLandId = terrainLoader.getLandId(nx, ny);
-            if (landClassOf(neighborLandId) === LandClass.ZoneD) {
-              return true;
-            }
-          }
-        }
-      }
-    }
-
     return false;
   }
 
@@ -958,10 +925,10 @@ export class IsometricMapRenderer {
       }
     }
 
-    // Painter's algorithm: back-to-front rendering
-    // Higher (i+j) = back (top of screen) = drawn first
-    // Lower (i+j) = front (bottom of screen) = drawn last (on top)
-    sortForPainter(concreteTiles);
+    // Sort by (i+j) ascending for painter's algorithm
+    // Lower (i+j) = back (top of screen) = drawn first
+    // Higher (i+j) = front (bottom of screen) = drawn last (on top)
+    concreteTiles.sort((a, b) => (a.i + a.j) - (b.i + b.j));
 
     // Draw sorted concrete tiles
     for (const tile of concreteTiles) {
@@ -971,28 +938,14 @@ export class IsometricMapRenderer {
         const texture = this.gameObjectTextureCache.getTextureSync('ConcreteImages', filename);
 
         if (texture) {
-          // Check if this is a water platform texture (ID >= 0x80)
-          const isWaterPlatform = (tile.concreteId & 0x80) !== 0;
-
-          if (isWaterPlatform) {
-            // Water platform textures are already isometric - draw at native size
-            // Center the 64x32 texture on the tile position
-            const nativeHalfWidth = texture.width / 2;
-            ctx.drawImage(
-              texture,
-              tile.screenX - nativeHalfWidth,
-              tile.screenY
-            );
-          } else {
-            // Land concrete textures - scale to current zoom level
-            ctx.drawImage(
-              texture,
-              tile.screenX - halfWidth,
-              tile.screenY,
-              config.tileWidth,
-              config.tileHeight
-            );
-          }
+          // Draw texture centered on tile
+          ctx.drawImage(
+            texture,
+            tile.screenX - halfWidth,
+            tile.screenY,
+            config.tileWidth,
+            config.tileHeight
+          );
           continue;
         }
       }
@@ -1241,8 +1194,8 @@ export class IsometricMapRenderer {
       }
     }
 
-    // Painter's algorithm: back-to-front rendering
-    sortForPainter(tallTerrainTiles);
+    // Sort by (i+j) descending: higher values drawn first, lower values (closer to viewer) drawn last
+    tallTerrainTiles.sort((a, b) => (b.i + b.j) - (a.i + a.j));
 
     // Re-render tall terrain textures on top of roads
     for (const tile of tallTerrainTiles) {
