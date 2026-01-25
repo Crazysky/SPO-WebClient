@@ -215,6 +215,7 @@ Optional detailed description
 | [doc/building_details_protocol.md](doc/building_details_protocol.md) | Building details RDO protocol |
 | [doc/road_rendering.md](doc/road_rendering.md) | Road rendering API & overview |
 | [doc/road_rendering_reference.md](doc/road_rendering_reference.md) | Road rendering technical reference (reverse-engineered) |
+| [doc/concrete_rendering.md](doc/concrete_rendering.md) | Concrete texture system & water platforms |
 
 ## Quick Troubleshooting
 
@@ -227,7 +228,7 @@ Optional detailed description
 
 ## Current Test Status
 
-- **Test Suites:** 12 passed
-- **Tests:** 414 total (396 passing, 18 skipped)
+- **Test Suites:** 13 passed
+- **Tests:** 458 total (440 passing, 18 skipped)
 - **Coverage:** 93%
 - **Threshold:** 60% minimum (tracking higher)
