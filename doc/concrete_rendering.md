@@ -75,28 +75,46 @@ TLRB (all present)              → ID 12 or check diagonals
 
 ## Painter's Algorithm
 
-Concrete tiles are sorted by `(i + j)` ascending before drawing:
-- Lower `(i+j)` = back of screen (drawn first)
-- Higher `(i+j)` = front of screen (drawn last, overlaps previous)
+Concrete tiles are sorted using `sortForPainter()` from `painter-algorithm.ts`:
+- Higher `(i+j)` = back of screen (drawn first)
+- Lower `(i+j)` = front of screen (drawn last, overlaps previous)
 
-This ensures proper visual overlap at corners.
+This ensures proper visual overlap at corners and edges.
 
-## Water Platform Detection
+## Water Concrete Rules
 
-A tile uses water platform textures if:
-1. The tile itself is on water (LandClass.ZoneD), OR
-2. Any cardinal neighbor is on water
+A water tile gets concrete if:
+1. Adjacent to a building on water, OR
+2. Adjacent to a road on water
 
-```typescript
-function isWaterPlatformTile(row, col, mapData): boolean {
-  if (landClassOf(mapData.getLandId(row, col)) === LandClass.ZoneD) return true;
-  // Check cardinal neighbors for water
-  for (const [nRow, nCol] of cardinalNeighbors) {
-    if (landClassOf(mapData.getLandId(nRow, nCol)) === LandClass.ZoneD) return true;
-  }
-  return false;
-}
+A tile does NOT get concrete if:
+- The tile itself has a road (road is drawn instead)
+- The tile itself has a building (building is drawn instead)
+
 ```
+Legend: ≈≈=water  ══=road  ▓▓=concrete  ██=building
+
+T-section on water:          Corner on water:
+ ≈≈  ≈≈  ══  ≈≈  ≈≈          ≈≈  ≈≈  ══  ≈≈  ≈≈
+ ≈≈  ▓▓  ══  ▓▓  ≈≈          ≈≈  ▓▓  ══  ▓▓  ≈≈
+ ≈≈  ▓▓  ══  ══  ══          ≈≈  ▓▓  ══  ══  ══
+ ≈≈  ▓▓  ══  ▓▓  ≈≈          ≈≈  ▓▓  ▓▓  ▓▓  ≈≈
+ ≈≈  ≈≈  ══  ≈≈  ≈≈          ≈≈  ≈≈  ≈≈  ≈≈  ≈≈
+
+Building along road on water:
+ ≈≈  ▓▓  ▓▓  ▓▓  ≈≈
+ ≈≈  ▓▓  ██  ▓▓  ≈≈
+ ══  ══  ══  ══  ══
+ ≈≈  ▓▓  ▓▓  ▓▓  ≈≈
+ ≈≈  ≈≈  ≈≈  ≈≈  ≈≈
+```
+
+## Water Platform Texture Selection
+
+Only tiles ACTUALLY on water (LandClass.ZoneD) use platform textures.
+Land tiles adjacent to water use regular land concrete.
+
+Platform textures are drawn at native 64x32 size (no scaling).
 
 ## INI File Format
 
