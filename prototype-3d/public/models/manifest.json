@@ -1,0 +1,37 @@
+{
+  "generated": "2026-01-26T20:25:46.826Z",
+  "source": "placeholder",
+  "note": "These are placeholder box models. Replace with AI-generated models for production.",
+  "buildings": [
+    {
+      "id": "MapDisFoodStore64x32x0",
+      "originalTexture": "MapDisFoodStore64x32x0.gif",
+      "modelPath": "MapDisFoodStore64x32x0.glb",
+      "dimensions": {
+        "width": 2,
+        "depth": 2,
+        "height": 1.5
+      }
+    },
+    {
+      "id": "MapDisHiResA64x32x0",
+      "originalTexture": "MapDisHiResA64x32x0.gif",
+      "modelPath": "MapDisHiResA64x32x0.glb",
+      "dimensions": {
+        "width": 2,
+        "depth": 2,
+        "height": 5
+      }
+    },
+    {
+      "id": "MapDisHeadquarter64x32x0",
+      "originalTexture": "MapDisHeadquarter64x32x0.gif",
+      "modelPath": "MapDisHeadquarter64x32x0.glb",
+      "dimensions": {
+        "width": 3,
+        "depth": 3,
+        "height": 3
+      }
+    }
+  ]
+}
