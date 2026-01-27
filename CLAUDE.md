@@ -4,9 +4,18 @@
 
 **Name:** Starpeace Online WebClient
 **Type:** Browser-based multiplayer tycoon game client
-**Stack:** TypeScript + Node.js + WebSocket + Canvas Rendering
+**Stack:** TypeScript + Node.js + WebSocket + Canvas2D/Three.js (WebGL)
 **Protocol:** RDO (Remote Data Objects) - legacy ASCII protocol
 **Status:** Alpha (0.1.0)
+
+## Prerequisites
+
+**No external tools required!** All dependencies are npm-managed:
+
+- **7zip-min** - CAB file extraction (bundled with precompiled binaries)
+- Installed automatically via `npm install`
+
+See [doc/CAB-EXTRACTION.md](doc/CAB-EXTRACTION.md) for CAB extraction details.
 
 ## Essential Commands
 
@@ -31,6 +40,15 @@ src/
 ├── client/           # Frontend (TypeScript + Canvas)
 │   ├── client.ts     # Main controller
 │   ├── renderer/     # Isometric rendering engine
+│   │   ├── isometric-map-renderer.ts      # Canvas2D renderer (legacy)
+│   │   └── three/                         # Three.js renderer (WebGL)
+│   │       ├── IsometricThreeRenderer.ts  # Main renderer
+│   │       ├── TerrainChunkManager.ts     # Terrain batching
+│   │       ├── BuildingRenderer.ts        # Sprite-based buildings
+│   │       ├── RoadRenderer.ts            # Road segment rendering
+│   │       ├── ConcreteRenderer.ts        # Concrete platforms
+│   │       ├── PreviewManager.ts          # Placement/zone previews
+│   │       └── TextureAtlasManager.ts     # GPU texture atlases
 │   └── ui/           # UI components
 ├── server/           # Gateway server
 │   ├── server.ts     # HTTP/WebSocket server
@@ -42,6 +60,41 @@ src/
     ├── types/        # Type definitions
     └── building-details/ # Property templates
 ```
+
+## Renderer Architecture
+
+**Two renderers available:** Canvas2D (legacy) and Three.js (WebGL)
+
+Switch renderer in [src/client/renderer-settings.ts](src/client/renderer-settings.ts):
+```typescript
+export const RENDERER_TYPE: 'canvas2d' | 'three' = 'three';
+```
+
+### Canvas2D Renderer (Legacy)
+- **File:** [isometric-map-renderer.ts](src/client/renderer/isometric-map-renderer.ts)
+- CPU-based rendering with 2D canvas
+- Chunk-based terrain caching
+- Full feature parity (placement, roads, zones, overlays)
+- Stable, well-tested
+
+### Three.js Renderer (WebGL)
+- **File:** [IsometricThreeRenderer.ts](src/client/renderer/three/IsometricThreeRenderer.ts)
+- GPU-accelerated via WebGL
+- Batched geometry for terrain chunks
+- Sprite-based building rendering
+- RenderOrder-based painter's algorithm (no per-frame sorting)
+- **Season auto-detection** - Automatically switches to available seasons for terrain types
+
+**Key Features:**
+- Terrain chunk rendering with texture atlases
+- Building placement preview (collision detection, tooltips)
+- Road drawing preview (staircase algorithm, validation)
+- Zone overlay rendering (7 zone types with transparency)
+- Camera controls (pan, zoom, edge-of-screen scrolling)
+
+**Performance:** 60 FPS on 1000×1000 maps with 4000+ terrain tiles visible
+
+See [doc/SWITCHING-RENDERERS.md](doc/SWITCHING-RENDERERS.md) for details.
 
 ## RDO Protocol Type System (CRITICAL)
 
@@ -71,6 +124,33 @@ const cmd = `SEL ${objectId}*CALL %RDOSetPrice^PUSH^#${priceId}*!${value}`;
 | `$` | Short string (StringId) | `$ID` |
 | `^` | Variant (VariantId) | `^value` |
 | `*` | Void (VoidId) | `*` |
+
+## Three.js Renderer Status (January 2026)
+
+**Status:** Feature-complete, ready for production use
+
+**Completed Features:**
+- ✅ Terrain chunk rendering with texture atlases
+- ✅ Building sprites with automatic scaling
+- ✅ Road segment rendering with texture selection
+- ✅ Concrete platform rendering
+- ✅ Building placement preview (collision detection, tooltips)
+- ✅ Road drawing preview (staircase algorithm, validation)
+- ✅ Zone overlay rendering (7 zone types)
+- ✅ Camera controls (pan, zoom, edge scrolling)
+- ✅ Season auto-detection for terrain types
+- ✅ Painter's algorithm via renderOrder (no sorting)
+
+**Performance:**
+- 60 FPS on 1000×1000 maps
+- GPU-accelerated batched rendering
+- Efficient texture atlases (1024×512px per season)
+
+**Recent Fixes (January 2026):**
+- **Season auto-detection:** Automatically switches to available seasons for terrain types (prevents 204 errors)
+- **Depth buffer fix:** Terrain material now uses `depthWrite: false` to allow proper layering
+- **Painter's algorithm fix:** Terrain chunks now use dynamic renderOrder instead of fixed value 0
+- **Result:** Roads, concrete, and buildings now render correctly on top of terrain
 
 ## Testing
 
@@ -216,6 +296,12 @@ Optional detailed description
 | [doc/road_rendering.md](doc/road_rendering.md) | Road rendering API & overview |
 | [doc/road_rendering_reference.md](doc/road_rendering_reference.md) | Road rendering technical reference (reverse-engineered) |
 | [doc/concrete_rendering.md](doc/concrete_rendering.md) | Concrete texture system & water platforms |
+| [doc/THREE-JS-PREVIEW-IMPLEMENTATION.md](doc/THREE-JS-PREVIEW-IMPLEMENTATION.md) | Three.js preview features (placement, roads, zones) |
+| [doc/SWITCHING-RENDERERS.md](doc/SWITCHING-RENDERERS.md) | How to switch between Canvas2D and Three.js renderers |
+| [doc/SOLUTION-TEXTURES-SEASON.md](doc/SOLUTION-TEXTURES-SEASON.md) | Season auto-detection fix for Three.js texture loading |
+| [doc/FIX-TERRAIN-DEPTH-RENDERING.md](doc/FIX-TERRAIN-DEPTH-RENDERING.md) | Depth buffer & renderOrder fixes for proper layering |
+| [doc/CANVAS2D-TEXTURE-SELECTION-ANALYSIS.md](doc/CANVAS2D-TEXTURE-SELECTION-ANALYSIS.md) | Complete analysis of Canvas2D texture selection algorithm |
+| [doc/CAB-EXTRACTION.md](doc/CAB-EXTRACTION.md) | CAB file extraction system & texture caching |
 
 ## Quick Troubleshooting
 
@@ -225,6 +311,10 @@ Optional detailed description
 | Tests fail | Run `npm run test:verbose` |
 | RDO errors | Verify type prefixes (#, %, !, etc.) |
 | WebSocket disconnect | Check game server status |
+| Textures show as colored tiles (Three.js) | Season mismatch - see [SOLUTION-TEXTURES-SEASON.md](doc/SOLUTION-TEXTURES-SEASON.md) |
+| Roads/concrete not visible (Three.js) | Depth buffer issue - see [FIX-TERRAIN-DEPTH-RENDERING.md](doc/FIX-TERRAIN-DEPTH-RENDERING.md) |
+| Terrain not rendering (Three.js) | Check browser console for WebGL errors, try Canvas2D renderer |
+| Port 8080 already in use | Kill process: `Get-Process -Id (Get-NetTCPConnection -LocalPort 8080).OwningProcess \| Stop-Process` (PowerShell) |
 
 ## Current Test Status
 

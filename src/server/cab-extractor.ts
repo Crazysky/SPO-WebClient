@@ -1,33 +1,20 @@
 /**
  * CAB Extractor - Cross-platform Microsoft Cabinet archive extraction
  *
- * Uses the pure JavaScript 'cabarc' package for CAB extraction.
- * No external tools required (no 7-Zip, expand.exe, or cabextract needed).
+ * Uses the '7zip-min' npm package for CAB extraction.
+ * No external tools required - 7zip-min includes precompiled 7za binaries.
  * Works on Windows, Linux, and macOS.
+ *
+ * 7za supports: 7z, lzma, cab, zip, gzip, bzip2, Z, tar formats
+ *
+ * Package: https://www.npmjs.com/package/7zip-min
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Dynamic import for cabarc (CommonJS module)
-let Cabinet: any = null;
-
-/**
- * Initialize the Cabinet module (lazy loading)
- */
-async function getCabinetModule(): Promise<any> {
-  if (!Cabinet) {
-    try {
-      Cabinet = require('cabarc');
-    } catch (error) {
-      throw new Error(
-        'cabarc package not installed. Run: npm install cabarc\n' +
-        'This package provides cross-platform CAB extraction without external tools.'
-      );
-    }
-  }
-  return Cabinet;
-}
+// 7zip-min is a CommonJS module
+const _7z = require('7zip-min');
 
 /**
  * Information about a file within a CAB archive
@@ -48,59 +35,60 @@ export interface CabExtractionResult {
 }
 
 /**
- * Open a CAB archive and return the archive object
- * @param cabPath - Path to the CAB file
- * @returns Promise resolving to the archive object
+ * Convert 7zip-min list output to CabFileInfo array
+ *
+ * 7zip-min list() returns an array of objects:
+ * [{
+ *   name: 'filename.txt',
+ *   size: '1234',  // Note: string, not number
+ *   date: '2000-01-01',
+ *   time: '00:00:00',
+ *   attr: '.....',
+ *   method: 'MSZip',
+ *   block: '0'
+ * }]
  */
-async function openCabArchive(cabPath: string): Promise<any> {
-  const CabinetModule = await getCabinetModule();
-  const archive = new CabinetModule.Archive();
-
-  return new Promise((resolve, reject) => {
-    archive.open(cabPath, (error: Error | null) => {
-      if (error) {
-        reject(new Error(`Failed to open CAB archive ${cabPath}: ${error.message}`));
-      } else {
-        resolve(archive);
-      }
-    });
-  });
-}
-
-/**
- * Read a single file from an opened CAB archive
- * @param archive - The opened archive object
- * @param fileName - Name of the file to extract
- * @returns Promise resolving to the file buffer
- */
-async function readFileFromArchive(archive: any, fileName: string): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    archive.readFile(fileName, (error: Error | null, buffer: Buffer) => {
-      if (error) {
-        reject(new Error(`Failed to extract ${fileName}: ${error.message}`));
-      } else {
-        resolve(buffer);
-      }
-    });
-  });
-}
-
-/**
- * Get list of files in a CAB archive
- * @param archive - The opened archive object
- * @returns Array of file information
- */
-function getArchiveFiles(archive: any): CabFileInfo[] {
+function parse7zList(output: any[]): CabFileInfo[] {
   const files: CabFileInfo[] = [];
 
-  // The cabarc library stores files in archive.files array
-  if (archive.files && Array.isArray(archive.files)) {
-    for (const file of archive.files) {
+  if (!Array.isArray(output)) {
+    return files;
+  }
+
+  for (const item of output) {
+    if (item && item.name) {
       files.push({
-        name: file.name || file.filename,
-        size: file.size || file.uncompressedSize || 0,
-        offset: file.offset || 0
+        name: item.name.replace(/\\/g, '/'),  // Normalize path separators
+        size: parseInt(item.size || '0', 10),
+        offset: 0  // 7za doesn't provide offset info
       });
+    }
+  }
+
+  return files;
+}
+
+/**
+ * Get list of files actually extracted to a directory
+ */
+function getExtractedFiles(targetDir: string, baseDir: string = targetDir): string[] {
+  const files: string[] = [];
+
+  if (!fs.existsSync(targetDir)) {
+    return files;
+  }
+
+  const entries = fs.readdirSync(targetDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(targetDir, entry.name);
+    const relativePath = path.relative(baseDir, fullPath).replace(/\\/g, '/');
+
+    if (entry.isDirectory()) {
+      // Recurse into subdirectories
+      files.push(...getExtractedFiles(fullPath, baseDir));
+    } else if (entry.isFile()) {
+      files.push(relativePath);
     }
   }
 
@@ -143,49 +131,23 @@ export async function extractCabArchive(
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  let archive: any = null;
-
   try {
-    // Open the CAB archive
-    archive = await openCabArchive(cabPath);
+    // Extract using 7zip-min (with async/await)
+    await _7z.unpack(cabPath, targetDir);
 
-    // Get list of files in archive
-    const files = getArchiveFiles(archive);
+    // Get list of extracted files
+    const extractedFiles = getExtractedFiles(targetDir);
 
-    if (files.length === 0) {
-      result.errors.push(`No files found in CAB archive: ${cabPath}`);
+    if (extractedFiles.length === 0) {
+      result.errors.push(`No files extracted from CAB archive: ${cabPath}`);
       return result;
     }
 
-    // Extract each file
-    for (const fileInfo of files) {
-      try {
-        const buffer = await readFileFromArchive(archive, fileInfo.name);
-
-        // Determine output path (preserve directory structure within archive)
-        const outputPath = path.join(targetDir, fileInfo.name);
-        const outputDir = path.dirname(outputPath);
-
-        // Create subdirectory if needed
-        if (!fs.existsSync(outputDir)) {
-          fs.mkdirSync(outputDir, { recursive: true });
-        }
-
-        // Write file
-        fs.writeFileSync(outputPath, buffer);
-
-        // Track extracted file (use forward slashes for consistency)
-        result.extractedFiles.push(fileInfo.name.replace(/\\/g, '/'));
-
-      } catch (fileError: any) {
-        result.errors.push(`Error extracting ${fileInfo.name}: ${fileError.message}`);
-      }
-    }
-
-    result.success = result.extractedFiles.length > 0;
+    result.extractedFiles = extractedFiles;
+    result.success = true;
 
   } catch (error: any) {
-    result.errors.push(error.message);
+    result.errors.push(`Extraction error: ${error.message || String(error)}`);
   }
 
   return result;
@@ -203,20 +165,24 @@ export async function listCabContents(cabPath: string): Promise<CabFileInfo[] | 
   }
 
   try {
-    const archive = await openCabArchive(cabPath);
-    return getArchiveFiles(archive);
+    // 7zip-min list() returns an array of file objects
+    const output = await _7z.list(cabPath);
+    return parse7zList(output);
   } catch (error) {
     return null;
   }
 }
 
 /**
- * Check if the cabarc package is available
- * @returns true if cabarc can be loaded
+ * Check if 7zip-min is available (it should always be available since it's bundled)
+ * @returns true if 7zip-min can be loaded
  */
 export async function isCabExtractorAvailable(): Promise<boolean> {
   try {
-    await getCabinetModule();
+    // Try to access 7zip-min module
+    if (!_7z || typeof _7z.unpack !== 'function') {
+      return false;
+    }
     return true;
   } catch {
     return false;

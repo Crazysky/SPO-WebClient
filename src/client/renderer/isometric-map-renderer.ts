@@ -264,8 +264,9 @@ export class IsometricMapRenderer {
 
     this.render();
 
-    // Trigger initial zone loading for visible area
-    this.checkVisibleZones();
+    // NOTE: Do NOT call checkVisibleZones() here - let the callback be set first
+    // Zone loading will be triggered via triggerZoneCheck() when setOnLoadZone() is called
+    // (See map-navigation-ui.ts setOnLoadZone method which calls triggerZoneCheck)
 
     return terrainData;
   }

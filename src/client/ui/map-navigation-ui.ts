@@ -3,11 +3,14 @@
  */
 
 import { IsometricMapRenderer } from '../renderer/isometric-map-renderer';
+import { ThreeRendererAdapter, installDebugOverlayShortcut } from '../renderer/three';
+import { getRendererSettings } from '../renderer-settings';
 import { FacilityDimensions } from '../../shared/types';
 
 export class MapNavigationUI {
   private canvas: HTMLCanvasElement | null = null;
-  private renderer: IsometricMapRenderer | null = null;
+  private renderer: IsometricMapRenderer | ThreeRendererAdapter | null = null;
+  private debugOverlay: any | null = null; // Three.js debug overlay (if enabled)
 
   // Callbacks
   private onLoadZone: ((x: number, y: number, w: number, h: number) => void) | null = null;
@@ -62,11 +65,34 @@ export class MapNavigationUI {
     this.canvas.id = 'game-canvas';
     this.canvas.style.flex = '1';
     this.canvas.style.width = '100%';
+    this.canvas.style.height = '100%';
     this.canvas.style.backgroundColor = '#111';
     this.gamePanel.appendChild(this.canvas);
 
-    // Init Renderer (Isometric)
-    this.renderer = new IsometricMapRenderer('game-canvas');
+    // Get renderer settings
+    const settings = getRendererSettings();
+
+    // Init Renderer based on settings
+    if (settings.rendererType === 'threejs') {
+      console.log('[MapNavigationUI] Initializing Three.js WebGL renderer');
+      this.renderer = new ThreeRendererAdapter('game-canvas', {
+        enableDebug: settings.enableDebug
+      });
+
+      // Install debug overlay if enabled
+      if (settings.showDebugOverlay) {
+        const threeRenderer = (this.renderer as ThreeRendererAdapter).getThreeRenderer();
+        this.debugOverlay = installDebugOverlayShortcut(threeRenderer);
+        this.debugOverlay.show();
+      } else if (settings.enableDebug) {
+        // Install shortcut but don't show initially (user can press 'D' to toggle)
+        const threeRenderer = (this.renderer as ThreeRendererAdapter).getThreeRenderer();
+        this.debugOverlay = installDebugOverlayShortcut(threeRenderer);
+      }
+    } else {
+      console.log('[MapNavigationUI] Initializing Canvas2D renderer');
+      this.renderer = new IsometricMapRenderer('game-canvas');
+    }
 
     // Load map terrain (default to Shamba for now - can be made dynamic later)
     this.renderer.loadMap('Shamba').then(() => {
@@ -101,7 +127,31 @@ export class MapNavigationUI {
   /**
    * Retourne le renderer (pour les opérations map data)
    */
-  public getRenderer(): IsometricMapRenderer | null {
+  public getRenderer(): IsometricMapRenderer | ThreeRendererAdapter | null {
     return this.renderer;
+  }
+
+  /**
+   * Toggle debug overlay (Three.js only)
+   */
+  public toggleDebugOverlay(): void {
+    if (this.debugOverlay) {
+      this.debugOverlay.toggle();
+    }
+  }
+
+  /**
+   * Cleanup on destroy
+   */
+  public destroy(): void {
+    if (this.debugOverlay) {
+      this.debugOverlay.destroy();
+      this.debugOverlay = null;
+    }
+
+    if (this.renderer) {
+      this.renderer.destroy?.();
+      this.renderer = null;
+    }
   }
 }

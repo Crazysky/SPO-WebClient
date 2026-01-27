@@ -30,6 +30,7 @@ interface CabMetadata {
   [cabPath: string]: {
     extractedFiles: string[];
     cabModifiedTime: number;
+    corrupted?: boolean; // Mark CABs that failed extraction
   };
 }
 
@@ -82,11 +83,12 @@ export class UpdateService implements Service {
       return;
     }
 
-    // Verify cabarc package is available for CAB extraction
+    // Verify 7zip-min is available for CAB extraction (should always be true since it's bundled)
     const cabAvailable = await isCabExtractorAvailable();
     if (!cabAvailable) {
-      logger.error('[UpdateService] cabarc package not available. Run: npm install cabarc');
-      throw new Error('CAB extraction not available. Install cabarc package: npm install cabarc');
+      logger.error('[UpdateService] 7zip-min not available. This should not happen.');
+      logger.error('  Try: npm install 7zip-min');
+      throw new Error('CAB extraction not available. Install 7zip-min: npm install 7zip-min');
     }
 
     await this.syncAll();
@@ -127,8 +129,8 @@ export class UpdateService implements Service {
   }
 
   /**
-   * Extract a CAB file using the cross-platform cabarc package
-   * No external tools required (works on Windows, Linux, macOS)
+   * Extract a CAB file using the 7zip-min package
+   * 7zip-min includes precompiled 7za binaries (no external tools required)
    */
   private async extractCabFile(cabPath: string): Promise<string[]> {
     const cabDir = path.dirname(cabPath);
@@ -137,13 +139,28 @@ export class UpdateService implements Service {
     try {
       logger.info(`[UpdateService] Extracting CAB: ${cabRelative}`);
 
-      // Use the cross-platform cab-extractor module
-      const result = await extractCabArchive(cabPath, cabDir);
+      // Add timeout protection (30 seconds max)
+      const extractionPromise = extractCabArchive(cabPath, cabDir);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Extraction timeout after 30 seconds')), 30000)
+      );
+
+      const result = await Promise.race([extractionPromise, timeoutPromise]);
 
       if (!result.success) {
         for (const error of result.errors) {
           logger.error(`[UpdateService] CAB extraction error: ${error}`);
         }
+        this.stats.failed++;
+
+        // Mark as corrupted in metadata
+        this.cabMetadata[cabRelative] = {
+          extractedFiles: [],
+          cabModifiedTime: Date.now(),
+          corrupted: true
+        };
+        this.saveCabMetadata();
+
         return [];
       }
 
@@ -160,7 +177,17 @@ export class UpdateService implements Service {
 
       return extractedFiles;
     } catch (error) {
+      this.stats.failed++;
       logger.error(`[UpdateService] Failed to extract CAB ${cabRelative}:`, error);
+
+      // Mark as corrupted to skip on future runs
+      this.cabMetadata[cabRelative] = {
+        extractedFiles: [],
+        cabModifiedTime: Date.now(),
+        corrupted: true
+      };
+      this.saveCabMetadata();
+
       return [];
     }
   }
@@ -481,8 +508,30 @@ export class UpdateService implements Service {
           const stats = fs.statSync(localPath);
           const metadata = this.cabMetadata[remoteFile.path];
 
-          // Extract if: no metadata exists OR CAB file was modified
-          if (!metadata || metadata.cabModifiedTime !== stats.mtimeMs) {
+          // Skip corrupted CABs
+          if (metadata?.corrupted) {
+            logger.warn(`[UpdateService] ⚠ Skipping corrupted CAB: ${remoteFile.path}`);
+            continue;
+          }
+
+          // Check if extracted files actually exist
+          let needsExtraction = !metadata || metadata.cabModifiedTime !== stats.mtimeMs;
+
+          if (!needsExtraction && metadata) {
+            // Verify at least one extracted file exists
+            const hasExtractedFiles = metadata.extractedFiles.some(file => {
+              const fullPath = path.join(this.CACHE_ROOT, file);
+              return fs.existsSync(fullPath);
+            });
+
+            if (!hasExtractedFiles) {
+              logger.info(`[UpdateService] ⚠ CAB metadata exists but extracted files are missing: ${remoteFile.path}`);
+              needsExtraction = true;
+            }
+          }
+
+          // Extract if needed
+          if (needsExtraction) {
             logger.info(`[UpdateService] CAB exists but needs extraction: ${remoteFile.path}`);
 
             // Clean up old extraction if it exists
@@ -492,10 +541,14 @@ export class UpdateService implements Service {
 
             // Extract CAB
             const extractedFiles = await this.extractCabFile(localPath);
-            this.cabMetadata[remoteFile.path] = {
-              extractedFiles: extractedFiles,
-              cabModifiedTime: stats.mtimeMs
-            };
+
+            // Only update metadata if extraction succeeded
+            if (extractedFiles.length > 0) {
+              this.cabMetadata[remoteFile.path] = {
+                extractedFiles: extractedFiles,
+                cabModifiedTime: stats.mtimeMs
+              };
+            }
           }
         }
       } else {

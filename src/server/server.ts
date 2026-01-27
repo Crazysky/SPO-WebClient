@@ -1679,4 +1679,15 @@ async function startServer() {
   }
 }
 
+// Global error handlers to prevent process crashes
+process.on('uncaughtException', (error: Error) => {
+  logger.error('[Gateway] Uncaught exception:', error);
+  // Continue running - don't crash the server
+});
+
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  logger.error('[Gateway] Unhandled promise rejection:', reason);
+  // Continue running - don't crash the server
+});
+
 startServer();
