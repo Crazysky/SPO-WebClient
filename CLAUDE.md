@@ -211,6 +211,7 @@ Optional detailed description
 | Document | Purpose |
 |----------|---------|
 | [doc/BACKLOG.md](doc/BACKLOG.md) | Feature backlog & project status |
+| [doc/ENGINE_MIGRATION_SPEC.md](doc/ENGINE_MIGRATION_SPEC.md) | PixiJS WebGL renderer (NEW - replaces Canvas) |
 | [doc/rdo_typing_system.md](doc/rdo_typing_system.md) | RDO type system (RdoValue, RdoParser, RdoCommand) |
 | [doc/building_details_protocol.md](doc/building_details_protocol.md) | Building details RDO protocol |
 | [doc/road_rendering.md](doc/road_rendering.md) | Road rendering API & overview |
