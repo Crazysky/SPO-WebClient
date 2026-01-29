@@ -23,6 +23,9 @@ const BUILDING_COLORS: Record<string, number> = {
   industrial: 0xFFE66D,  // Yellow
 };
 
+/** Spatial index chunk size (tiles per chunk) */
+const CHUNK_SIZE = 64;
+
 /**
  * Building layer renderer
  */
@@ -34,6 +37,10 @@ export class PixiBuildingLayer {
 
   // Graphics for fallback rendering
   private fallbackGraphics: Graphics;
+
+  // Spatial index for fast building lookup
+  private spatialIndex: Map<string, MapBuilding[]> = new Map();
+  private lastBuildingsRef: MapBuilding[] | null = null;
 
   constructor(
     container: Container,
@@ -51,6 +58,78 @@ export class PixiBuildingLayer {
   }
 
   /**
+   * Build spatial index from buildings array
+   */
+  private buildSpatialIndex(buildings: MapBuilding[], facilityDimensions: Map<string, FacilityDimensions>): void {
+    this.spatialIndex.clear();
+
+    for (const building of buildings) {
+      const dims = facilityDimensions.get(building.visualClass);
+      const xsize = dims?.xsize ?? 1;
+      const ysize = dims?.ysize ?? 1;
+
+      // Add building to all chunks it overlaps
+      const minChunkI = Math.floor(building.y / CHUNK_SIZE);
+      const maxChunkI = Math.floor((building.y + ysize - 1) / CHUNK_SIZE);
+      const minChunkJ = Math.floor(building.x / CHUNK_SIZE);
+      const maxChunkJ = Math.floor((building.x + xsize - 1) / CHUNK_SIZE);
+
+      for (let ci = minChunkI; ci <= maxChunkI; ci++) {
+        for (let cj = minChunkJ; cj <= maxChunkJ; cj++) {
+          const chunkKey = `${ci},${cj}`;
+          let chunk = this.spatialIndex.get(chunkKey);
+          if (!chunk) {
+            chunk = [];
+            this.spatialIndex.set(chunkKey, chunk);
+          }
+          chunk.push(building);
+        }
+      }
+    }
+  }
+
+  /**
+   * Get buildings in visible chunks
+   */
+  private getBuildingsInBounds(bounds: ViewportBounds, facilityDimensions: Map<string, FacilityDimensions>): MapBuilding[] {
+    const { minI, maxI, minJ, maxJ } = bounds;
+    const minChunkI = Math.floor(minI / CHUNK_SIZE);
+    const maxChunkI = Math.floor(maxI / CHUNK_SIZE);
+    const minChunkJ = Math.floor(minJ / CHUNK_SIZE);
+    const maxChunkJ = Math.floor(maxJ / CHUNK_SIZE);
+
+    const seen = new Set<MapBuilding>();
+    const result: MapBuilding[] = [];
+
+    for (let ci = minChunkI; ci <= maxChunkI; ci++) {
+      for (let cj = minChunkJ; cj <= maxChunkJ; cj++) {
+        const chunk = this.spatialIndex.get(`${ci},${cj}`);
+        if (chunk) {
+          for (const building of chunk) {
+            if (!seen.has(building)) {
+              seen.add(building);
+              // Verify building actually overlaps viewport
+              const dims = facilityDimensions.get(building.visualClass);
+              const xsize = dims?.xsize ?? 1;
+              const ysize = dims?.ysize ?? 1;
+              if (
+                building.y + ysize - 1 >= minI &&
+                building.y <= maxI &&
+                building.x + xsize - 1 >= minJ &&
+                building.x <= maxJ
+              ) {
+                result.push(building);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Update building rendering
    */
   update(
@@ -60,38 +139,28 @@ export class PixiBuildingLayer {
     zoomConfig: ZoomConfig,
     hoveredBuilding: MapBuilding | null
   ): void {
+    // Rebuild spatial index if buildings changed
+    if (buildings !== this.lastBuildingsRef) {
+      this.buildSpatialIndex(buildings, facilityDimensions);
+      this.lastBuildingsRef = buildings;
+    }
+
     this.batch.beginFrame();
     this.fallbackGraphics.clear();
 
-    const { minI, maxI, minJ, maxJ } = bounds;
+    // Get buildings in visible chunks (fast spatial query)
+    const candidateBuildings = this.getBuildingsInBounds(bounds, facilityDimensions);
 
-    // Filter buildings in viewport and sort by painter's algorithm
+    // Sort by painter's algorithm (ascending)
     const visibleBuildings: Array<{ building: MapBuilding; sortKey: number }> = [];
-
-    for (const building of buildings) {
+    for (const building of candidateBuildings) {
       const dims = facilityDimensions.get(building.visualClass);
       const xsize = dims?.xsize ?? 1;
       const ysize = dims?.ysize ?? 1;
-
-      // Check if building overlaps viewport
-      const buildingMinI = building.y;
-      const buildingMaxI = building.y + ysize - 1;
-      const buildingMinJ = building.x;
-      const buildingMaxJ = building.x + xsize - 1;
-
-      if (
-        buildingMaxI >= minI &&
-        buildingMinI <= maxI &&
-        buildingMaxJ >= minJ &&
-        buildingMinJ <= maxJ
-      ) {
-        // Sort key based on anchor point (bottom corner of building)
-        const sortKey = (building.y + ysize) + (building.x + xsize);
-        visibleBuildings.push({ building, sortKey });
-      }
+      const sortKey = (building.y + ysize) + (building.x + xsize);
+      visibleBuildings.push({ building, sortKey });
     }
 
-    // Sort by painter's algorithm (ascending)
     visibleBuildings.sort((a, b) => a.sortKey - b.sortKey);
 
     // Render each building

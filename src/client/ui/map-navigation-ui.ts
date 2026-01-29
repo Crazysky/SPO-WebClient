@@ -25,6 +25,7 @@ interface MapRenderer {
   setZoom?(level: number): void;
   getZoom?(): number;
   centerOn?(x: number, y: number): void;
+  getCameraPosition?(): { x: number; y: number };
   setPlacementMode?(enabled: boolean, building?: unknown, facilityDimensions?: FacilityDimensions): void;
   setRoadDrawingMode?(enabled: boolean): void;
   setZoneOverlay?(enabled: boolean, data?: unknown, x1?: number, y1?: number): void;

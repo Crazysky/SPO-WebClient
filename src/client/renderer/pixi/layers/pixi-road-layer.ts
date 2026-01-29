@@ -58,6 +58,10 @@ export class PixiRoadLayer {
   private spritePool: SpritePool;
   private batch: BatchSpriteManager;
 
+  // Topology cache - avoid recalculating every frame
+  private topologyCache: Map<string, RoadTopology> = new Map();
+  private topologyCacheValid: boolean = false;
+
   constructor(
     container: Container,
     textureAtlas: TextureAtlasManager,
@@ -71,6 +75,14 @@ export class PixiRoadLayer {
   }
 
   /**
+   * Invalidate topology cache (call when road segments change)
+   */
+  invalidateTopologyCache(): void {
+    this.topologyCache.clear();
+    this.topologyCacheValid = false;
+  }
+
+  /**
    * Update road rendering
    */
   update(
@@ -80,6 +92,12 @@ export class PixiRoadLayer {
     bounds: ViewportBounds,
     zoomConfig: ZoomConfig
   ): void {
+    // Build topology cache if invalid
+    if (!this.topologyCacheValid) {
+      this.buildTopologyCache(roadTilesMap);
+      this.topologyCacheValid = true;
+    }
+
     this.batch.beginFrame();
 
     const { minI, maxI, minJ, maxJ } = bounds;
@@ -103,10 +121,25 @@ export class PixiRoadLayer {
 
     // Render each road tile
     for (const { i, j, sortKey } of tiles) {
-      this.renderRoadTile(i, j, sortKey, roadTilesMap, terrainData, mapWidth, mapHeight, zoomConfig);
+      this.renderRoadTile(i, j, sortKey, terrainData, mapWidth, mapHeight, zoomConfig);
     }
 
     this.batch.endFrame();
+  }
+
+  /**
+   * Build topology cache for all road tiles
+   */
+  private buildTopologyCache(roadTilesMap: Map<string, boolean>): void {
+    this.topologyCache.clear();
+
+    for (const key of roadTilesMap.keys()) {
+      const [xStr, yStr] = key.split(',');
+      const j = parseInt(xStr); // x = j
+      const i = parseInt(yStr); // y = i
+      const topology = this.calculateTopologyFromMap(i, j, roadTilesMap);
+      this.topologyCache.set(key, topology);
+    }
   }
 
   /**
@@ -116,14 +149,14 @@ export class PixiRoadLayer {
     i: number,
     j: number,
     sortKey: number,
-    roadTilesMap: Map<string, boolean>,
     terrainData: TerrainData,
     mapWidth: number,
     mapHeight: number,
     zoomConfig: ZoomConfig
   ): void {
-    // Calculate topology from neighbors
-    const topology = this.calculateTopology(i, j, roadTilesMap);
+    // Get topology from cache (much faster than recalculating)
+    const key = `${j},${i}`;
+    const topology = this.topologyCache.get(key) ?? RoadTopology.NONE;
     if (topology === RoadTopology.NONE) return;
 
     // Determine if urban or rural based on terrain (simplified)
@@ -160,15 +193,15 @@ export class PixiRoadLayer {
         scaleX,
         scaleY,
         anchorX: 0.5,
-        anchorY: 0.5
+        anchorY: 0  // Top anchor to match Canvas renderer (mapToScreen returns top of tile)
       }
     );
   }
 
   /**
-   * Calculate road topology from neighbors
+   * Calculate road topology from neighbors (used for cache building)
    */
-  private calculateTopology(i: number, j: number, roadTilesMap: Map<string, boolean>): RoadTopology {
+  private calculateTopologyFromMap(i: number, j: number, roadTilesMap: Map<string, boolean>): RoadTopology {
     // Check neighbors (using x,y format for roadTilesMap)
     const hasN = roadTilesMap.has(`${j},${i - 1}`);
     const hasS = roadTilesMap.has(`${j},${i + 1}`);

@@ -166,14 +166,16 @@ export class PixiRenderer {
   private onRoadSegmentComplete: ((x1: number, y1: number, x2: number, y2: number) => void) | null = null;
   private onCancelRoadDrawing: (() => void) | null = null;
 
-  // Performance tracking
-  private frameCount: number = 0;
-  private lastFpsTime: number = 0;
-  private currentFps: number = 0;
-
   // Texture loading - continuous updates for initial load period
   private textureLoadStartTime: number = 0;
-  private readonly TEXTURE_LOAD_UPDATE_DURATION = 10000; // 10 seconds of continuous updates
+  private readonly TEXTURE_LOAD_UPDATE_DURATION = 3000; // 3 seconds of continuous updates
+
+  // Layer dirty flags - only update layers when their data changes
+  private terrainDirty: boolean = true;
+  private roadsDirty: boolean = true;
+  private buildingsDirty: boolean = true;
+  private concreteDirty: boolean = true;
+  private overlayDirty: boolean = true;
 
   constructor(private config: PixiRendererConfig) {
     this.app = new Application();
@@ -202,7 +204,7 @@ export class PixiRenderer {
     // Append canvas to container
     this.config.container.appendChild(this.app.canvas);
 
-    // Setup world container
+    // Setup world container (moves with camera)
     this.worldContainer.sortableChildren = true;
     this.app.stage.addChild(this.worldContainer);
 
@@ -212,7 +214,13 @@ export class PixiRenderer {
       layer.zIndex = i;
       layer.sortableChildren = true;
       this.layers.push(layer);
-      this.worldContainer.addChild(layer);
+
+      // UI_OVERLAY should be fixed on screen, not in world space
+      if (i === RenderLayerIndex.UI_OVERLAY) {
+        this.app.stage.addChild(layer);
+      } else {
+        this.worldContainer.addChild(layer);
+      }
     }
 
     // Initialize layer renderers
@@ -284,14 +292,7 @@ export class PixiRenderer {
    * Main update loop
    */
   private update(): void {
-    // Update FPS counter
-    this.frameCount++;
     const now = performance.now();
-    if (now - this.lastFpsTime >= 1000) {
-      this.currentFps = this.frameCount;
-      this.frameCount = 0;
-      this.lastFpsTime = now;
-    }
 
     // During texture loading period, keep updating to apply newly loaded textures
     const isInTextureLoadPeriod = this.textureLoadStartTime > 0 &&
@@ -336,6 +337,7 @@ export class PixiRenderer {
 
   /**
    * Update all layer renderers with current visible bounds
+   * Uses dirty flags to skip unchanged layers for performance
    */
   private updateLayers(): void {
     if (!this.terrainData) return;
@@ -344,43 +346,66 @@ export class PixiRenderer {
     this.worldContainer.x = this.camera.x;
     this.worldContainer.y = this.camera.y;
 
-    // Update each layer
-    this.terrainLayer?.update(
-      this.terrainData,
-      this.visibleBounds,
-      this.camera.zoomConfig
-    );
+    // During texture loading, update terrain every frame
+    const isTextureLoading = this.textureLoadStartTime > 0 &&
+      (performance.now() - this.textureLoadStartTime < this.TEXTURE_LOAD_UPDATE_DURATION);
 
-    this.concreteLayer?.update(
-      this.buildings,
-      this.terrainData,
-      this.visibleBounds,
-      this.camera.zoomConfig
-    );
+    // Update terrain layer (always update when viewport moves or textures loading)
+    if (this.terrainDirty || this.viewportDirty || isTextureLoading) {
+      this.terrainLayer?.update(
+        this.terrainData,
+        this.visibleBounds,
+        this.camera.zoomConfig
+      );
+      this.terrainDirty = false;
+    }
 
-    this.roadLayer?.update(
-      this.segments,
-      this.roadTilesMap,
-      this.terrainData,
-      this.visibleBounds,
-      this.camera.zoomConfig
-    );
+    // Update concrete layer (only when buildings change or viewport moves)
+    if (this.concreteDirty || this.viewportDirty) {
+      this.concreteLayer?.update(
+        this.buildings,
+        this.terrainData,
+        this.visibleBounds,
+        this.camera.zoomConfig
+      );
+      this.concreteDirty = false;
+    }
 
-    this.buildingLayer?.update(
-      this.buildings,
-      this.facilityDimensionsCache,
-      this.visibleBounds,
-      this.camera.zoomConfig,
-      this.hoveredBuilding
-    );
+    // Update road layer (only when roads change or viewport moves)
+    if (this.roadsDirty || this.viewportDirty) {
+      this.roadLayer?.update(
+        this.segments,
+        this.roadTilesMap,
+        this.terrainData,
+        this.visibleBounds,
+        this.camera.zoomConfig
+      );
+      this.roadsDirty = false;
+    }
 
-    this.overlayLayer?.update(
-      this.zoneOverlayEnabled ? this.zoneOverlayData : null,
-      this.placementPreview,
-      this.roadDrawingState,
-      this.visibleBounds,
-      this.camera.zoomConfig
-    );
+    // Update building layer (only when buildings change or viewport moves)
+    if (this.buildingsDirty || this.viewportDirty) {
+      this.buildingLayer?.update(
+        this.buildings,
+        this.facilityDimensionsCache,
+        this.visibleBounds,
+        this.camera.zoomConfig,
+        this.hoveredBuilding
+      );
+      this.buildingsDirty = false;
+    }
+
+    // Update overlay layer (zones, placement, road preview)
+    if (this.overlayDirty || this.viewportDirty) {
+      this.overlayLayer?.update(
+        this.zoneOverlayEnabled ? this.zoneOverlayData : null,
+        this.placementPreview,
+        this.roadDrawingState,
+        this.visibleBounds,
+        this.camera.zoomConfig
+      );
+      this.overlayDirty = false;
+    }
   }
 
   // =========================================================================
@@ -413,15 +438,19 @@ export class PixiRenderer {
     const cols = this.mapWidth;
 
     // Inverse isometric projection
-    // screenX = u * (rows - i + j)
-    // screenY = (u/2) * ((rows - i) + (cols - j))
-    // Solve for i, j:
-    const adjustedX = (screenX - this.camera.x) / u;
-    const adjustedY = (screenY - this.camera.y) / (u / 2);
+    // Forward: screenX = u * (rows - i + j)
+    // Forward: screenY = (u/2) * ((rows - i) + (cols - j))
+    //
+    // Let A = (screenX - camera.x) / u = rows - i + j
+    // Let B = (screenY - camera.y) / (u/2) = rows - i + cols - j
+    //
+    // Adding: A + B = 2*rows + cols - 2*i  =>  i = rows + cols/2 - A/2 - B/2
+    // From A: j = A - rows + i  =>  j = A/2 - B/2 + cols/2
+    const A = (screenX - this.camera.x) / u;
+    const B = (screenY - this.camera.y) / (u / 2);
 
-    const rowMinusI = adjustedY - cols + adjustedX - rows;
-    const i = rows - (rowMinusI + adjustedY - cols + rows) / 2;
-    const j = adjustedX - rows + i;
+    const i = rows + (cols - A - B) / 2;
+    const j = (A - B + cols) / 2;
 
     return { i, j };
   }
@@ -456,6 +485,8 @@ export class PixiRenderer {
    */
   setBuildings(buildings: MapBuilding[]): void {
     this.buildings = buildings;
+    this.buildingsDirty = true;
+    this.concreteDirty = true; // Concrete depends on buildings
     this.viewportDirty = true;
   }
 
@@ -465,6 +496,8 @@ export class PixiRenderer {
   setSegments(segments: MapSegment[]): void {
     this.segments = segments;
     this.rebuildRoadTilesMap();
+    this.roadsDirty = true;
+    this.roadLayer?.invalidateTopologyCache(); // Clear topology cache when roads change
     this.viewportDirty = true;
   }
 
@@ -531,7 +564,14 @@ export class PixiRenderer {
       this.camera.zoomLevel = newLevel;
       this.camera.zoomConfig = ZOOM_LEVELS[newLevel];
 
-      // Re-center on same map position
+      // Mark all layers dirty since scale changes affect all sprites
+      this.terrainDirty = true;
+      this.roadsDirty = true;
+      this.buildingsDirty = true;
+      this.concreteDirty = true;
+      this.overlayDirty = true;
+
+      // Re-center on same map position (also sets viewportDirty)
       this.centerOnMap(centerMap.i, centerMap.j);
     }
   }
@@ -789,13 +829,6 @@ export class PixiRenderer {
   resize(width: number, height: number): void {
     this.app.renderer.resize(width, height);
     this.viewportDirty = true;
-  }
-
-  /**
-   * Get current FPS
-   */
-  getFps(): number {
-    return this.currentFps;
   }
 
   /**

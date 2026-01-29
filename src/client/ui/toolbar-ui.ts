@@ -14,6 +14,7 @@ export class ToolbarUI {
   private onCompanyMenu: (() => void) | null = null;
   private onMail: (() => void) | null = null;
   private onSettings: (() => void) | null = null;
+  private onRefresh: (() => void) | null = null;
   private onLogout: (() => void) | null = null;
 
   // Button reference for road building state
@@ -78,6 +79,13 @@ export class ToolbarUI {
   }
 
   /**
+   * Définit le callback pour Refresh Map
+   */
+  public setOnRefresh(callback: () => void) {
+    this.onRefresh = callback;
+  }
+
+  /**
    * Définit le callback pour Logout
    */
   public setOnLogout(callback: () => void) {
@@ -137,6 +145,12 @@ export class ToolbarUI {
         label: 'Settings',
         tooltip: 'Game Settings',
         callback: () => this.onSettings?.()
+      },
+      {
+        icon: '🔄',
+        label: 'Refresh',
+        tooltip: 'Refresh Map',
+        callback: () => this.onRefresh?.()
       },
       {
         icon: '🚪',

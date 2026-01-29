@@ -56,6 +56,10 @@ export class PixiConcreteLayer {
   // Concrete grid (computed from buildings)
   private concreteGrid: Map<string, number> = new Map();
 
+  // Cache invalidation tracking
+  private lastBuildingsHash: string = '';
+  private gridDirty: boolean = true;
+
   constructor(
     container: Container,
     textureAtlas: TextureAtlasManager,
@@ -77,8 +81,13 @@ export class PixiConcreteLayer {
     bounds: ViewportBounds,
     zoomConfig: ZoomConfig
   ): void {
-    // Rebuild concrete grid from buildings
-    this.rebuildConcreteGrid(buildings, terrainData);
+    // Only rebuild concrete grid when buildings change (expensive operation)
+    const buildingsHash = this.computeBuildingsHash(buildings);
+    if (buildingsHash !== this.lastBuildingsHash || this.gridDirty) {
+      this.rebuildConcreteGrid(buildings, terrainData);
+      this.lastBuildingsHash = buildingsHash;
+      this.gridDirty = false;
+    }
 
     this.batch.beginFrame();
 
@@ -86,25 +95,25 @@ export class PixiConcreteLayer {
     const mapWidth = terrainData.width;
     const mapHeight = terrainData.height;
 
-    // Collect concrete tiles and sort by painter's algorithm
-    const tiles: Array<{ i: number; j: number; concreteId: number; sortKey: number }> = [];
+    // Render concrete tiles in painter's algorithm order (by diagonal bands)
+    // This avoids array allocation and sorting overhead
+    const minSortKey = minI + minJ;
+    const maxSortKey = maxI + maxJ;
 
-    for (let i = minI; i <= maxI; i++) {
-      for (let j = minJ; j <= maxJ; j++) {
-        const key = `${i},${j}`;
-        const concreteId = this.concreteGrid.get(key);
-        if (concreteId !== undefined && concreteId >= 0) {
-          tiles.push({ i, j, concreteId, sortKey: i + j });
+    for (let sortKey = minSortKey; sortKey <= maxSortKey; sortKey++) {
+      const iStart = Math.max(minI, sortKey - maxJ);
+      const iEnd = Math.min(maxI, sortKey - minJ);
+
+      for (let i = iStart; i <= iEnd; i++) {
+        const j = sortKey - i;
+        if (j >= minJ && j <= maxJ) {
+          const key = `${i},${j}`;
+          const concreteId = this.concreteGrid.get(key);
+          if (concreteId !== undefined && concreteId >= 0) {
+            this.renderConcreteTile(i, j, concreteId, sortKey, mapWidth, mapHeight, zoomConfig);
+          }
         }
       }
-    }
-
-    // Sort ascending (back to front)
-    tiles.sort((a, b) => a.sortKey - b.sortKey);
-
-    // Render tiles
-    for (const { i, j, concreteId, sortKey } of tiles) {
-      this.renderConcreteTile(i, j, concreteId, sortKey, mapWidth, mapHeight, zoomConfig);
     }
 
     this.batch.endFrame();
@@ -246,7 +255,7 @@ export class PixiConcreteLayer {
         scaleX,
         scaleY,
         anchorX: 0.5,
-        anchorY: 0.5
+        anchorY: 0  // Top anchor to match Canvas renderer (mapToScreen returns top of tile)
       }
     );
   }
@@ -277,5 +286,17 @@ export class PixiConcreteLayer {
   clear(): void {
     this.batch.clear();
     this.concreteGrid.clear();
+    this.gridDirty = true;
+    this.lastBuildingsHash = '';
+  }
+
+  /**
+   * Compute a simple hash of buildings for change detection
+   */
+  private computeBuildingsHash(buildings: MapBuilding[]): string {
+    // Quick hash based on count and a few sample positions
+    if (buildings.length === 0) return '0';
+    const sample = buildings.slice(0, 10).map(b => `${b.x},${b.y}`).join(';');
+    return `${buildings.length}:${sample}`;
   }
 }

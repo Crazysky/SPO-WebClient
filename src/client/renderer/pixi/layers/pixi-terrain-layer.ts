@@ -5,7 +5,7 @@
  * - Efficient sprite pooling and reuse
  * - Viewport culling (only render visible tiles)
  * - Automatic texture loading and caching
- * - Two-pass rendering (standard tiles + tall tiles)
+ * - All terrain (including tall tiles) in same layer for proper painter's algorithm
  */
 
 import { Container, Sprite, Texture, Graphics } from 'pixi.js';
@@ -23,13 +23,11 @@ const TALL_TEXTURE_THRESHOLD = 32;
  */
 export class PixiTerrainLayer {
   private baseContainer: Container;
-  private tallContainer: Container;
   private textureAtlas: TextureAtlasManager;
   private spritePool: SpritePool;
 
-  // Batch managers for efficient sprite handling
-  private baseBatch: BatchSpriteManager;
-  private tallBatch: BatchSpriteManager;
+  // Batch manager for all terrain (including tall tiles)
+  private batch: BatchSpriteManager;
 
   // Cached data
   private lastBounds: ViewportBounds | null = null;
@@ -37,21 +35,18 @@ export class PixiTerrainLayer {
 
   constructor(
     baseContainer: Container,
-    tallContainer: Container,
+    _tallContainer: Container, // No longer used - all terrain in base layer
     textureAtlas: TextureAtlasManager,
     spritePool: SpritePool
   ) {
     this.baseContainer = baseContainer;
-    this.tallContainer = tallContainer;
     this.textureAtlas = textureAtlas;
     this.spritePool = spritePool;
 
-    this.baseBatch = new BatchSpriteManager(spritePool, baseContainer, 'terrain-base');
-    this.tallBatch = new BatchSpriteManager(spritePool, tallContainer, 'terrain-tall');
+    this.batch = new BatchSpriteManager(spritePool, baseContainer, 'terrain');
 
     // Enable sorting for proper z-order
     this.baseContainer.sortableChildren = true;
-    this.tallContainer.sortableChildren = true;
   }
 
   /**
@@ -63,35 +58,34 @@ export class PixiTerrainLayer {
     zoomConfig: ZoomConfig
   ): void {
     const { minI, maxI, minJ, maxJ } = bounds;
-    const { tileWidth, tileHeight, u } = zoomConfig;
     const mapWidth = terrainData.width;
     const mapHeight = terrainData.height;
 
-    // Begin frame for both batches
-    this.baseBatch.beginFrame();
-    this.tallBatch.beginFrame();
+    // Begin frame
+    this.batch.beginFrame();
 
     // Render tiles in painter's algorithm order (back to front)
-    // Sorting by (i + j) ascending ensures proper overlap
-    const tiles: Array<{ i: number; j: number; sortKey: number }> = [];
+    // Instead of sorting, iterate by diagonal bands: sortKey = i + j
+    // This avoids array allocation and sorting overhead
+    const minSortKey = minI + minJ;
+    const maxSortKey = maxI + maxJ;
 
-    for (let i = minI; i <= maxI; i++) {
-      for (let j = minJ; j <= maxJ; j++) {
-        tiles.push({ i, j, sortKey: i + j });
+    for (let sortKey = minSortKey; sortKey <= maxSortKey; sortKey++) {
+      // For each diagonal, iterate valid (i, j) pairs where i + j = sortKey
+      // i ranges from max(minI, sortKey - maxJ) to min(maxI, sortKey - minJ)
+      const iStart = Math.max(minI, sortKey - maxJ);
+      const iEnd = Math.min(maxI, sortKey - minJ);
+
+      for (let i = iStart; i <= iEnd; i++) {
+        const j = sortKey - i;
+        if (j >= minJ && j <= maxJ) {
+          this.renderTile(terrainData, i, j, sortKey, mapWidth, mapHeight, zoomConfig);
+        }
       }
     }
 
-    // Sort by sortKey ascending (back to front)
-    tiles.sort((a, b) => a.sortKey - b.sortKey);
-
-    // Render each tile
-    for (const { i, j, sortKey } of tiles) {
-      this.renderTile(terrainData, i, j, sortKey, mapWidth, mapHeight, zoomConfig);
-    }
-
     // End frame - release unused sprites
-    this.baseBatch.endFrame();
-    this.tallBatch.endFrame();
+    this.batch.endFrame();
 
     this.lastBounds = bounds;
     this.lastZoomLevel = zoomConfig.level;
@@ -132,25 +126,26 @@ export class PixiTerrainLayer {
     const scaleY = zoomConfig.tileHeight / 32; // Base texture is 32 tall
 
     if (isTall) {
-      // Tall tile - render in tall container with adjusted position
-      // Tall textures extend upward, so we need to offset Y
-      this.tallBatch.setSprite(
+      // Tall tile - bottom-anchored, bottom aligns with standard tile bottom
+      // Use +500 offset to render after standard tiles on SAME diagonal only
+      // This respects painter's algorithm: tiles with higher sortKey render on top
+      this.batch.setSprite(
         posKey,
         textureKey,
         texture,
         screenPos.x,
-        screenPos.y - (texture.height * scaleY - zoomConfig.tileHeight),
-        sortKey * 1000 + 500, // Z-index with offset for tall tiles
+        screenPos.y + zoomConfig.tileHeight,
+        sortKey * 1000 + 500, // +500 ensures tall tile renders after standard tiles on same diagonal
         {
           scaleX,
           scaleY,
           anchorX: 0.5,
-          anchorY: 1
+          anchorY: 1  // Bottom anchor - sprite extends upward from position
         }
       );
     } else {
-      // Standard tile
-      this.baseBatch.setSprite(
+      // Standard tile - top anchor, screenPos.y is the top of the tile
+      this.batch.setSprite(
         posKey,
         textureKey,
         texture,
@@ -161,7 +156,7 @@ export class PixiTerrainLayer {
           scaleX,
           scaleY,
           anchorX: 0.5,
-          anchorY: 0.5
+          anchorY: 0  // Top anchor - sprite extends downward from position
         }
       );
     }
@@ -192,17 +187,15 @@ export class PixiTerrainLayer {
    * Clear all terrain sprites
    */
   clear(): void {
-    this.baseBatch.clear();
-    this.tallBatch.clear();
+    this.batch.clear();
   }
 
   /**
    * Get statistics
    */
-  getStats(): { baseSprites: number; tallSprites: number } {
+  getStats(): { sprites: number } {
     return {
-      baseSprites: this.baseBatch.getActiveCount(),
-      tallSprites: this.tallBatch.getActiveCount()
+      sprites: this.batch.getActiveCount()
     };
   }
 }

@@ -5,10 +5,9 @@
  * - Zone overlay (residential/commercial/industrial colors)
  * - Building placement preview (green/red ghost)
  * - Road drawing preview (path visualization)
- * - Debug overlay (FPS, tile info)
  */
 
-import { Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import { ViewportBounds } from '../pixi-renderer';
 import { ZoomConfig } from '../../../../shared/map-config';
 import { SurfaceData, RoadDrawingState } from '../../../../shared/types';
@@ -32,17 +31,11 @@ export class PixiOverlayLayer {
   private zoneContainer: Container;
   private placementContainer: Container;
   private roadPreviewContainer: Container;
-  private uiContainer: Container;
 
   // Graphics objects
   private zoneGraphics: Graphics;
   private placementGraphics: Graphics;
   private roadPreviewGraphics: Graphics;
-  private debugGraphics: Graphics;
-
-  // Debug text
-  private fpsText: Text;
-  private debugText: Text;
 
   // Map dimensions (for coordinate conversion)
   private mapWidth: number = 2000;
@@ -52,12 +45,11 @@ export class PixiOverlayLayer {
     zoneContainer: Container,
     placementContainer: Container,
     roadPreviewContainer: Container,
-    uiContainer: Container
+    _uiContainer: Container
   ) {
     this.zoneContainer = zoneContainer;
     this.placementContainer = placementContainer;
     this.roadPreviewContainer = roadPreviewContainer;
-    this.uiContainer = uiContainer;
 
     // Initialize graphics
     this.zoneGraphics = new Graphics();
@@ -68,26 +60,6 @@ export class PixiOverlayLayer {
 
     this.roadPreviewGraphics = new Graphics();
     this.roadPreviewContainer.addChild(this.roadPreviewGraphics);
-
-    this.debugGraphics = new Graphics();
-    this.uiContainer.addChild(this.debugGraphics);
-
-    // Initialize text elements
-    const textStyle = new TextStyle({
-      fontFamily: 'monospace',
-      fontSize: 12,
-      fill: 0xFFFFFF,
-    });
-
-    this.fpsText = new Text({ text: 'FPS: 0', style: textStyle });
-    this.fpsText.x = 10;
-    this.fpsText.y = 10;
-    this.uiContainer.addChild(this.fpsText);
-
-    this.debugText = new Text({ text: '', style: textStyle });
-    this.debugText.x = 10;
-    this.debugText.y = 30;
-    this.uiContainer.addChild(this.debugText);
   }
 
   /**
@@ -142,19 +114,21 @@ export class PixiOverlayLayer {
 
   /**
    * Draw a single zone tile
+   * Note: screenPos is the TOP CENTER of the tile (from mapToScreen)
    */
   private drawZoneTile(i: number, j: number, zoneType: number, zoomConfig: ZoomConfig): void {
     const color = ZONE_COLORS[zoneType] ?? 0x888888;
     const screenPos = this.mapToScreen(i, j, zoomConfig);
 
     const hw = zoomConfig.tileWidth / 2;
-    const hh = zoomConfig.tileHeight / 2;
+    const th = zoomConfig.tileHeight;
 
+    // Diamond shape: top point at screenPos.y, bottom at screenPos.y + tileHeight
     this.zoneGraphics.setFillStyle({ color, alpha: 0.3 });
-    this.zoneGraphics.moveTo(screenPos.x, screenPos.y - hh);
-    this.zoneGraphics.lineTo(screenPos.x + hw, screenPos.y);
-    this.zoneGraphics.lineTo(screenPos.x, screenPos.y + hh);
-    this.zoneGraphics.lineTo(screenPos.x - hw, screenPos.y);
+    this.zoneGraphics.moveTo(screenPos.x, screenPos.y);           // Top
+    this.zoneGraphics.lineTo(screenPos.x + hw, screenPos.y + th / 2);  // Right
+    this.zoneGraphics.lineTo(screenPos.x, screenPos.y + th);      // Bottom
+    this.zoneGraphics.lineTo(screenPos.x - hw, screenPos.y + th / 2);  // Left
     this.zoneGraphics.closePath();
     this.zoneGraphics.fill();
   }
@@ -176,6 +150,7 @@ export class PixiOverlayLayer {
     const color = isValid ? PLACEMENT_VALID : PLACEMENT_INVALID;
 
     // Draw building footprint
+    // Note: screenPos is the TOP CENTER of each tile
     for (let di = 0; di < ysize; di++) {
       for (let dj = 0; dj < xsize; dj++) {
         const tileI = i + di;
@@ -183,22 +158,23 @@ export class PixiOverlayLayer {
         const screenPos = this.mapToScreen(tileI, tileJ, zoomConfig);
 
         const hw = zoomConfig.tileWidth / 2;
-        const hh = zoomConfig.tileHeight / 2;
+        const th = zoomConfig.tileHeight;
 
+        // Diamond shape: top point at screenPos.y, bottom at screenPos.y + tileHeight
         this.placementGraphics.setFillStyle({ color, alpha: 0.5 });
-        this.placementGraphics.moveTo(screenPos.x, screenPos.y - hh);
-        this.placementGraphics.lineTo(screenPos.x + hw, screenPos.y);
-        this.placementGraphics.lineTo(screenPos.x, screenPos.y + hh);
-        this.placementGraphics.lineTo(screenPos.x - hw, screenPos.y);
+        this.placementGraphics.moveTo(screenPos.x, screenPos.y);
+        this.placementGraphics.lineTo(screenPos.x + hw, screenPos.y + th / 2);
+        this.placementGraphics.lineTo(screenPos.x, screenPos.y + th);
+        this.placementGraphics.lineTo(screenPos.x - hw, screenPos.y + th / 2);
         this.placementGraphics.closePath();
         this.placementGraphics.fill();
 
         // Outline
         this.placementGraphics.setStrokeStyle({ width: 2, color: color, alpha: 1 });
-        this.placementGraphics.moveTo(screenPos.x, screenPos.y - hh);
-        this.placementGraphics.lineTo(screenPos.x + hw, screenPos.y);
-        this.placementGraphics.lineTo(screenPos.x, screenPos.y + hh);
-        this.placementGraphics.lineTo(screenPos.x - hw, screenPos.y);
+        this.placementGraphics.moveTo(screenPos.x, screenPos.y);
+        this.placementGraphics.lineTo(screenPos.x + hw, screenPos.y + th / 2);
+        this.placementGraphics.lineTo(screenPos.x, screenPos.y + th);
+        this.placementGraphics.lineTo(screenPos.x - hw, screenPos.y + th / 2);
         this.placementGraphics.closePath();
         this.placementGraphics.stroke();
       }
@@ -243,43 +219,31 @@ export class PixiOverlayLayer {
 
   /**
    * Draw a single road preview tile
+   * Note: screenPos is the TOP CENTER of the tile
    */
   private drawRoadPreviewTile(i: number, j: number, color: number, zoomConfig: ZoomConfig): void {
     const screenPos = this.mapToScreen(i, j, zoomConfig);
 
     const hw = zoomConfig.tileWidth / 2;
-    const hh = zoomConfig.tileHeight / 2;
+    const th = zoomConfig.tileHeight;
 
+    // Diamond shape: top point at screenPos.y, bottom at screenPos.y + tileHeight
     this.roadPreviewGraphics.setFillStyle({ color, alpha: 0.4 });
-    this.roadPreviewGraphics.moveTo(screenPos.x, screenPos.y - hh);
-    this.roadPreviewGraphics.lineTo(screenPos.x + hw, screenPos.y);
-    this.roadPreviewGraphics.lineTo(screenPos.x, screenPos.y + hh);
-    this.roadPreviewGraphics.lineTo(screenPos.x - hw, screenPos.y);
+    this.roadPreviewGraphics.moveTo(screenPos.x, screenPos.y);
+    this.roadPreviewGraphics.lineTo(screenPos.x + hw, screenPos.y + th / 2);
+    this.roadPreviewGraphics.lineTo(screenPos.x, screenPos.y + th);
+    this.roadPreviewGraphics.lineTo(screenPos.x - hw, screenPos.y + th / 2);
     this.roadPreviewGraphics.closePath();
     this.roadPreviewGraphics.fill();
 
     // Outline
     this.roadPreviewGraphics.setStrokeStyle({ width: 1, color: color, alpha: 1 });
-    this.roadPreviewGraphics.moveTo(screenPos.x, screenPos.y - hh);
-    this.roadPreviewGraphics.lineTo(screenPos.x + hw, screenPos.y);
-    this.roadPreviewGraphics.lineTo(screenPos.x, screenPos.y + hh);
-    this.roadPreviewGraphics.lineTo(screenPos.x - hw, screenPos.y);
+    this.roadPreviewGraphics.moveTo(screenPos.x, screenPos.y);
+    this.roadPreviewGraphics.lineTo(screenPos.x + hw, screenPos.y + th / 2);
+    this.roadPreviewGraphics.lineTo(screenPos.x, screenPos.y + th);
+    this.roadPreviewGraphics.lineTo(screenPos.x - hw, screenPos.y + th / 2);
     this.roadPreviewGraphics.closePath();
     this.roadPreviewGraphics.stroke();
-  }
-
-  /**
-   * Update FPS display
-   */
-  updateFps(fps: number): void {
-    this.fpsText.text = `FPS: ${fps}`;
-  }
-
-  /**
-   * Update debug text
-   */
-  updateDebugText(text: string): void {
-    this.debugText.text = text;
   }
 
   /**
@@ -311,6 +275,5 @@ export class PixiOverlayLayer {
     this.zoneGraphics.clear();
     this.placementGraphics.clear();
     this.roadPreviewGraphics.clear();
-    this.debugGraphics.clear();
   }
 }
