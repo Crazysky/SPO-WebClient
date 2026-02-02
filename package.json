@@ -36,6 +36,7 @@
     "npm": ">=9.0.0"
   },
   "dependencies": {
+    "7zip-min": "^1.4.5",
     "bmp-js": "^0.1.0",
     "cabarc": "^0.4.1",
     "cheerio": "^1.1.2",
