@@ -202,6 +202,10 @@ export class StarpeaceClient {
       this.ui.toolbarUI.setOnLogout(() => {
         this.logout();
       });
+
+      this.ui.toolbarUI.setOnRefresh(() => {
+        this.refreshMapData();
+      });
     }
 
     // BuildMenuUI callbacks
@@ -1391,6 +1395,35 @@ export class StarpeaceClient {
         this.ui.zoneOverlayUI.setEnabled(false);
       }
     }
+  }
+
+  // =========================================================================
+  // MAP REFRESH METHODS
+  // =========================================================================
+
+  /**
+   * Refresh map data - re-request segments and objects in area
+   * Called when user clicks the refresh button
+   */
+  public refreshMapData(): void {
+    this.ui.log('Map', 'Refreshing map data...');
+
+    // Get current camera position from renderer
+    const renderer = this.ui.mapNavigationUI?.getRenderer();
+    if (!renderer || !renderer.getCameraPosition) {
+      this.ui.log('Error', 'Cannot refresh: renderer not available');
+      return;
+    }
+
+    // Get camera position and reload that area
+    const cameraPos = renderer.getCameraPosition();
+    const x = Math.floor(cameraPos.x);
+    const y = Math.floor(cameraPos.y);
+
+    // Clear and reload the map area (64x64 centered on camera)
+    this.loadMapArea(x, y, 64, 64);
+
+    this.showNotification('Map refreshed', 'info');
   }
 
   // =========================================================================
