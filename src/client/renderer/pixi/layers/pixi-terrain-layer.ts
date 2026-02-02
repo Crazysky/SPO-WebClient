@@ -5,15 +5,21 @@
  * - Efficient sprite pooling and reuse
  * - Viewport culling (only render visible tiles)
  * - Automatic texture loading and caching
- * - All terrain (including tall tiles) in same layer for proper painter's algorithm
+ *
+ * Two-Tier Painter's Algorithm:
+ * - Base terrain: sortKey * 10000 + SORT_PRIORITY_TERRAIN_BASE (lower tier)
+ * - Tall terrain: SORT_OFFSET_UPPER + sortKey * 10000 + SORT_PRIORITY_TERRAIN_TALL (upper tier)
+ *
+ * The upper tier (SORT_OFFSET_UPPER = 30M) ensures tall terrain ALWAYS renders
+ * after ALL roads, matching Canvas2D's drawTallTerrainOverRoads behavior.
  */
 
 import { Container, Sprite, Texture, Graphics } from 'pixi.js';
 import { SpritePool, BatchSpriteManager } from '../sprite-pool';
 import { TextureAtlasManager } from '../texture-atlas-manager';
-import { ViewportBounds } from '../pixi-renderer';
+import { ViewportBounds, SORT_OFFSET_UPPER, SORT_MAX_KEY, SORT_MULTIPLIER_DIAGONAL, SORT_MULTIPLIER_J, SORT_PRIORITY_TERRAIN_BASE, SORT_PRIORITY_TERRAIN_TALL } from '../pixi-renderer';
 import { TerrainData, ZoomConfig } from '../../../../shared/map-config';
-import { LandClass, landClassOf, landTypeOf, LandType } from '../../road-texture-system';
+// Note: LandClass/landClassOf not currently used but may be needed for future texture selection
 
 /** Tall texture threshold (tiles taller than this need second pass) */
 const TALL_TEXTURE_THRESHOLD = 32;
@@ -22,11 +28,11 @@ const TALL_TEXTURE_THRESHOLD = 32;
  * Terrain layer renderer for PixiJS
  */
 export class PixiTerrainLayer {
-  private baseContainer: Container;
+  private container: Container;
   private textureAtlas: TextureAtlasManager;
   private spritePool: SpritePool;
 
-  // Batch manager for all terrain (including tall tiles)
+  // Single batch for all terrain (base + tall) - critical for painter's algorithm
   private batch: BatchSpriteManager;
 
   // Cached data
@@ -35,27 +41,32 @@ export class PixiTerrainLayer {
 
   constructor(
     baseContainer: Container,
-    _tallContainer: Container, // No longer used - all terrain in base layer
+    _tallContainer: Container, // Not used - all terrain in base container for proper painter's algorithm
     textureAtlas: TextureAtlasManager,
     spritePool: SpritePool
   ) {
-    this.baseContainer = baseContainer;
+    this.container = baseContainer;
     this.textureAtlas = textureAtlas;
     this.spritePool = spritePool;
 
+    // Single batch for ALL terrain - required for correct painter's algorithm overlap
     this.batch = new BatchSpriteManager(spritePool, baseContainer, 'terrain');
 
     // Enable sorting for proper z-order
-    this.baseContainer.sortableChildren = true;
+    this.container.sortableChildren = true;
   }
 
   /**
    * Update terrain rendering for current viewport
+   * @param roadTilesMap Map of road tile positions (key format: "x,y") - tiles with roads don't render tall terrain
+   * @param concreteTilesMap Map of concrete tile positions (key format: "i,j") - tiles with concrete don't render tall terrain
    */
   update(
     terrainData: TerrainData,
     bounds: ViewportBounds,
-    zoomConfig: ZoomConfig
+    zoomConfig: ZoomConfig,
+    roadTilesMap?: Map<string, boolean>,
+    concreteTilesMap?: Map<string, boolean>
   ): void {
     const { minI, maxI, minJ, maxJ } = bounds;
     const mapWidth = terrainData.width;
@@ -79,7 +90,7 @@ export class PixiTerrainLayer {
       for (let i = iStart; i <= iEnd; i++) {
         const j = sortKey - i;
         if (j >= minJ && j <= maxJ) {
-          this.renderTile(terrainData, i, j, sortKey, mapWidth, mapHeight, zoomConfig);
+          this.renderTile(terrainData, i, j, sortKey, mapWidth, mapHeight, zoomConfig, roadTilesMap, concreteTilesMap);
         }
       }
     }
@@ -101,7 +112,9 @@ export class PixiTerrainLayer {
     sortKey: number,
     mapWidth: number,
     mapHeight: number,
-    zoomConfig: ZoomConfig
+    zoomConfig: ZoomConfig,
+    roadTilesMap?: Map<string, boolean>,
+    concreteTilesMap?: Map<string, boolean>
   ): void {
     // Get palette index from terrain data
     const paletteIndex = terrainData.paletteData[i]?.[j];
@@ -113,32 +126,63 @@ export class PixiTerrainLayer {
     // Get texture (sync - will use fallback if not loaded)
     const texture = this.textureAtlas.getTerrainTextureSync(paletteIndex);
 
-    // Determine if this is a tall texture (special tiles like trees)
-    const landType = landTypeOf(paletteIndex);
-    const isTall = landType === LandType.Special;
-
-    // Position key for sprite tracking
+    // Position key for sprite tracking (declared early for fallback path)
     const posKey = `${i},${j}`;
     const textureKey = `terrain:${paletteIndex}`;
 
     // Calculate scale based on zoom level
-    const scaleX = zoomConfig.tileWidth / 64;  // Base texture is 64 wide
-    const scaleY = zoomConfig.tileHeight / 32; // Base texture is 32 tall
+    // Use uniform scale (based on width) to maintain aspect ratio
+    const scale = zoomConfig.tileWidth / 64;  // Base texture is 64 wide
+
+    // Determine if this is a tall texture by checking actual texture height
+    // (matching Canvas2D approach which checks texture.height > 32)
+    const isTall = texture.height > TALL_TEXTURE_THRESHOLD;
+
+    // If tile has a road or concrete and is tall, render BASE terrain instead of tall
+    // Roads and concrete cover the tall vegetation, but base terrain must still show through
+    // transparent parts of concrete textures. Use fallback (base terrain) for these tiles.
+    const onConcreteOrRoad = roadTilesMap?.has(`${j},${i}`) || concreteTilesMap?.has(`${i},${j}`);
+    if (isTall && onConcreteOrRoad) {
+      // Render base terrain (fallback) instead of tall texture
+      // This shows the ground (water, grass) through transparent concrete edges
+      const fallbackTexture = this.textureAtlas.getTerrainFallbackTexture(paletteIndex);
+      const invertedSortKeyBase = SORT_MAX_KEY - sortKey;
+      this.batch.setSprite(
+        posKey,
+        `terrain-base:${paletteIndex}`,
+        fallbackTexture,
+        screenPos.x,
+        screenPos.y,
+        invertedSortKeyBase * SORT_MULTIPLIER_DIAGONAL + j * SORT_MULTIPLIER_J + SORT_PRIORITY_TERRAIN_BASE,
+        {
+          scaleX: scale,
+          scaleY: scale,
+          anchorX: 0.5,
+          anchorY: 0
+        }
+      );
+      return;
+    }
+
+    // Unified zIndex formula: sortKey * DIAGONAL + j * J_MULT + priority
+    // The j tie-breaker ensures proper ordering on the same diagonal
+    // PAINTER'S ALGORITHM: Invert sortKey so higher (i+j) = lower zIndex = drawn first (background)
+    const invertedSortKey = SORT_MAX_KEY - sortKey;
 
     if (isTall) {
       // Tall tile - bottom-anchored, bottom aligns with standard tile bottom
-      // Use +500 offset to render after standard tiles on SAME diagonal only
-      // This respects painter's algorithm: tiles with higher sortKey render on top
+      // Uses SORT_OFFSET_UPPER to ensure tall terrain renders AFTER ALL roads
+      // (matching Canvas2D drawTallTerrainOverRoads behavior)
       this.batch.setSprite(
         posKey,
         textureKey,
         texture,
         screenPos.x,
         screenPos.y + zoomConfig.tileHeight,
-        sortKey * 1000 + 500, // +500 ensures tall tile renders after standard tiles on same diagonal
+        SORT_OFFSET_UPPER + invertedSortKey * SORT_MULTIPLIER_DIAGONAL + j * SORT_MULTIPLIER_J + SORT_PRIORITY_TERRAIN_TALL,
         {
-          scaleX,
-          scaleY,
+          scaleX: scale,
+          scaleY: scale,  // Uniform scale to maintain aspect ratio for tall textures
           anchorX: 0.5,
           anchorY: 1  // Bottom anchor - sprite extends upward from position
         }
@@ -151,10 +195,10 @@ export class PixiTerrainLayer {
         texture,
         screenPos.x,
         screenPos.y,
-        sortKey * 1000,
+        invertedSortKey * SORT_MULTIPLIER_DIAGONAL + j * SORT_MULTIPLIER_J + SORT_PRIORITY_TERRAIN_BASE,
         {
-          scaleX,
-          scaleY,
+          scaleX: scale,
+          scaleY: scale,  // Uniform scale
           anchorX: 0.5,
           anchorY: 0  // Top anchor - sprite extends downward from position
         }

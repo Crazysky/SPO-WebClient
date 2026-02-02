@@ -6,16 +6,23 @@
  * - Corners (N, E, S, W)
  * - T-junctions
  * - Crossroads
- * - Urban/rural variants
+ * - Urban/rural variants (based on concrete proximity)
+ *
+ * Unified Painter's Algorithm:
+ * - sortKey = (i + j) * 10000 + SORT_PRIORITY_ROAD
+ * - Roads render after terrain base but before tall terrain on same diagonal
+ *
+ * Urban vs Country texture selection:
+ * - Roads adjacent to buildings (within 1 tile) use Urban textures
+ * - Roads on open land use Country textures
  */
 
-import { Container, Sprite, Texture } from 'pixi.js';
+import { Container } from 'pixi.js';
 import { SpritePool, BatchSpriteManager } from '../sprite-pool';
 import { TextureAtlasManager } from '../texture-atlas-manager';
-import { ViewportBounds } from '../pixi-renderer';
+import { ViewportBounds, SORT_MAX_KEY, SORT_MULTIPLIER_DIAGONAL, SORT_MULTIPLIER_J, SORT_PRIORITY_ROAD } from '../pixi-renderer';
 import { TerrainData, ZoomConfig } from '../../../../shared/map-config';
-import { MapSegment } from '../../../../shared/types';
-import { LandClass, landClassOf } from '../../road-texture-system';
+import { MapBuilding, MapSegment, FacilityDimensions } from '../../../../shared/types';
 
 /** Road topology types */
 const enum RoadTopology {
@@ -33,20 +40,35 @@ const enum RoadTopology {
   CROSS = 11,    // Crossroads
 }
 
-/** Topology to texture filename mapping */
+/**
+ * Topology to texture filename mapping
+ *
+ * IMPORTANT: Cardinal directions in our coordinate system are INVERTED relative to texture naming:
+ *   Our system:     WEST   0   NORTH     |     Textures:    EAST   0   SOUTH
+ *                    0     0   EAST      |                   0     0   WEST
+ *                   SOUTH  0    0        |                  NORTH  0    0
+ *
+ * So we swap N↔S and E↔W when mapping topology to texture names.
+ *
+ * Actual texture files in cache/RoadBlockImages:
+ * - Rural roads (on land): CountryRoad*.bmp
+ * - Urban roads (on concrete): Road*.bmp (NOT "UrbanRoad")
+ */
 const ROAD_TEXTURE_MAP: Record<RoadTopology, { land: string; urban: string }> = {
   [RoadTopology.NONE]: { land: '', urban: '' },
-  [RoadTopology.NS]: { land: 'CountryRoadvert.bmp', urban: 'UrbanRoadvert.bmp' },
-  [RoadTopology.WE]: { land: 'CountryRoadhorz.bmp', urban: 'UrbanRoadhorz.bmp' },
-  [RoadTopology.CORNER_N]: { land: 'CountryRoadcornerN.bmp', urban: 'UrbanRoadcornerN.bmp' },
-  [RoadTopology.CORNER_E]: { land: 'CountryRoadcornerE.bmp', urban: 'UrbanRoadcornerE.bmp' },
-  [RoadTopology.CORNER_S]: { land: 'CountryRoadcornerS.bmp', urban: 'UrbanRoadcornerS.bmp' },
-  [RoadTopology.CORNER_W]: { land: 'CountryRoadcornerW.bmp', urban: 'UrbanRoadcornerW.bmp' },
-  [RoadTopology.T_N]: { land: 'CountryRoadTN.bmp', urban: 'UrbanRoadTN.bmp' },
-  [RoadTopology.T_E]: { land: 'CountryRoadTE.bmp', urban: 'UrbanRoadTE.bmp' },
-  [RoadTopology.T_S]: { land: 'CountryRoadTS.bmp', urban: 'UrbanRoadTS.bmp' },
-  [RoadTopology.T_W]: { land: 'CountryRoadTW.bmp', urban: 'UrbanRoadTW.bmp' },
-  [RoadTopology.CROSS]: { land: 'CountryRoadcross.bmp', urban: 'UrbanRoadcross.bmp' },
+  [RoadTopology.NS]: { land: 'CountryRoadvert.bmp', urban: 'Roadvert.bmp' },
+  [RoadTopology.WE]: { land: 'CountryRoadhorz.bmp', urban: 'Roadhorz.bmp' },
+  // Corners: our CORNER_N → texture cornerS (swapped)
+  [RoadTopology.CORNER_N]: { land: 'CountryRoadcornerS.bmp', urban: 'RoadcornerS.bmp' },
+  [RoadTopology.CORNER_E]: { land: 'CountryRoadcornerW.bmp', urban: 'RoadcornerW.bmp' },
+  [RoadTopology.CORNER_S]: { land: 'CountryRoadcornerN.bmp', urban: 'RoadcornerN.bmp' },
+  [RoadTopology.CORNER_W]: { land: 'CountryRoadcornerE.bmp', urban: 'RoadcornerE.bmp' },
+  // T-junctions: our T_N → texture TS (swapped)
+  [RoadTopology.T_N]: { land: 'CountryRoadTS.bmp', urban: 'RoadTS.bmp' },
+  [RoadTopology.T_E]: { land: 'CountryRoadTW.bmp', urban: 'RoadTW.bmp' },
+  [RoadTopology.T_S]: { land: 'CountryRoadTN.bmp', urban: 'RoadTN.bmp' },
+  [RoadTopology.T_W]: { land: 'CountryRoadTE.bmp', urban: 'RoadTE.bmp' },
+  [RoadTopology.CROSS]: { land: 'CountryRoadcross.bmp', urban: 'Roadcross.bmp' },
 };
 
 /**
@@ -55,12 +77,16 @@ const ROAD_TEXTURE_MAP: Record<RoadTopology, { land: string; urban: string }> = 
 export class PixiRoadLayer {
   private container: Container;
   private textureAtlas: TextureAtlasManager;
-  private spritePool: SpritePool;
+  private _spritePool: SpritePool;
   private batch: BatchSpriteManager;
 
   // Topology cache - avoid recalculating every frame
   private topologyCache: Map<string, RoadTopology> = new Map();
   private topologyCacheValid: boolean = false;
+
+  // Concrete grid cache - tracks which tiles have concrete (buildings nearby)
+  private concreteGrid: Map<string, boolean> = new Map();
+  private lastBuildingsRef: MapBuilding[] | null = null;
 
   constructor(
     container: Container,
@@ -69,9 +95,46 @@ export class PixiRoadLayer {
   ) {
     this.container = container;
     this.textureAtlas = textureAtlas;
-    this.spritePool = spritePool;
+    this._spritePool = spritePool;
     this.batch = new BatchSpriteManager(spritePool, container, 'road');
     this.container.sortableChildren = true;
+  }
+
+  /**
+   * Build concrete grid from buildings (for urban/country texture selection)
+   * A tile has concrete if it's within 1 tile of any building
+   */
+  private buildConcreteGrid(
+    buildings: MapBuilding[],
+    facilityDimensions: Map<string, FacilityDimensions>
+  ): void {
+    this.concreteGrid.clear();
+    const CONCRETE_RADIUS = 1; // Tiles around building that count as concrete
+
+    for (const building of buildings) {
+      const dims = facilityDimensions.get(building.visualClass);
+      const xsize = dims?.xsize ?? 1;
+      const ysize = dims?.ysize ?? 1;
+
+      // Mark all tiles within CONCRETE_RADIUS of the building
+      const minI = building.y - CONCRETE_RADIUS;
+      const maxI = building.y + ysize + CONCRETE_RADIUS - 1;
+      const minJ = building.x - CONCRETE_RADIUS;
+      const maxJ = building.x + xsize + CONCRETE_RADIUS - 1;
+
+      for (let i = minI; i <= maxI; i++) {
+        for (let j = minJ; j <= maxJ; j++) {
+          this.concreteGrid.set(`${j},${i}`, true);
+        }
+      }
+    }
+  }
+
+  /**
+   * Check if a tile has concrete (is adjacent to a building)
+   */
+  private hasConcrete(x: number, y: number): boolean {
+    return this.concreteGrid.has(`${x},${y}`);
   }
 
   /**
@@ -86,16 +149,24 @@ export class PixiRoadLayer {
    * Update road rendering
    */
   update(
-    segments: MapSegment[],
+    _segments: MapSegment[],
     roadTilesMap: Map<string, boolean>,
     terrainData: TerrainData,
     bounds: ViewportBounds,
-    zoomConfig: ZoomConfig
+    zoomConfig: ZoomConfig,
+    buildings: MapBuilding[] = [],
+    facilityDimensions: Map<string, FacilityDimensions> = new Map()
   ): void {
     // Build topology cache if invalid
     if (!this.topologyCacheValid) {
       this.buildTopologyCache(roadTilesMap);
       this.topologyCacheValid = true;
+    }
+
+    // Rebuild concrete grid if buildings changed
+    if (buildings !== this.lastBuildingsRef) {
+      this.buildConcreteGrid(buildings, facilityDimensions);
+      this.lastBuildingsRef = buildings;
     }
 
     this.batch.beginFrame();
@@ -149,7 +220,7 @@ export class PixiRoadLayer {
     i: number,
     j: number,
     sortKey: number,
-    terrainData: TerrainData,
+    _terrainData: TerrainData,
     mapWidth: number,
     mapHeight: number,
     zoomConfig: ZoomConfig
@@ -159,9 +230,9 @@ export class PixiRoadLayer {
     const topology = this.topologyCache.get(key) ?? RoadTopology.NONE;
     if (topology === RoadTopology.NONE) return;
 
-    // Determine if urban or rural based on terrain (simplified)
-    const paletteIndex = terrainData.paletteData[i]?.[j] ?? 0;
-    const isUrban = false; // Would check concrete grid in full implementation
+    // Determine if urban or rural based on concrete proximity (buildings nearby)
+    // Roads within 1 tile of any building use Urban textures
+    const isUrban = this.hasConcrete(j, i);
 
     // Get texture filename
     const textureInfo = ROAD_TEXTURE_MAP[topology];
@@ -182,13 +253,18 @@ export class PixiRoadLayer {
     const posKey = `${i},${j}`;
     const textureKey = `road:${topology}:${isUrban ? 'urban' : 'land'}`;
 
+    // PAINTER'S ALGORITHM: Invert sortKey so higher (i+j) = lower zIndex = drawn first (background)
+    const invertedSortKey = SORT_MAX_KEY - sortKey;
+
+    // Unified zIndex: invertedSortKey * DIAGONAL + j * J_MULT + SORT_PRIORITY_ROAD
+    // Roads render after terrain base but before tall terrain
     this.batch.setSprite(
       posKey,
       textureKey,
       texture,
       screenPos.x,
       screenPos.y,
-      sortKey * 1000,
+      invertedSortKey * SORT_MULTIPLIER_DIAGONAL + j * SORT_MULTIPLIER_J + SORT_PRIORITY_ROAD,
       {
         scaleX,
         scaleY,
@@ -225,7 +301,12 @@ export class PixiRoadLayer {
       if (hasN && hasS) return RoadTopology.NS;
       if (hasE && hasW) return RoadTopology.WE;
 
-      // Corners
+      // Corners - naming convention: CORNER_X means "corner that opens towards X"
+      // This matches the road-texture-system.ts mappings:
+      // - hasN && hasE: road connects N+E, opens towards S → CORNER_S (CountryRoadcornerS.bmp)
+      // - hasN && hasW: road connects N+W, opens towards E → CORNER_E (CountryRoadcornerE.bmp)
+      // - hasS && hasE: road connects S+E, opens towards W → CORNER_W (CountryRoadcornerW.bmp)
+      // - hasS && hasW: road connects S+W, opens towards N → CORNER_N (CountryRoadcornerN.bmp)
       if (hasN && hasE) return RoadTopology.CORNER_S;
       if (hasN && hasW) return RoadTopology.CORNER_E;
       if (hasS && hasE) return RoadTopology.CORNER_W;

@@ -67,13 +67,15 @@ export class PixiOverlayLayer {
    */
   update(
     zoneData: SurfaceData | null,
+    zoneX1: number,
+    zoneY1: number,
     placementPreview: { i: number; j: number; xsize: number; ysize: number } | null,
     roadDrawingState: RoadDrawingState | null,
     bounds: ViewportBounds,
     zoomConfig: ZoomConfig
   ): void {
     // Update zone overlay
-    this.updateZoneOverlay(zoneData, bounds, zoomConfig);
+    this.updateZoneOverlay(zoneData, zoneX1, zoneY1, bounds, zoomConfig);
 
     // Update placement preview
     this.updatePlacementPreview(placementPreview, zoomConfig);
@@ -87,6 +89,8 @@ export class PixiOverlayLayer {
    */
   private updateZoneOverlay(
     zoneData: SurfaceData | null,
+    x1: number,
+    y1: number,
     bounds: ViewportBounds,
     zoomConfig: ZoomConfig
   ): void {
@@ -98,13 +102,13 @@ export class PixiOverlayLayer {
 
     for (let i = minI; i <= maxI; i++) {
       for (let j = minJ; j <= maxJ; j++) {
-        // Get zone type from data (would need proper indexing)
-        const dataI = i - (zoneData as { y1?: number }).y1!;
-        const dataJ = j - (zoneData as { x1?: number }).x1!;
+        // Get zone type from data using proper offset
+        const dataI = i - y1;
+        const dataJ = j - x1;
 
         if (dataI < 0 || dataJ < 0) continue;
 
-        const zoneType = zoneData.data[dataI]?.[dataJ];
+        const zoneType = zoneData.rows[dataI]?.[dataJ];
         if (zoneType && zoneType > 0) {
           this.drawZoneTile(i, j, zoneType, zoomConfig);
         }

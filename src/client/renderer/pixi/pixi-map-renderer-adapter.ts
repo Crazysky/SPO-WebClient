@@ -20,6 +20,7 @@ import {
   FacilityDimensions,
   BuildingInfo
 } from '../../../shared/types';
+import { getFacilityDimensionsCache } from '../../facility-dimensions-cache';
 
 interface CachedZone {
   x: number;
@@ -43,8 +44,30 @@ export class PixiMapRendererAdapter {
   private allSegments: MapSegment[] = [];
   private roadTilesMap: Map<string, boolean> = new Map();
 
-  // Facility dimensions
-  private facilityDimensionsCache: Map<string, FacilityDimensions> = new Map();
+  /**
+   * Get facility dimensions from global singleton cache
+   */
+  private get facilityDimensionsCache(): Map<string, FacilityDimensions> {
+    const cache = getFacilityDimensionsCache();
+    const map = new Map<string, FacilityDimensions>();
+    if (cache.isInitialized()) {
+      return new Proxy(map, {
+        get: (target, prop) => {
+          if (prop === 'get') {
+            return (visualClass: string) => cache.getFacility(visualClass);
+          }
+          if (prop === 'has') {
+            return (visualClass: string) => cache.getFacility(visualClass) !== undefined;
+          }
+          if (prop === 'size') {
+            return cache.getSize();
+          }
+          return Reflect.get(target, prop);
+        }
+      }) as Map<string, FacilityDimensions>;
+    }
+    return map;
+  }
 
   // Map state
   private mapLoaded: boolean = false;
@@ -130,6 +153,11 @@ export class PixiMapRendererAdapter {
 
     this.pixi.setOnCancelRoadDrawing(() => {
       this.onCancelRoadDrawing?.();
+    });
+
+    // Setup viewport change callback for zone loading
+    this.pixi.setOnViewportChange(() => {
+      this.scheduleZoneCheck();
     });
 
     // Setup resize observer
@@ -232,9 +260,9 @@ export class PixiMapRendererAdapter {
     // Rebuild road tiles map
     this.rebuildRoadTilesMap();
 
-    // Update PixiJS renderer
-    this.pixi.setBuildings(this.allBuildings);
-    this.pixi.setSegments(this.allSegments);
+    // Update PixiJS renderer - create new array references to trigger change detection
+    this.pixi.setBuildings([...this.allBuildings]);
+    this.pixi.setSegments([...this.allSegments]);
   }
 
   /**
@@ -401,26 +429,28 @@ export class PixiMapRendererAdapter {
   // =========================================================================
 
   public setZoneOverlay(enabled: boolean, data?: SurfaceData, x1?: number, y1?: number): void {
-    if (data && x1 !== undefined && y1 !== undefined) {
-      (data as { x1: number; y1: number }).x1 = x1;
-      (data as { x1: number; y1: number }).y1 = y1;
-    }
-    this.pixi.setZoneOverlay(enabled, data);
+    this.pixi.setZoneOverlay(enabled, data, x1, y1);
   }
 
   public setPlacementMode(
     enabled: boolean,
-    building?: BuildingInfo,
-    facilityDimensions?: FacilityDimensions
+    buildingName: string = '',
+    cost: number = 0,
+    area: number = 0,
+    zoneRequirement: string = '',
+    xsize: number = 1,
+    ysize: number = 1
   ): void {
     this.placementMode = enabled;
-    this.currentPlacementBuilding = building ?? null;
+    this.currentPlacementBuilding = enabled ? {
+      name: buildingName,
+      cost,
+      area,
+      zoneRequirement,
+    } as BuildingInfo : null;
 
-    if (enabled && facilityDimensions) {
-      this.pixi.setPlacementMode(true, {
-        xsize: facilityDimensions.xsize,
-        ysize: facilityDimensions.ysize
-      });
+    if (enabled) {
+      this.pixi.setPlacementMode(true, { xsize, ysize });
     } else {
       this.pixi.setPlacementMode(false);
     }
@@ -487,7 +517,64 @@ export class PixiMapRendererAdapter {
       }
     }
 
+    // Generate staircase path
+    const pathTiles = this.generateStaircasePath(x1, y1, x2, y2);
+
+    // Check building collisions
+    for (const tile of pathTiles) {
+      for (const building of this.allBuildings) {
+        const dims = this.facilityDimensionsCache.get(building.visualClass);
+        const bw = dims?.xsize || 1;
+        const bh = dims?.ysize || 1;
+
+        if (tile.x >= building.x && tile.x < building.x + bw &&
+            tile.y >= building.y && tile.y < building.y + bh) {
+          return { valid: false, error: 'Blocked by building' };
+        }
+      }
+    }
+
+    // Check road connectivity (only if roads exist)
+    if (this.roadTilesMap.size > 0) {
+      const connectsToRoad = this.checkRoadPathConnectsToExisting(pathTiles);
+      if (!connectsToRoad) {
+        return { valid: false, error: 'Must connect to road' };
+      }
+    }
+
     return { valid: true };
+  }
+
+  /**
+   * Generate staircase path between two points
+   * Ported from Three.js PreviewManager
+   */
+  private generateStaircasePath(x1: number, y1: number, x2: number, y2: number): Point[] {
+    const tiles: Point[] = [];
+    let x = x1, y = y1;
+    tiles.push({ x, y });
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const sx = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+    const sy = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+
+    let remainingX = Math.abs(dx);
+    let remainingY = Math.abs(dy);
+
+    // Greedy algorithm: prioritize X movement when distances are equal
+    while (remainingX > 0 || remainingY > 0) {
+      if (remainingX >= remainingY && remainingX > 0) {
+        x += sx;
+        remainingX--;
+      } else if (remainingY > 0) {
+        y += sy;
+        remainingY--;
+      }
+      tiles.push({ x, y });
+    }
+
+    return tiles;
   }
 
   // =========================================================================
@@ -495,7 +582,8 @@ export class PixiMapRendererAdapter {
   // =========================================================================
 
   public setFacilityDimensionsCache(cache: Map<string, FacilityDimensions>): void {
-    this.facilityDimensionsCache = cache;
+    // Note: Local storage removed - now using global singleton via getter
+    // Still pass to PixiJS renderer for texture manager
     this.pixi.setFacilityDimensionsCache(cache);
   }
 

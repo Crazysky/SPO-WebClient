@@ -15,24 +15,48 @@ export type RendererType = 'pixi' | 'canvas';
 
 /** Common renderer interface */
 interface MapRenderer {
+  // Required methods
   loadMap(mapName: string): Promise<unknown>;
   setLoadZoneCallback(callback: (x: number, y: number, w: number, h: number) => void): void;
   setBuildingClickCallback(callback: (x: number, y: number, visualClass?: string) => void): void;
   setFetchFacilityDimensionsCallback(callback: (visualClass: string) => Promise<FacilityDimensions | null>): void;
   triggerZoneCheck(): void;
-  // Additional methods available on both renderers
+
+  // Map data methods
   updateMapData?(mapData: { x: number; y: number; w: number; h: number; buildings: unknown[]; segments: unknown[] }): void;
+
+  // Camera controls
   setZoom?(level: number): void;
   getZoom?(): number;
   centerOn?(x: number, y: number): void;
   getCameraPosition?(): { x: number; y: number };
-  setPlacementMode?(enabled: boolean, building?: unknown, facilityDimensions?: FacilityDimensions): void;
-  setRoadDrawingMode?(enabled: boolean): void;
-  setZoneOverlay?(enabled: boolean, data?: unknown, x1?: number, y1?: number): void;
-  setRoadSegmentCompleteCallback?(callback: (x1: number, y1: number, x2: number, y2: number) => void): void;
+
+  // Building placement
+  setPlacementMode?(
+    enabled: boolean,
+    buildingName?: string,
+    cost?: number,
+    area?: number,
+    zoneRequirement?: string,
+    xsize?: number,
+    ysize?: number
+  ): void;
+  getPlacementCoordinates?(): { x: number; y: number } | null;
   setCancelPlacementCallback?(callback: () => void): void;
+
+  // Road drawing
+  setRoadDrawingMode?(enabled: boolean): void;
+  validateRoadPath?(x1: number, y1: number, x2: number, y2: number): { valid: boolean; error?: string };
+  setRoadSegmentCompleteCallback?(callback: (x1: number, y1: number, x2: number, y2: number) => void): void;
   setCancelRoadDrawingCallback?(callback: () => void): void;
+
+  // Zone overlay
+  setZoneOverlay?(enabled: boolean, data?: unknown, x1?: number, y1?: number): void;
+
+  // Facility dimensions
   setFacilityDimensionsCache?(cache: Map<string, FacilityDimensions>): void;
+
+  // Cleanup
   destroy?(): void;
 }
 

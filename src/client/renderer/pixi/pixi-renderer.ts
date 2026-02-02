@@ -42,18 +42,56 @@ import { PixiConcreteLayer } from './layers/pixi-concrete-layer';
 import { PixiRoadLayer } from './layers/pixi-road-layer';
 import { PixiBuildingLayer } from './layers/pixi-building-layer';
 import { PixiOverlayLayer } from './layers/pixi-overlay-layer';
+import { getFacilityDimensionsCache } from '../../facility-dimensions-cache';
 
-/** Render layer indices (z-order) */
+/**
+ * Unified sortKey priorities for painter's algorithm
+ * All game elements (terrain, roads, buildings) are in the SAME container
+ *
+ * PAINTER'S ALGORITHM RULE (from painter-algorithm.ts):
+ * - Higher (i+j) = higher on screen = further from viewer = draw FIRST (low zIndex)
+ * - Lower (i+j) = lower on screen = closer to viewer = draw LAST (high zIndex)
+ *
+ * TWO-TIER SORTING SYSTEM with j-based tie-breaker:
+ * - Lower tier (SORT_OFFSET_LOWER): Base terrain, concrete, roads
+ *   Formula: (SORT_MAX_KEY - sortKey) * SORT_MULTIPLIER_DIAGONAL + j * SORT_MULTIPLIER_J + SORT_PRIORITY_*
+ *
+ * - Upper tier (SORT_OFFSET_UPPER): Tall terrain, buildings
+ *   Formula: SORT_OFFSET_UPPER + (SORT_MAX_KEY - sortKey) * SORT_MULTIPLIER_DIAGONAL + j * SORT_MULTIPLIER_J + SORT_PRIORITY_*
+ *
+ * We INVERT sortKey (SORT_MAX_KEY - sortKey) so that:
+ * - Higher (i+j) → lower inverted value → lower zIndex → drawn first (background)
+ * - Lower (i+j) → higher inverted value → higher zIndex → drawn last (foreground)
+ *
+ * The j-based tie-breaker ensures tiles on the same diagonal (same i+j) are
+ * properly ordered: higher j = more to the right = rendered on top.
+ *
+ * This ensures:
+ * 1. Tall terrain ALWAYS renders AFTER roads (matching Canvas2D drawTallTerrainOverRoads)
+ * 2. Within each tier, painter's algorithm (i+j) works correctly
+ * 3. On same diagonal: tiles with higher j are on top
+ * 4. On same position: terrain < concrete < road < tall_terrain < building
+ */
+export const SORT_OFFSET_LOWER = 0;
+export const SORT_OFFSET_UPPER = 300_000_000;  // Must be > max lower tier (~200M)
+
+export const SORT_MAX_KEY = 5000;  // Max sortKey (i+j) for a 2500x2500 map
+export const SORT_MULTIPLIER_DIAGONAL = 100_000;  // Multiplier for inverted sortKey
+export const SORT_MULTIPLIER_J = 100;              // Multiplier for j tie-breaker
+
+export const SORT_PRIORITY_TERRAIN_BASE = 0;
+export const SORT_PRIORITY_CONCRETE = 10;
+export const SORT_PRIORITY_ROAD = 20;
+export const SORT_PRIORITY_TERRAIN_TALL = 50;
+export const SORT_PRIORITY_BUILDING = 90;
+
+/** Render layer indices - now simplified since game elements share a container */
 export const enum RenderLayerIndex {
-  TERRAIN = 0,
-  CONCRETE = 1,
-  ROADS = 2,
-  TALL_TERRAIN = 3,
-  BUILDINGS = 4,
-  ZONE_OVERLAY = 5,
-  PLACEMENT_PREVIEW = 6,
-  ROAD_PREVIEW = 7,
-  UI_OVERLAY = 8,
+  GAME_WORLD = 0,      // All game elements (terrain, roads, buildings) with unified sorting
+  ZONE_OVERLAY = 1,    // Zone overlay (UI)
+  PLACEMENT_PREVIEW = 2,
+  ROAD_PREVIEW = 3,
+  UI_OVERLAY = 4,
 }
 
 /** Configuration for the PixiJS renderer */
@@ -124,6 +162,7 @@ export class PixiRenderer {
   private buildings: MapBuilding[] = [];
   private segments: MapSegment[] = [];
   private roadTilesMap: Map<string, boolean> = new Map();
+  private concreteTilesMap: Map<string, boolean> = new Map(); // Tiles with concrete (for skipping tall terrain)
 
   // Camera state
   private camera: CameraState = {
@@ -150,13 +189,40 @@ export class PixiRenderer {
   // Zone overlay
   private zoneOverlayEnabled: boolean = false;
   private zoneOverlayData: SurfaceData | null = null;
+  private zoneOverlayX1: number = 0;
+  private zoneOverlayY1: number = 0;
 
   // Viewport culling
   private visibleBounds: ViewportBounds = { minI: 0, maxI: 0, minJ: 0, maxJ: 0 };
   private viewportDirty: boolean = true;
 
-  // Facility dimensions
-  private facilityDimensionsCache: Map<string, FacilityDimensions> = new Map();
+  /**
+   * Get facility dimensions from global singleton cache
+   */
+  private get facilityDimensionsCache(): Map<string, FacilityDimensions> {
+    const cache = getFacilityDimensionsCache();
+    // Convert singleton cache to Map for compatibility with layer APIs
+    const map = new Map<string, FacilityDimensions>();
+    if (cache.isInitialized()) {
+      // The singleton stores data internally - we need to look up dimensions per visualClass
+      // Since we can't iterate the singleton, we return a proxy-like map
+      return new Proxy(map, {
+        get: (target, prop) => {
+          if (prop === 'get') {
+            return (visualClass: string) => cache.getFacility(visualClass);
+          }
+          if (prop === 'has') {
+            return (visualClass: string) => cache.getFacility(visualClass) !== undefined;
+          }
+          if (prop === 'size') {
+            return cache.getSize();
+          }
+          return Reflect.get(target, prop);
+        }
+      }) as Map<string, FacilityDimensions>;
+    }
+    return map;
+  }
 
   // Callbacks
   private onLoadZone: ((x: number, y: number, w: number, h: number) => void) | null = null;
@@ -165,6 +231,7 @@ export class PixiRenderer {
   private onFetchFacilityDimensions: ((visualClass: string) => Promise<FacilityDimensions | null>) | null = null;
   private onRoadSegmentComplete: ((x1: number, y1: number, x2: number, y2: number) => void) | null = null;
   private onCancelRoadDrawing: (() => void) | null = null;
+  private onViewportChange: (() => void) | null = null;
 
   // Texture loading - continuous updates for initial load period
   private textureLoadStartTime: number = 0;
@@ -223,28 +290,32 @@ export class PixiRenderer {
       }
     }
 
-    // Initialize layer renderers
+    // All game elements (terrain, roads, buildings, concrete) share a SINGLE container
+    // This is critical for correct painter's algorithm across all element types
+    const gameWorldContainer = this.layers[RenderLayerIndex.GAME_WORLD];
+
+    // Initialize layer renderers - all use the same gameWorldContainer
     this.terrainLayer = new PixiTerrainLayer(
-      this.layers[RenderLayerIndex.TERRAIN],
-      this.layers[RenderLayerIndex.TALL_TERRAIN],
+      gameWorldContainer,
+      gameWorldContainer, // Not used separately anymore
       this.textureAtlasManager,
       this.spritePool
     );
 
     this.concreteLayer = new PixiConcreteLayer(
-      this.layers[RenderLayerIndex.CONCRETE],
+      gameWorldContainer,
       this.textureAtlasManager,
       this.spritePool
     );
 
     this.roadLayer = new PixiRoadLayer(
-      this.layers[RenderLayerIndex.ROADS],
+      gameWorldContainer,
       this.textureAtlasManager,
       this.spritePool
     );
 
     this.buildingLayer = new PixiBuildingLayer(
-      this.layers[RenderLayerIndex.BUILDINGS],
+      gameWorldContainer,
       this.textureAtlasManager,
       this.spritePool
     );
@@ -355,7 +426,9 @@ export class PixiRenderer {
       this.terrainLayer?.update(
         this.terrainData,
         this.visibleBounds,
-        this.camera.zoomConfig
+        this.camera.zoomConfig,
+        this.roadTilesMap,      // Pass road tiles so tall terrain skips tiles with roads
+        this.concreteTilesMap   // Pass concrete tiles so tall terrain skips tiles with concrete
       );
       this.terrainDirty = false;
     }
@@ -366,31 +439,39 @@ export class PixiRenderer {
         this.buildings,
         this.terrainData,
         this.visibleBounds,
-        this.camera.zoomConfig
+        this.camera.zoomConfig,
+        this.facilityDimensionsCache,
+        this.roadTilesMap
       );
       this.concreteDirty = false;
     }
 
-    // Update road layer (only when roads change or viewport moves)
-    if (this.roadsDirty || this.viewportDirty) {
+    // Update road layer (only when roads change, buildings change, or viewport moves)
+    // Buildings affect road textures (urban vs country) via concrete proximity
+    if (this.roadsDirty || this.buildingsDirty || this.viewportDirty) {
       this.roadLayer?.update(
         this.segments,
         this.roadTilesMap,
         this.terrainData,
         this.visibleBounds,
-        this.camera.zoomConfig
+        this.camera.zoomConfig,
+        this.buildings,
+        this.facilityDimensionsCache
       );
       this.roadsDirty = false;
     }
 
     // Update building layer (only when buildings change or viewport moves)
     if (this.buildingsDirty || this.viewportDirty) {
+      console.log(`[PixiRenderer] Updating building layer: ${this.buildings.length} buildings, layer=${!!this.buildingLayer}, mapSize=${this.mapWidth}x${this.mapHeight}`);
       this.buildingLayer?.update(
         this.buildings,
         this.facilityDimensionsCache,
         this.visibleBounds,
         this.camera.zoomConfig,
-        this.hoveredBuilding
+        this.hoveredBuilding,
+        this.mapWidth,
+        this.mapHeight
       );
       this.buildingsDirty = false;
     }
@@ -399,6 +480,8 @@ export class PixiRenderer {
     if (this.overlayDirty || this.viewportDirty) {
       this.overlayLayer?.update(
         this.zoneOverlayEnabled ? this.zoneOverlayData : null,
+        this.zoneOverlayX1,
+        this.zoneOverlayY1,
         this.placementPreview,
         this.roadDrawingState,
         this.visibleBounds,
@@ -484,7 +567,9 @@ export class PixiRenderer {
    * Set buildings data
    */
   setBuildings(buildings: MapBuilding[]): void {
+    console.log(`[PixiRenderer] setBuildings called with ${buildings.length} buildings`);
     this.buildings = buildings;
+    this.rebuildConcreteTilesMap(); // Rebuild concrete map for terrain layer
     this.buildingsDirty = true;
     this.concreteDirty = true; // Concrete depends on buildings
     this.viewportDirty = true;
@@ -497,16 +582,18 @@ export class PixiRenderer {
     this.segments = segments;
     this.rebuildRoadTilesMap();
     this.roadsDirty = true;
+    this.concreteDirty = true; // Concrete textures depend on road positions
     this.roadLayer?.invalidateTopologyCache(); // Clear topology cache when roads change
     this.viewportDirty = true;
   }
 
   /**
-   * Set facility dimensions cache
+   * Set facility dimensions cache (legacy method - now uses global singleton)
+   * Kept for API compatibility, passes to texture atlas manager
    */
   setFacilityDimensionsCache(cache: Map<string, FacilityDimensions>): void {
-    this.facilityDimensionsCache = cache;
-    // Also pass to texture atlas manager for building name lookups
+    // Note: Local storage removed - now using global singleton via getter
+    // Still pass to texture atlas manager for building name lookups
     this.textureAtlasManager.setFacilityDimensionsCache(cache);
   }
 
@@ -530,6 +617,34 @@ export class PixiRenderer {
         const maxX = Math.max(x1, x2);
         for (let x = minX; x <= maxX; x++) {
           this.roadTilesMap.set(`${x},${y1}`, true);
+        }
+      }
+    }
+  }
+
+  /**
+   * Rebuild the concrete tiles map from buildings
+   * Concrete tiles are building footprints + 1 tile radius around them
+   * Used to skip tall terrain rendering on concrete areas
+   */
+  private rebuildConcreteTilesMap(): void {
+    this.concreteTilesMap.clear();
+    const CONCRETE_RADIUS = 1;
+
+    for (const building of this.buildings) {
+      const dims = this.facilityDimensionsCache.get(building.visualClass);
+      const xsize = dims?.xsize ?? 1;
+      const ysize = dims?.ysize ?? 1;
+
+      // Mark concrete around building (expanded footprint)
+      for (let di = -CONCRETE_RADIUS; di < ysize + CONCRETE_RADIUS; di++) {
+        for (let dj = -CONCRETE_RADIUS; dj < xsize + CONCRETE_RADIUS; dj++) {
+          const i = building.y + di;
+          const j = building.x + dj;
+          if (i >= 0 && j >= 0 && i < this.mapHeight && j < this.mapWidth) {
+            // Key format matches what terrain layer expects: "i,j"
+            this.concreteTilesMap.set(`${i},${j}`, true);
+          }
         }
       }
     }
@@ -619,9 +734,11 @@ export class PixiRenderer {
   /**
    * Enable/disable zone overlay
    */
-  setZoneOverlay(enabled: boolean, data?: SurfaceData): void {
+  setZoneOverlay(enabled: boolean, data?: SurfaceData, x1?: number, y1?: number): void {
     this.zoneOverlayEnabled = enabled;
     this.zoneOverlayData = data ?? null;
+    this.zoneOverlayX1 = x1 ?? 0;
+    this.zoneOverlayY1 = y1 ?? 0;
     this.viewportDirty = true;
   }
 
@@ -651,6 +768,10 @@ export class PixiRenderer {
 
   setOnCancelRoadDrawing(callback: () => void): void {
     this.onCancelRoadDrawing = callback;
+  }
+
+  setOnViewportChange(callback: () => void): void {
+    this.onViewportChange = callback;
   }
 
   // =========================================================================
@@ -698,6 +819,8 @@ export class PixiRenderer {
       this.lastMouseX = e.clientX;
       this.lastMouseY = e.clientY;
       this.viewportDirty = true;
+      // Notify adapter of viewport change for zone loading
+      this.onViewportChange?.();
     }
 
     // Update road drawing preview
@@ -778,6 +901,8 @@ export class PixiRenderer {
       this.lastMouseX = touch.clientX;
       this.lastMouseY = touch.clientY;
       this.viewportDirty = true;
+      // Notify adapter of viewport change for zone loading
+      this.onViewportChange?.();
     }
   }
 

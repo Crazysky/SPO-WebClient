@@ -10,6 +10,7 @@
 
 import { Texture, Assets, BaseTexture, SCALE_MODES, Rectangle, Spritesheet } from 'pixi.js';
 import { FacilityDimensions } from '../../../shared/types';
+import { GameObjectTextureCache } from '../game-object-texture-cache';
 
 /** Texture categories */
 export const enum TextureCategory {
@@ -283,10 +284,8 @@ export class TextureAtlasManager {
    * Get building texture
    */
   async getBuildingTexture(visualClass: string): Promise<Texture> {
-    // Look up building name from facility dimensions cache
-    const dims = this.facilityDimensionsCache.get(visualClass);
-    const buildingName = dims?.name ?? visualClass;
-    const filename = `Map${buildingName}64x32x0.gif`;
+    // Use the same filename generation as Canvas2D and Three.js renderers
+    const filename = GameObjectTextureCache.getBuildingTextureFilename(visualClass);
     const key = `building:${visualClass}`;
 
     const cached = this.textures.get(key);
@@ -438,6 +437,14 @@ export class TextureAtlasManager {
 
     ctx.putImageData(imageData, 0, 0);
     return createImageBitmap(canvas);
+  }
+
+  /**
+   * Get fallback terrain texture (solid color based on palette index)
+   * Public method for terrain layer to render base terrain under concrete/roads
+   */
+  getTerrainFallbackTexture(paletteIndex: number): Texture {
+    return this.getFallbackTexture(paletteIndex);
   }
 
   /**

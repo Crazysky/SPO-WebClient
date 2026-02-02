@@ -63,19 +63,29 @@ src/
 
 ## Renderer Architecture
 
-**Two renderers available:** Canvas2D (legacy) and Three.js (WebGL)
+**Three renderers available:** PixiJS (default), Canvas2D (legacy), and Three.js
 
-Switch renderer in [src/client/renderer-settings.ts](src/client/renderer-settings.ts):
+Switch renderer in [src/client/ui/map-navigation-ui.ts](src/client/ui/map-navigation-ui.ts):
 ```typescript
-export const RENDERER_TYPE: 'canvas2d' | 'three' = 'three';
+// In MapNavigationUI constructor
+new MapNavigationUI(gamePanel, 'pixi');   // PixiJS (default)
+new MapNavigationUI(gamePanel, 'canvas'); // Canvas2D (legacy)
 ```
+
+### PixiJS Renderer (Default - WebGL)
+- **Files:** [src/client/renderer/pixi/](src/client/renderer/pixi/)
+- GPU-accelerated via PixiJS v8 WebGL
+- Batched draw calls for optimal performance
+- Efficient texture atlasing
+- Mobile-optimized rendering
+- **Current default renderer**
 
 ### Canvas2D Renderer (Legacy)
 - **File:** [isometric-map-renderer.ts](src/client/renderer/isometric-map-renderer.ts)
 - CPU-based rendering with 2D canvas
 - Chunk-based terrain caching
 - Full feature parity (placement, roads, zones, overlays)
-- Stable, well-tested
+- Stable, well-tested fallback
 
 ### Three.js Renderer (WebGL)
 - **File:** [IsometricThreeRenderer.ts](src/client/renderer/three/IsometricThreeRenderer.ts)
@@ -85,7 +95,7 @@ export const RENDERER_TYPE: 'canvas2d' | 'three' = 'three';
 - RenderOrder-based painter's algorithm (no per-frame sorting)
 - **Season auto-detection** - Automatically switches to available seasons for terrain types
 
-**Key Features:**
+**Common Features (all renderers):**
 - Terrain chunk rendering with texture atlases
 - Building placement preview (collision detection, tooltips)
 - Road drawing preview (staircase algorithm, validation)
@@ -94,7 +104,7 @@ export const RENDERER_TYPE: 'canvas2d' | 'three' = 'three';
 
 **Performance:** 60 FPS on 1000×1000 maps with 4000+ terrain tiles visible
 
-See [doc/SWITCHING-RENDERERS.md](doc/SWITCHING-RENDERERS.md) for details.
+See [doc/ENGINE_MIGRATION_SPEC.md](doc/ENGINE_MIGRATION_SPEC.md) for PixiJS implementation details.
 
 ## RDO Protocol Type System (CRITICAL)
 
@@ -125,9 +135,30 @@ const cmd = `SEL ${objectId}*CALL %RDOSetPrice^PUSH^#${priceId}*!${value}`;
 | `^` | Variant (VariantId) | `^value` |
 | `*` | Void (VoidId) | `*` |
 
+## PixiJS Renderer Status (February 2026)
+
+**Status:** Default renderer, actively developed
+
+**Completed Features:**
+- ✅ Terrain chunk rendering with texture atlases
+- ✅ Building sprites with automatic scaling
+- ✅ Road segment rendering
+- ✅ Concrete platform rendering
+- ✅ Building placement preview (collision detection)
+- ✅ Road drawing preview (staircase algorithm, validation)
+- ✅ Zone overlay rendering
+- ✅ Camera controls (pan, zoom, edge scrolling)
+- ✅ Season auto-detection for terrain types
+- ✅ Painter's algorithm via inverted zIndex (higher i+j = lower zIndex = drawn first)
+
+**Performance:**
+- 60 FPS on 1000×1000 maps
+- GPU-accelerated batched rendering via PixiJS v8
+- Efficient sprite pooling and texture atlasing
+
 ## Three.js Renderer Status (January 2026)
 
-**Status:** Feature-complete, ready for production use
+**Status:** Feature-complete, alternative renderer
 
 **Completed Features:**
 - ✅ Terrain chunk rendering with texture atlases
@@ -145,12 +176,6 @@ const cmd = `SEL ${objectId}*CALL %RDOSetPrice^PUSH^#${priceId}*!${value}`;
 - 60 FPS on 1000×1000 maps
 - GPU-accelerated batched rendering
 - Efficient texture atlases (1024×512px per season)
-
-**Recent Fixes (January 2026):**
-- **Season auto-detection:** Automatically switches to available seasons for terrain types (prevents 204 errors)
-- **Depth buffer fix:** Terrain material now uses `depthWrite: false` to allow proper layering
-- **Painter's algorithm fix:** Terrain chunks now use dynamic renderOrder instead of fixed value 0
-- **Result:** Roads, concrete, and buildings now render correctly on top of terrain
 
 ## Testing
 
@@ -303,6 +328,7 @@ Optional detailed description
 | [doc/FIX-TERRAIN-DEPTH-RENDERING.md](doc/FIX-TERRAIN-DEPTH-RENDERING.md) | Depth buffer & renderOrder fixes for proper layering |
 | [doc/CANVAS2D-TEXTURE-SELECTION-ANALYSIS.md](doc/CANVAS2D-TEXTURE-SELECTION-ANALYSIS.md) | Complete analysis of Canvas2D texture selection algorithm |
 | [doc/CAB-EXTRACTION.md](doc/CAB-EXTRACTION.md) | CAB file extraction system & texture caching |
+| [src/client/renderer/painter-algorithm.ts](src/client/renderer/painter-algorithm.ts) | Painter's algorithm rule: higher (i+j) = draw first |
 
 ## Quick Troubleshooting
 
@@ -315,6 +341,7 @@ Optional detailed description
 | Textures show as colored tiles (Three.js) | Season mismatch - see [SOLUTION-TEXTURES-SEASON.md](doc/SOLUTION-TEXTURES-SEASON.md) |
 | Roads/concrete not visible (Three.js) | Depth buffer issue - see [FIX-TERRAIN-DEPTH-RENDERING.md](doc/FIX-TERRAIN-DEPTH-RENDERING.md) |
 | Terrain not rendering (Three.js) | Check browser console for WebGL errors, try Canvas2D renderer |
+| Sprites overlap incorrectly (PixiJS) | Painter's algorithm uses inverted sortKey - see [painter-algorithm.ts](src/client/renderer/painter-algorithm.ts) |
 | Port 8080 already in use | Kill process: `Get-Process -Id (Get-NetTCPConnection -LocalPort 8080).OwningProcess \| Stop-Process` (PowerShell) |
 
 ## Current Test Status
