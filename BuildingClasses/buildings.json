@@ -5,8 +5,8 @@
     "152": {
       "visualClass": "152",
       "name": "Capitol",
-      "xsize": 6,
-      "ysize": 6,
+      "xsize": 7,
+      "ysize": 7,
       "textureFilename": "MapIFELCapitol64x32x0.gif",
       "baseVisualClass": "152",
       "visualStages": 0,

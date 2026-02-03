@@ -179,6 +179,7 @@ export class PixiRenderer {
   private mouseMapI: number = 0;
   private mouseMapJ: number = 0;
   private hoveredBuilding: MapBuilding | null = null;
+  private mouseDownTime: number = 0; // Track mouse down time for short click detection
 
   // Placement/drawing modes
   private placementMode: boolean = false;
@@ -478,6 +479,18 @@ export class PixiRenderer {
 
     // Update overlay layer (zones, placement, road preview)
     if (this.overlayDirty || this.viewportDirty) {
+      // Calculate road hover state when in road drawing mode but not actively drawing
+      let roadHoverState = null;
+      if (this.roadDrawingMode && !this.roadDrawingState?.isDrawing) {
+        const validation = this.isValidRoadStartPoint(this.mouseMapJ, this.mouseMapI);
+        roadHoverState = {
+          x: this.mouseMapJ,
+          y: this.mouseMapI,
+          isValid: validation.valid,
+          message: validation.message
+        };
+      }
+
       this.overlayLayer?.update(
         this.zoneOverlayEnabled ? this.zoneOverlayData : null,
         this.zoneOverlayX1,
@@ -485,7 +498,13 @@ export class PixiRenderer {
         this.placementPreview,
         this.roadDrawingState,
         this.visibleBounds,
-        this.camera.zoomConfig
+        this.camera.zoomConfig,
+        // Validation parameters
+        this.buildings,
+        this.segments,
+        this.facilityDimensionsCache,
+        this.roadTilesMap,
+        roadHoverState
       );
       this.overlayDirty = false;
     }
@@ -555,6 +574,9 @@ export class PixiRenderer {
 
     // Load terrain textures into atlas
     await this.textureAtlasManager.loadTerrainTextures(terrainType, season);
+
+    // Set map dimensions for overlay layer (critical for placement/road preview coordinate conversion)
+    this.overlayLayer?.setMapDimensions(this.mapWidth, this.mapHeight);
 
     // Start texture load period - continuous updates for a period to apply async-loaded textures
     this.textureLoadStartTime = performance.now();
@@ -743,6 +765,147 @@ export class PixiRenderer {
   }
 
   // =========================================================================
+  // Validation Methods
+  // =========================================================================
+
+  /**
+   * Check if building placement would collide with existing buildings or roads
+   * @param i Row (Y coordinate)
+   * @param j Column (X coordinate)
+   * @param ysize Building height in tiles
+   * @param xsize Building width in tiles
+   */
+  checkBuildingCollision(i: number, j: number, ysize: number, xsize: number): boolean {
+    // Check each tile in building footprint
+    for (let di = 0; di < ysize; di++) {
+      for (let dj = 0; dj < xsize; dj++) {
+        const checkI = i + di;
+        const checkJ = j + dj;
+
+        // Check against existing buildings
+        for (const building of this.buildings) {
+          const dims = this.facilityDimensionsCache.get(building.visualClass);
+          const bw = dims?.xsize ?? 1;
+          const bh = dims?.ysize ?? 1;
+
+          if (checkJ >= building.x && checkJ < building.x + bw &&
+              checkI >= building.y && checkI < building.y + bh) {
+            return true; // Collision with building
+          }
+        }
+
+        // Check against road segments
+        for (const seg of this.segments) {
+          const minX = Math.min(seg.x1, seg.x2);
+          const maxX = Math.max(seg.x1, seg.x2);
+          const minY = Math.min(seg.y1, seg.y2);
+          const maxY = Math.max(seg.y1, seg.y2);
+
+          if (checkJ >= minX && checkJ <= maxX &&
+              checkI >= minY && checkI <= maxY) {
+            return true; // Collision with road
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Check if a tile is adjacent to an existing road
+   */
+  isAdjacentToRoad(x: number, y: number): boolean {
+    // Check all 8 neighbors
+    const neighbors = [
+      { dx: -1, dy: 0 },  // West
+      { dx: 1, dy: 0 },   // East
+      { dx: 0, dy: -1 },  // North
+      { dx: 0, dy: 1 },   // South
+      { dx: -1, dy: -1 }, // NW
+      { dx: 1, dy: -1 },  // NE
+      { dx: -1, dy: 1 },  // SW
+      { dx: 1, dy: 1 },   // SE
+    ];
+
+    for (const { dx, dy } of neighbors) {
+      if (this.roadTilesMap.has(`${x + dx},${y + dy}`)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Check if a tile has an existing road
+   */
+  hasRoadAt(x: number, y: number): boolean {
+    return this.roadTilesMap.has(`${x},${y}`);
+  }
+
+  /**
+   * Check if a road start point is valid (must connect to existing roads or be first road)
+   */
+  isValidRoadStartPoint(x: number, y: number): { valid: boolean; message: string } {
+    // Check for building collision
+    for (const building of this.buildings) {
+      const dims = this.facilityDimensionsCache.get(building.visualClass);
+      const bw = dims?.xsize ?? 1;
+      const bh = dims?.ysize ?? 1;
+
+      if (x >= building.x && x < building.x + bw &&
+          y >= building.y && y < building.y + bh) {
+        return { valid: false, message: 'Blocked by building' };
+      }
+    }
+
+    // If no roads exist, allow first road
+    if (this.roadTilesMap.size === 0) {
+      return { valid: true, message: 'Click to start first road' };
+    }
+
+    // Check if adjacent to existing road or on existing road
+    if (this.hasRoadAt(x, y) || this.isAdjacentToRoad(x, y)) {
+      return { valid: true, message: 'Click to start drawing' };
+    }
+
+    return { valid: false, message: 'Must connect to road' };
+  }
+
+  /**
+   * Generate staircase path between two points (like Canvas2D)
+   */
+  generateStaircasePath(x1: number, y1: number, x2: number, y2: number): Array<{ x: number; y: number }> {
+    const path: Array<{ x: number; y: number }> = [];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const sx = dx === 0 ? 0 : dx > 0 ? 1 : -1;
+    const sy = dy === 0 ? 0 : dy > 0 ? 1 : -1;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    let x = x1;
+    let y = y1;
+    let remainingX = absDx;
+    let remainingY = absDy;
+
+    path.push({ x, y });
+
+    while (remainingX > 0 || remainingY > 0) {
+      // Alternate between X and Y based on remaining distance
+      if (remainingX >= remainingY && remainingX > 0) {
+        x += sx;
+        remainingX--;
+      } else if (remainingY > 0) {
+        y += sy;
+        remainingY--;
+      }
+      path.push({ x, y });
+    }
+
+    return path;
+  }
+
+  // =========================================================================
   // Public API - Callbacks
   // =========================================================================
 
@@ -783,6 +946,7 @@ export class PixiRenderer {
       this.isDragging = true;
       this.lastMouseX = e.clientX;
       this.lastMouseY = e.clientY;
+      this.mouseDownTime = Date.now(); // Track for short click detection
 
       if (this.roadDrawingMode) {
         const mapCoords = this.screenToMap(e.offsetX, e.offsetY);
@@ -797,6 +961,20 @@ export class PixiRenderer {
         };
         this.viewportDirty = true;
       }
+    } else if (e.button === 2) { // Right click
+      // Cancel road drawing or placement mode
+      if (this.roadDrawingMode) {
+        if (this.roadDrawingState?.isDrawing) {
+          // Cancel current drawing
+          this.roadDrawingState = null;
+          this.viewportDirty = true;
+        } else {
+          // Cancel road drawing mode entirely
+          this.onCancelRoadDrawing?.();
+        }
+      } else if (this.placementMode) {
+        this.onCancelPlacement?.();
+      }
     }
   }
 
@@ -806,9 +984,10 @@ export class PixiRenderer {
     const y = e.clientY - rect.top;
 
     // Update map coordinates under mouse
+    // Use Math.round for isometric coordinates to center detection on tiles
     const mapCoords = this.screenToMap(x, y);
-    this.mouseMapI = Math.floor(mapCoords.i);
-    this.mouseMapJ = Math.floor(mapCoords.j);
+    this.mouseMapI = Math.round(mapCoords.i);
+    this.mouseMapJ = Math.round(mapCoords.j);
 
     if (this.isDragging && !this.roadDrawingMode) {
       // Pan camera
@@ -828,6 +1007,9 @@ export class PixiRenderer {
       this.roadDrawingState.endX = this.mouseMapJ;
       this.roadDrawingState.endY = this.mouseMapI;
       this.viewportDirty = true;
+    } else if (this.roadDrawingMode) {
+      // Update hover indicator when in road mode but not drawing
+      this.viewportDirty = true;
     }
 
     // Update placement preview position
@@ -842,7 +1024,9 @@ export class PixiRenderer {
   }
 
   private onMouseUp(e: MouseEvent): void {
-    const wasShortClick = this.isDragging && Date.now() - (this.roadDrawingState?.mouseDownTime ?? 0) < 200;
+    if (e.button !== 0) return; // Only handle left click release
+
+    const wasShortClick = this.isDragging && Date.now() - this.mouseDownTime < 200;
     this.isDragging = false;
 
     if (this.roadDrawingMode && this.roadDrawingState?.isDrawing) {
@@ -856,8 +1040,14 @@ export class PixiRenderer {
     } else if (wasShortClick && !this.roadDrawingMode) {
       // Handle click
       if (this.placementMode) {
-        // Place building
-        if (this.onBuildingClick) {
+        // Place building - check collision first
+        const hasCollision = this.checkBuildingCollision(
+          this.mouseMapI,
+          this.mouseMapJ,
+          this.placementPreview?.ysize ?? 1,
+          this.placementPreview?.xsize ?? 1
+        );
+        if (!hasCollision && this.onBuildingClick) {
           this.onBuildingClick(this.mouseMapJ, this.mouseMapI);
         }
       } else if (this.hoveredBuilding) {
@@ -917,6 +1107,9 @@ export class PixiRenderer {
       } else if (this.roadDrawingMode) {
         this.onCancelRoadDrawing?.();
       }
+    } else if (e.key === 'd' || e.key === 'D') {
+      // Debug mode - show road debug info for tile under cursor
+      this.debugRoadAtMouse();
     }
   }
 
@@ -924,6 +1117,7 @@ export class PixiRenderer {
    * Update which building is under the mouse cursor
    */
   private updateHoveredBuilding(): void {
+    const previousHovered = this.hoveredBuilding;
     this.hoveredBuilding = null;
 
     for (const building of this.buildings) {
@@ -942,6 +1136,12 @@ export class PixiRenderer {
         break;
       }
     }
+
+    // Trigger re-render if hover state changed (for building highlight)
+    if (previousHovered !== this.hoveredBuilding) {
+      this.buildingsDirty = true;
+      this.viewportDirty = true;
+    }
   }
 
   // =========================================================================
@@ -954,6 +1154,107 @@ export class PixiRenderer {
   resize(width: number, height: number): void {
     this.app.renderer.resize(width, height);
     this.viewportDirty = true;
+  }
+
+  // =========================================================================
+  // Debug Methods - Road Texture Analysis
+  // =========================================================================
+
+  /**
+   * Get debug info for a specific road tile at map coordinates
+   * Usage from console: renderer.debugRoadTile(i, j)
+   */
+  debugRoadTile(i: number, j: number): void {
+    const info = this.roadLayer?.getDebugInfoForTile(i, j);
+    if (info) {
+      console.log('🛣️ Road Tile Debug Info:');
+      console.table({
+        position: `[${info.i}, ${info.j}]`,
+        neighbors: `N:${info.neighbors.N} S:${info.neighbors.S} E:${info.neighbors.E} W:${info.neighbors.W}`,
+        topology: info.topology,
+        isUrban: info.isUrban,
+        onWater: info.onWater,
+        isSmooth: info.isSmooth,
+        landId: info.landId?.toString(16),
+        textureFile: info.textureFile,
+      });
+    } else {
+      // No road found - show debug info for nearby roads
+      const key = `${j},${i}`;
+      console.log(`No road at [i=${i}, j=${j}] (key: "${key}")`);
+
+      // Check nearby tiles for roads
+      const nearby: string[] = [];
+      for (let di = -2; di <= 2; di++) {
+        for (let dj = -2; dj <= 2; dj++) {
+          if (di === 0 && dj === 0) continue;
+          const ni = i + di;
+          const nj = j + dj;
+          if (this.roadTilesMap.has(`${nj},${ni}`)) {
+            nearby.push(`[${ni},${nj}]`);
+          }
+        }
+      }
+      if (nearby.length > 0) {
+        console.log(`Nearby roads: ${nearby.join(', ')}`);
+      } else {
+        console.log('No roads within 2 tiles');
+      }
+    }
+  }
+
+  /**
+   * Get debug info for the road tile under the mouse cursor
+   * Usage from console: renderer.debugRoadAtMouse()
+   */
+  debugRoadAtMouse(): void {
+    this.debugRoadTile(this.mouseMapI, this.mouseMapJ);
+  }
+
+  /**
+   * Dump all road debug info to console
+   * Usage from console: renderer.dumpRoadDebug()
+   */
+  dumpRoadDebug(): void {
+    this.roadLayer?.dumpDebugToConsole();
+  }
+
+  /**
+   * Get road debug info as JSON (for analysis)
+   * Usage from console: copy(renderer.getRoadDebugJSON())
+   */
+  getRoadDebugJSON(): string {
+    return this.roadLayer?.getDebugJSON() ?? '[]';
+  }
+
+  /**
+   * Find and log potential road texture issues
+   * Usage from console: renderer.findRoadIssues()
+   */
+  findRoadIssues(): void {
+    const issues = this.roadLayer?.findPotentialIssues() ?? [];
+    if (issues.length === 0) {
+      console.log('✅ No road texture issues detected');
+    } else {
+      console.group(`⚠️ Found ${issues.length} potential road issues:`);
+      for (const issue of issues) {
+        const n = issue.neighbors;
+        console.log(
+          `[${issue.i},${issue.j}] ${issue.topology} | ` +
+          `N:${n.N ? '✓' : '✗'} S:${n.S ? '✓' : '✗'} E:${n.E ? '✓' : '✗'} W:${n.W ? '✓' : '✗'} | ` +
+          `water:${issue.onWater} urban:${issue.isUrban} | ` +
+          `→ ${issue.textureFile}`
+        );
+      }
+      console.groupEnd();
+    }
+  }
+
+  /**
+   * Get current mouse map coordinates (for debugging)
+   */
+  getMouseCoords(): { i: number; j: number } {
+    return { i: this.mouseMapI, j: this.mouseMapJ };
   }
 
   /**

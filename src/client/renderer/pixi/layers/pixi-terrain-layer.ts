@@ -138,27 +138,26 @@ export class PixiTerrainLayer {
     // (matching Canvas2D approach which checks texture.height > 32)
     const isTall = texture.height > TALL_TEXTURE_THRESHOLD;
 
-    // If tile has a road or concrete and is tall, render BASE terrain instead of tall
-    // Roads and concrete cover the tall vegetation, but base terrain must still show through
-    // transparent parts of concrete textures. Use fallback (base terrain) for these tiles.
+    // If tile has a road or concrete and is tall, skip rendering tall terrain
+    // The base terrain was already rendered by the standard pass, roads will cover it
+    // This matches Canvas2D's drawTallTerrainOverRoads which skips tall terrain on road tiles
     const onConcreteOrRoad = roadTilesMap?.has(`${j},${i}`) || concreteTilesMap?.has(`${i},${j}`);
     if (isTall && onConcreteOrRoad) {
-      // Render base terrain (fallback) instead of tall texture
-      // This shows the ground (water, grass) through transparent concrete edges
-      const fallbackTexture = this.textureAtlas.getTerrainFallbackTexture(paletteIndex);
+      // Render the texture at base tier (not upper tier) so roads cover it properly
+      // The full texture is rendered but the vegetation part above will be covered by nearby elements
       const invertedSortKeyBase = SORT_MAX_KEY - sortKey;
       this.batch.setSprite(
         posKey,
-        `terrain-base:${paletteIndex}`,
-        fallbackTexture,
+        textureKey,
+        texture,
         screenPos.x,
-        screenPos.y,
+        screenPos.y + zoomConfig.tileHeight,
         invertedSortKeyBase * SORT_MULTIPLIER_DIAGONAL + j * SORT_MULTIPLIER_J + SORT_PRIORITY_TERRAIN_BASE,
         {
           scaleX: scale,
           scaleY: scale,
           anchorX: 0.5,
-          anchorY: 0
+          anchorY: 1  // Bottom anchor for tall textures
         }
       );
       return;

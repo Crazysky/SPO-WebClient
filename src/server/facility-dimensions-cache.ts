@@ -122,6 +122,10 @@ export class FacilityDimensionsCache implements Service {
   /**
    * Get all facilities as a plain object (for client preload)
    * Returns backward-compatible FacilityDimensions objects
+   *
+   * Keyed by BOTH visualClass and building NAME to support:
+   * - Existing buildings on map: lookup by visualClass (from ObjectsInArea)
+   * - Building placement preview: lookup by name (facilityClass from BuildingInfo)
    */
   getAllFacilitiesAsObject(): Record<string, FacilityDimensions> {
     const result: Record<string, FacilityDimensions> = {};
@@ -130,7 +134,10 @@ export class FacilityDimensionsCache implements Service {
     for (const building of buildings) {
       const facility = this.buildingService.getFacility(building.visualClass);
       if (facility) {
+        // Key by visualClass (for existing buildings on map)
         result[building.visualClass] = facility;
+        // Also key by NAME (for building placement preview)
+        result[building.name] = facility;
       }
     }
 

@@ -3,14 +3,14 @@
  *
  * Handles:
  * - Zone overlay (residential/commercial/industrial colors)
- * - Building placement preview (green/red ghost)
- * - Road drawing preview (path visualization)
+ * - Building placement preview (green/red ghost with collision detection)
+ * - Road drawing preview (path visualization with validation)
  */
 
 import { Container, Graphics } from 'pixi.js';
 import { ViewportBounds } from '../pixi-renderer';
 import { ZoomConfig } from '../../../../shared/map-config';
-import { SurfaceData, RoadDrawingState } from '../../../../shared/types';
+import { SurfaceData, RoadDrawingState, MapBuilding, MapSegment, FacilityDimensions } from '../../../../shared/types';
 
 /** Zone colors */
 const ZONE_COLORS: Record<number, number> = {
@@ -20,9 +20,18 @@ const ZONE_COLORS: Record<number, number> = {
   4: 0x95E1D3, // Office - Green
 };
 
-/** Placement preview colors */
-const PLACEMENT_VALID = 0x4CAF50;   // Green
-const PLACEMENT_INVALID = 0xF44336; // Red
+/** Preview colors */
+const COLOR_VALID = 0x64C864;     // Green (valid placement/road)
+const COLOR_INVALID = 0xFF6464;  // Red (collision/invalid)
+const COLOR_HOVER = 0x64C8FF;    // Blue (hover indicator)
+
+/** Road hover state for displaying before drawing starts */
+export interface RoadHoverState {
+  x: number;
+  y: number;
+  isValid: boolean;
+  message: string;
+}
 
 /**
  * Overlay layer renderer
@@ -72,16 +81,35 @@ export class PixiOverlayLayer {
     placementPreview: { i: number; j: number; xsize: number; ysize: number } | null,
     roadDrawingState: RoadDrawingState | null,
     bounds: ViewportBounds,
-    zoomConfig: ZoomConfig
+    zoomConfig: ZoomConfig,
+    // New parameters for validation
+    buildings?: MapBuilding[],
+    segments?: MapSegment[],
+    facilityDimensionsCache?: Map<string, FacilityDimensions>,
+    roadTilesMap?: Map<string, boolean>,
+    roadHoverState?: RoadHoverState | null
   ): void {
     // Update zone overlay
     this.updateZoneOverlay(zoneData, zoneX1, zoneY1, bounds, zoomConfig);
 
-    // Update placement preview
-    this.updatePlacementPreview(placementPreview, zoomConfig);
+    // Update placement preview with collision detection
+    this.updatePlacementPreview(
+      placementPreview,
+      zoomConfig,
+      buildings,
+      segments,
+      facilityDimensionsCache
+    );
 
-    // Update road preview
-    this.updateRoadPreview(roadDrawingState, zoomConfig);
+    // Update road preview (hover indicator and path)
+    this.updateRoadPreview(
+      roadDrawingState,
+      zoomConfig,
+      buildings,
+      facilityDimensionsCache,
+      roadTilesMap,
+      roadHoverState
+    );
   }
 
   /**
@@ -118,7 +146,6 @@ export class PixiOverlayLayer {
 
   /**
    * Draw a single zone tile
-   * Note: screenPos is the TOP CENTER of the tile (from mapToScreen)
    */
   private drawZoneTile(i: number, j: number, zoneType: number, zoomConfig: ZoomConfig): void {
     const color = ZONE_COLORS[zoneType] ?? 0x888888;
@@ -127,62 +154,96 @@ export class PixiOverlayLayer {
     const hw = zoomConfig.tileWidth / 2;
     const th = zoomConfig.tileHeight;
 
-    // Diamond shape: top point at screenPos.y, bottom at screenPos.y + tileHeight
+    // Diamond shape
     this.zoneGraphics.setFillStyle({ color, alpha: 0.3 });
-    this.zoneGraphics.moveTo(screenPos.x, screenPos.y);           // Top
-    this.zoneGraphics.lineTo(screenPos.x + hw, screenPos.y + th / 2);  // Right
-    this.zoneGraphics.lineTo(screenPos.x, screenPos.y + th);      // Bottom
-    this.zoneGraphics.lineTo(screenPos.x - hw, screenPos.y + th / 2);  // Left
+    this.zoneGraphics.moveTo(screenPos.x, screenPos.y);
+    this.zoneGraphics.lineTo(screenPos.x + hw, screenPos.y + th / 2);
+    this.zoneGraphics.lineTo(screenPos.x, screenPos.y + th);
+    this.zoneGraphics.lineTo(screenPos.x - hw, screenPos.y + th / 2);
     this.zoneGraphics.closePath();
     this.zoneGraphics.fill();
   }
 
   /**
-   * Update placement preview
+   * Update placement preview with collision detection
    */
   private updatePlacementPreview(
     preview: { i: number; j: number; xsize: number; ysize: number } | null,
-    zoomConfig: ZoomConfig
+    zoomConfig: ZoomConfig,
+    buildings?: MapBuilding[],
+    segments?: MapSegment[],
+    facilityDimensionsCache?: Map<string, FacilityDimensions>
   ): void {
     this.placementGraphics.clear();
 
     if (!preview) return;
 
     const { i, j, xsize, ysize } = preview;
-    const isValid = true; // Would check collision in full implementation
 
-    const color = isValid ? PLACEMENT_VALID : PLACEMENT_INVALID;
+    // Check collision for each tile
+    const hasCollision = this.checkBuildingCollision(
+      i, j, ysize, xsize,
+      buildings ?? [],
+      segments ?? [],
+      facilityDimensionsCache
+    );
+
+    const color = hasCollision ? COLOR_INVALID : COLOR_VALID;
 
     // Draw building footprint
-    // Note: screenPos is the TOP CENTER of each tile
     for (let di = 0; di < ysize; di++) {
       for (let dj = 0; dj < xsize; dj++) {
         const tileI = i + di;
         const tileJ = j + dj;
-        const screenPos = this.mapToScreen(tileI, tileJ, zoomConfig);
-
-        const hw = zoomConfig.tileWidth / 2;
-        const th = zoomConfig.tileHeight;
-
-        // Diamond shape: top point at screenPos.y, bottom at screenPos.y + tileHeight
-        this.placementGraphics.setFillStyle({ color, alpha: 0.5 });
-        this.placementGraphics.moveTo(screenPos.x, screenPos.y);
-        this.placementGraphics.lineTo(screenPos.x + hw, screenPos.y + th / 2);
-        this.placementGraphics.lineTo(screenPos.x, screenPos.y + th);
-        this.placementGraphics.lineTo(screenPos.x - hw, screenPos.y + th / 2);
-        this.placementGraphics.closePath();
-        this.placementGraphics.fill();
-
-        // Outline
-        this.placementGraphics.setStrokeStyle({ width: 2, color: color, alpha: 1 });
-        this.placementGraphics.moveTo(screenPos.x, screenPos.y);
-        this.placementGraphics.lineTo(screenPos.x + hw, screenPos.y + th / 2);
-        this.placementGraphics.lineTo(screenPos.x, screenPos.y + th);
-        this.placementGraphics.lineTo(screenPos.x - hw, screenPos.y + th / 2);
-        this.placementGraphics.closePath();
-        this.placementGraphics.stroke();
+        this.drawPreviewTile(this.placementGraphics, tileI, tileJ, color, 0.5, 2, zoomConfig);
       }
     }
+  }
+
+  /**
+   * Check if building placement would collide with existing buildings or roads
+   */
+  private checkBuildingCollision(
+    i: number,
+    j: number,
+    ysize: number,
+    xsize: number,
+    buildings: MapBuilding[],
+    segments: MapSegment[],
+    facilityDimensionsCache?: Map<string, FacilityDimensions>
+  ): boolean {
+    for (let di = 0; di < ysize; di++) {
+      for (let dj = 0; dj < xsize; dj++) {
+        const checkI = i + di;
+        const checkJ = j + dj;
+
+        // Check against existing buildings
+        for (const building of buildings) {
+          const dims = facilityDimensionsCache?.get(building.visualClass);
+          const bw = dims?.xsize ?? 1;
+          const bh = dims?.ysize ?? 1;
+
+          if (checkJ >= building.x && checkJ < building.x + bw &&
+              checkI >= building.y && checkI < building.y + bh) {
+            return true;
+          }
+        }
+
+        // Check against road segments
+        for (const seg of segments) {
+          const minX = Math.min(seg.x1, seg.x2);
+          const maxX = Math.max(seg.x1, seg.x2);
+          const minY = Math.min(seg.y1, seg.y2);
+          const maxY = Math.max(seg.y1, seg.y2);
+
+          if (checkJ >= minX && checkJ <= maxX &&
+              checkI >= minY && checkI <= maxY) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /**
@@ -190,64 +251,189 @@ export class PixiOverlayLayer {
    */
   private updateRoadPreview(
     state: RoadDrawingState | null,
-    zoomConfig: ZoomConfig
+    zoomConfig: ZoomConfig,
+    buildings?: MapBuilding[],
+    facilityDimensionsCache?: Map<string, FacilityDimensions>,
+    roadTilesMap?: Map<string, boolean>,
+    roadHoverState?: RoadHoverState | null
   ): void {
     this.roadPreviewGraphics.clear();
 
+    // Show hover indicator when not drawing
+    if (roadHoverState && (!state || !state.isDrawing)) {
+      const color = roadHoverState.isValid ? COLOR_HOVER : COLOR_INVALID;
+      this.drawPreviewTile(
+        this.roadPreviewGraphics,
+        roadHoverState.y,  // i = row = y
+        roadHoverState.x,  // j = column = x
+        color,
+        0.4,
+        2,
+        zoomConfig
+      );
+      return;
+    }
+
+    // Show path when drawing
     if (!state || !state.isDrawing) return;
 
     const { startX, startY, endX, endY } = state;
 
-    // Determine path direction (horizontal or vertical)
-    const dx = endX - startX;
-    const dy = endY - startY;
+    // Generate staircase path
+    const path = this.generateStaircasePath(startX, startY, endX, endY);
 
-    const color = PLACEMENT_VALID;
+    // Check for collisions along path
+    let hasCollision = false;
+    for (const point of path) {
+      if (this.checkTileCollision(point.y, point.x, buildings ?? [], facilityDimensionsCache)) {
+        hasCollision = true;
+        break;
+      }
+    }
 
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      // Horizontal path
-      const minX = Math.min(startX, endX);
-      const maxX = Math.max(startX, endX);
-      for (let x = minX; x <= maxX; x++) {
-        this.drawRoadPreviewTile(startY, x, color, zoomConfig);
+    // Check if path connects to existing roads
+    let connectsToRoad = (roadTilesMap?.size ?? 0) === 0; // Allow first road
+    if (!connectsToRoad && roadTilesMap) {
+      for (const point of path) {
+        if (this.hasRoadAt(point.x, point.y, roadTilesMap) ||
+            this.isAdjacentToRoad(point.x, point.y, roadTilesMap)) {
+          connectsToRoad = true;
+          break;
+        }
       }
-    } else {
-      // Vertical path
-      const minY = Math.min(startY, endY);
-      const maxY = Math.max(startY, endY);
-      for (let y = minY; y <= maxY; y++) {
-        this.drawRoadPreviewTile(y, startX, color, zoomConfig);
-      }
+    }
+
+    const isValid = !hasCollision && connectsToRoad;
+    const color = isValid ? COLOR_VALID : COLOR_INVALID;
+
+    // Draw each tile in path
+    for (const point of path) {
+      this.drawPreviewTile(
+        this.roadPreviewGraphics,
+        point.y,  // i = row
+        point.x,  // j = column
+        color,
+        0.4,
+        1,
+        zoomConfig
+      );
     }
   }
 
   /**
-   * Draw a single road preview tile
-   * Note: screenPos is the TOP CENTER of the tile
+   * Draw a preview tile (diamond shape)
    */
-  private drawRoadPreviewTile(i: number, j: number, color: number, zoomConfig: ZoomConfig): void {
+  private drawPreviewTile(
+    graphics: Graphics,
+    i: number,
+    j: number,
+    color: number,
+    fillAlpha: number,
+    strokeWidth: number,
+    zoomConfig: ZoomConfig
+  ): void {
     const screenPos = this.mapToScreen(i, j, zoomConfig);
-
     const hw = zoomConfig.tileWidth / 2;
     const th = zoomConfig.tileHeight;
 
-    // Diamond shape: top point at screenPos.y, bottom at screenPos.y + tileHeight
-    this.roadPreviewGraphics.setFillStyle({ color, alpha: 0.4 });
-    this.roadPreviewGraphics.moveTo(screenPos.x, screenPos.y);
-    this.roadPreviewGraphics.lineTo(screenPos.x + hw, screenPos.y + th / 2);
-    this.roadPreviewGraphics.lineTo(screenPos.x, screenPos.y + th);
-    this.roadPreviewGraphics.lineTo(screenPos.x - hw, screenPos.y + th / 2);
-    this.roadPreviewGraphics.closePath();
-    this.roadPreviewGraphics.fill();
+    // Fill
+    graphics.setFillStyle({ color, alpha: fillAlpha });
+    graphics.moveTo(screenPos.x, screenPos.y);
+    graphics.lineTo(screenPos.x + hw, screenPos.y + th / 2);
+    graphics.lineTo(screenPos.x, screenPos.y + th);
+    graphics.lineTo(screenPos.x - hw, screenPos.y + th / 2);
+    graphics.closePath();
+    graphics.fill();
 
-    // Outline
-    this.roadPreviewGraphics.setStrokeStyle({ width: 1, color: color, alpha: 1 });
-    this.roadPreviewGraphics.moveTo(screenPos.x, screenPos.y);
-    this.roadPreviewGraphics.lineTo(screenPos.x + hw, screenPos.y + th / 2);
-    this.roadPreviewGraphics.lineTo(screenPos.x, screenPos.y + th);
-    this.roadPreviewGraphics.lineTo(screenPos.x - hw, screenPos.y + th / 2);
-    this.roadPreviewGraphics.closePath();
-    this.roadPreviewGraphics.stroke();
+    // Stroke
+    graphics.setStrokeStyle({ width: strokeWidth, color: color, alpha: 1 });
+    graphics.moveTo(screenPos.x, screenPos.y);
+    graphics.lineTo(screenPos.x + hw, screenPos.y + th / 2);
+    graphics.lineTo(screenPos.x, screenPos.y + th);
+    graphics.lineTo(screenPos.x - hw, screenPos.y + th / 2);
+    graphics.closePath();
+    graphics.stroke();
+  }
+
+  /**
+   * Check if a single tile has a building collision
+   */
+  private checkTileCollision(
+    i: number,
+    j: number,
+    buildings: MapBuilding[],
+    facilityDimensionsCache?: Map<string, FacilityDimensions>
+  ): boolean {
+    for (const building of buildings) {
+      const dims = facilityDimensionsCache?.get(building.visualClass);
+      const bw = dims?.xsize ?? 1;
+      const bh = dims?.ysize ?? 1;
+
+      if (j >= building.x && j < building.x + bw &&
+          i >= building.y && i < building.y + bh) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Generate staircase path between two points
+   */
+  private generateStaircasePath(x1: number, y1: number, x2: number, y2: number): Array<{ x: number; y: number }> {
+    const path: Array<{ x: number; y: number }> = [];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const sx = dx === 0 ? 0 : dx > 0 ? 1 : -1;
+    const sy = dy === 0 ? 0 : dy > 0 ? 1 : -1;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    let x = x1;
+    let y = y1;
+    let remainingX = absDx;
+    let remainingY = absDy;
+
+    path.push({ x, y });
+
+    while (remainingX > 0 || remainingY > 0) {
+      if (remainingX >= remainingY && remainingX > 0) {
+        x += sx;
+        remainingX--;
+      } else if (remainingY > 0) {
+        y += sy;
+        remainingY--;
+      }
+      path.push({ x, y });
+    }
+
+    return path;
+  }
+
+  /**
+   * Check if a tile has an existing road
+   */
+  private hasRoadAt(x: number, y: number, roadTilesMap: Map<string, boolean>): boolean {
+    return roadTilesMap.has(`${x},${y}`);
+  }
+
+  /**
+   * Check if a tile is adjacent to an existing road
+   */
+  private isAdjacentToRoad(x: number, y: number, roadTilesMap: Map<string, boolean>): boolean {
+    const neighbors = [
+      { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
+      { dx: 0, dy: -1 }, { dx: 0, dy: 1 },
+      { dx: -1, dy: -1 }, { dx: 1, dy: -1 },
+      { dx: -1, dy: 1 }, { dx: 1, dy: 1 },
+    ];
+
+    for (const { dx, dy } of neighbors) {
+      if (roadTilesMap.has(`${x + dx},${y + dy}`)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

@@ -125,10 +125,26 @@ export class PixiMapRendererAdapter {
   }
 
   /**
+   * Get the underlying PixiRenderer (for debugging)
+   */
+  getPixiRenderer(): PixiRenderer {
+    return this.pixi;
+  }
+
+  /**
    * Initialize PixiJS renderer
    */
   private async init(): Promise<void> {
     await this.pixi.init();
+
+    // Expose renderer globally for debugging
+    // Usage: window.pixiRenderer.debugRoadAtMouse()
+    (window as unknown as { pixiRenderer: PixiRenderer }).pixiRenderer = this.pixi;
+    console.log('[PixiMapRendererAdapter] Debug: Use window.pixiRenderer for road debugging');
+    console.log('  - pixiRenderer.debugRoadAtMouse() - Debug road under cursor');
+    console.log('  - pixiRenderer.debugRoadTile(i, j) - Debug specific road tile');
+    console.log('  - pixiRenderer.dumpRoadDebug() - Dump all road info');
+    console.log('  - pixiRenderer.findRoadIssues() - Find potential issues');
 
     // Setup callbacks
     this.pixi.setOnLoadZone((x, y, w, h) => {
