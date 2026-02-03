@@ -273,14 +273,19 @@ export class PixiRenderer {
     this.config.container.appendChild(this.app.canvas);
 
     // Setup world container (moves with camera)
-    this.worldContainer.sortableChildren = true;
+    // PERFORMANCE: sortableChildren = false - we manually sort once per frame
+    // instead of PixiJS sorting every render cycle
+    this.worldContainer.sortableChildren = false;
     this.app.stage.addChild(this.worldContainer);
 
     // Create layer containers (sorted by z-index)
+    // PERFORMANCE: sortableChildren = false - we manually sort game world container once per frame
     for (let i = 0; i <= RenderLayerIndex.UI_OVERLAY; i++) {
       const layer = new Container();
       layer.zIndex = i;
-      layer.sortableChildren = true;
+      // Only enable sortableChildren for UI layers (small sprite count)
+      // Game world layer is manually sorted for performance
+      layer.sortableChildren = (i !== RenderLayerIndex.GAME_WORLD);
       this.layers.push(layer);
 
       // UI_OVERLAY should be fixed on screen, not in world space
@@ -360,6 +365,9 @@ export class PixiRenderer {
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
   }
 
+  // Track if manual sort is needed
+  private needsManualSort: boolean = true;
+
   /**
    * Main update loop
    */
@@ -374,7 +382,31 @@ export class PixiRenderer {
     if (this.viewportDirty || isInTextureLoadPeriod) {
       this.updateVisibleBounds();
       this.updateLayers();
+
+      // PERFORMANCE: Manual sort once after all layers are updated
+      // This replaces PixiJS automatic sorting (sortableChildren = true)
+      // which would sort on EVERY render frame
+      if (this.needsManualSort) {
+        this.sortGameWorldContainer();
+        this.needsManualSort = false;
+      }
+
       this.viewportDirty = false;
+    }
+  }
+
+  /**
+   * PERFORMANCE OPTIMIZATION: Manual sort of game world container
+   *
+   * Instead of sortableChildren = true (which sorts EVERY frame),
+   * we sort ONCE when sprites change. This is O(n log n) but only
+   * when viewport/data changes, not every frame.
+   */
+  private sortGameWorldContainer(): void {
+    const gameWorld = this.layers[RenderLayerIndex.GAME_WORLD];
+    if (gameWorld.children.length > 0) {
+      // Sort by zIndex (painter's algorithm order is encoded in zIndex)
+      gameWorld.children.sort((a, b) => a.zIndex - b.zIndex);
     }
   }
 
@@ -410,6 +442,9 @@ export class PixiRenderer {
   /**
    * Update all layer renderers with current visible bounds
    * Uses dirty flags to skip unchanged layers for performance
+   *
+   * PERFORMANCE: When any layer is updated, sprites may be added/removed,
+   * so we mark the container as needing a sort.
    */
   private updateLayers(): void {
     if (!this.terrainData) return;
@@ -422,7 +457,11 @@ export class PixiRenderer {
     const isTextureLoading = this.textureLoadStartTime > 0 &&
       (performance.now() - this.textureLoadStartTime < this.TEXTURE_LOAD_UPDATE_DURATION);
 
+    // Track if any layer was updated (requires re-sort)
+    let anyLayerUpdated = false;
+
     // Update terrain layer (always update when viewport moves or textures loading)
+    // LOD: Pass zoom level to terrain layer for LOD decisions (skip tall terrain at distant zoom)
     if (this.terrainDirty || this.viewportDirty || isTextureLoading) {
       this.terrainLayer?.update(
         this.terrainData,
@@ -432,6 +471,7 @@ export class PixiRenderer {
         this.concreteTilesMap   // Pass concrete tiles so tall terrain skips tiles with concrete
       );
       this.terrainDirty = false;
+      anyLayerUpdated = true;
     }
 
     // Update concrete layer (only when buildings change or viewport moves)
@@ -445,6 +485,7 @@ export class PixiRenderer {
         this.roadTilesMap
       );
       this.concreteDirty = false;
+      anyLayerUpdated = true;
     }
 
     // Update road layer (only when roads change, buildings change, or viewport moves)
@@ -460,6 +501,7 @@ export class PixiRenderer {
         this.facilityDimensionsCache
       );
       this.roadsDirty = false;
+      anyLayerUpdated = true;
     }
 
     // Update building layer (only when buildings change or viewport moves)
@@ -475,6 +517,7 @@ export class PixiRenderer {
         this.mapHeight
       );
       this.buildingsDirty = false;
+      anyLayerUpdated = true;
     }
 
     // Update overlay layer (zones, placement, road preview)
@@ -507,6 +550,12 @@ export class PixiRenderer {
         roadHoverState
       );
       this.overlayDirty = false;
+      // Note: overlay is in separate container, doesn't need game world sort
+    }
+
+    // PERFORMANCE: Mark for manual sort if any game layer was updated
+    if (anyLayerUpdated) {
+      this.needsManualSort = true;
     }
   }
 

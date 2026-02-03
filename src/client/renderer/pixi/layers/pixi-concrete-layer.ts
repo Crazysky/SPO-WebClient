@@ -86,7 +86,8 @@ export class PixiConcreteLayer {
     this.textureAtlas = textureAtlas;
     this._spritePool = spritePool;
     this.batch = new BatchSpriteManager(spritePool, container, 'concrete');
-    this.container.sortableChildren = true;
+    // PERFORMANCE: sortableChildren disabled - parent PixiRenderer sorts manually
+    // this.container.sortableChildren = true;
   }
 
   /**

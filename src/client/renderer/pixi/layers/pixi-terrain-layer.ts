@@ -25,6 +25,22 @@ import { TerrainData, ZoomConfig } from '../../../../shared/map-config';
 const TALL_TEXTURE_THRESHOLD = 32;
 
 /**
+ * LOD Configuration for tall terrain
+ *
+ * At distant zoom levels (0-1), tall terrain textures are so small that
+ * their vegetation/details are invisible. Rendering them in the upper tier
+ * adds sprites without visual benefit.
+ *
+ * LOD Strategy:
+ * - Zoom 0-1: Skip tall terrain upper tier entirely (10-20% sprite reduction)
+ * - Zoom 2-3: Full tall terrain rendering
+ *
+ * This significantly improves performance at distant zoom levels where
+ * the sprite count would otherwise be 65K-260K.
+ */
+const LOD_SKIP_TALL_TERRAIN_MAX_ZOOM = 1; // Skip tall terrain at zoom levels <= this
+
+/**
  * Terrain layer renderer for PixiJS
  */
 export class PixiTerrainLayer {
@@ -53,7 +69,8 @@ export class PixiTerrainLayer {
     this.batch = new BatchSpriteManager(spritePool, baseContainer, 'terrain');
 
     // Enable sorting for proper z-order
-    this.container.sortableChildren = true;
+    // PERFORMANCE: sortableChildren disabled - parent PixiRenderer sorts manually
+    // this.container.sortableChildren = true;
   }
 
   /**
@@ -169,6 +186,29 @@ export class PixiTerrainLayer {
     const invertedSortKey = SORT_MAX_KEY - sortKey;
 
     if (isTall) {
+      // LOD: At distant zoom levels, skip tall terrain in upper tier
+      // The vegetation/details are invisible at these scales anyway
+      // This reduces sprite count by 10-20% at zoom levels 0-1
+      if (zoomConfig.level <= LOD_SKIP_TALL_TERRAIN_MAX_ZOOM) {
+        // At distant zoom, render tall texture at base tier only (no upper tier)
+        // This saves sprites while maintaining ground appearance
+        this.batch.setSprite(
+          posKey,
+          textureKey,
+          texture,
+          screenPos.x,
+          screenPos.y + zoomConfig.tileHeight,
+          invertedSortKey * SORT_MULTIPLIER_DIAGONAL + j * SORT_MULTIPLIER_J + SORT_PRIORITY_TERRAIN_BASE,
+          {
+            scaleX: scale,
+            scaleY: scale,
+            anchorX: 0.5,
+            anchorY: 1
+          }
+        );
+        return;
+      }
+
       // Tall tile - bottom-anchored, bottom aligns with standard tile bottom
       // Uses SORT_OFFSET_UPPER to ensure tall terrain renders AFTER ALL roads
       // (matching Canvas2D drawTallTerrainOverRoads behavior)

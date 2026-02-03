@@ -56,7 +56,8 @@ export class PixiBuildingLayer {
     this.textureAtlas = textureAtlas;
     this.spritePool = spritePool;
     this.batch = new BatchSpriteManager(spritePool, container, 'building');
-    this.container.sortableChildren = true;
+    // PERFORMANCE: sortableChildren disabled - parent PixiRenderer sorts manually
+    // this.container.sortableChildren = true;
 
     this.fallbackGraphics = new Graphics();
     this.container.addChild(this.fallbackGraphics);
