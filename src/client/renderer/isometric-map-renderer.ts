@@ -2,27 +2,30 @@
  * IsometricMapRenderer
  *
  * Complete map renderer using isometric terrain with game objects (buildings, roads, overlays).
- * This replaces the rectangular MapRenderer with an isometric view.
  *
  * Layers (back to front):
- * 1. Terrain (IsometricTerrainRenderer)
- * 2. Concrete (pavement around buildings)
- * 3. Roads (gray diamond tiles)
- * 4. Buildings (blue diamond tiles)
- * 5. Zone overlay (colored zones)
- * 6. Placement preview
- * 7. Road drawing preview
- * 8. UI overlays
+ * 1. Terrain base (IsometricTerrainRenderer) — flat only, no vegetation
+ * 2. Vegetation overlay — special terrain tiles (trees, decorations)
+ * 3. Concrete (pavement around buildings)
+ * 4. Roads
+ * 5. Buildings
+ * 6. Zone overlay (colored zones)
+ * 7. Placement preview
+ * 8. Road drawing preview
+ * 9. UI overlays
  */
 
 import { IsometricTerrainRenderer } from './isometric-terrain-renderer';
 import { GameObjectTextureCache } from './game-object-texture-cache';
+import { VegetationFlatMapper } from './vegetation-flat-mapper';
+import { TouchHandler2D } from './touch-handler-2d';
 import {
   Point,
   Rect,
   TileBounds,
   ZOOM_LEVELS,
   ZoomConfig,
+  Rotation,
   TerrainData
 } from '../../shared/map-config';
 import {
@@ -44,7 +47,7 @@ import {
   landClassOf,
   landTypeOf
 } from './road-texture-system';
-import { formatLandId, landTypeName, landClassName, decodeLandId } from '../../shared/land-utils';
+import { formatLandId, landTypeName, landClassName, decodeLandId, isSpecialTile } from '../../shared/land-utils';
 import {
   ConcreteBlockClassManager,
   loadConcreteBlockClassFromIni,
@@ -84,6 +87,9 @@ export class IsometricMapRenderer {
 
   // Core terrain renderer
   private terrainRenderer: IsometricTerrainRenderer;
+
+  // Vegetation→flat mapping near dynamic content
+  private vegetationMapper: VegetationFlatMapper;
 
   // Game object texture cache (roads, buildings, etc.)
   private gameObjectTextureCache: GameObjectTextureCache;
@@ -162,6 +168,16 @@ export class IsometricMapRenderer {
   private debugShowBuildingInfo: boolean = true;
   private debugShowConcreteInfo: boolean = true;
 
+  // Touch handler for mobile
+  private touchHandler: TouchHandler2D | null = null;
+
+  // Vegetation display control
+  private vegetationEnabled: boolean = true;
+  private hideVegetationOnMove: boolean = false;
+  private isCameraMoving: boolean = false;
+  private cameraStopTimer: number | null = null;
+  private readonly CAMERA_STOP_DEBOUNCE_MS = 200;
+
   constructor(canvasId: string) {
     const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
     if (!canvas) {
@@ -178,11 +194,14 @@ export class IsometricMapRenderer {
     // Create terrain renderer (shares canvas, mouse controls handled by this class)
     this.terrainRenderer = new IsometricTerrainRenderer(canvas, { disableMouseControls: true });
 
+    // Create vegetation→flat mapper (replaces vegetation textures near buildings/roads)
+    this.vegetationMapper = new VegetationFlatMapper(2);
+
     // Disable terrain renderer's debug info - this renderer handles its own overlay at the end
     this.terrainRenderer.setShowDebugInfo(false);
 
     // Create game object texture cache (roads, buildings, etc.)
-    this.gameObjectTextureCache = new GameObjectTextureCache(500);
+    this.gameObjectTextureCache = new GameObjectTextureCache();
 
     // Setup callback to re-render when textures are loaded
     this.gameObjectTextureCache.setOnTextureLoaded((category, name) => {
@@ -191,6 +210,10 @@ export class IsometricMapRenderer {
         this.render();
       }
     });
+
+    // Load road and concrete atlases (non-blocking, fallback to individual textures)
+    this.gameObjectTextureCache.loadObjectAtlas('road').then(() => this.render());
+    this.gameObjectTextureCache.loadObjectAtlas('concrete').then(() => this.render());
 
     // Initialize road block class manager
     this.roadBlockClassManager = new RoadBlockClassManager();
@@ -209,6 +232,7 @@ export class IsometricMapRenderer {
     // Setup event handlers
     this.setupMouseControls();
     this.setupKeyboardControls();
+    this.setupTouchControls();
 
     // Initial render
     this.render();
@@ -219,6 +243,14 @@ export class IsometricMapRenderer {
    */
   private setupKeyboardControls() {
     document.addEventListener('keydown', (e) => {
+      // 'Q' rotates counter-clockwise (NORTH→WEST→SOUTH→EAST→NORTH)
+      if (e.key === 'q' || e.key === 'Q') {
+        this.rotateCounterClockwise();
+      }
+      // 'E' rotates clockwise (NORTH→EAST→SOUTH→WEST→NORTH)
+      if (e.key === 'e' || e.key === 'E') {
+        this.rotateClockwise();
+      }
       // 'D' key toggles debug mode
       if (e.key === 'd' || e.key === 'D') {
         this.debugMode = !this.debugMode;
@@ -243,6 +275,66 @@ export class IsometricMapRenderer {
     });
   }
 
+  /**
+   * Rotate view clockwise (Q: NORTH→EAST→SOUTH→WEST→NORTH)
+   */
+  private rotateClockwise(): void {
+    const current = this.terrainRenderer.getRotation();
+    const next = (current + 1) % 4 as Rotation;
+    this.terrainRenderer.setRotation(next);
+    this.markCameraMoving();
+    console.log(`[IsometricMapRenderer] Rotation: ${Rotation[next]}`);
+    this.render();
+  }
+
+  /**
+   * Rotate view counter-clockwise (E: NORTH→WEST→SOUTH→EAST→NORTH)
+   */
+  private rotateCounterClockwise(): void {
+    const current = this.terrainRenderer.getRotation();
+    const next = (current + 3) % 4 as Rotation; // +3 is equivalent to -1 mod 4
+    this.terrainRenderer.setRotation(next);
+    this.markCameraMoving();
+    console.log(`[IsometricMapRenderer] Rotation: ${Rotation[next]}`);
+    this.render();
+  }
+
+  /**
+   * Setup touch controls for mobile (pan, pinch-zoom, rotation snap, double-tap)
+   */
+  private setupTouchControls(): void {
+    this.touchHandler = new TouchHandler2D(this.canvas, {
+      onPan: (dx, dy) => {
+        // Convert screen delta to map delta (same logic as mouse drag)
+        const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
+        const u = config.u;
+        const mapDeltaI = (dy / u + dx / (2 * u)) * 0.5;
+        const mapDeltaJ = (dy / u - dx / (2 * u)) * 0.5;
+        this.terrainRenderer.pan(mapDeltaI, -mapDeltaJ);
+        this.markCameraMoving();
+        this.render();
+      },
+      onZoom: (delta) => {
+        const current = this.terrainRenderer.getZoomLevel();
+        this.terrainRenderer.setZoomLevel(current + delta);
+        this.render();
+      },
+      onRotate: (direction) => {
+        if (direction === 'cw') {
+          this.rotateClockwise();
+        } else {
+          this.rotateCounterClockwise();
+        }
+      },
+      onDoubleTap: (x, y) => {
+        // Center camera on tapped location
+        const mapPos = this.terrainRenderer.screenToMap(x, y);
+        this.terrainRenderer.centerOn(mapPos.x, mapPos.y);
+        this.render();
+      },
+    });
+  }
+
   // =========================================================================
   // MAP LOADING
   // =========================================================================
@@ -250,7 +342,7 @@ export class IsometricMapRenderer {
   /**
    * Load terrain for a map
    */
-  async loadMap(mapName: string): Promise<TerrainData> {
+  public async loadMap(mapName: string): Promise<TerrainData> {
     this.mapName = mapName;
 
     const terrainData = await this.terrainRenderer.loadMap(mapName);
@@ -354,7 +446,7 @@ export class IsometricMapRenderer {
   }
 
   // =========================================================================
-  // ZONE MANAGEMENT (same API as MapRenderer)
+  // ZONE MANAGEMENT
   // =========================================================================
 
   /**
@@ -416,6 +508,13 @@ export class IsometricMapRenderer {
 
     // Rebuild road topology rendering buffer
     this.rebuildRoadsRendering();
+
+    // Update vegetation→flat zones (used by drawVegetation to hide vegetation near buildings/roads)
+    this.vegetationMapper.updateDynamicContent(
+      this.allBuildings,
+      this.allSegments,
+      this.facilityDimensionsCache
+    );
   }
 
   /**
@@ -561,15 +660,14 @@ export class IsometricMapRenderer {
   }
 
   /**
-   * Update map data (compatibility with MapRenderer API)
-   * This method provides backward compatibility with the old MapRenderer interface
+   * Update map data with buildings and road segments for a zone
    */
   public updateMapData(mapData: { x: number; y: number; w: number; h: number; buildings: MapBuilding[]; segments: MapSegment[] }) {
     this.addCachedZone(mapData.x, mapData.y, mapData.w, mapData.h, mapData.buildings, mapData.segments);
   }
 
   // =========================================================================
-  // CALLBACKS (same API as MapRenderer)
+  // CALLBACKS
   // =========================================================================
 
   public setLoadZoneCallback(callback: (x: number, y: number, w: number, h: number) => void) {
@@ -775,10 +873,12 @@ export class IsometricMapRenderer {
     // Get visible bounds for culling
     const bounds = this.getVisibleBounds();
 
-    // Draw game object layers on top of terrain
+    // Draw vegetation overlay (special terrain tiles) above flat terrain base
+    this.drawVegetation(bounds);
+
+    // Draw game object layers on top of terrain + vegetation
     this.drawConcrete(bounds);
     this.drawRoads(bounds, occupiedTiles);
-    this.drawTallTerrainOverRoads(bounds);
     this.drawBuildings(bounds);
     this.drawZoneOverlay(bounds);
     this.drawPlacementPreview();
@@ -953,28 +1053,36 @@ export class IsometricMapRenderer {
       // Get texture filename from class manager
       const filename = this.concreteBlockClassManager.getImageFilename(tile.concreteId);
       if (filename) {
-        const texture = this.gameObjectTextureCache.getTextureSync('ConcreteImages', filename);
-
-        if (texture) {
-          // Water platform textures (ID >= 0x80) are already isometric - draw at native size
+        // Try atlas first (single large image with source rectangles)
+        const atlasRect = this.gameObjectTextureCache.getAtlasRect('ConcreteImages', filename);
+        if (atlasRect) {
           const isWaterPlatform = (tile.concreteId & 0x80) !== 0;
-
           if (isWaterPlatform) {
-            // Draw at native size, centered on tile
             ctx.drawImage(
-              texture,
-              tile.screenX - texture.width / 2,
-              tile.screenY
+              atlasRect.atlas,
+              atlasRect.sx, atlasRect.sy, atlasRect.sw, atlasRect.sh,
+              tile.screenX - atlasRect.sw / 2, tile.screenY,
+              atlasRect.sw, atlasRect.sh
             );
           } else {
-            // Land concrete - scale to current zoom level
             ctx.drawImage(
-              texture,
-              tile.screenX - halfWidth,
-              tile.screenY,
-              config.tileWidth,
-              config.tileHeight
+              atlasRect.atlas,
+              atlasRect.sx, atlasRect.sy, atlasRect.sw, atlasRect.sh,
+              tile.screenX - halfWidth, tile.screenY,
+              config.tileWidth, config.tileHeight
             );
+          }
+          continue;
+        }
+
+        // Fallback: individual texture
+        const texture = this.gameObjectTextureCache.getTextureSync('ConcreteImages', filename);
+        if (texture) {
+          const isWaterPlatform = (tile.concreteId & 0x80) !== 0;
+          if (isWaterPlatform) {
+            ctx.drawImage(texture, tile.screenX - texture.width / 2, tile.screenY);
+          } else {
+            ctx.drawImage(texture, tile.screenX - halfWidth, tile.screenY, config.tileWidth, config.tileHeight);
           }
           continue;
         }
@@ -1047,11 +1155,13 @@ export class IsometricMapRenderer {
     const BASE_TILE_HEIGHT = 32;
 
     // Collect road tiles for two-pass rendering
+    // Each tile can have either atlas rect or individual texture (or neither)
     const standardTiles: Array<{
       sx: number;
       sy: number;
       topology: RoadBlockId;
       texture: ImageBitmap | null;
+      atlasRect: { atlas: ImageBitmap; sx: number; sy: number; sw: number; sh: number } | null;
     }> = [];
 
     const tallTiles: Array<{
@@ -1060,7 +1170,9 @@ export class IsometricMapRenderer {
       sx: number;
       sy: number;
       topology: RoadBlockId;
-      texture: ImageBitmap;
+      texture: ImageBitmap | null;
+      atlasRect: { atlas: ImageBitmap; sx: number; sy: number; sw: number; sh: number } | null;
+      textureHeight: number;
     }> = [];
 
     for (const [key] of this.roadTilesMap) {
@@ -1091,13 +1203,14 @@ export class IsometricMapRenderer {
 
       let topology = RoadBlockId.None;
       let texture: ImageBitmap | null = null;
+      let atlasRect: { atlas: ImageBitmap; sx: number; sy: number; sw: number; sh: number } | null = null;
+      let textureHeight = 0;
 
       if (this.roadBlockClassesLoaded && this.roadsRendering) {
         topology = this.roadsRendering.get(y, x);
 
         if (topology !== RoadBlockId.None) {
           const landId = terrainLoader.getLandId(x, y);
-          // Use hasConcrete to determine if road should be urban
           const onConcrete = this.hasConcrete(x, y);
 
           const fullRoadBlockId = roadBlockId(
@@ -1108,26 +1221,38 @@ export class IsometricMapRenderer {
             false  // isDummy
           );
 
-          // Get texture
           const texturePath = this.roadBlockClassManager.getImagePath(fullRoadBlockId);
           if (texturePath) {
             const filename = texturePath.split('/').pop() || '';
-            texture = this.gameObjectTextureCache.getTextureSync('RoadBlockImages', filename);
+
+            // Try atlas first
+            const rect = this.gameObjectTextureCache.getAtlasRect('RoadBlockImages', filename);
+            if (rect) {
+              atlasRect = rect;
+              textureHeight = rect.sh;
+            } else {
+              // Fallback: individual texture
+              texture = this.gameObjectTextureCache.getTextureSync('RoadBlockImages', filename);
+              if (texture) textureHeight = texture.height;
+            }
           }
         }
       }
 
       // Separate tall textures (bridges) from standard textures
-      if (texture && texture.height > BASE_TILE_HEIGHT) {
-        tallTiles.push({ x, y, sx, sy, topology, texture });
+      if ((texture || atlasRect) && textureHeight > BASE_TILE_HEIGHT) {
+        tallTiles.push({ x, y, sx, sy, topology, texture, atlasRect, textureHeight });
       } else {
-        standardTiles.push({ sx, sy, topology, texture });
+        standardTiles.push({ sx, sy, topology, texture, atlasRect });
       }
     }
 
-    // Pass 1: Render standard tiles (no sorting needed, they don't overlap)
+    // Pass 1: Render standard tiles
     for (const tile of standardTiles) {
-      if (tile.texture) {
+      if (tile.atlasRect) {
+        const r = tile.atlasRect;
+        ctx.drawImage(r.atlas, r.sx, r.sy, r.sw, r.sh, tile.sx - halfWidth, tile.sy, config.tileWidth, config.tileHeight);
+      } else if (tile.texture) {
         ctx.drawImage(tile.texture, tile.sx - halfWidth, tile.sy, config.tileWidth, config.tileHeight);
       } else {
         // Fallback: draw colored diamond
@@ -1143,103 +1268,139 @@ export class IsometricMapRenderer {
     }
 
     // Pass 2: Render tall tiles (bridges) sorted by (i+j) descending
-    // Higher (i+j) = higher on screen = drawn first
-    // Lower (i+j) = lower on screen = drawn last (on top)
     tallTiles.sort((a, b) => (b.y + b.x) - (a.y + a.x));
 
     for (const tile of tallTiles) {
-      // Calculate scale and height for tall texture
       const scale = config.tileWidth / 64;
-      const scaledHeight = tile.texture.height * scale;
+      const scaledHeight = tile.textureHeight * scale;
       const yOffset = scaledHeight - config.tileHeight;
 
-      // Draw at actual height with upward offset (same as terrain tall textures)
-      ctx.drawImage(
-        tile.texture,
-        tile.sx - halfWidth,
-        tile.sy - yOffset,
-        config.tileWidth,
-        scaledHeight
-      );
+      if (tile.atlasRect) {
+        const r = tile.atlasRect;
+        ctx.drawImage(r.atlas, r.sx, r.sy, r.sw, r.sh, tile.sx - halfWidth, tile.sy - yOffset, config.tileWidth, scaledHeight);
+      } else if (tile.texture) {
+        ctx.drawImage(tile.texture, tile.sx - halfWidth, tile.sy - yOffset, config.tileWidth, scaledHeight);
+      }
     }
   }
 
   /**
-   * Re-render tall terrain textures over roads
-   * This ensures terrain special textures (plants, decorations) correctly overlap roads
-   * Uses painter's algorithm: lower tiles (closer to viewer) drawn last (on top)
+   * Draw vegetation overlay (special terrain tiles: trees, decorations)
+   * Rendered on top of flat terrain base, below concrete/roads/buildings.
+   * Vegetation within 2 tiles of buildings/roads is automatically hidden.
+   * Can be disabled during camera movement for performance.
+   * Uses painter's algorithm: lower tiles (closer to viewer) drawn last.
    */
-  private drawTallTerrainOverRoads(bounds: TileBounds) {
+  private drawVegetation(bounds: TileBounds): void {
+    // Skip if vegetation is globally disabled
+    if (!this.vegetationEnabled) return;
+    // Skip during camera movement if option is enabled
+    if (this.hideVegetationOnMove && this.isCameraMoving) return;
+
     const ctx = this.ctx;
     const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
     const halfWidth = config.tileWidth / 2;
     const terrainLoader = this.terrainRenderer.getTerrainLoader();
     const textureCache = this.terrainRenderer.getTextureCache();
+    const atlasCache = this.terrainRenderer.getAtlasCache();
+    const useAtlas = atlasCache.isReady();
 
-    // Standard tile height at base resolution
     const BASE_TILE_HEIGHT = 32;
 
-    // Collect tall terrain tiles that need to be re-rendered over roads
-    const tallTerrainTiles: Array<{
+    // Collect vegetation tiles
+    const vegTiles: Array<{
       i: number;
       j: number;
       sx: number;
       sy: number;
-      texture: ImageBitmap;
+      textureId: number;
     }> = [];
 
-    // Check tiles around roads (roads might be under tall terrain textures from adjacent tiles)
-    // We need to check a wider area because tall textures can visually extend into neighboring tiles
+    // Extend bounds by 2 tiles to catch tall textures that visually overlap into the viewport
     for (let i = bounds.minI - 2; i <= bounds.maxI + 2; i++) {
       for (let j = bounds.minJ - 2; j <= bounds.maxJ + 2; j++) {
-        // Skip tiles that have a road or concrete - these cover the terrain texture
-        // (as if the plant was removed to build the road/pavement)
-        if (this.roadTilesMap.has(`${j},${i}`) || this.hasConcrete(j, i)) {
-          continue;
-        }
-
         const textureId = terrainLoader.getTextureId(j, i);
-        const texture = textureCache.getTextureSync(textureId);
 
-        // Only process tall textures
-        if (!texture || texture.height <= BASE_TILE_HEIGHT) {
-          continue;
-        }
+        // Only render special tiles (vegetation/decorations)
+        if (!isSpecialTile(textureId)) continue;
+
+        // Skip tiles near buildings/roads (flattened in base terrain)
+        if (this.vegetationMapper.shouldFlatten(i, j, textureId)) continue;
 
         const screenPos = this.terrainRenderer.mapToScreen(i, j);
 
-        // Cull if off-screen (with extra margin for tall textures)
+        // Frustum cull with extra margin for tall textures
         if (screenPos.x < -config.tileWidth * 2 || screenPos.x > this.canvas.width + config.tileWidth * 2 ||
-            screenPos.y < -config.tileHeight * 3 || screenPos.y > this.canvas.height + config.tileHeight * 2) {
+            screenPos.y < -config.tileHeight * 4 || screenPos.y > this.canvas.height + config.tileHeight * 2) {
           continue;
         }
 
-        tallTerrainTiles.push({
-          i,
-          j,
+        vegTiles.push({
+          i, j,
           sx: Math.round(screenPos.x),
           sy: Math.round(screenPos.y),
-          texture
+          textureId,
         });
       }
     }
 
-    // Sort by (i+j) descending: higher values drawn first, lower values (closer to viewer) drawn last
-    tallTerrainTiles.sort((a, b) => (b.i + b.j) - (a.i + a.j));
+    // Sort by (i+j) descending for painter's algorithm (back-to-front)
+    vegTiles.sort((a, b) => (b.i + b.j) - (a.i + a.j));
 
-    // Re-render tall terrain textures on top of roads
-    for (const tile of tallTerrainTiles) {
-      const scale = config.tileWidth / 64;
-      const scaledHeight = tile.texture.height * scale;
-      const yOffset = scaledHeight - config.tileHeight;
+    // Draw vegetation tiles
+    if (useAtlas) {
+      const atlasImg = atlasCache.getAtlas()!;
 
-      ctx.drawImage(
-        tile.texture,
-        tile.sx - halfWidth,
-        tile.sy - yOffset,
-        config.tileWidth,
-        scaledHeight
-      );
+      for (const tile of vegTiles) {
+        const rect = atlasCache.getTileRect(tile.textureId);
+        if (!rect) continue;
+
+        if (rect.sh > BASE_TILE_HEIGHT) {
+          // Tall texture: draw at full height with upward offset
+          const scale = config.tileWidth / 64;
+          const scaledHeight = rect.sh * scale;
+          const yOffset = scaledHeight - config.tileHeight;
+
+          ctx.drawImage(
+            atlasImg,
+            rect.sx, rect.sy, rect.sw, rect.sh,
+            tile.sx - halfWidth, tile.sy - yOffset,
+            config.tileWidth, scaledHeight
+          );
+        } else {
+          // Standard height special texture
+          ctx.drawImage(
+            atlasImg,
+            rect.sx, rect.sy, rect.sw, rect.sh,
+            tile.sx - halfWidth, tile.sy,
+            config.tileWidth, config.tileHeight
+          );
+        }
+      }
+    } else {
+      // Fallback: individual textures
+      for (const tile of vegTiles) {
+        const texture = textureCache.getTextureSync(tile.textureId);
+        if (!texture) continue;
+
+        if (texture.height > BASE_TILE_HEIGHT) {
+          const scale = config.tileWidth / 64;
+          const scaledHeight = texture.height * scale;
+          const yOffset = scaledHeight - config.tileHeight;
+
+          ctx.drawImage(
+            texture,
+            tile.sx - halfWidth, tile.sy - yOffset,
+            config.tileWidth, scaledHeight
+          );
+        } else {
+          ctx.drawImage(
+            texture,
+            tile.sx - halfWidth, tile.sy,
+            config.tileWidth, config.tileHeight
+          );
+        }
+      }
     }
   }
 
@@ -2282,6 +2443,67 @@ export class IsometricMapRenderer {
   // MOUSE CONTROLS
   // =========================================================================
 
+  // =========================================================================
+  // VEGETATION CONTROL
+  // =========================================================================
+
+  /**
+   * Mark camera as moving (resets debounce timer).
+   * When the timer expires, vegetation is re-rendered.
+   */
+  private markCameraMoving(): void {
+    this.isCameraMoving = true;
+
+    // Reset debounce timer
+    if (this.cameraStopTimer !== null) {
+      clearTimeout(this.cameraStopTimer);
+    }
+
+    this.cameraStopTimer = window.setTimeout(() => {
+      this.isCameraMoving = false;
+      this.cameraStopTimer = null;
+      // Re-render with vegetation visible again
+      if (this.hideVegetationOnMove) {
+        this.render();
+      }
+    }, this.CAMERA_STOP_DEBOUNCE_MS);
+  }
+
+  /**
+   * Enable/disable vegetation rendering globally
+   */
+  public setVegetationEnabled(enabled: boolean): void {
+    if (this.vegetationEnabled !== enabled) {
+      this.vegetationEnabled = enabled;
+      this.render();
+    }
+  }
+
+  /**
+   * Check if vegetation rendering is enabled
+   */
+  public isVegetationEnabled(): boolean {
+    return this.vegetationEnabled;
+  }
+
+  /**
+   * Enable/disable hiding vegetation during camera movement
+   */
+  public setHideVegetationOnMove(enabled: boolean): void {
+    this.hideVegetationOnMove = enabled;
+  }
+
+  /**
+   * Check if hide-vegetation-on-move is enabled
+   */
+  public isHideVegetationOnMove(): boolean {
+    return this.hideVegetationOnMove;
+  }
+
+  // =========================================================================
+  // MOUSE CONTROLS
+  // =========================================================================
+
   private setupMouseControls() {
     // Disable terrain renderer's built-in mouse controls (we'll handle them)
     // The terrain renderer has its own pan/zoom which we need to coordinate with
@@ -2349,12 +2571,6 @@ export class IsometricMapRenderer {
       const dy = e.clientY - this.lastMouseY;
 
       // Convert screen delta to map delta for grab-and-move behavior
-      // Derived from inverting the isometric projection:
-      //   screenX = u * (rows - i + j)
-      //   screenY = (u/2) * ((rows - i) + (cols - j))
-      // Solving for camera delta when screen moves by (dx, dy):
-      //   deltaI = (dx + 2*dy) / (2*u)
-      //   deltaJ = (2*dy - dx) / (2*u)
       const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
       const u = config.u;
 
@@ -2365,6 +2581,9 @@ export class IsometricMapRenderer {
 
       this.lastMouseX = e.clientX;
       this.lastMouseY = e.clientY;
+
+      // Mark camera as moving (for vegetation hide-on-move option)
+      this.markCameraMoving();
 
       // NOTE: Do NOT call checkVisibleZones() during drag to prevent server spam
       // Zone loading will be triggered AFTER drag stops (in onMouseUp/onMouseLeave)

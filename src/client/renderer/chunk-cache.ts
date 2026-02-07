@@ -9,6 +9,8 @@
  * Architecture:
  * - Map divided into CHUNK_SIZE × CHUNK_SIZE tile chunks (default 32×32)
  * - Each chunk rendered once to an OffscreenCanvas
+ * - Chunks contain FLAT terrain only (vegetation/special tiles replaced by their flat center equivalent)
+ * - Vegetation is rendered as a separate overlay layer by IsometricMapRenderer
  * - Chunks cached by zoom level (different zoom = different cache)
  * - LRU eviction when cache exceeds MAX_CHUNKS
  * - Async rendering doesn't block main thread
@@ -16,54 +18,29 @@
 
 import { ZOOM_LEVELS, ZoomConfig, Point } from '../../shared/map-config';
 import { TextureCache, getFallbackColor } from './texture-cache';
+import { TextureAtlasCache } from './texture-atlas-cache';
+import { isSpecialTile } from '../../shared/land-utils';
 
 // Chunk configuration
 export const CHUNK_SIZE = 32; // tiles per chunk dimension (32×32 = 1024 tiles per chunk)
-const MAX_CHUNKS_PER_ZOOM = 64; // Maximum cached chunks per zoom level
+const MAX_CHUNKS_PER_ZOOM = 96; // Maximum cached chunks per zoom level
 
-// Maximum extra height for tall textures (special terrain like trees/plants)
-// Tallest textures are ~90 pixels at 64 wide, standard tiles are 32 pixels, so max extra = ~60 pixels
-const MAX_TEXTURE_EXTRA_HEIGHT = 64; // pixels at base resolution (64×32)
+/** Bit mask to extract LandClass only (Center, variant 0) — flattens vegetation */
+const FLAT_MASK = 0xC0;
 
 // Check if OffscreenCanvas is available (not in Node.js test environment)
 const isOffscreenCanvasSupported = typeof OffscreenCanvas !== 'undefined';
 
 /**
- * Calculate the scaled extra height for tall textures at a given zoom level
- * Textures are 64 pixels wide at base resolution, so scale = tileWidth / 64
- */
-function getScaledExtraHeight(config: ZoomConfig): number {
-  const scale = config.tileWidth / 64;
-  return Math.ceil(MAX_TEXTURE_EXTRA_HEIGHT * scale);
-}
-
-/**
  * Calculate chunk canvas dimensions for isometric rendering
  * Based on seamless tiling formula where tiles overlap by half their dimensions
- * Adds extra height at top for tall textures (special terrain like trees)
+ * Flat-only: no extra height needed for tall textures
  */
 function calculateChunkCanvasDimensions(chunkSize: number, config: ZoomConfig): { width: number; height: number } {
   const u = config.u;
-  // For N×N chunk with seamless formula:
-  // x = u * (N - i + j), step = u (half of tileWidth)
-  // y = (u/2) * ((N - i) + (N - j)), step = u/2 (half of tileHeight)
-  //
-  // Width spans from tile (N-1, 0) to tile (0, N-1)
-  // x_min = u * (N - (N-1) + 0) = u
-  // x_max = u * (N - 0 + (N-1)) = u * (2N-1)
-  // Width = x_max - x_min + tileWidth = u*(2N-2) + tileWidth = u*(2N-2) + 2*u = 2*u*N
-  //
-  // Height spans from lowest y to highest y
-  // y_min = (u/2) * ((N - (N-1)) + (N - (N-1))) = u
-  // y_max = (u/2) * (N + N) = u*N
-  // Height = y_max - y_min + tileHeight = u*(N-1) + u = u*N
 
   const width = u * (2 * chunkSize - 1) + config.tileWidth;
-  const baseHeight = (u / 2) * (2 * chunkSize - 1) + config.tileHeight;
-
-  // Add extra height at top for tall textures that extend upward
-  const extraHeight = getScaledExtraHeight(config);
-  const height = baseHeight + extraHeight;
+  const height = (u / 2) * (2 * chunkSize - 1) + config.tileHeight;
 
   return { width, height };
 }
@@ -71,7 +48,6 @@ function calculateChunkCanvasDimensions(chunkSize: number, config: ZoomConfig): 
 /**
  * Calculate the screen offset for a tile within a chunk's local canvas
  * Uses seamless tiling formula where tiles overlap by half their dimensions
- * Adds vertical offset for tall texture headroom
  */
 function getTileScreenPosInChunk(
   localI: number,
@@ -81,21 +57,15 @@ function getTileScreenPosInChunk(
 ): Point {
   const u = config.u;
 
-  // Local origin: position where tile (0, 0) of the chunk would be
-  // Using seamless formula with local rows/cols = chunkSize
   const x = u * (chunkSize - localI + localJ);
   const y = (u / 2) * ((chunkSize - localI) + (chunkSize - localJ));
 
-  // Add vertical offset to give tall textures room to extend upward
-  const extraHeight = getScaledExtraHeight(config);
-
-  return { x, y: y + extraHeight };
+  return { x, y };
 }
 
 /**
  * Get the screen position of a chunk's top-left corner in the main canvas
  * Uses seamless tiling formula for consistent positioning
- * Accounts for the extra height added for tall textures
  */
 function getChunkScreenPosition(
   chunkI: number,
@@ -108,10 +78,6 @@ function getChunkScreenPosition(
 ): Point {
   const u = config.u;
 
-  // The chunk covers tiles from (chunkI * chunkSize) to ((chunkI + 1) * chunkSize - 1)
-  // We need the screen position of the chunk's local origin point
-  // The chunk canvas has its own coordinate system
-
   const baseI = chunkI * chunkSize;
   const baseJ = chunkJ * chunkSize;
 
@@ -120,7 +86,6 @@ function getChunkScreenPosition(
   const worldY = (u / 2) * ((mapHeight - baseI) + (mapWidth - baseJ)) - origin.y;
 
   // The chunk canvas has tile (0,0) at position getTileScreenPosInChunk(0, 0, ...)
-  // which includes the extra height offset for tall textures
   const localOrigin = getTileScreenPosInChunk(0, 0, chunkSize, config);
 
   return {
@@ -150,9 +115,17 @@ export class ChunkCache {
 
   // Dependencies
   private textureCache: TextureCache;
+  private atlasCache: TextureAtlasCache | null = null;
   private getTextureId: (x: number, y: number) => number;
   private mapWidth: number = 0;
   private mapHeight: number = 0;
+
+  // Server chunk fetching
+  private mapName: string = '';
+  private terrainType: string = '';
+  private season: number = 2; // Default to Summer
+  private useServerChunks: boolean = true;
+  private serverChunkFailed: boolean = false; // Set to true after first 404, disables server for session
 
   // Rendering queue
   private renderQueue: ChunkRenderRequest[] = [];
@@ -163,7 +136,8 @@ export class ChunkCache {
     chunksRendered: 0,
     cacheHits: 0,
     cacheMisses: 0,
-    evictions: 0
+    evictions: 0,
+    serverChunksLoaded: 0
   };
 
   // Callback when chunk becomes ready
@@ -191,10 +165,33 @@ export class ChunkCache {
   }
 
   /**
+   * Set map info for server chunk fetching.
+   * Call after loading a map to enable fetching pre-rendered chunks from the server.
+   */
+  setMapInfo(mapName: string, terrainType: string, season: number): void {
+    const changed = this.mapName !== mapName || this.terrainType !== terrainType || this.season !== season;
+    this.mapName = mapName;
+    this.terrainType = terrainType;
+    this.season = season;
+    this.serverChunkFailed = false; // Reset on map change
+    if (changed) {
+      console.log(`[ChunkCache] Map info set: ${mapName} / ${terrainType} / season=${season}, server chunks enabled`);
+    }
+  }
+
+  /**
    * Set callback for when a chunk becomes ready (triggers re-render)
    */
   setOnChunkReady(callback: () => void): void {
     this.onChunkReady = callback;
+  }
+
+  /**
+   * Set texture atlas cache for atlas-based rendering.
+   * When set and ready, chunks render from the atlas instead of individual textures.
+   */
+  setAtlasCache(atlas: TextureAtlasCache | null): void {
+    this.atlasCache = atlas;
   }
 
   /**
@@ -289,27 +286,149 @@ export class ChunkCache {
   }
 
   /**
-   * Process render queue (one chunk at a time to not block)
+   * Process render queue with parallel fetching (up to CONCURRENCY chunks at once)
    */
   private async processRenderQueue(): Promise<void> {
     if (this.isProcessingQueue) return;
     this.isProcessingQueue = true;
 
-    while (this.renderQueue.length > 0) {
-      const request = this.renderQueue.shift()!;
-      await this.renderChunk(request.chunkI, request.chunkJ, request.zoomLevel);
+    const CONCURRENCY = 6;
+    const queueStart = performance.now();
+    let processed = 0;
 
-      // Small yield to prevent blocking
+    while (this.renderQueue.length > 0) {
+      // Grab up to CONCURRENCY items from the queue
+      const batch = this.renderQueue.splice(0, CONCURRENCY);
+
+      const promises = batch.map(async (request) => {
+        const t0 = performance.now();
+        await this.renderChunk(request.chunkI, request.chunkJ, request.zoomLevel);
+        const dt = performance.now() - t0;
+
+        if (dt > 50) {
+          console.log(`[ChunkCache] render ${request.chunkI},${request.chunkJ} z${request.zoomLevel}: ${dt.toFixed(0)}ms (queue: ${this.renderQueue.length})`);
+        }
+      });
+
+      await Promise.all(promises);
+      processed += batch.length;
+
+      // Small yield between batches to prevent blocking
       await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    const totalDt = performance.now() - queueStart;
+    if (processed > 1) {
+      console.log(`[ChunkCache] queue done: ${processed} chunks in ${totalDt.toFixed(0)}ms (avg ${(totalDt / processed).toFixed(0)}ms/chunk)`);
     }
 
     this.isProcessingQueue = false;
   }
 
   /**
-   * Render a single chunk
+   * Flatten a texture ID: replace vegetation/special tiles with their flat center equivalent.
+   * Keeps LandClass (bits 7-6), zeros LandType and LandVar.
+   */
+  private flattenTextureId(textureId: number): number {
+    if (isSpecialTile(textureId)) {
+      return textureId & FLAT_MASK;
+    }
+    return textureId;
+  }
+
+  /**
+   * Render a single chunk: try server-side pre-rendered PNG first, fall back to local rendering.
    */
   private async renderChunk(chunkI: number, chunkJ: number, zoomLevel: number): Promise<void> {
+    // Try server chunk first (only if map info is set and server hasn't failed)
+    if (this.useServerChunks && !this.serverChunkFailed && this.mapName) {
+      const success = await this.fetchServerChunk(chunkI, chunkJ, zoomLevel);
+      if (success) return;
+    }
+
+    // Fall back to local rendering
+    await this.renderChunkLocally(chunkI, chunkJ, zoomLevel);
+  }
+
+  /**
+   * Fetch a pre-rendered chunk PNG from the server.
+   * @returns true if successful, false if failed (caller should fall back to local rendering)
+   */
+  private async fetchServerChunk(chunkI: number, chunkJ: number, zoomLevel: number): Promise<boolean> {
+    const cache = this.caches.get(zoomLevel)!;
+    const key = this.getKey(chunkI, chunkJ);
+    const entry = cache.get(key);
+    if (!entry) return false;
+
+    try {
+      const t0 = performance.now();
+      const url = `/api/terrain-chunk/${encodeURIComponent(this.mapName)}/${encodeURIComponent(this.terrainType)}/${this.season}/${zoomLevel}/${chunkI}/${chunkJ}`;
+      const response = await fetch(url);
+      const tFetch = performance.now();
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          // Server doesn't have chunks — disable for this session
+          console.warn('[ChunkCache] Server chunks not available, falling back to local rendering');
+          this.serverChunkFailed = true;
+        }
+        return false;
+      }
+
+      const blob = await response.blob();
+      const tBlob = performance.now();
+      const bitmap = await createImageBitmap(blob);
+      const tBitmap = performance.now();
+
+      // Get target dimensions for this zoom level
+      const config = ZOOM_LEVELS[zoomLevel];
+      const dims = calculateChunkCanvasDimensions(CHUNK_SIZE, config);
+      const ctx = entry.canvas.getContext('2d');
+      if (!ctx) {
+        bitmap.close();
+        return false;
+      }
+
+      ctx.clearRect(0, 0, entry.canvas.width, entry.canvas.height);
+
+      // Server provides correctly-sized chunk for each zoom level
+      ctx.drawImage(bitmap, 0, 0);
+
+      const tDraw = performance.now();
+      bitmap.close();
+
+      // Mark as ready
+      entry.ready = true;
+      entry.rendering = false;
+      this.stats.chunksRendered++;
+      this.stats.serverChunksLoaded++;
+
+      // Evict if needed
+      this.evictIfNeeded(zoomLevel);
+
+      // Notify that chunk is ready
+      if (this.onChunkReady) {
+        this.onChunkReady();
+      }
+
+      const total = tDraw - t0;
+      if (total > 30) {
+        console.log(`[ChunkCache] fetch ${chunkI},${chunkJ} z${zoomLevel}: fetch=${(tFetch - t0).toFixed(0)}ms blob=${(tBlob - tFetch).toFixed(0)}ms bitmap=${(tBitmap - tBlob).toFixed(0)}ms draw=${(tDraw - tBitmap).toFixed(0)}ms total=${total.toFixed(0)}ms (${(blob.size / 1024).toFixed(0)} KB)`);
+      }
+
+      return true;
+    } catch (error) {
+      // Network error — fall back to local
+      console.warn(`[ChunkCache] Server chunk fetch failed for ${chunkI},${chunkJ}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Render a single chunk locally (flat terrain only — no tall/vegetation textures).
+   * This is the fallback path when server chunks are not available.
+   */
+  private async renderChunkLocally(chunkI: number, chunkJ: number, zoomLevel: number): Promise<void> {
     const cache = this.caches.get(zoomLevel)!;
     const key = this.getKey(chunkI, chunkJ);
     const entry = cache.get(key);
@@ -332,102 +451,88 @@ export class ChunkCache {
     const halfWidth = config.tileWidth / 2;
     const halfHeight = config.tileHeight / 2;
 
-    // Collect unique texture IDs for preloading
-    const textureIds = new Set<number>();
-    for (let i = startI; i < endI; i++) {
-      for (let j = startJ; j < endJ; j++) {
-        textureIds.add(this.getTextureId(j, i));
-      }
-    }
+    // Check if atlas is available (preferred: single drawImage source rect)
+    const atlas = this.atlasCache?.isReady() ? this.atlasCache : null;
 
-    // Preload all textures for this chunk (season is set on textureCache)
-    await this.textureCache.preload(Array.from(textureIds));
+    if (atlas) {
+      // ===== ATLAS-BASED RENDERING =====
+      const atlasImg = atlas.getAtlas()!;
 
-    // Standard tile height at base resolution (64×32)
-    const BASE_TILE_HEIGHT = 32;
+      for (let i = startI; i < endI; i++) {
+        for (let j = startJ; j < endJ; j++) {
+          const textureId = this.flattenTextureId(this.getTextureId(j, i));
 
-    // Two-pass rendering:
-    // Pass 1: Render standard-height tiles (ground)
-    // Pass 2: Render tall tiles (special terrain like trees/plants) on top
-    // This ensures tall textures are not covered by adjacent ground tiles
+          const rect = atlas.getTileRect(textureId);
+          const localI = i - startI;
+          const localJ = j - startJ;
+          const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
+          const x = Math.round(screenPos.x);
+          const y = Math.round(screenPos.y);
 
-    // Collect tiles to render in each pass
-    const standardTiles: Array<{ i: number; j: number; textureId: number; texture: ImageBitmap | null }> = [];
-    const tallTiles: Array<{ i: number; j: number; textureId: number; texture: ImageBitmap }> = [];
-
-    for (let i = startI; i < endI; i++) {
-      for (let j = startJ; j < endJ; j++) {
-        const textureId = this.getTextureId(j, i);
-        const texture = this.textureCache.getTextureSync(textureId);
-
-        if (texture && texture.height > BASE_TILE_HEIGHT) {
-          // Tall texture - render in second pass
-          tallTiles.push({ i, j, textureId, texture });
-        } else {
-          // Standard or missing texture - render in first pass
-          standardTiles.push({ i, j, textureId, texture });
+          if (rect) {
+            ctx.drawImage(
+              atlasImg,
+              rect.sx, rect.sy, rect.sw, rect.sh,
+              x - halfWidth, y,
+              config.tileWidth, config.tileHeight
+            );
+          } else {
+            // Fallback color for missing tiles
+            const color = getFallbackColor(textureId);
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + halfWidth, y + halfHeight);
+            ctx.lineTo(x, y + config.tileHeight);
+            ctx.lineTo(x - halfWidth, y + halfHeight);
+            ctx.closePath();
+            ctx.fill();
+          }
         }
       }
-    }
-
-    // Pass 1: Render standard-height tiles
-    for (const tile of standardTiles) {
-      const localI = tile.i - startI;
-      const localJ = tile.j - startJ;
-      const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
-      const x = Math.round(screenPos.x);
-      const y = Math.round(screenPos.y);
-
-      if (tile.texture) {
-        ctx.drawImage(
-          tile.texture,
-          x - halfWidth,
-          y,
-          config.tileWidth,
-          config.tileHeight
-        );
-      } else {
-        // No texture available - draw a diamond-shaped fallback color
-        const color = getFallbackColor(tile.textureId);
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(x, y);                                // top
-        ctx.lineTo(x + halfWidth, y + halfHeight);       // right
-        ctx.lineTo(x, y + config.tileHeight);            // bottom
-        ctx.lineTo(x - halfWidth, y + halfHeight);       // left
-        ctx.closePath();
-        ctx.fill();
+    } else {
+      // ===== INDIVIDUAL TEXTURE RENDERING (fallback) =====
+      // Collect unique texture IDs for preloading
+      const textureIds = new Set<number>();
+      for (let i = startI; i < endI; i++) {
+        for (let j = startJ; j < endJ; j++) {
+          textureIds.add(this.flattenTextureId(this.getTextureId(j, i)));
+        }
       }
-    }
 
-    // Pass 2: Render tall tiles on top
-    // Sort by screen Y ascending (= i+j descending) for correct painter's algorithm:
-    // Tiles higher on screen (lower Y, far from viewer) are drawn first,
-    // Tiles lower on screen (higher Y, closer to viewer) are drawn last (on top)
-    tallTiles.sort((a, b) => (b.i + b.j) - (a.i + a.j));
+      // Preload all textures for this chunk (season is set on textureCache)
+      await this.textureCache.preload(Array.from(textureIds));
 
-    for (const tile of tallTiles) {
-      const localI = tile.i - startI;
-      const localJ = tile.j - startJ;
-      const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
-      const x = Math.round(screenPos.x);
-      const y = Math.round(screenPos.y);
+      for (let i = startI; i < endI; i++) {
+        for (let j = startJ; j < endJ; j++) {
+          const textureId = this.flattenTextureId(this.getTextureId(j, i));
+          const texture = this.textureCache.getTextureSync(textureId);
 
-      // Draw texture at its actual dimensions, scaled by zoom level
-      const scale = config.tileWidth / 64;
-      const scaledHeight = tile.texture.height * scale;
+          const localI = i - startI;
+          const localJ = j - startJ;
+          const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
+          const x = Math.round(screenPos.x);
+          const y = Math.round(screenPos.y);
 
-      // Adjust Y position upward - the bottom aligns with tile position,
-      // the top extends upward to overlap tiles rendered earlier
-      const yOffset = scaledHeight - config.tileHeight;
-
-      ctx.drawImage(
-        tile.texture,
-        x - halfWidth,
-        y - yOffset,
-        config.tileWidth,
-        scaledHeight
-      );
+          if (texture) {
+            ctx.drawImage(
+              texture,
+              x - halfWidth, y,
+              config.tileWidth, config.tileHeight
+            );
+          } else {
+            const color = getFallbackColor(textureId);
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + halfWidth, y + halfHeight);
+            ctx.lineTo(x, y + config.tileHeight);
+            ctx.lineTo(x - halfWidth, y + halfHeight);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+      }
     }
 
     // Mark as ready
@@ -619,7 +724,8 @@ export class ChunkCache {
       chunksRendered: 0,
       cacheHits: 0,
       cacheMisses: 0,
-      evictions: 0
+      evictions: 0,
+      serverChunksLoaded: 0
     };
   }
 
@@ -648,6 +754,7 @@ export class ChunkCache {
     cacheHits: number;
     cacheMisses: number;
     evictions: number;
+    serverChunksLoaded: number;
     hitRate: number;
     cacheSizes: Record<number, number>;
     queueLength: number;

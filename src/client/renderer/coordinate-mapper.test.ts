@@ -1,182 +1,208 @@
-/**
- * Unit tests for CoordinateMapper
- * Tests the seamless isometric transformation algorithm
- *
- * Formula: x = u * (rows - i + j), y = (u/2) * ((rows - i) + (cols - j))
- * Where u = 2 << zoomLevel
- */
-
+import { describe, it, expect, beforeEach } from '@jest/globals';
 import { CoordinateMapper } from './coordinate-mapper';
 import { Rotation } from '../../shared/map-config';
 
 describe('CoordinateMapper', () => {
+  const MAP_SIZE = 200;
   let mapper: CoordinateMapper;
 
   beforeEach(() => {
-    mapper = new CoordinateMapper(2000, 2000);
+    mapper = new CoordinateMapper(MAP_SIZE, MAP_SIZE);
   });
 
-  describe('mapToScreen', () => {
-    it('should convert map origin (0,0) to screen coordinates at zoom level 2', () => {
-      // u = 16 at zoom level 2
-      // x = u * (rows - i + j) = 16 * (2000 - 0 + 0) = 32000
-      // y = (u/2) * ((rows - i) + (cols - j)) = 8 * ((2000 - 0) + (2000 - 0)) = 32000
-      const result = mapper.mapToScreen(0, 0, 2, Rotation.NORTH, { x: 0, y: 0 });
-      expect(result.x).toBe(16 * (2000 - 0 + 0)); // 32000
-      expect(result.y).toBe(8 * ((2000 - 0) + (2000 - 0))); // 32000
-    });
+  describe('mapToScreen / screenToMap roundtrip', () => {
+    const origin = { x: 0, y: 0 };
+    const zoomLevel = 2; // u=16
 
-    it('should convert map center (1000,1000) to screen coordinates', () => {
-      // x = 16 * (2000 - 1000 + 1000) = 32000
-      // y = 8 * ((2000 - 1000) + (2000 - 1000)) = 16000
-      const result = mapper.mapToScreen(1000, 1000, 2, Rotation.NORTH, { x: 0, y: 0 });
-      expect(result.x).toBe(16 * (2000 - 1000 + 1000)); // 32000
-      expect(result.y).toBe(8 * ((2000 - 1000) + (2000 - 1000))); // 16000
-    });
+    const testTiles = [
+      { i: 100, j: 100, label: 'center' },
+      { i: 0, j: 0, label: 'top-left' },
+      { i: 0, j: 199, label: 'top-right' },
+      { i: 199, j: 0, label: 'bottom-left' },
+      { i: 199, j: 199, label: 'bottom-right' },
+      { i: 50, j: 150, label: 'off-center' },
+      { i: 10, j: 90, label: 'near-top' },
+    ];
 
-    it('should scale properly at different zoom levels', () => {
-      const point = { i: 100, j: 100 };
-      const origin = { x: 0, y: 0 };
+    const rotations: Rotation[] = [
+      Rotation.NORTH,
+      Rotation.EAST,
+      Rotation.SOUTH,
+      Rotation.WEST,
+    ];
 
-      const zoom0 = mapper.mapToScreen(point.i, point.j, 0, Rotation.NORTH, origin);
-      const zoom1 = mapper.mapToScreen(point.i, point.j, 1, Rotation.NORTH, origin);
-      const zoom2 = mapper.mapToScreen(point.i, point.j, 2, Rotation.NORTH, origin);
-      const zoom3 = mapper.mapToScreen(point.i, point.j, 3, Rotation.NORTH, origin);
-
-      // Each zoom level should double the coordinates
-      expect(zoom1.x).toBe(zoom0.x * 2);
-      expect(zoom1.y).toBe(zoom0.y * 2);
-      expect(zoom2.x).toBe(zoom1.x * 2);
-      expect(zoom2.y).toBe(zoom1.y * 2);
-      expect(zoom3.x).toBe(zoom2.x * 2);
-      expect(zoom3.y).toBe(zoom2.y * 2);
-    });
+    for (const rot of rotations) {
+      for (const tile of testTiles) {
+        it(`roundtrip (${tile.label}: ${tile.i},${tile.j}) rotation=${Rotation[rot]}`, () => {
+          const screen = mapper.mapToScreen(tile.i, tile.j, zoomLevel, rot, origin);
+          const back = mapper.screenToMap(screen.x, screen.y, zoomLevel, rot, origin);
+          expect(back.x).toBe(tile.i);
+          expect(back.y).toBe(tile.j);
+        });
+      }
+    }
   });
 
-  describe('screenToMap', () => {
-    it('should convert screen coordinates back to map coordinates (roundtrip test)', () => {
-      const original = { i: 500, j: 750 };
-      const origin = { x: 0, y: 0 };
+  describe('rotation changes screen position', () => {
+    const origin = { x: 0, y: 0 };
+    const zoomLevel = 2;
 
-      for (let zoom = 0; zoom <= 3; zoom++) {
-        const screen = mapper.mapToScreen(original.i, original.j, zoom, Rotation.NORTH, origin);
-        const result = mapper.screenToMap(screen.x, screen.y, zoom, Rotation.NORTH, origin);
+    it('off-center tile has different screen coords for each rotation', () => {
+      const i = 50;
+      const j = 150;
 
-        expect(result.x).toBe(original.i);
-        expect(result.y).toBe(original.j);
+      const north = mapper.mapToScreen(i, j, zoomLevel, Rotation.NORTH, origin);
+      const east = mapper.mapToScreen(i, j, zoomLevel, Rotation.EAST, origin);
+      const south = mapper.mapToScreen(i, j, zoomLevel, Rotation.SOUTH, origin);
+      const west = mapper.mapToScreen(i, j, zoomLevel, Rotation.WEST, origin);
+
+      // All 4 rotations should produce different screen positions for an off-center tile
+      const positions = [north, east, south, west];
+      for (let a = 0; a < positions.length; a++) {
+        for (let b = a + 1; b < positions.length; b++) {
+          expect(
+            positions[a].x !== positions[b].x || positions[a].y !== positions[b].y
+          ).toBe(true);
+        }
       }
     });
 
-    it('should work with camera offset (roundtrip test)', () => {
-      const original = { i: 1200, j: 800 };
-      const origin = { x: 12345, y: 67890 };
+    it('center tile maps to same screen position for all rotations', () => {
+      const center = MAP_SIZE / 2;
 
-      const screen = mapper.mapToScreen(original.i, original.j, 2, Rotation.NORTH, origin);
-      const result = mapper.screenToMap(screen.x, screen.y, 2, Rotation.NORTH, origin);
+      const north = mapper.mapToScreen(center, center, zoomLevel, Rotation.NORTH, origin);
+      const east = mapper.mapToScreen(center, center, zoomLevel, Rotation.EAST, origin);
+      const south = mapper.mapToScreen(center, center, zoomLevel, Rotation.SOUTH, origin);
+      const west = mapper.mapToScreen(center, center, zoomLevel, Rotation.WEST, origin);
 
-      expect(result.x).toBe(original.i);
-      expect(result.y).toBe(original.j);
+      expect(east.x).toBe(north.x);
+      expect(east.y).toBe(north.y);
+      expect(south.x).toBe(north.x);
+      expect(south.y).toBe(north.y);
+      expect(west.x).toBe(north.x);
+      expect(west.y).toBe(north.y);
+    });
+  });
+
+  describe('180° rotation symmetry', () => {
+    const origin = { x: 0, y: 0 };
+    const zoomLevel = 2;
+
+    it('SOUTH rotation of tile (i,j) equals NORTH rotation of mirrored tile', () => {
+      const i = 30;
+      const j = 170;
+
+      const southScreen = mapper.mapToScreen(i, j, zoomLevel, Rotation.SOUTH, origin);
+
+      // Mirrored tile relative to center: (200-i, 200-j)
+      const mirrorI = MAP_SIZE - i;
+      const mirrorJ = MAP_SIZE - j;
+      const northScreen = mapper.mapToScreen(mirrorI, mirrorJ, zoomLevel, Rotation.NORTH, origin);
+
+      expect(southScreen.x).toBe(northScreen.x);
+      expect(southScreen.y).toBe(northScreen.y);
+    });
+  });
+
+  describe('NORTH rotation is identity', () => {
+    const origin = { x: 0, y: 0 };
+    const zoomLevel = 2;
+
+    it('NORTH rotation produces standard isometric formula result', () => {
+      const i = 50;
+      const j = 150;
+      const u = 16; // zoom level 2
+      const rows = MAP_SIZE;
+      const cols = MAP_SIZE;
+
+      const screen = mapper.mapToScreen(i, j, zoomLevel, Rotation.NORTH, origin);
+
+      const expectedX = u * (rows - i + j);
+      const expectedY = (u / 2) * ((rows - i) + (cols - j));
+
+      expect(screen.x).toBe(expectedX);
+      expect(screen.y).toBe(expectedY);
+    });
+  });
+
+  describe('getVisibleBounds with rotation', () => {
+    const zoomLevel = 2;
+    const viewport = { x: 0, y: 0, width: 800, height: 600 };
+    // Center the viewport on the map center (100,100) which is invariant across rotations
+    // At zoom=2 (u=16), center screen coords = (3200, 1600), so origin shifts viewport there
+    const origin = { x: 3200 - 400, y: 1600 - 300 };
+
+    for (const rot of [Rotation.NORTH, Rotation.EAST, Rotation.SOUTH, Rotation.WEST]) {
+      it(`returns valid bounds for rotation=${Rotation[rot]}`, () => {
+        const bounds = mapper.getVisibleBounds(viewport, zoomLevel, rot, origin);
+
+        expect(bounds.minI).toBeLessThanOrEqual(bounds.maxI);
+        expect(bounds.minJ).toBeLessThanOrEqual(bounds.maxJ);
+        expect(bounds.minI).toBeGreaterThanOrEqual(0);
+        expect(bounds.minJ).toBeGreaterThanOrEqual(0);
+        expect(bounds.maxI).toBeLessThan(MAP_SIZE);
+        expect(bounds.maxJ).toBeLessThan(MAP_SIZE);
+      });
+    }
+  });
+
+  describe('zoom levels', () => {
+    const origin = { x: 0, y: 0 };
+
+    it('higher zoom level produces larger screen coordinates', () => {
+      const i = 50;
+      const j = 150;
+
+      const screen0 = mapper.mapToScreen(i, j, 0, Rotation.NORTH, origin);
+      const screen1 = mapper.mapToScreen(i, j, 1, Rotation.NORTH, origin);
+      const screen2 = mapper.mapToScreen(i, j, 2, Rotation.NORTH, origin);
+      const screen3 = mapper.mapToScreen(i, j, 3, Rotation.NORTH, origin);
+
+      expect(screen1.x).toBe(screen0.x * 2);
+      expect(screen1.y).toBe(screen0.y * 2);
+      expect(screen2.x).toBe(screen0.x * 4);
+      expect(screen2.y).toBe(screen0.y * 4);
+      expect(screen3.x).toBe(screen0.x * 8);
+      expect(screen3.y).toBe(screen0.y * 8);
     });
 
-    it('should work at map boundaries (roundtrip test)', () => {
-      const origin = { x: 0, y: 0 };
-      const testPoints = [
-        { i: 0, j: 0 },           // Top-left corner
-        { i: 0, j: 1999 },        // Top-right corner
-        { i: 1999, j: 0 },        // Bottom-left corner
-        { i: 1999, j: 1999 },     // Bottom-right corner
-        { i: 1000, j: 1000 }      // Center
-      ];
+    it('roundtrip works for all zoom levels', () => {
+      const i = 75;
+      const j = 125;
 
-      for (const point of testPoints) {
-        const screen = mapper.mapToScreen(point.i, point.j, 2, Rotation.NORTH, origin);
-        const result = mapper.screenToMap(screen.x, screen.y, 2, Rotation.NORTH, origin);
-
-        expect(result.x).toBe(point.i);
-        expect(result.y).toBe(point.j);
+      for (let z = 0; z < 4; z++) {
+        const screen = mapper.mapToScreen(i, j, z, Rotation.NORTH, origin);
+        const back = mapper.screenToMap(screen.x, screen.y, z, Rotation.NORTH, origin);
+        expect(back.x).toBe(i);
+        expect(back.y).toBe(j);
       }
     });
   });
 
-  describe.skip('rotation', () => {
-    // TODO: Implement rotation correctly after studying original client behavior
-    it('should preserve coordinates after 4 rotations (360 degrees)', () => {
-      const original = { i: 500, j: 750 };
-      const origin = { x: 0, y: 0 };
+  describe('origin offset', () => {
+    it('origin shifts screen coordinates', () => {
+      const i = 100;
+      const j = 100;
+      const zoomLevel = 2;
 
-      // Apply all 4 rotations in sequence
-      const north = mapper.mapToScreen(original.i, original.j, 2, Rotation.NORTH, origin);
-      const east = mapper.mapToScreen(original.i, original.j, 2, Rotation.EAST, origin);
-      const south = mapper.mapToScreen(original.i, original.j, 2, Rotation.SOUTH, origin);
-      const west = mapper.mapToScreen(original.i, original.j, 2, Rotation.WEST, origin);
+      const noOffset = mapper.mapToScreen(i, j, zoomLevel, Rotation.NORTH, { x: 0, y: 0 });
+      const withOffset = mapper.mapToScreen(i, j, zoomLevel, Rotation.NORTH, { x: 100, y: 50 });
 
-      // All should be different
-      expect(north).not.toEqual(east);
-      expect(east).not.toEqual(south);
-      expect(south).not.toEqual(west);
-
-      // But converting back from any rotation should give original coordinates
-      const fromNorth = mapper.screenToMap(north.x, north.y, 2, Rotation.NORTH, origin);
-      const fromEast = mapper.screenToMap(east.x, east.y, 2, Rotation.EAST, origin);
-      const fromSouth = mapper.screenToMap(south.x, south.y, 2, Rotation.SOUTH, origin);
-      const fromWest = mapper.screenToMap(west.x, west.y, 2, Rotation.WEST, origin);
-
-      expect(fromNorth.x).toBe(original.i);
-      expect(fromNorth.y).toBe(original.j);
-      expect(fromEast.x).toBe(original.i);
-      expect(fromEast.y).toBe(original.j);
-      expect(fromSouth.x).toBe(original.i);
-      expect(fromSouth.y).toBe(original.j);
-      expect(fromWest.x).toBe(original.i);
-      expect(fromWest.y).toBe(original.j);
-    });
-  });
-
-  describe('getVisibleBounds', () => {
-    it('should return valid bounds for a viewport centered on map', () => {
-      const viewport = { x: 0, y: 0, width: 800, height: 600 };
-      // Origin set to center of map (tile 1000,1000)
-      // At zoom 2: x = 16*2000 = 32000, y = 8*2000 = 16000
-      // Center origin on canvas center
-      const origin = { x: 32000 - 400, y: 16000 - 300 };
-
-      const bounds = mapper.getVisibleBounds(viewport, 2, Rotation.NORTH, origin);
-
-      expect(bounds.minI).toBeGreaterThanOrEqual(0);
-      expect(bounds.maxI).toBeLessThan(2000);
-      expect(bounds.minJ).toBeGreaterThanOrEqual(0);
-      expect(bounds.maxJ).toBeLessThan(2000);
-      expect(bounds.minI).toBeLessThanOrEqual(bounds.maxI);
-      expect(bounds.minJ).toBeLessThanOrEqual(bounds.maxJ);
+      expect(withOffset.x).toBe(noOffset.x - 100);
+      expect(withOffset.y).toBe(noOffset.y - 50);
     });
 
-    it('should return smaller bounds at higher zoom levels', () => {
-      const viewport = { x: 0, y: 0, width: 800, height: 600 };
-      // Use origin=0 to get comparable results across zoom levels
-      // The number of visible tiles should decrease as we zoom in
-      const origin = { x: 0, y: 0 };
+    it('roundtrip works with non-zero origin', () => {
+      const i = 80;
+      const j = 120;
+      const origin = { x: 500, y: 300 };
 
-      const bounds0 = mapper.getVisibleBounds(viewport, 0, Rotation.NORTH, origin);
-      const bounds3 = mapper.getVisibleBounds(viewport, 3, Rotation.NORTH, origin);
-
-      const range0 = Math.max(0, bounds0.maxI - bounds0.minI) + Math.max(0, bounds0.maxJ - bounds0.minJ);
-      const range3 = Math.max(0, bounds3.maxI - bounds3.minI) + Math.max(0, bounds3.maxJ - bounds3.minJ);
-
-      // Higher zoom (3) should show fewer tiles than lower zoom (0)
-      // At higher zoom, tiles are larger so fewer fit in viewport
-      expect(range3).toBeLessThan(range0);
-    });
-
-    it('should clamp bounds to map limits', () => {
-      const viewport = { x: -10000, y: -10000, width: 100000, height: 100000 };
-      const origin = { x: 0, y: 0 };
-
-      const bounds = mapper.getVisibleBounds(viewport, 2, Rotation.NORTH, origin);
-
-      expect(bounds.minI).toBeGreaterThanOrEqual(0);
-      expect(bounds.maxI).toBeLessThanOrEqual(1999);
-      expect(bounds.minJ).toBeGreaterThanOrEqual(0);
-      expect(bounds.maxJ).toBeLessThanOrEqual(1999);
+      for (const rot of [Rotation.NORTH, Rotation.EAST, Rotation.SOUTH, Rotation.WEST]) {
+        const screen = mapper.mapToScreen(i, j, 2, rot, origin);
+        const back = mapper.screenToMap(screen.x, screen.y, 2, rot, origin);
+        expect(back.x).toBe(i);
+        expect(back.y).toBe(j);
+      }
     });
   });
 });

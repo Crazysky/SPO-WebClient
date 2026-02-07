@@ -106,7 +106,7 @@ export class TextureCache {
   private misses: number = 0;
   private evictions: number = 0;
 
-  constructor(maxSize: number = 200) {
+  constructor(maxSize: number = 1024) {
     this.maxSize = maxSize;
   }
 
@@ -280,9 +280,11 @@ export class TextureCache {
   }
 
   /**
-   * Fetch texture from server and convert to ImageBitmap
-   * Uses season (not zoom level) to fetch the correct texture variant
-   * Applies blue (0,0,255) color key transparency for terrain textures
+   * Fetch texture from server and convert to ImageBitmap.
+   * Uses season (not zoom level) to fetch the correct texture variant.
+   *
+   * Textures are served as pre-baked PNGs with alpha channel already applied,
+   * so no client-side color keying is needed.
    */
   private async fetchTexture(paletteIndex: number): Promise<ImageBitmap | null> {
     const url = `/api/terrain-texture/${encodeURIComponent(this.terrainType)}/${this.season}/${paletteIndex}`;
@@ -300,77 +302,11 @@ export class TextureCache {
       }
 
       const blob = await response.blob();
-      const rawBitmap = await createImageBitmap(blob);
-
-      // Apply blue color key transparency for terrain textures
-      // The blue (0,0,255) pixels are the transparency zones outside the diamond shape
-      return this.applyColorKeyTransparency(rawBitmap);
+      return createImageBitmap(blob);
     } catch (error) {
       console.warn(`[TextureCache] Failed to load texture ${paletteIndex}:`, error);
       return null;
     }
-  }
-
-  /**
-   * Apply color key transparency to terrain textures
-   *
-   * Detects the transparency color dynamically by reading the corner pixels
-   * of each texture. Corner pixels are always outside the isometric diamond
-   * shape and contain the chroma key color.
-   */
-  private async applyColorKeyTransparency(bitmap: ImageBitmap): Promise<ImageBitmap> {
-    // Check if OffscreenCanvas is available (not available in Node.js tests)
-    if (typeof OffscreenCanvas === 'undefined') {
-      return bitmap;
-    }
-
-    // Create an OffscreenCanvas to process the image
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-    const ctx = canvas.getContext('2d');
-
-    if (!ctx) {
-      return bitmap;
-    }
-
-    // Draw the original bitmap
-    ctx.drawImage(bitmap, 0, 0);
-
-    // Get pixel data
-    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
-    const data = imageData.data;
-
-    // Detect transparency color from corner pixel (top-left corner is always outside the diamond)
-    // Read pixel at (0, 0)
-    const tr = data[0];
-    const tg = data[1];
-    const tb = data[2];
-
-    // Tolerance for color matching (handles compression artifacts)
-    const tolerance = 5;
-
-    // Apply transparency for pixels matching the detected corner color
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-
-      if (
-        Math.abs(r - tr) <= tolerance &&
-        Math.abs(g - tg) <= tolerance &&
-        Math.abs(b - tb) <= tolerance
-      ) {
-        data[i + 3] = 0; // Set alpha to 0 (fully transparent)
-      }
-    }
-
-    // Put processed data back
-    ctx.putImageData(imageData, 0, 0);
-
-    // Close the original bitmap to free memory
-    bitmap.close();
-
-    // Create new ImageBitmap from processed canvas
-    return canvas.transferToImageBitmap();
   }
 
   /**

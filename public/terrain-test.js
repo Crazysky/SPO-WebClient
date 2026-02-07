@@ -459,6 +459,16 @@
     [2 /* SUMMER */]: "Summer",
     [3 /* AUTUMN */]: "Autumn"
   };
+  var MAP_TERRAIN_TYPES = {
+    "Shamba": "Alien Swamp",
+    "Zorcon": "Earth",
+    "Angelicus": "Earth",
+    "Antiqua": "Earth",
+    "Zyrane": "Earth"
+  };
+  function getTerrainTypeForMap(mapName) {
+    return MAP_TERRAIN_TYPES[mapName] || "Earth";
+  }
 
   // src/client/renderer/coordinate-mapper.ts
   var CoordinateMapper = class {
@@ -486,8 +496,11 @@
       const u = config.u;
       const rows = this.mapHeight;
       const cols = this.mapWidth;
-      const x = u * (rows - i + j) - origin.x;
-      const y = u / 2 * (rows - i + (cols - j)) - origin.y;
+      const rotated = this.rotateMapCoordinates(i, j, rotation);
+      const ri = rotated.x;
+      const rj = rotated.y;
+      const x = u * (rows - ri + rj) - origin.x;
+      const y = u / 2 * (rows - ri + (cols - rj)) - origin.y;
       return { x, y };
     }
     /**
@@ -510,9 +523,10 @@
       const screenY = y + origin.y;
       const A = screenX / u;
       const B = 2 * screenY / u;
-      const i = Math.floor((2 * rows + cols - A - B) / 2);
-      const j = Math.floor((A - B + cols) / 2);
-      return { x: i, y: j };
+      const ri = Math.floor((2 * rows + cols - A - B) / 2);
+      const rj = Math.floor((A - B + cols) / 2);
+      const original = this.rotateMapCoordinates(ri, rj, this.getInverseRotation(rotation));
+      return { x: original.x, y: original.y };
     }
     /**
      * Calculate visible tile bounds for a given viewport
@@ -683,7 +697,7 @@
     }
   }
   var TextureCache = class {
-    constructor(maxSize = 200) {
+    constructor(maxSize = 1024) {
       this.cache = /* @__PURE__ */ new Map();
       this.terrainType = "Earth";
       this.season = 2 /* SUMMER */;
@@ -829,9 +843,11 @@
       }
     }
     /**
-     * Fetch texture from server and convert to ImageBitmap
-     * Uses season (not zoom level) to fetch the correct texture variant
-     * Applies blue (0,0,255) color key transparency for terrain textures
+     * Fetch texture from server and convert to ImageBitmap.
+     * Uses season (not zoom level) to fetch the correct texture variant.
+     *
+     * Textures are served as pre-baked PNGs with alpha channel already applied,
+     * so no client-side color keying is needed.
      */
     async fetchTexture(paletteIndex) {
       const url = `/api/terrain-texture/${encodeURIComponent(this.terrainType)}/${this.season}/${paletteIndex}`;
@@ -844,47 +860,11 @@
           return null;
         }
         const blob = await response.blob();
-        const rawBitmap = await createImageBitmap(blob);
-        return this.applyColorKeyTransparency(rawBitmap);
+        return createImageBitmap(blob);
       } catch (error) {
         console.warn(`[TextureCache] Failed to load texture ${paletteIndex}:`, error);
         return null;
       }
-    }
-    /**
-     * Apply color key transparency to terrain textures
-     *
-     * Detects the transparency color dynamically by reading the corner pixels
-     * of each texture. Corner pixels are always outside the isometric diamond
-     * shape and contain the chroma key color.
-     */
-    async applyColorKeyTransparency(bitmap) {
-      if (typeof OffscreenCanvas === "undefined") {
-        return bitmap;
-      }
-      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        return bitmap;
-      }
-      ctx.drawImage(bitmap, 0, 0);
-      const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
-      const data = imageData.data;
-      const tr = data[0];
-      const tg = data[1];
-      const tb = data[2];
-      const tolerance = 5;
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-        if (Math.abs(r - tr) <= tolerance && Math.abs(g - tg) <= tolerance && Math.abs(b - tb) <= tolerance) {
-          data[i + 3] = 0;
-        }
-      }
-      ctx.putImageData(imageData, 0, 0);
-      bitmap.close();
-      return canvas.transferToImageBitmap();
     }
     /**
      * Evict least recently used entries if cache is over capacity
@@ -971,29 +951,231 @@
     }
   };
 
+  // src/client/renderer/texture-atlas-cache.ts
+  var TERRAIN_COLORS2 = {
+    192: "#1a3a5c",
+    193: "#1d4268",
+    194: "#204a74",
+    195: "#234f80",
+    196: "#1a3a5c",
+    197: "#1d4268",
+    198: "#204a74",
+    199: "#234f80",
+    200: "#287389",
+    201: "#2a7a90",
+    202: "#2c8197",
+    203: "#2e889e",
+    0: "#5a8c4f",
+    1: "#5d8f52",
+    2: "#608255",
+    3: "#638558",
+    4: "#4a7c3f",
+    5: "#4d7f42",
+    6: "#507245",
+    7: "#537548",
+    64: "#6b9460",
+    65: "#6e9763",
+    66: "#718a66",
+    67: "#748d69",
+    128: "#8b7355",
+    129: "#8e7658",
+    130: "#91795b",
+    131: "#947c5e"
+  };
+  function getFallbackColor2(paletteIndex) {
+    if (TERRAIN_COLORS2[paletteIndex]) {
+      return TERRAIN_COLORS2[paletteIndex];
+    }
+    const landClass = landClassOf(paletteIndex);
+    switch (landClass) {
+      case 3 /* ZoneD */: {
+        const hue = 200 + paletteIndex % 20;
+        const sat = 40 + paletteIndex % 20;
+        const light = 25 + paletteIndex % 15;
+        return `hsl(${hue}, ${sat}%, ${light}%)`;
+      }
+      case 2 /* ZoneC */: {
+        const hue = 30 + paletteIndex % 15;
+        const sat = 30 + paletteIndex % 20;
+        const light = 35 + paletteIndex % 20;
+        return `hsl(${hue}, ${sat}%, ${light}%)`;
+      }
+      case 1 /* ZoneB */: {
+        const hue = 70 + paletteIndex % 30;
+        const sat = 35 + paletteIndex % 25;
+        const light = 35 + paletteIndex % 20;
+        return `hsl(${hue}, ${sat}%, ${light}%)`;
+      }
+      case 0 /* ZoneA */:
+      default: {
+        const hue = 90 + paletteIndex % 30;
+        const sat = 40 + paletteIndex % 25;
+        const light = 30 + paletteIndex % 20;
+        return `hsl(${hue}, ${sat}%, ${light}%)`;
+      }
+    }
+  }
+  var TextureAtlasCache = class {
+    constructor() {
+      this.atlas = null;
+      this.manifest = null;
+      this.terrainType = "Earth";
+      this.season = 2 /* SUMMER */;
+      this.loading = false;
+      this.loaded = false;
+      this.loadPromise = null;
+    }
+    /**
+     * Set the terrain type (triggers reload if changed)
+     */
+    setTerrainType(terrainType) {
+      if (this.terrainType !== terrainType) {
+        this.terrainType = terrainType;
+        this.clear();
+        console.log(`[TextureAtlasCache] Terrain type set to: ${terrainType}`);
+      }
+    }
+    getTerrainType() {
+      return this.terrainType;
+    }
+    /**
+     * Set the season (triggers reload if changed)
+     */
+    setSeason(season) {
+      if (this.season !== season) {
+        this.season = season;
+        this.clear();
+        console.log(`[TextureAtlasCache] Season changed to ${SEASON_NAMES[season]}`);
+      }
+    }
+    getSeason() {
+      return this.season;
+    }
+    getSeasonName() {
+      return SEASON_NAMES[this.season];
+    }
+    /**
+     * Load the atlas PNG and manifest JSON from the server.
+     * Returns a promise that resolves when both are loaded.
+     */
+    async loadAtlas() {
+      if (this.loaded || this.loading) {
+        return this.loadPromise || Promise.resolve();
+      }
+      this.loading = true;
+      this.loadPromise = this._doLoadAtlas();
+      try {
+        await this.loadPromise;
+      } finally {
+        this.loading = false;
+      }
+    }
+    async _doLoadAtlas() {
+      const terrainType = encodeURIComponent(this.terrainType);
+      const atlasUrl = `/api/terrain-atlas/${terrainType}/${this.season}`;
+      const manifestUrl = `/api/terrain-atlas/${terrainType}/${this.season}/manifest`;
+      try {
+        const [atlasResponse, manifestResponse] = await Promise.all([
+          fetch(atlasUrl),
+          fetch(manifestUrl)
+        ]);
+        if (!atlasResponse.ok || !manifestResponse.ok) {
+          console.warn(`[TextureAtlasCache] Atlas not available for ${this.terrainType}/${SEASON_NAMES[this.season]}`);
+          this.loaded = true;
+          return;
+        }
+        const [atlasBlob, manifest] = await Promise.all([
+          atlasResponse.blob(),
+          manifestResponse.json()
+        ]);
+        this.atlas = await createImageBitmap(atlasBlob);
+        this.manifest = manifest;
+        this.loaded = true;
+        console.log(`[TextureAtlasCache] Loaded atlas: ${this.terrainType}/${SEASON_NAMES[this.season]} (${Object.keys(manifest.tiles).length} tiles, ${manifest.atlasWidth}x${manifest.atlasHeight})`);
+      } catch (error) {
+        console.error(`[TextureAtlasCache] Failed to load atlas:`, error);
+        this.loaded = true;
+      }
+    }
+    /**
+     * Check if the atlas is loaded and ready for rendering
+     */
+    isReady() {
+      return this.loaded && this.atlas !== null && this.manifest !== null;
+    }
+    /**
+     * Get the atlas ImageBitmap for drawImage() calls
+     */
+    getAtlas() {
+      if (!this.loaded && !this.loading) {
+        this.loadAtlas();
+      }
+      return this.atlas;
+    }
+    /**
+     * Get the source rectangle within the atlas for a given palette index.
+     * Returns null if the tile is not in the atlas.
+     */
+    getTileRect(paletteIndex) {
+      if (!this.manifest) return null;
+      const tile = this.manifest.tiles[String(paletteIndex)];
+      if (!tile) return null;
+      return {
+        sx: tile.x,
+        sy: tile.y,
+        sw: tile.width,
+        sh: tile.height
+      };
+    }
+    /**
+     * Check if a tile exists in the atlas
+     */
+    hasTile(paletteIndex) {
+      return this.manifest !== null && String(paletteIndex) in this.manifest.tiles;
+    }
+    /**
+     * Get fallback color for missing tiles
+     */
+    getFallbackColor(paletteIndex) {
+      return getFallbackColor2(paletteIndex);
+    }
+    /**
+     * Get the standard tile height from the manifest
+     */
+    getStandardTileHeight() {
+      return this.manifest?.tileHeight || 32;
+    }
+    /**
+     * Clear the atlas cache (e.g., when terrain type or season changes)
+     */
+    clear() {
+      if (this.atlas) {
+        this.atlas.close();
+        this.atlas = null;
+      }
+      this.manifest = null;
+      this.loaded = false;
+      this.loading = false;
+      this.loadPromise = null;
+    }
+  };
+
   // src/client/renderer/chunk-cache.ts
   var CHUNK_SIZE = 32;
-  var MAX_CHUNKS_PER_ZOOM = 64;
-  var MAX_TEXTURE_EXTRA_HEIGHT = 64;
+  var MAX_CHUNKS_PER_ZOOM = 96;
+  var FLAT_MASK = 192;
   var isOffscreenCanvasSupported = typeof OffscreenCanvas !== "undefined";
-  function getScaledExtraHeight(config) {
-    const scale = config.tileWidth / 64;
-    return Math.ceil(MAX_TEXTURE_EXTRA_HEIGHT * scale);
-  }
   function calculateChunkCanvasDimensions(chunkSize, config) {
     const u = config.u;
     const width = u * (2 * chunkSize - 1) + config.tileWidth;
-    const baseHeight = u / 2 * (2 * chunkSize - 1) + config.tileHeight;
-    const extraHeight = getScaledExtraHeight(config);
-    const height = baseHeight + extraHeight;
+    const height = u / 2 * (2 * chunkSize - 1) + config.tileHeight;
     return { width, height };
   }
   function getTileScreenPosInChunk(localI, localJ, chunkSize, config) {
     const u = config.u;
     const x = u * (chunkSize - localI + localJ);
     const y = u / 2 * (chunkSize - localI + (chunkSize - localJ));
-    const extraHeight = getScaledExtraHeight(config);
-    return { x, y: y + extraHeight };
+    return { x, y };
   }
   function getChunkScreenPosition(chunkI, chunkJ, chunkSize, config, mapHeight, mapWidth, origin) {
     const u = config.u;
@@ -1012,8 +1194,17 @@
       // Cache per zoom level: Map<"chunkI,chunkJ", ChunkEntry>
       this.caches = /* @__PURE__ */ new Map();
       this.accessCounter = 0;
+      this.atlasCache = null;
       this.mapWidth = 0;
       this.mapHeight = 0;
+      // Server chunk fetching
+      this.mapName = "";
+      this.terrainType = "";
+      this.season = 2;
+      // Default to Summer
+      this.useServerChunks = true;
+      this.serverChunkFailed = false;
+      // Set to true after first 404, disables server for session
       // Rendering queue
       this.renderQueue = [];
       this.isProcessingQueue = false;
@@ -1022,7 +1213,8 @@
         chunksRendered: 0,
         cacheHits: 0,
         cacheMisses: 0,
-        evictions: 0
+        evictions: 0,
+        serverChunksLoaded: 0
       };
       // Callback when chunk becomes ready
       this.onChunkReady = null;
@@ -1040,10 +1232,31 @@
       this.mapHeight = height;
     }
     /**
+     * Set map info for server chunk fetching.
+     * Call after loading a map to enable fetching pre-rendered chunks from the server.
+     */
+    setMapInfo(mapName, terrainType, season) {
+      const changed = this.mapName !== mapName || this.terrainType !== terrainType || this.season !== season;
+      this.mapName = mapName;
+      this.terrainType = terrainType;
+      this.season = season;
+      this.serverChunkFailed = false;
+      if (changed) {
+        console.log(`[ChunkCache] Map info set: ${mapName} / ${terrainType} / season=${season}, server chunks enabled`);
+      }
+    }
+    /**
      * Set callback for when a chunk becomes ready (triggers re-render)
      */
     setOnChunkReady(callback) {
       this.onChunkReady = callback;
+    }
+    /**
+     * Set texture atlas cache for atlas-based rendering.
+     * When set and ready, chunks render from the atlas instead of individual textures.
+     */
+    setAtlasCache(atlas) {
+      this.atlasCache = atlas;
     }
     /**
      * Get cache key for a chunk
@@ -1115,22 +1328,113 @@
       this.processRenderQueue();
     }
     /**
-     * Process render queue (one chunk at a time to not block)
+     * Process render queue with parallel fetching (up to CONCURRENCY chunks at once)
      */
     async processRenderQueue() {
       if (this.isProcessingQueue) return;
       this.isProcessingQueue = true;
+      const CONCURRENCY = 6;
+      const queueStart = performance.now();
+      let processed = 0;
       while (this.renderQueue.length > 0) {
-        const request = this.renderQueue.shift();
-        await this.renderChunk(request.chunkI, request.chunkJ, request.zoomLevel);
+        const batch = this.renderQueue.splice(0, CONCURRENCY);
+        const promises = batch.map(async (request) => {
+          const t0 = performance.now();
+          await this.renderChunk(request.chunkI, request.chunkJ, request.zoomLevel);
+          const dt = performance.now() - t0;
+          if (dt > 50) {
+            console.log(`[ChunkCache] render ${request.chunkI},${request.chunkJ} z${request.zoomLevel}: ${dt.toFixed(0)}ms (queue: ${this.renderQueue.length})`);
+          }
+        });
+        await Promise.all(promises);
+        processed += batch.length;
         await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      const totalDt = performance.now() - queueStart;
+      if (processed > 1) {
+        console.log(`[ChunkCache] queue done: ${processed} chunks in ${totalDt.toFixed(0)}ms (avg ${(totalDt / processed).toFixed(0)}ms/chunk)`);
       }
       this.isProcessingQueue = false;
     }
     /**
-     * Render a single chunk
+     * Flatten a texture ID: replace vegetation/special tiles with their flat center equivalent.
+     * Keeps LandClass (bits 7-6), zeros LandType and LandVar.
+     */
+    flattenTextureId(textureId) {
+      if (isSpecialTile(textureId)) {
+        return textureId & FLAT_MASK;
+      }
+      return textureId;
+    }
+    /**
+     * Render a single chunk: try server-side pre-rendered PNG first, fall back to local rendering.
      */
     async renderChunk(chunkI, chunkJ, zoomLevel) {
+      if (this.useServerChunks && !this.serverChunkFailed && this.mapName) {
+        const success = await this.fetchServerChunk(chunkI, chunkJ, zoomLevel);
+        if (success) return;
+      }
+      await this.renderChunkLocally(chunkI, chunkJ, zoomLevel);
+    }
+    /**
+     * Fetch a pre-rendered chunk PNG from the server.
+     * @returns true if successful, false if failed (caller should fall back to local rendering)
+     */
+    async fetchServerChunk(chunkI, chunkJ, zoomLevel) {
+      const cache = this.caches.get(zoomLevel);
+      const key = this.getKey(chunkI, chunkJ);
+      const entry = cache.get(key);
+      if (!entry) return false;
+      try {
+        const t0 = performance.now();
+        const url = `/api/terrain-chunk/${encodeURIComponent(this.mapName)}/${encodeURIComponent(this.terrainType)}/${this.season}/${zoomLevel}/${chunkI}/${chunkJ}`;
+        const response = await fetch(url);
+        const tFetch = performance.now();
+        if (!response.ok) {
+          if (response.status === 404) {
+            console.warn("[ChunkCache] Server chunks not available, falling back to local rendering");
+            this.serverChunkFailed = true;
+          }
+          return false;
+        }
+        const blob = await response.blob();
+        const tBlob = performance.now();
+        const bitmap = await createImageBitmap(blob);
+        const tBitmap = performance.now();
+        const config = ZOOM_LEVELS[zoomLevel];
+        const dims = calculateChunkCanvasDimensions(CHUNK_SIZE, config);
+        const ctx = entry.canvas.getContext("2d");
+        if (!ctx) {
+          bitmap.close();
+          return false;
+        }
+        ctx.clearRect(0, 0, entry.canvas.width, entry.canvas.height);
+        ctx.drawImage(bitmap, 0, 0);
+        const tDraw = performance.now();
+        bitmap.close();
+        entry.ready = true;
+        entry.rendering = false;
+        this.stats.chunksRendered++;
+        this.stats.serverChunksLoaded++;
+        this.evictIfNeeded(zoomLevel);
+        if (this.onChunkReady) {
+          this.onChunkReady();
+        }
+        const total = tDraw - t0;
+        if (total > 30) {
+          console.log(`[ChunkCache] fetch ${chunkI},${chunkJ} z${zoomLevel}: fetch=${(tFetch - t0).toFixed(0)}ms blob=${(tBlob - tFetch).toFixed(0)}ms bitmap=${(tBitmap - tBlob).toFixed(0)}ms draw=${(tDraw - tBitmap).toFixed(0)}ms total=${total.toFixed(0)}ms (${(blob.size / 1024).toFixed(0)} KB)`);
+        }
+        return true;
+      } catch (error) {
+        console.warn(`[ChunkCache] Server chunk fetch failed for ${chunkI},${chunkJ}:`, error);
+        return false;
+      }
+    }
+    /**
+     * Render a single chunk locally (flat terrain only — no tall/vegetation textures).
+     * This is the fallback path when server chunks are not available.
+     */
+    async renderChunkLocally(chunkI, chunkJ, zoomLevel) {
       const cache = this.caches.get(zoomLevel);
       const key = this.getKey(chunkI, chunkJ);
       const entry = cache.get(key);
@@ -1145,70 +1449,81 @@
       const endJ = Math.min(startJ + CHUNK_SIZE, this.mapWidth);
       const halfWidth = config.tileWidth / 2;
       const halfHeight = config.tileHeight / 2;
-      const textureIds = /* @__PURE__ */ new Set();
-      for (let i = startI; i < endI; i++) {
-        for (let j = startJ; j < endJ; j++) {
-          textureIds.add(this.getTextureId(j, i));
-        }
-      }
-      await this.textureCache.preload(Array.from(textureIds));
-      const BASE_TILE_HEIGHT = 32;
-      const standardTiles = [];
-      const tallTiles = [];
-      for (let i = startI; i < endI; i++) {
-        for (let j = startJ; j < endJ; j++) {
-          const textureId = this.getTextureId(j, i);
-          const texture = this.textureCache.getTextureSync(textureId);
-          if (texture && texture.height > BASE_TILE_HEIGHT) {
-            tallTiles.push({ i, j, textureId, texture });
-          } else {
-            standardTiles.push({ i, j, textureId, texture });
+      const atlas = this.atlasCache?.isReady() ? this.atlasCache : null;
+      if (atlas) {
+        const atlasImg = atlas.getAtlas();
+        for (let i = startI; i < endI; i++) {
+          for (let j = startJ; j < endJ; j++) {
+            const textureId = this.flattenTextureId(this.getTextureId(j, i));
+            const rect = atlas.getTileRect(textureId);
+            const localI = i - startI;
+            const localJ = j - startJ;
+            const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
+            const x = Math.round(screenPos.x);
+            const y = Math.round(screenPos.y);
+            if (rect) {
+              ctx.drawImage(
+                atlasImg,
+                rect.sx,
+                rect.sy,
+                rect.sw,
+                rect.sh,
+                x - halfWidth,
+                y,
+                config.tileWidth,
+                config.tileHeight
+              );
+            } else {
+              const color = getFallbackColor(textureId);
+              ctx.fillStyle = color;
+              ctx.beginPath();
+              ctx.moveTo(x, y);
+              ctx.lineTo(x + halfWidth, y + halfHeight);
+              ctx.lineTo(x, y + config.tileHeight);
+              ctx.lineTo(x - halfWidth, y + halfHeight);
+              ctx.closePath();
+              ctx.fill();
+            }
           }
         }
-      }
-      for (const tile of standardTiles) {
-        const localI = tile.i - startI;
-        const localJ = tile.j - startJ;
-        const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
-        const x = Math.round(screenPos.x);
-        const y = Math.round(screenPos.y);
-        if (tile.texture) {
-          ctx.drawImage(
-            tile.texture,
-            x - halfWidth,
-            y,
-            config.tileWidth,
-            config.tileHeight
-          );
-        } else {
-          const color = getFallbackColor(tile.textureId);
-          ctx.fillStyle = color;
-          ctx.beginPath();
-          ctx.moveTo(x, y);
-          ctx.lineTo(x + halfWidth, y + halfHeight);
-          ctx.lineTo(x, y + config.tileHeight);
-          ctx.lineTo(x - halfWidth, y + halfHeight);
-          ctx.closePath();
-          ctx.fill();
+      } else {
+        const textureIds = /* @__PURE__ */ new Set();
+        for (let i = startI; i < endI; i++) {
+          for (let j = startJ; j < endJ; j++) {
+            textureIds.add(this.flattenTextureId(this.getTextureId(j, i)));
+          }
         }
-      }
-      tallTiles.sort((a, b) => b.i + b.j - (a.i + a.j));
-      for (const tile of tallTiles) {
-        const localI = tile.i - startI;
-        const localJ = tile.j - startJ;
-        const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
-        const x = Math.round(screenPos.x);
-        const y = Math.round(screenPos.y);
-        const scale = config.tileWidth / 64;
-        const scaledHeight = tile.texture.height * scale;
-        const yOffset = scaledHeight - config.tileHeight;
-        ctx.drawImage(
-          tile.texture,
-          x - halfWidth,
-          y - yOffset,
-          config.tileWidth,
-          scaledHeight
-        );
+        await this.textureCache.preload(Array.from(textureIds));
+        for (let i = startI; i < endI; i++) {
+          for (let j = startJ; j < endJ; j++) {
+            const textureId = this.flattenTextureId(this.getTextureId(j, i));
+            const texture = this.textureCache.getTextureSync(textureId);
+            const localI = i - startI;
+            const localJ = j - startJ;
+            const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
+            const x = Math.round(screenPos.x);
+            const y = Math.round(screenPos.y);
+            if (texture) {
+              ctx.drawImage(
+                texture,
+                x - halfWidth,
+                y,
+                config.tileWidth,
+                config.tileHeight
+              );
+            } else {
+              const color = getFallbackColor(textureId);
+              ctx.fillStyle = color;
+              ctx.beginPath();
+              ctx.moveTo(x, y);
+              ctx.lineTo(x + halfWidth, y + halfHeight);
+              ctx.lineTo(x, y + config.tileHeight);
+              ctx.lineTo(x - halfWidth, y + halfHeight);
+              ctx.closePath();
+              ctx.fill();
+            }
+          }
+        }
       }
       entry.ready = true;
       entry.rendering = false;
@@ -1346,7 +1661,8 @@
         chunksRendered: 0,
         cacheHits: 0,
         cacheMisses: 0,
-        evictions: 0
+        evictions: 0,
+        serverChunksLoaded: 0
       };
     }
     /**
@@ -1383,15 +1699,7 @@
   };
 
   // src/client/renderer/isometric-terrain-renderer.ts
-  var MAP_TERRAIN_TYPES = {
-    "Shamba": "Alien Swamp",
-    "Antiqua": "Earth",
-    "Zyrane": "Earth"
-    // Default to Earth for unknown maps
-  };
-  function getTerrainTypeForMap(mapName) {
-    return MAP_TERRAIN_TYPES[mapName] || "Earth";
-  }
+  var FLAT_MASK2 = 192;
   var IsometricTerrainRenderer = class {
     constructor(canvas, options) {
       this.chunkCache = null;
@@ -1437,7 +1745,8 @@
       this.ctx = ctx;
       this.terrainLoader = new TerrainLoader();
       this.coordMapper = new CoordinateMapper(2e3, 2e3);
-      this.textureCache = new TextureCache(200);
+      this.textureCache = new TextureCache();
+      this.atlasCache = new TextureAtlasCache();
       if (!options?.disableMouseControls) {
         this.setupMouseControls();
       }
@@ -1451,7 +1760,15 @@
     async loadMap(mapName) {
       const terrainType = getTerrainTypeForMap(mapName);
       this.textureCache.setTerrainType(terrainType);
+      this.atlasCache.setTerrainType(terrainType);
       await this.fetchAvailableSeasons(terrainType);
+      this.atlasCache.setSeason(this.season);
+      this.atlasCache.loadAtlas().then(() => {
+        if (this.atlasCache.isReady()) {
+          this.chunkCache?.clearAll();
+          this.requestRender();
+        }
+      });
       const terrainData = await this.terrainLoader.loadMap(mapName);
       this.coordMapper = new CoordinateMapper(
         terrainData.width,
@@ -1461,7 +1778,9 @@
         this.textureCache,
         (x, y) => this.terrainLoader.getTextureId(x, y)
       );
+      this.chunkCache.setAtlasCache(this.atlasCache);
       this.chunkCache.setMapDimensions(terrainData.width, terrainData.height);
+      this.chunkCache.setMapInfo(mapName, terrainType, this.season);
       this.chunkCache.setOnChunkReady(() => this.requestRender());
       this.cameraI = Math.floor(terrainData.height / 2);
       this.cameraJ = Math.floor(terrainData.width / 2);
@@ -1488,6 +1807,7 @@
         if (!info.availableSeasons.includes(this.season)) {
           this.season = info.defaultSeason;
           this.textureCache.setSeason(info.defaultSeason);
+          this.atlasCache.setSeason(info.defaultSeason);
           this.chunkCache?.clearAll();
         }
       } catch (error) {
@@ -1497,18 +1817,19 @@
     /**
      * Update origin based on camera position
      * The origin is the screen offset that centers the camera tile
+     * Uses CoordinateMapper to properly account for rotation
      */
     updateOrigin() {
-      const config = ZOOM_LEVELS[this.zoomLevel];
-      const u = config.u;
-      const dims = this.terrainLoader.getDimensions();
-      const rows = dims.height;
-      const cols = dims.width;
-      const cameraScreenX = u * (rows - this.cameraI + this.cameraJ);
-      const cameraScreenY = u / 2 * (rows - this.cameraI + (cols - this.cameraJ));
+      const cameraScreen = this.coordMapper.mapToScreen(
+        this.cameraI,
+        this.cameraJ,
+        this.zoomLevel,
+        this.rotation,
+        { x: 0, y: 0 }
+      );
       this.origin = {
-        x: cameraScreenX - this.canvas.width / 2,
-        y: cameraScreenY - this.canvas.height / 2
+        x: cameraScreen.x - this.canvas.width / 2,
+        y: cameraScreen.y - this.canvas.height / 2
       };
     }
     /**
@@ -1565,12 +1886,12 @@
       };
     }
     /**
-     * Render the terrain layer
+     * Render the terrain layer (flat only — no vegetation/tall textures)
      * Uses chunk-based rendering for performance (10-20x faster)
-     * Falls back to tile-by-tile rendering when chunks not available
+     * Falls back to tile-by-tile rendering when chunks not available or rotation is active
      */
     renderTerrainLayer(bounds) {
-      if (this.useChunks && this.chunkCache && this.chunkCache.isSupported()) {
+      if (this.useChunks && this.chunkCache && this.chunkCache.isSupported() && this.rotation === 0 /* NORTH */) {
         return this.renderTerrainLayerChunked();
       }
       return this.renderTerrainLayerTiles(bounds);
@@ -1614,7 +1935,7 @@
     }
     /**
      * Render individual tiles for a chunk that isn't cached yet
-     * Uses two-pass rendering: standard tiles first, then tall tiles on top
+     * Flat only — all special tiles are flattened
      */
     renderChunkTilesFallback(chunkI, chunkJ) {
       const config = ZOOM_LEVELS[this.zoomLevel];
@@ -1624,12 +1945,13 @@
       const startJ = chunkJ * CHUNK_SIZE;
       const endI = Math.min(startI + CHUNK_SIZE, this.terrainLoader.getDimensions().height);
       const endJ = Math.min(startJ + CHUNK_SIZE, this.terrainLoader.getDimensions().width);
-      const BASE_TILE_HEIGHT = 32;
-      const standardTiles = [];
-      const tallTiles = [];
+      let tilesRendered = 0;
       for (let i = startI; i < endI; i++) {
         for (let j = startJ; j < endJ; j++) {
-          const textureId = this.terrainLoader.getTextureId(j, i);
+          let textureId = this.terrainLoader.getTextureId(j, i);
+          if (isSpecialTile(textureId)) {
+            textureId = textureId & FLAT_MASK2;
+          }
           const screenPos = this.coordMapper.mapToScreen(
             i,
             j,
@@ -1640,41 +1962,27 @@
           if (screenPos.x < -tileWidth || screenPos.x > this.canvas.width + tileWidth || screenPos.y < -tileHeight || screenPos.y > this.canvas.height + tileHeight) {
             continue;
           }
-          let isTall = false;
-          if (this.useTextures) {
-            const texture = this.textureCache.getTextureSync(textureId);
-            isTall = texture !== null && texture.height > BASE_TILE_HEIGHT;
-          }
-          if (isTall) {
-            tallTiles.push({ i, j, screenX: screenPos.x, screenY: screenPos.y, textureId });
-          } else {
-            standardTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
-          }
+          this.drawIsometricTile(Math.round(screenPos.x), Math.round(screenPos.y), config, textureId);
+          tilesRendered++;
         }
       }
-      for (const tile of standardTiles) {
-        this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
-      }
-      tallTiles.sort((a, b) => b.i + b.j - (a.i + a.j));
-      for (const tile of tallTiles) {
-        this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
-      }
-      return standardTiles.length + tallTiles.length;
+      return tilesRendered;
     }
     /**
-     * Tile-by-tile terrain rendering (slow path, fallback)
-     * Uses two-pass rendering: standard tiles first, then tall tiles on top
+     * Tile-by-tile terrain rendering (slow path, fallback for non-NORTH rotations)
+     * Flat only — all special tiles are flattened
      */
     renderTerrainLayerTiles(bounds) {
       const config = ZOOM_LEVELS[this.zoomLevel];
       const tileWidth = config.tileWidth;
       const tileHeight = config.tileHeight;
-      const BASE_TILE_HEIGHT = 32;
-      const standardTiles = [];
-      const tallTiles = [];
+      let tilesRendered = 0;
       for (let i = bounds.minI; i <= bounds.maxI; i++) {
         for (let j = bounds.minJ; j <= bounds.maxJ; j++) {
-          const textureId = this.terrainLoader.getTextureId(j, i);
+          let textureId = this.terrainLoader.getTextureId(j, i);
+          if (isSpecialTile(textureId)) {
+            textureId = textureId & FLAT_MASK2;
+          }
           const screenPos = this.coordMapper.mapToScreen(
             i,
             j,
@@ -1685,86 +1993,42 @@
           if (screenPos.x < -tileWidth || screenPos.x > this.canvas.width + tileWidth || screenPos.y < -tileHeight || screenPos.y > this.canvas.height + tileHeight) {
             continue;
           }
-          let isTall = false;
-          if (this.useTextures) {
-            const texture = this.textureCache.getTextureSync(textureId);
-            isTall = texture !== null && texture.height > BASE_TILE_HEIGHT;
-          }
-          if (isTall) {
-            tallTiles.push({ i, j, screenX: screenPos.x, screenY: screenPos.y, textureId });
-          } else {
-            standardTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
-          }
+          this.drawIsometricTile(Math.round(screenPos.x), Math.round(screenPos.y), config, textureId);
+          tilesRendered++;
         }
       }
-      for (const tile of standardTiles) {
-        this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
-      }
-      tallTiles.sort((a, b) => b.i + b.j - (a.i + a.j));
-      for (const tile of tallTiles) {
-        this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
-      }
-      return standardTiles.length + tallTiles.length;
+      return tilesRendered;
     }
     /**
-     * Draw a single isometric diamond tile
+     * Draw a single isometric diamond tile (flat terrain only)
      *
-     * Diamond shape vertices (relative to top point):
-     *       (0, 0) - top
-     *   (-u, h/2)  - left
-     *       (0, h) - bottom
-     *    (u, h/2)  - right
-     *
-     * Where: u = tileWidth/2, h = tileHeight
-     *
-     * Tiles are positioned using the seamless formula which ensures adjacent tiles
-     * overlap by exactly half their dimensions. This means the opaque diamond content
-     * of one tile covers the transparent corners of adjacent tiles.
-     *
-     * When textures are available: Draw ONLY the texture (no background rectangle)
+     * When textures are available: Draw the texture
      * When textures are NOT available: Draw a diamond-shaped fallback color
-     *
-     * @param isTallTexture - If true, draw texture at full height with upward offset
      */
-    drawIsometricTile(screenX, screenY, config, textureId, isTallTexture = false) {
+    drawIsometricTile(screenX, screenY, config, textureId) {
       const ctx = this.ctx;
       const halfWidth = config.tileWidth / 2;
       const halfHeight = config.tileHeight / 2;
-      const x = Math.round(screenX);
-      const y = Math.round(screenY);
       let texture = null;
       if (this.useTextures) {
         texture = this.textureCache.getTextureSync(textureId);
       }
       if (texture) {
-        if (isTallTexture) {
-          const scale = config.tileWidth / 64;
-          const scaledHeight = texture.height * scale;
-          const yOffset = scaledHeight - config.tileHeight;
-          ctx.drawImage(
-            texture,
-            x - halfWidth,
-            y - yOffset,
-            config.tileWidth,
-            scaledHeight
-          );
-        } else {
-          ctx.drawImage(
-            texture,
-            x - halfWidth,
-            y,
-            config.tileWidth,
-            config.tileHeight
-          );
-        }
+        ctx.drawImage(
+          texture,
+          screenX - halfWidth,
+          screenY,
+          config.tileWidth,
+          config.tileHeight
+        );
       } else {
         const color = this.textureCache.getFallbackColor(textureId);
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + halfWidth, y + halfHeight);
-        ctx.lineTo(x, y + config.tileHeight);
-        ctx.lineTo(x - halfWidth, y + halfHeight);
+        ctx.moveTo(screenX, screenY);
+        ctx.lineTo(screenX + halfWidth, screenY + halfHeight);
+        ctx.lineTo(screenX, screenY + config.tileHeight);
+        ctx.lineTo(screenX - halfWidth, screenY + halfHeight);
         ctx.closePath();
         ctx.fill();
       }
@@ -1899,11 +2163,15 @@
       this.showDebugInfo = show;
     }
     /**
-     * Set rotation (currently disabled - always NORTH)
+     * Set rotation (90° snap: N/E/S/W)
+     * Clears chunk cache since chunks are rendered without rotation
      */
     setRotation(rotation) {
-      this.rotation = rotation;
-      this.render();
+      if (this.rotation !== rotation) {
+        this.rotation = rotation;
+        this.chunkCache?.clearAll();
+        this.render();
+      }
     }
     /**
      * Get current rotation
@@ -1983,6 +2251,24 @@
       return this.coordMapper;
     }
     /**
+     * Get texture cache for advanced operations
+     */
+    getTextureCache() {
+      return this.textureCache;
+    }
+    /**
+     * Get atlas cache for vegetation overlay rendering
+     */
+    getAtlasCache() {
+      return this.atlasCache;
+    }
+    /**
+     * Invalidate specific chunks (e.g., after dynamic content changes)
+     */
+    invalidateChunks(chunkI, chunkJ) {
+      this.chunkCache?.invalidateChunk(chunkI, chunkJ);
+    }
+    /**
      * Check if map is loaded
      */
     isLoaded() {
@@ -2006,6 +2292,7 @@
     unload() {
       this.terrainLoader.unload();
       this.textureCache.clear();
+      this.atlasCache.clear();
       this.chunkCache?.clearAll();
       this.chunkCache = null;
       this.loaded = false;
@@ -2046,12 +2333,6 @@
       return this.useTextures;
     }
     /**
-     * Get texture cache for advanced operations
-     */
-    getTextureCache() {
-      return this.textureCache;
-    }
-    /**
      * Preload textures for visible area
      */
     async preloadTextures() {
@@ -2088,8 +2369,19 @@
       if (this.season !== season) {
         this.season = season;
         this.textureCache.setSeason(season);
+        this.atlasCache.setSeason(season);
         this.chunkCache?.clearAll();
+        if (this.mapName) {
+          const terrainType = getTerrainTypeForMap(this.mapName);
+          this.chunkCache?.setMapInfo(this.mapName, terrainType, season);
+        }
         console.log(`[IsometricRenderer] Season changed to ${SEASON_NAMES[season]}`);
+        this.atlasCache.loadAtlas().then(() => {
+          if (this.atlasCache.isReady()) {
+            this.chunkCache?.clearAll();
+            this.requestRender();
+          }
+        });
         this.render();
       }
     }

@@ -276,7 +276,9 @@
     - ✅ Property Formatting ([src/shared/building-details/property-definitions.test.ts](src/shared/building-details/property-definitions.test.ts)) - 70/70 tests (100%)
     - ✅ CSV Parser ([src/server/facility-csv-parser.test.ts](src/server/facility-csv-parser.test.ts)) - 16/33 tests (18 skipped due to Jest mock limitations)
     - ✅ Terrain Loader ([src/client/renderer/terrain-loader.test.ts](src/client/renderer/terrain-loader.test.ts)) - 17/17 tests (100%)
-    - ✅ Coordinate Mapper ([src/client/renderer/coordinate-mapper.test.ts](src/client/renderer/coordinate-mapper.test.ts)) - 13/13 tests (100%)
+    - ✅ Coordinate Mapper ([src/client/renderer/coordinate-mapper.test.ts](src/client/renderer/coordinate-mapper.test.ts)) - 40/40 tests (100%)
+    - ✅ Vegetation Flat Mapper ([src/client/renderer/vegetation-flat-mapper.test.ts](src/client/renderer/vegetation-flat-mapper.test.ts)) - 28/28 tests (100%)
+    - ✅ Touch Handler 2D ([src/client/renderer/touch-handler-2d.test.ts](src/client/renderer/touch-handler-2d.test.ts)) - 11/11 tests (100%)
     - ✅ Texture Cache ([src/client/renderer/texture-cache.test.ts](src/client/renderer/texture-cache.test.ts)) - 25/25 tests (100%)
     - ✅ Isometric Terrain Renderer ([src/client/renderer/isometric-terrain-renderer.test.ts](src/client/renderer/isometric-terrain-renderer.test.ts)) - 28/28 tests (100%)
   - **Test Commands:**
@@ -884,7 +886,9 @@
   - ✅ **Texture extraction:** Automatic CAB archive extraction with 7-Zip
   - ✅ **LRU texture cache:** Client-side cache with automatic eviction
   - ✅ **100% API compatibility:** Drop-in replacement for old MapRenderer
-  - ⚠️ **Rotation disabled:** 4-orientation support deferred (requires analysis of official client)
+  - ✅ **90° snap rotation:** 4 views (N/E/S/W) via Q/E keys or 2-finger gesture (CoordinateMapper)
+  - ✅ **Vegetation→flat mapping:** Auto-replaces vegetation textures near buildings/roads (VegetationFlatMapper)
+  - ✅ **Mobile touch support:** 1-finger pan, 2-finger pinch zoom, 2-finger rotation snap, double-tap (TouchHandler2D)
 - **Technical Details:**
   - **Map files:** 2000×2000 pixel 8-bit BMP files (Windows 3.x format)
   - **Texture mapping:** Palette index (0-255) → Texture BMP file (land.<index>.<type>.bmp)
@@ -1224,4 +1228,42 @@
   - Graceful disconnect prevents orphaned sessions
   - User-initiated logout via toolbar button
   - Automatic logout on browser close/refresh
+
+#### Canvas 2D Isometric Renderer Enhancements
+- **Status:** ✅ COMPLETED (February 2026)
+- **Goal:** Enhance Canvas2D renderer with vegetation mapping, rotation, and mobile touch support. Switch back from Three.js to Canvas2D as sole active renderer.
+- **Motivation:** 2D isometric textures designed for fixed-angle viewing; 3D rotation adds no value while hurting mobile performance.
+- **Implementation:**
+  - **VegetationFlatMapper** ([src/client/renderer/vegetation-flat-mapper.ts](src/client/renderer/vegetation-flat-mapper.ts))
+    - Auto-replaces vegetation textures (LandType=13) with flat center variants near buildings/roads
+    - Formula: `flatLandId = landId & 0xC0` (keeps LandClass, zeros LandType+LandVar)
+    - Buffer radius: 2 tiles around dynamic content
+    - Dirty chunk tracking for efficient re-rendering
+    - Integrated in ChunkCache (tile preload + render loops) and IsometricMapRenderer (rebuildAggregatedData)
+  - **90° Snap Rotation** ([src/client/renderer/coordinate-mapper.ts](src/client/renderer/coordinate-mapper.ts))
+    - 4 views: NORTH (default), EAST, SOUTH, WEST
+    - `rotateMapCoordinates()` around map center, inverse rotation for `screenToMap()`
+    - Keyboard shortcuts: Q (counter-clockwise), E (clockwise)
+    - Chunk cache cleared on rotation change
+    - NORTH uses chunk-based rendering; E/S/W fall back to tile-by-tile via CoordinateMapper
+  - **Mobile Touch Support** ([src/client/renderer/touch-handler-2d.ts](src/client/renderer/touch-handler-2d.ts))
+    - 1-finger pan (drag)
+    - 2-finger pinch zoom (1.3x/0.7x thresholds)
+    - 2-finger rotation snap (45° threshold)
+    - Double-tap center on tapped location
+  - **Renderer Switch** ([src/client/ui/map-navigation-ui.ts](src/client/ui/map-navigation-ui.ts))
+    - Removed PixiJS import and renderer type selection
+    - MapNavigationUI uses IsometricMapRenderer directly (sole renderer)
+    - Three.js and PixiJS files kept in repo but not imported
+- **Files created:**
+  - `src/client/renderer/vegetation-flat-mapper.ts` + test (28 tests)
+  - `src/client/renderer/touch-handler-2d.ts` + test (11 tests)
+  - `src/client/renderer/coordinate-mapper.test.ts` (40 tests)
+- **Files modified:**
+  - `src/client/renderer/chunk-cache.ts` - VegetationFlatMapper integration
+  - `src/client/renderer/coordinate-mapper.ts` - Rotation enabled
+  - `src/client/renderer/isometric-terrain-renderer.ts` - Rotation API, updateOrigin() rotation-aware
+  - `src/client/renderer/isometric-map-renderer.ts` - Q/E shortcuts, touch handler, vegetation mapper
+  - `src/client/ui/map-navigation-ui.ts` - Canvas2D only, removed PixiJS
+- **Tests:** 79 new tests (40 + 28 + 11), all passing
 

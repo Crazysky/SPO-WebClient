@@ -2,16 +2,19 @@
  * IsometricTerrainRenderer
  *
  * Core isometric rendering engine based on Lander.pas algorithm.
- * Renders terrain from BMP texture IDs using diamond-shaped isometric tiles.
+ * Renders FLAT terrain from BMP texture IDs using diamond-shaped isometric tiles.
  *
- * Phase 3: Solid colors based on texture ID
- * Phase 4: Actual texture images from CAB archives
+ * All vegetation/special tiles are automatically flattened to their base center
+ * equivalent (landId & 0xC0). Vegetation is rendered as a separate overlay
+ * by IsometricMapRenderer.
  */
 
 import { TerrainLoader } from './terrain-loader';
 import { CoordinateMapper } from './coordinate-mapper';
 import { TextureCache, getFallbackColor } from './texture-cache';
+import { TextureAtlasCache } from './texture-atlas-cache';
 import { ChunkCache, CHUNK_SIZE } from './chunk-cache';
+import { isSpecialTile } from '../../shared/land-utils';
 import {
   Point,
   Rect,
@@ -21,23 +24,12 @@ import {
   Rotation,
   TerrainData,
   Season,
-  SEASON_NAMES
+  SEASON_NAMES,
+  getTerrainTypeForMap
 } from '../../shared/map-config';
 
-/**
- * Map name to terrain type mapping
- * Used to determine which texture set to load
- */
-const MAP_TERRAIN_TYPES: Record<string, string> = {
-  'Shamba': 'Alien Swamp',
-  'Antiqua': 'Earth',
-  'Zyrane': 'Earth',
-  // Default to Earth for unknown maps
-};
-
-function getTerrainTypeForMap(mapName: string): string {
-  return MAP_TERRAIN_TYPES[mapName] || 'Earth';
-}
+/** Bit mask to extract LandClass only (Center, variant 0) — flattens vegetation */
+const FLAT_MASK = 0xC0;
 
 export class IsometricTerrainRenderer {
   private canvas: HTMLCanvasElement;
@@ -47,6 +39,7 @@ export class IsometricTerrainRenderer {
   private terrainLoader: TerrainLoader;
   private coordMapper: CoordinateMapper;
   private textureCache: TextureCache;
+  private atlasCache: TextureAtlasCache;
   private chunkCache: ChunkCache | null = null;
 
   // Rendering mode
@@ -99,7 +92,8 @@ export class IsometricTerrainRenderer {
     // Initialize components (mapper will be resized after map load)
     this.terrainLoader = new TerrainLoader();
     this.coordMapper = new CoordinateMapper(2000, 2000);
-    this.textureCache = new TextureCache(200); // LRU cache with 200 texture limit
+    this.textureCache = new TextureCache();
+    this.atlasCache = new TextureAtlasCache();
 
     // Setup event handlers (can be disabled when used as a sub-renderer)
     if (!options?.disableMouseControls) {
@@ -119,9 +113,20 @@ export class IsometricTerrainRenderer {
     // Set terrain type for texture loading
     const terrainType = getTerrainTypeForMap(mapName);
     this.textureCache.setTerrainType(terrainType);
+    this.atlasCache.setTerrainType(terrainType);
 
     // Query available seasons from server and auto-select if current season is unavailable
     await this.fetchAvailableSeasons(terrainType);
+
+    // Set season on atlas cache and trigger atlas load (non-blocking)
+    this.atlasCache.setSeason(this.season);
+    this.atlasCache.loadAtlas().then(() => {
+      // Re-render and clear chunks when atlas becomes available
+      if (this.atlasCache.isReady()) {
+        this.chunkCache?.clearAll();
+        this.requestRender();
+      }
+    });
 
     // Load terrain data
     const terrainData = await this.terrainLoader.loadMap(mapName);
@@ -137,7 +142,9 @@ export class IsometricTerrainRenderer {
       this.textureCache,
       (x, y) => this.terrainLoader.getTextureId(x, y)
     );
+    this.chunkCache.setAtlasCache(this.atlasCache);
     this.chunkCache.setMapDimensions(terrainData.width, terrainData.height);
+    this.chunkCache.setMapInfo(mapName, terrainType, this.season);
     this.chunkCache.setOnChunkReady(() => this.requestRender());
 
     // Center camera on map
@@ -182,6 +189,7 @@ export class IsometricTerrainRenderer {
       if (!info.availableSeasons.includes(this.season)) {
         this.season = info.defaultSeason;
         this.textureCache.setSeason(info.defaultSeason);
+        this.atlasCache.setSeason(info.defaultSeason);
         // Clear chunk cache since season changed
         this.chunkCache?.clearAll();
       }
@@ -193,24 +201,22 @@ export class IsometricTerrainRenderer {
   /**
    * Update origin based on camera position
    * The origin is the screen offset that centers the camera tile
+   * Uses CoordinateMapper to properly account for rotation
    */
   private updateOrigin(): void {
-    const config = ZOOM_LEVELS[this.zoomLevel];
-    const u = config.u;
-
-    const dims = this.terrainLoader.getDimensions();
-    const rows = dims.height;
-    const cols = dims.width;
-
-    // Calculate where the camera tile would be in screen space using the seamless formula
-    // Then offset so it's at the center of the canvas
-    const cameraScreenX = u * (rows - this.cameraI + this.cameraJ);
-    const cameraScreenY = (u / 2) * ((rows - this.cameraI) + (cols - this.cameraJ));
+    // Calculate camera screen position using CoordinateMapper (rotation-aware)
+    // Pass origin={0,0} to get the raw screen position without offset
+    const cameraScreen = this.coordMapper.mapToScreen(
+      this.cameraI, this.cameraJ,
+      this.zoomLevel,
+      this.rotation,
+      { x: 0, y: 0 }
+    );
 
     // Origin makes camera position appear at canvas center
     this.origin = {
-      x: cameraScreenX - this.canvas.width / 2,
-      y: cameraScreenY - this.canvas.height / 2
+      x: cameraScreen.x - this.canvas.width / 2,
+      y: cameraScreen.y - this.canvas.height / 2
     };
   }
 
@@ -289,17 +295,17 @@ export class IsometricTerrainRenderer {
   }
 
   /**
-   * Render the terrain layer
+   * Render the terrain layer (flat only — no vegetation/tall textures)
    * Uses chunk-based rendering for performance (10-20x faster)
-   * Falls back to tile-by-tile rendering when chunks not available
+   * Falls back to tile-by-tile rendering when chunks not available or rotation is active
    */
   private renderTerrainLayer(bounds: TileBounds): number {
-    // Use chunk-based rendering if available, enabled, and supported
-    if (this.useChunks && this.chunkCache && this.chunkCache.isSupported()) {
+    // Use chunk-based rendering only for NORTH rotation (chunk layout is rotation-unaware)
+    if (this.useChunks && this.chunkCache && this.chunkCache.isSupported() && this.rotation === Rotation.NORTH) {
       return this.renderTerrainLayerChunked();
     }
 
-    // Fallback: tile-by-tile rendering
+    // Fallback: tile-by-tile rendering (supports all rotations via CoordinateMapper)
     return this.renderTerrainLayerTiles(bounds);
   }
 
@@ -353,7 +359,7 @@ export class IsometricTerrainRenderer {
 
   /**
    * Render individual tiles for a chunk that isn't cached yet
-   * Uses two-pass rendering: standard tiles first, then tall tiles on top
+   * Flat only — all special tiles are flattened
    */
   private renderChunkTilesFallback(chunkI: number, chunkJ: number): number {
     const config = ZOOM_LEVELS[this.zoomLevel];
@@ -365,16 +371,16 @@ export class IsometricTerrainRenderer {
     const endI = Math.min(startI + CHUNK_SIZE, this.terrainLoader.getDimensions().height);
     const endJ = Math.min(startJ + CHUNK_SIZE, this.terrainLoader.getDimensions().width);
 
-    // Standard tile height at base resolution (64×32)
-    const BASE_TILE_HEIGHT = 32;
-
-    // Collect tiles for two-pass rendering
-    const standardTiles: Array<{ screenX: number; screenY: number; textureId: number }> = [];
-    const tallTiles: Array<{ i: number; j: number; screenX: number; screenY: number; textureId: number }> = [];
+    let tilesRendered = 0;
 
     for (let i = startI; i < endI; i++) {
       for (let j = startJ; j < endJ; j++) {
-        const textureId = this.terrainLoader.getTextureId(j, i);
+        let textureId = this.terrainLoader.getTextureId(j, i);
+        // Flatten special tiles to their base center equivalent
+        if (isSpecialTile(textureId)) {
+          textureId = textureId & FLAT_MASK;
+        }
+
         const screenPos = this.coordMapper.mapToScreen(
           i, j,
           this.zoomLevel,
@@ -388,59 +394,33 @@ export class IsometricTerrainRenderer {
           continue;
         }
 
-        // Check if texture is tall (only if textures are enabled)
-        let isTall = false;
-        if (this.useTextures) {
-          const texture = this.textureCache.getTextureSync(textureId);
-          isTall = texture !== null && texture.height > BASE_TILE_HEIGHT;
-        }
-
-        if (isTall) {
-          tallTiles.push({ i, j, screenX: screenPos.x, screenY: screenPos.y, textureId });
-        } else {
-          standardTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
-        }
+        this.drawIsometricTile(Math.round(screenPos.x), Math.round(screenPos.y), config, textureId);
+        tilesRendered++;
       }
     }
 
-    // Pass 1: Render standard tiles
-    for (const tile of standardTiles) {
-      this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
-    }
-
-    // Pass 2: Render tall tiles on top
-    // Sort by screen Y ascending (= i+j descending) for correct painter's algorithm:
-    // Tiles higher on screen (lower Y, far from viewer) are drawn first,
-    // Tiles lower on screen (higher Y, closer to viewer) are drawn last (on top)
-    tallTiles.sort((a, b) => (b.i + b.j) - (a.i + a.j));
-
-    for (const tile of tallTiles) {
-      this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
-    }
-
-    return standardTiles.length + tallTiles.length;
+    return tilesRendered;
   }
 
   /**
-   * Tile-by-tile terrain rendering (slow path, fallback)
-   * Uses two-pass rendering: standard tiles first, then tall tiles on top
+   * Tile-by-tile terrain rendering (slow path, fallback for non-NORTH rotations)
+   * Flat only — all special tiles are flattened
    */
   private renderTerrainLayerTiles(bounds: TileBounds): number {
     const config = ZOOM_LEVELS[this.zoomLevel];
     const tileWidth = config.tileWidth;
     const tileHeight = config.tileHeight;
 
-    // Standard tile height at base resolution (64×32)
-    const BASE_TILE_HEIGHT = 32;
-
-    // Collect tiles for two-pass rendering
-    const standardTiles: Array<{ screenX: number; screenY: number; textureId: number }> = [];
-    const tallTiles: Array<{ i: number; j: number; screenX: number; screenY: number; textureId: number }> = [];
+    let tilesRendered = 0;
 
     // Render tiles in back-to-front order (painter's algorithm)
     for (let i = bounds.minI; i <= bounds.maxI; i++) {
       for (let j = bounds.minJ; j <= bounds.maxJ; j++) {
-        const textureId = this.terrainLoader.getTextureId(j, i);
+        let textureId = this.terrainLoader.getTextureId(j, i);
+        // Flatten special tiles to their base center equivalent
+        if (isSpecialTile(textureId)) {
+          textureId = textureId & FLAT_MASK;
+        }
 
         const screenPos = this.coordMapper.mapToScreen(
           i, j,
@@ -455,72 +435,29 @@ export class IsometricTerrainRenderer {
           continue;
         }
 
-        // Check if texture is tall (only if textures are enabled)
-        let isTall = false;
-        if (this.useTextures) {
-          const texture = this.textureCache.getTextureSync(textureId);
-          isTall = texture !== null && texture.height > BASE_TILE_HEIGHT;
-        }
-
-        if (isTall) {
-          tallTiles.push({ i, j, screenX: screenPos.x, screenY: screenPos.y, textureId });
-        } else {
-          standardTiles.push({ screenX: screenPos.x, screenY: screenPos.y, textureId });
-        }
+        this.drawIsometricTile(Math.round(screenPos.x), Math.round(screenPos.y), config, textureId);
+        tilesRendered++;
       }
     }
 
-    // Pass 1: Render standard tiles
-    for (const tile of standardTiles) {
-      this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, false);
-    }
-
-    // Pass 2: Render tall tiles on top
-    // Sort by screen Y ascending (= i+j descending) for correct painter's algorithm:
-    // Tiles higher on screen (lower Y, far from viewer) are drawn first,
-    // Tiles lower on screen (higher Y, closer to viewer) are drawn last (on top)
-    tallTiles.sort((a, b) => (b.i + b.j) - (a.i + a.j));
-    for (const tile of tallTiles) {
-      this.drawIsometricTile(tile.screenX, tile.screenY, config, tile.textureId, true);
-    }
-
-    return standardTiles.length + tallTiles.length;
+    return tilesRendered;
   }
 
   /**
-   * Draw a single isometric diamond tile
+   * Draw a single isometric diamond tile (flat terrain only)
    *
-   * Diamond shape vertices (relative to top point):
-   *       (0, 0) - top
-   *   (-u, h/2)  - left
-   *       (0, h) - bottom
-   *    (u, h/2)  - right
-   *
-   * Where: u = tileWidth/2, h = tileHeight
-   *
-   * Tiles are positioned using the seamless formula which ensures adjacent tiles
-   * overlap by exactly half their dimensions. This means the opaque diamond content
-   * of one tile covers the transparent corners of adjacent tiles.
-   *
-   * When textures are available: Draw ONLY the texture (no background rectangle)
+   * When textures are available: Draw the texture
    * When textures are NOT available: Draw a diamond-shaped fallback color
-   *
-   * @param isTallTexture - If true, draw texture at full height with upward offset
    */
   private drawIsometricTile(
     screenX: number,
     screenY: number,
     config: ZoomConfig,
-    textureId: number,
-    isTallTexture: boolean = false
+    textureId: number
   ): void {
     const ctx = this.ctx;
     const halfWidth = config.tileWidth / 2;  // u
     const halfHeight = config.tileHeight / 2;
-
-    // Round coordinates to integers to avoid sub-pixel rendering gaps
-    const x = Math.round(screenX);
-    const y = Math.round(screenY);
 
     // Try to get texture if textures are enabled
     let texture: ImageBitmap | null = null;
@@ -529,38 +466,22 @@ export class IsometricTerrainRenderer {
     }
 
     if (texture) {
-      if (isTallTexture) {
-        // Tall texture: draw at actual height with upward offset
-        const scale = config.tileWidth / 64;
-        const scaledHeight = texture.height * scale;
-        const yOffset = scaledHeight - config.tileHeight;
-
-        ctx.drawImage(
-          texture,
-          x - halfWidth,
-          y - yOffset,
-          config.tileWidth,
-          scaledHeight
-        );
-      } else {
-        // Standard texture: draw at standard tile height
-        ctx.drawImage(
-          texture,
-          x - halfWidth,
-          y,
-          config.tileWidth,
-          config.tileHeight
-        );
-      }
+      ctx.drawImage(
+        texture,
+        screenX - halfWidth,
+        screenY,
+        config.tileWidth,
+        config.tileHeight
+      );
     } else {
       // No texture available - draw a diamond-shaped fallback color
       const color = this.textureCache.getFallbackColor(textureId);
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.moveTo(x, y);                           // top
-      ctx.lineTo(x + halfWidth, y + halfHeight);  // right
-      ctx.lineTo(x, y + config.tileHeight);       // bottom
-      ctx.lineTo(x - halfWidth, y + halfHeight);  // left
+      ctx.moveTo(screenX, screenY);                           // top
+      ctx.lineTo(screenX + halfWidth, screenY + halfHeight);  // right
+      ctx.lineTo(screenX, screenY + config.tileHeight);       // bottom
+      ctx.lineTo(screenX - halfWidth, screenY + halfHeight);  // left
       ctx.closePath();
       ctx.fill();
     }
@@ -741,11 +662,16 @@ export class IsometricTerrainRenderer {
   }
 
   /**
-   * Set rotation (currently disabled - always NORTH)
+   * Set rotation (90° snap: N/E/S/W)
+   * Clears chunk cache since chunks are rendered without rotation
    */
   setRotation(rotation: Rotation): void {
-    this.rotation = rotation;
-    this.render();
+    if (this.rotation !== rotation) {
+      this.rotation = rotation;
+      // Chunk cache renders tiles at non-rotated positions, so clear on rotation change
+      this.chunkCache?.clearAll();
+      this.render();
+    }
   }
 
   /**
@@ -839,6 +765,27 @@ export class IsometricTerrainRenderer {
   }
 
   /**
+   * Get texture cache for advanced operations
+   */
+  getTextureCache(): TextureCache {
+    return this.textureCache;
+  }
+
+  /**
+   * Get atlas cache for vegetation overlay rendering
+   */
+  getAtlasCache(): TextureAtlasCache {
+    return this.atlasCache;
+  }
+
+  /**
+   * Invalidate specific chunks (e.g., after dynamic content changes)
+   */
+  invalidateChunks(chunkI: number, chunkJ: number): void {
+    this.chunkCache?.invalidateChunk(chunkI, chunkJ);
+  }
+
+  /**
    * Check if map is loaded
    */
   isLoaded(): boolean {
@@ -865,6 +812,7 @@ export class IsometricTerrainRenderer {
   unload(): void {
     this.terrainLoader.unload();
     this.textureCache.clear();
+    this.atlasCache.clear();
     this.chunkCache?.clearAll();
     this.chunkCache = null;
     this.loaded = false;
@@ -908,13 +856,6 @@ export class IsometricTerrainRenderer {
    */
   isTextureMode(): boolean {
     return this.useTextures;
-  }
-
-  /**
-   * Get texture cache for advanced operations
-   */
-  getTextureCache(): TextureCache {
-    return this.textureCache;
   }
 
   /**
@@ -962,9 +903,21 @@ export class IsometricTerrainRenderer {
     if (this.season !== season) {
       this.season = season;
       this.textureCache.setSeason(season);
-      // Clear chunk cache since textures changed
+      this.atlasCache.setSeason(season);
+      // Clear chunk cache and update map info since textures changed
       this.chunkCache?.clearAll();
+      if (this.mapName) {
+        const terrainType = getTerrainTypeForMap(this.mapName);
+        this.chunkCache?.setMapInfo(this.mapName, terrainType, season);
+      }
       console.log(`[IsometricRenderer] Season changed to ${SEASON_NAMES[season]}`);
+      // Trigger atlas reload for new season (non-blocking)
+      this.atlasCache.loadAtlas().then(() => {
+        if (this.atlasCache.isReady()) {
+          this.chunkCache?.clearAll();
+          this.requestRender();
+        }
+      });
       this.render();
     }
   }

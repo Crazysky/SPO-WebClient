@@ -1,78 +1,25 @@
 /**
  * MapNavigationUI - Handles map display and interactions
  *
- * Supports two rendering engines:
- * - PixiJS (WebGL) - Default, GPU-accelerated for performance
- * - Canvas 2D - Legacy fallback (disabled by default)
+ * Uses Canvas 2D isometric renderer with:
+ * - Vegetation→flat texture mapping near dynamic content
+ * - 90° snap rotation (Q/E keys, 2-finger gesture)
+ * - Mobile touch support (pan, pinch zoom, rotation, double-tap)
  */
 
 import { IsometricMapRenderer } from '../renderer/isometric-map-renderer';
-import { PixiMapRendererAdapter } from '../renderer/pixi';
 import { FacilityDimensions } from '../../shared/types';
-
-/** Renderer type configuration */
-export type RendererType = 'pixi' | 'canvas';
-
-/** Common renderer interface */
-interface MapRenderer {
-  // Required methods
-  loadMap(mapName: string): Promise<unknown>;
-  setLoadZoneCallback(callback: (x: number, y: number, w: number, h: number) => void): void;
-  setBuildingClickCallback(callback: (x: number, y: number, visualClass?: string) => void): void;
-  setFetchFacilityDimensionsCallback(callback: (visualClass: string) => Promise<FacilityDimensions | null>): void;
-  triggerZoneCheck(): void;
-
-  // Map data methods
-  updateMapData?(mapData: { x: number; y: number; w: number; h: number; buildings: unknown[]; segments: unknown[] }): void;
-
-  // Camera controls
-  setZoom?(level: number): void;
-  getZoom?(): number;
-  centerOn?(x: number, y: number): void;
-  getCameraPosition?(): { x: number; y: number };
-
-  // Building placement
-  setPlacementMode?(
-    enabled: boolean,
-    buildingName?: string,
-    cost?: number,
-    area?: number,
-    zoneRequirement?: string,
-    xsize?: number,
-    ysize?: number
-  ): void;
-  getPlacementCoordinates?(): { x: number; y: number } | null;
-  setCancelPlacementCallback?(callback: () => void): void;
-
-  // Road drawing
-  setRoadDrawingMode?(enabled: boolean): void;
-  validateRoadPath?(x1: number, y1: number, x2: number, y2: number): { valid: boolean; error?: string };
-  setRoadSegmentCompleteCallback?(callback: (x1: number, y1: number, x2: number, y2: number) => void): void;
-  setCancelRoadDrawingCallback?(callback: () => void): void;
-
-  // Zone overlay
-  setZoneOverlay?(enabled: boolean, data?: unknown, x1?: number, y1?: number): void;
-
-  // Facility dimensions
-  setFacilityDimensionsCache?(cache: Map<string, FacilityDimensions>): void;
-
-  // Cleanup
-  destroy?(): void;
-}
 
 export class MapNavigationUI {
   private canvas: HTMLCanvasElement | null = null;
-  private renderer: MapRenderer | null = null;
-  private rendererType: RendererType = 'pixi'; // Default to PixiJS
+  private renderer: IsometricMapRenderer | null = null;
 
   // Callbacks
   private onLoadZone: ((x: number, y: number, w: number, h: number) => void) | null = null;
   private onBuildingClick: ((x: number, y: number, visualClass?: string) => void) | null = null;
   private onFetchFacilityDimensions: ((visualClass: string) => Promise<FacilityDimensions | null>) | null = null;
 
-  constructor(private gamePanel: HTMLElement, rendererType: RendererType = 'pixi') {
-    this.rendererType = rendererType;
-  }
+  constructor(private gamePanel: HTMLElement) {}
 
   /**
    * Set callback for loading new zones
@@ -122,56 +69,25 @@ export class MapNavigationUI {
     this.canvas.style.backgroundColor = '#111';
     this.gamePanel.appendChild(this.canvas);
 
-    // Initialize renderer based on type
-    if (this.rendererType === 'pixi') {
-      this.initPixiRenderer();
-    } else {
-      this.initCanvasRenderer();
-    }
-  }
-
-  /**
-   * Initialize PixiJS WebGL renderer
-   */
-  private initPixiRenderer() {
-    console.log('[MapNavigationUI] Initializing PixiJS WebGL renderer');
-
-    try {
-      this.renderer = new PixiMapRendererAdapter('game-canvas');
-      this.setupRendererCallbacks();
-
-      // Load map
-      this.renderer.loadMap('Shamba').then(() => {
-        console.log('[MapNavigationUI] PixiJS terrain loaded successfully');
-      }).catch((err) => {
-        console.error('[MapNavigationUI] Failed to load terrain with PixiJS:', err);
-      });
-    } catch (err) {
-      console.error('[MapNavigationUI] PixiJS initialization failed:', err);
-      // Note: No fallback as per user request
-      throw err;
-    }
-  }
-
-  /**
-   * Initialize Canvas 2D renderer (legacy)
-   */
-  private initCanvasRenderer() {
-    console.log('[MapNavigationUI] Initializing Canvas 2D renderer (legacy)');
+    // Initialize Canvas 2D isometric renderer
+    console.log('[MapNavigationUI] Initializing Canvas 2D isometric renderer');
 
     this.renderer = new IsometricMapRenderer('game-canvas');
     this.setupRendererCallbacks();
 
+    // Create vegetation control UI
+    this.createVegetationControls();
+
     // Load map
     this.renderer.loadMap('Shamba').then(() => {
-      console.log('[MapNavigationUI] Canvas terrain loaded successfully');
+      console.log('[MapNavigationUI] Terrain loaded successfully');
     }).catch((err) => {
       console.error('[MapNavigationUI] Failed to load terrain:', err);
     });
   }
 
   /**
-   * Setup renderer callbacks (common for both renderer types)
+   * Setup renderer callbacks
    */
   private setupRendererCallbacks() {
     if (!this.renderer) return;
@@ -200,42 +116,42 @@ export class MapNavigationUI {
   /**
    * Get the renderer (for map data operations)
    */
-  public getRenderer(): MapRenderer | null {
+  public getRenderer(): IsometricMapRenderer | null {
     return this.renderer;
   }
 
   /**
-   * Get the renderer as IsometricMapRenderer (for type compatibility)
-   * @deprecated Use getRenderer() and type-check instead
+   * Create vegetation display controls
    */
-  public getCanvasRenderer(): IsometricMapRenderer | null {
-    if (this.rendererType === 'canvas' && this.renderer) {
-      return this.renderer as IsometricMapRenderer;
-    }
-    return null;
-  }
+  private createVegetationControls(): void {
+    if (!this.renderer) return;
 
-  /**
-   * Get current renderer type
-   */
-  public getRendererType(): RendererType {
-    return this.rendererType;
-  }
+    const panel = document.createElement('div');
+    panel.id = 'vegetation-controls';
+    panel.style.cssText = 'position:absolute;bottom:10px;right:10px;background:rgba(0,0,0,0.7);padding:8px 12px;border-radius:6px;color:#fff;font:12px monospace;z-index:10;display:flex;flex-direction:column;gap:4px;';
 
-  /**
-   * Check if using WebGL renderer
-   */
-  public isWebGL(): boolean {
-    return this.rendererType === 'pixi';
+    // Checkbox: hide vegetation on camera move
+    const moveLabel = document.createElement('label');
+    moveLabel.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;';
+    const moveCheckbox = document.createElement('input');
+    moveCheckbox.type = 'checkbox';
+    moveCheckbox.checked = false;
+    moveCheckbox.addEventListener('change', () => {
+      this.renderer?.setHideVegetationOnMove(moveCheckbox.checked);
+    });
+    moveLabel.appendChild(moveCheckbox);
+    moveLabel.appendChild(document.createTextNode('Hide vegetation on move'));
+    panel.appendChild(moveLabel);
+
+    this.gamePanel.style.position = 'relative';
+    this.gamePanel.appendChild(panel);
   }
 
   /**
    * Destroy renderer and cleanup
    */
   public destroy() {
-    if (this.renderer?.destroy) {
-      this.renderer.destroy();
-    }
+    this.renderer?.destroy();
     this.renderer = null;
     if (this.canvas) {
       this.canvas.remove();

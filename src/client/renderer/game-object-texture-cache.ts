@@ -20,26 +20,35 @@
 
 import { getFacilityDimensionsCache } from '../facility-dimensions-cache';
 
-/**
- * Color key definitions for transparency processing
- * Used as fallback when dynamic detection isn't applicable
- */
-interface ColorKey {
-  r: number;
-  g: number;
-  b: number;
-}
-
-const TRANSPARENCY_KEYS: Record<string, ColorKey> = {
-  'Building': { r: 0, g: 128, b: 0 },  // Green background for buildings
-};
-
 interface CacheEntry {
   texture: ImageBitmap | null;
   lastAccess: number;
   loading: boolean;
   loaded: boolean;
   loadPromise?: Promise<ImageBitmap | null>;
+}
+
+/**
+ * Object atlas manifest (maps filenames to source rectangles within an atlas image)
+ */
+interface ObjectAtlasManifest {
+  category: string;
+  tileWidth: number;
+  tileHeight: number;
+  atlasWidth: number;
+  atlasHeight: number;
+  tiles: Record<string, { x: number; y: number; width: number; height: number }>;
+}
+
+/**
+ * Source rectangle within an atlas for drawImage()
+ */
+export interface ObjectAtlasRect {
+  atlas: ImageBitmap;
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
 }
 
 export type TextureCategory = 'RoadBlockImages' | 'BuildingImages' | 'CarImages' | 'ConcreteImages';
@@ -70,10 +79,17 @@ export class GameObjectTextureCache {
   private misses: number = 0;
   private evictions: number = 0;
 
+  // Deduplicate warnings for unknown visualClasses (log once per class)
+  static _warnedVisualClasses: Set<string> = new Set();
+
   // Callback for texture load events
   private onTextureLoadedCallback?: (category: TextureCategory, name: string) => void;
 
-  constructor(maxSize: number = 500) {
+  // Object atlases (road, concrete)
+  private atlases: Map<string, { image: ImageBitmap; manifest: ObjectAtlasManifest }> = new Map();
+  private atlasLoading: Map<string, Promise<void>> = new Map();
+
+  constructor(maxSize: number = 2048) {
     this.maxSize = maxSize;
   }
 
@@ -200,7 +216,12 @@ export class GameObjectTextureCache {
   }
 
   /**
-   * Fetch texture from server and apply color key transparency
+   * Fetch texture from server and convert to ImageBitmap.
+   *
+   * Textures are served as pre-baked PNGs with alpha channel already applied
+   * (for BMP textures like roads/concrete). GIF textures (buildings) are served
+   * as-is since the browser handles GIF transparency natively.
+   * No client-side color keying is needed.
    */
   private async fetchTexture(category: TextureCategory, name: string): Promise<ImageBitmap | null> {
     // URL pattern: /cache/{category}/{name}
@@ -214,164 +235,11 @@ export class GameObjectTextureCache {
       }
 
       const blob = await response.blob();
-      const rawBitmap = await createImageBitmap(blob);
-
-      // Check if this category uses dynamic transparency detection
-      if (this.shouldUseDynamicTransparency(category)) {
-        return this.applyDynamicColorKeyTransparency(rawBitmap);
-      }
-
-      // Apply static color key transparency based on texture type
-      const colorKey = this.getColorKeyForTexture(category, name);
-      if (colorKey) {
-        return this.applyColorKeyTransparency(rawBitmap, colorKey);
-      }
-
-      return rawBitmap;
+      return createImageBitmap(blob);
     } catch (error) {
       console.warn(`[GameObjectTextureCache] Failed to load ${category}/${name}:`, error);
       return null;
     }
-  }
-
-  /**
-   * Check if a category should use dynamic corner-pixel transparency detection
-   * Dynamic detection reads the corner pixel (0,0) to determine the transparency color,
-   * which handles textures with varying background colors (blue, gray, teal, etc.)
-   */
-  private shouldUseDynamicTransparency(category: TextureCategory): boolean {
-    // Road and concrete textures use various background colors (blue, gray, teal for bridges)
-    // Dynamic detection handles all cases automatically
-    return category === 'RoadBlockImages' || category === 'ConcreteImages';
-  }
-
-  /**
-   * Determine the color key for transparency based on texture category and name
-   * Returns null for categories that should use dynamic detection
-   */
-  private getColorKeyForTexture(category: TextureCategory, name: string): ColorKey | null {
-    if (category === 'BuildingImages') {
-      return TRANSPARENCY_KEYS['Building'];
-    }
-
-    // No static color key for other categories
-    // RoadBlockImages uses dynamic detection
-    return null;
-  }
-
-  /**
-   * Apply color key transparency to an ImageBitmap
-   * Replaces pixels matching the key color with transparent pixels
-   */
-  private async applyColorKeyTransparency(bitmap: ImageBitmap, colorKey: ColorKey): Promise<ImageBitmap> {
-    // Check if OffscreenCanvas is available (not available in Node.js tests)
-    if (typeof OffscreenCanvas === 'undefined') {
-      return bitmap;
-    }
-
-    // Create an OffscreenCanvas to process the image
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-    const ctx = canvas.getContext('2d');
-
-    if (!ctx) {
-      return bitmap;
-    }
-
-    // Draw the original bitmap
-    ctx.drawImage(bitmap, 0, 0);
-
-    // Get pixel data
-    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
-    const data = imageData.data;
-
-    // Replace color key pixels with transparency
-    // Allow small tolerance for compression artifacts
-    const tolerance = 5;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-
-      if (
-        Math.abs(r - colorKey.r) <= tolerance &&
-        Math.abs(g - colorKey.g) <= tolerance &&
-        Math.abs(b - colorKey.b) <= tolerance
-      ) {
-        data[i + 3] = 0; // Set alpha to 0 (fully transparent)
-      }
-    }
-
-    // Put processed data back
-    ctx.putImageData(imageData, 0, 0);
-
-    // Close the original bitmap to free memory
-    bitmap.close();
-
-    // Create new ImageBitmap from processed canvas
-    return canvas.transferToImageBitmap();
-  }
-
-  /**
-   * Apply dynamic color key transparency to an ImageBitmap
-   * Detects the transparency color by reading the corner pixel (0,0)
-   * which is always outside the isometric diamond shape.
-   *
-   * This handles textures with varying background colors (blue, gray, teal for bridges, etc.)
-   */
-  private async applyDynamicColorKeyTransparency(bitmap: ImageBitmap): Promise<ImageBitmap> {
-    // Check if OffscreenCanvas is available (not available in Node.js tests)
-    if (typeof OffscreenCanvas === 'undefined') {
-      return bitmap;
-    }
-
-    // Create an OffscreenCanvas to process the image
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-    const ctx = canvas.getContext('2d');
-
-    if (!ctx) {
-      return bitmap;
-    }
-
-    // Draw the original bitmap
-    ctx.drawImage(bitmap, 0, 0);
-
-    // Get pixel data
-    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
-    const data = imageData.data;
-
-    // Detect transparency color from corner pixel (top-left corner is always outside the diamond)
-    // Read pixel at (0, 0)
-    const tr = data[0];
-    const tg = data[1];
-    const tb = data[2];
-
-    // Tolerance for color matching (handles compression artifacts)
-    const tolerance = 5;
-
-    // Apply transparency for pixels matching the detected corner color
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-
-      if (
-        Math.abs(r - tr) <= tolerance &&
-        Math.abs(g - tg) <= tolerance &&
-        Math.abs(b - tb) <= tolerance
-      ) {
-        data[i + 3] = 0; // Set alpha to 0 (fully transparent)
-      }
-    }
-
-    // Put processed data back
-    ctx.putImageData(imageData, 0, 0);
-
-    // Close the original bitmap to free memory
-    bitmap.close();
-
-    // Create new ImageBitmap from processed canvas
-    return canvas.transferToImageBitmap();
   }
 
   /**
@@ -413,6 +281,91 @@ export class GameObjectTextureCache {
   }
 
   /**
+   * Load an object atlas (road or concrete) from the server.
+   * Atlas replaces individual texture fetches with a single image + manifest.
+   * @param category - 'road' or 'concrete'
+   */
+  async loadObjectAtlas(category: string): Promise<void> {
+    if (this.atlases.has(category) || this.atlasLoading.has(category)) {
+      return this.atlasLoading.get(category) || Promise.resolve();
+    }
+
+    const promise = this._doLoadObjectAtlas(category);
+    this.atlasLoading.set(category, promise);
+
+    try {
+      await promise;
+    } finally {
+      this.atlasLoading.delete(category);
+    }
+  }
+
+  private async _doLoadObjectAtlas(category: string): Promise<void> {
+    const atlasUrl = `/api/object-atlas/${encodeURIComponent(category)}`;
+    const manifestUrl = `/api/object-atlas/${encodeURIComponent(category)}/manifest`;
+
+    try {
+      const [atlasResponse, manifestResponse] = await Promise.all([
+        fetch(atlasUrl),
+        fetch(manifestUrl),
+      ]);
+
+      if (!atlasResponse.ok || !manifestResponse.ok) {
+        return;
+      }
+
+      const [atlasBlob, manifest] = await Promise.all([
+        atlasResponse.blob(),
+        manifestResponse.json() as Promise<ObjectAtlasManifest>,
+      ]);
+
+      const image = await createImageBitmap(atlasBlob);
+      this.atlases.set(category, { image, manifest });
+
+      console.log(`[GameObjectTextureCache] Loaded ${category} atlas (${Object.keys(manifest.tiles).length} textures)`);
+    } catch (error) {
+      console.warn(`[GameObjectTextureCache] Failed to load ${category} atlas:`, error);
+    }
+  }
+
+  /**
+   * Get atlas source rectangle for a texture.
+   * Returns null if no atlas is loaded for this category or the texture isn't in the atlas.
+   */
+  getAtlasRect(category: TextureCategory, name: string): ObjectAtlasRect | null {
+    // Map TextureCategory to atlas category key
+    let atlasKey: string;
+    if (category === 'RoadBlockImages') {
+      atlasKey = 'road';
+    } else if (category === 'ConcreteImages') {
+      atlasKey = 'concrete';
+    } else {
+      return null; // No atlas for buildings/cars
+    }
+
+    const entry = this.atlases.get(atlasKey);
+    if (!entry) return null;
+
+    const tile = entry.manifest.tiles[name];
+    if (!tile) return null;
+
+    return {
+      atlas: entry.image,
+      sx: tile.x,
+      sy: tile.y,
+      sw: tile.width,
+      sh: tile.height,
+    };
+  }
+
+  /**
+   * Check if an object atlas is loaded for a category
+   */
+  hasAtlas(category: string): boolean {
+    return this.atlases.has(category);
+  }
+
+  /**
    * Clear the entire cache
    */
   clear(): void {
@@ -421,6 +374,13 @@ export class GameObjectTextureCache {
         entry.texture.close();
       }
     }
+
+    // Close atlas ImageBitmaps
+    for (const atlas of this.atlases.values()) {
+      atlas.image.close();
+    }
+    this.atlases.clear();
+    this.atlasLoading.clear();
 
     this.cache.clear();
     this.hits = 0;
@@ -513,7 +473,10 @@ export class GameObjectTextureCache {
 
     // Fallback: generate pattern for unknown buildings
     // This handles buildings not yet in our database
-    console.warn(`[GameObjectTextureCache] Unknown visualClass ${visualClass}, using fallback pattern`);
+    if (!GameObjectTextureCache._warnedVisualClasses.has(visualClass)) {
+      GameObjectTextureCache._warnedVisualClasses.add(visualClass);
+      console.warn(`[GameObjectTextureCache] Unknown visualClass ${visualClass}, using fallback pattern`);
+    }
     return `Map${visualClass}64x32x0.gif`;
   }
 

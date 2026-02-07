@@ -4,7 +4,7 @@
 
 **Name:** Starpeace Online WebClient
 **Type:** Browser-based multiplayer tycoon game client
-**Stack:** TypeScript + Node.js + WebSocket + Canvas2D/Three.js (WebGL)
+**Stack:** TypeScript + Node.js + WebSocket + Canvas 2D Isometric
 **Protocol:** RDO (Remote Data Objects) - legacy ASCII protocol
 **Status:** Alpha (0.1.0)
 
@@ -22,7 +22,7 @@ See [doc/CAB-EXTRACTION.md](doc/CAB-EXTRACTION.md) for CAB extraction details.
 ```bash
 npm run dev          # Build + start server
 npm run build        # Build all (server + client)
-npm test             # Run Jest tests (414 tests, 93% coverage)
+npm test             # Run Jest tests (788 tests)
 npm run test:watch   # Tests in watch mode
 npm run test:verbose # Verbose test output
 ```
@@ -37,23 +37,29 @@ Browser Client ──WebSocket──> Node.js Gateway ──RDO Protocol──> 
 
 ```
 src/
-├── client/           # Frontend (TypeScript + Canvas)
+├── client/           # Frontend (TypeScript + Canvas 2D)
 │   ├── client.ts     # Main controller
-│   ├── renderer/     # Isometric rendering engine
-│   │   ├── isometric-map-renderer.ts      # Canvas2D renderer (legacy)
-│   │   └── three/                         # Three.js renderer (WebGL)
-│   │       ├── IsometricThreeRenderer.ts  # Main renderer
-│   │       ├── TerrainChunkManager.ts     # Terrain batching
-│   │       ├── BuildingRenderer.ts        # Sprite-based buildings
-│   │       ├── RoadRenderer.ts            # Road segment rendering
-│   │       ├── ConcreteRenderer.ts        # Concrete platforms
-│   │       ├── PreviewManager.ts          # Placement/zone previews
-│   │       └── TextureAtlasManager.ts     # GPU texture atlases
+│   ├── renderer/     # Canvas 2D isometric rendering engine
+│   │   ├── isometric-map-renderer.ts      # Main orchestrator (terrain+concrete+roads+buildings+overlays+previews)
+│   │   ├── isometric-terrain-renderer.ts  # Terrain rendering with ChunkCache + TextureCache
+│   │   ├── chunk-cache.ts                 # OffscreenCanvas chunk pre-rendering (32×32 tiles), LRU
+│   │   ├── coordinate-mapper.ts           # Isometric projection with 90° rotation (N/E/S/W)
+│   │   ├── vegetation-flat-mapper.ts      # Auto-replaces vegetation near buildings/roads
+│   │   ├── touch-handler-2d.ts            # Mobile touch gestures (pan, pinch, rotation, double-tap)
+│   │   ├── texture-cache.ts               # Individual terrain texture loading + LRU cache
+│   │   ├── texture-atlas-cache.ts         # Terrain texture atlas (single PNG + JSON manifest)
+│   │   ├── game-object-texture-cache.ts   # Cache for road/building/concrete textures + object atlases
+│   │   ├── road-texture-system.ts         # Road topology + INI loading
+│   │   ├── concrete-texture-system.ts     # Concrete logic + INI loading
+│   │   ├── painter-algorithm.ts           # Back-to-front sort by (i+j)
+│   │   └── terrain-loader.ts              # BMP terrain parser
 │   └── ui/           # UI components
 ├── server/           # Gateway server
-│   ├── server.ts     # HTTP/WebSocket server
+│   ├── server.ts     # HTTP/WebSocket server + atlas API endpoints
 │   ├── spo_session.ts # RDO session manager
 │   ├── rdo.ts        # RDO protocol parser
+│   ├── texture-alpha-baker.ts # BMP→PNG alpha pre-baking (no external deps)
+│   ├── atlas-generator.ts    # Terrain/object texture atlas generator
 │   └── services/     # Background services
 └── shared/           # Shared code
     ├── rdo-types.ts  # RDO type system (CRITICAL)
@@ -63,48 +69,47 @@ src/
 
 ## Renderer Architecture
 
-**Three renderers available:** PixiJS (default), Canvas2D (legacy), and Three.js
+**Active renderer:** Canvas 2D isometric (sole renderer)
 
-Switch renderer in [src/client/ui/map-navigation-ui.ts](src/client/ui/map-navigation-ui.ts):
-```typescript
-// In MapNavigationUI constructor
-new MapNavigationUI(gamePanel, 'pixi');   // PixiJS (default)
-new MapNavigationUI(gamePanel, 'canvas'); // Canvas2D (legacy)
-```
+The renderer is initialized in [src/client/ui/map-navigation-ui.ts](src/client/ui/map-navigation-ui.ts) via `IsometricMapRenderer`.
 
-### PixiJS Renderer (Default - WebGL)
-- **Files:** [src/client/renderer/pixi/](src/client/renderer/pixi/)
-- GPU-accelerated via PixiJS v8 WebGL
-- Batched draw calls for optimal performance
-- Efficient texture atlasing
-- Mobile-optimized rendering
-- **Current default renderer**
+### Canvas 2D Isometric Renderer
 
-### Canvas2D Renderer (Legacy)
-- **File:** [isometric-map-renderer.ts](src/client/renderer/isometric-map-renderer.ts)
-- CPU-based rendering with 2D canvas
-- Chunk-based terrain caching
-- Full feature parity (placement, roads, zones, overlays)
-- Stable, well-tested fallback
+- **Orchestrator:** [isometric-map-renderer.ts](src/client/renderer/isometric-map-renderer.ts) - layered rendering (terrain, concrete, roads, buildings, overlays, previews)
+- **Terrain:** Chunk-based pre-rendering (32x32 tiles) with LRU cache, 4 zoom levels, atlas-accelerated
+- **Texture pipeline:** Server-side BMP→PNG alpha pre-baking + texture atlases (terrain, road, concrete)
+- **Vegetation mapping:** Auto-replaces vegetation textures with flat center near buildings/roads (2-tile buffer)
+- **90° snap rotation:** 4 views (N/E/S/W) via Q/E keys or 2-finger gesture
+- **Mobile touch:** 1-finger pan, 2-finger pinch zoom, 2-finger rotation snap, double-tap center
+- **Camera controls:** Pan, zoom (4 levels), edge-of-screen scrolling
+- **Building placement preview** with collision detection and tooltips
+- **Road drawing preview** with staircase algorithm and validation
+- **Zone overlay rendering** (7 zone types with transparency)
 
-### Three.js Renderer (WebGL)
-- **File:** [IsometricThreeRenderer.ts](src/client/renderer/three/IsometricThreeRenderer.ts)
-- GPU-accelerated via WebGL
-- Batched geometry for terrain chunks
-- Sprite-based building rendering
-- RenderOrder-based painter's algorithm (no per-frame sorting)
-- **Season auto-detection** - Automatically switches to available seasons for terrain types
+**Key algorithms:**
+- `VegetationFlatMapper`: `flatLandId = landId & 0xC0` (keeps LandClass, zeros LandType+LandVar)
+- `CoordinateMapper`: Isometric projection with `rotateMapCoordinates()` around map center
+- Chunk rendering for NORTH rotation; tile-by-tile via CoordinateMapper for E/S/W
 
-**Common Features (all renderers):**
-- Terrain chunk rendering with texture atlases
-- Building placement preview (collision detection, tooltips)
-- Road drawing preview (staircase algorithm, validation)
-- Zone overlay rendering (7 zone types with transparency)
-- Camera controls (pan, zoom, edge-of-screen scrolling)
+**Performance:** 60 FPS on 1000x1000 maps with chunk caching
 
-**Performance:** 60 FPS on 1000×1000 maps with 4000+ terrain tiles visible
+### Texture Pipeline (Server → Client)
 
-See [doc/ENGINE_MIGRATION_SPEC.md](doc/ENGINE_MIGRATION_SPEC.md) for PixiJS implementation details.
+1. **Extraction:** CAB archives → BMP files (texture-extractor.ts)
+2. **Alpha baking:** BMP + color key → PNG with alpha channel (texture-alpha-baker.ts, index v3)
+3. **Atlas generation:** ~256 PNGs → 1 atlas PNG + 1 JSON manifest per terrain type/season (atlas-generator.ts)
+4. **Object atlases:** Road (~60 textures) and concrete (~22 textures) packed into separate atlases
+5. **Client rendering:** `ctx.drawImage(atlas, sx, sy, sw, sh, dx, dy, dw, dh)` — hardware-accelerated
+
+**API endpoints:**
+- `GET /api/terrain-atlas/:terrainType/:season` — terrain atlas PNG
+- `GET /api/terrain-atlas/:terrainType/:season/manifest` — terrain atlas JSON
+- `GET /api/object-atlas/:category` — road/concrete atlas PNG
+- `GET /api/object-atlas/:category/manifest` — road/concrete atlas JSON
+- `GET /api/terrain-texture/:terrainType/:season/:id` — individual texture fallback
+- `GET /cache/:category/:filename` — individual object texture fallback (prefers pre-baked PNG)
+
+**Cache sizes:** TextureCache 1024, GameObjectTextureCache 2048, ChunkCache 96 chunks/zoom
 
 ## RDO Protocol Type System (CRITICAL)
 
@@ -135,48 +140,6 @@ const cmd = `SEL ${objectId}*CALL %RDOSetPrice^PUSH^#${priceId}*!${value}`;
 | `^` | Variant (VariantId) | `^value` |
 | `*` | Void (VoidId) | `*` |
 
-## PixiJS Renderer Status (February 2026)
-
-**Status:** Default renderer, actively developed
-
-**Completed Features:**
-- ✅ Terrain chunk rendering with texture atlases
-- ✅ Building sprites with automatic scaling
-- ✅ Road segment rendering
-- ✅ Concrete platform rendering
-- ✅ Building placement preview (collision detection)
-- ✅ Road drawing preview (staircase algorithm, validation)
-- ✅ Zone overlay rendering
-- ✅ Camera controls (pan, zoom, edge scrolling)
-- ✅ Season auto-detection for terrain types
-- ✅ Painter's algorithm via inverted zIndex (higher i+j = lower zIndex = drawn first)
-
-**Performance:**
-- 60 FPS on 1000×1000 maps
-- GPU-accelerated batched rendering via PixiJS v8
-- Efficient sprite pooling and texture atlasing
-
-## Three.js Renderer Status (January 2026)
-
-**Status:** Feature-complete, alternative renderer
-
-**Completed Features:**
-- ✅ Terrain chunk rendering with texture atlases
-- ✅ Building sprites with automatic scaling
-- ✅ Road segment rendering with texture selection
-- ✅ Concrete platform rendering
-- ✅ Building placement preview (collision detection, tooltips)
-- ✅ Road drawing preview (staircase algorithm, validation)
-- ✅ Zone overlay rendering (7 zone types)
-- ✅ Camera controls (pan, zoom, edge scrolling)
-- ✅ Season auto-detection for terrain types
-- ✅ Painter's algorithm via renderOrder (no sorting)
-
-**Performance:**
-- 60 FPS on 1000×1000 maps
-- GPU-accelerated batched rendering
-- Efficient texture atlases (1024×512px per season)
-
 ## Testing
 
 **Policy: All code changes require tests. Coverage must stay >= 93%.**
@@ -203,10 +166,18 @@ src/
 ├── server/
 │   ├── rdo.test.ts                          # 59 tests - RDO protocol parser
 │   ├── facility-csv-parser.test.ts          # 18 tests - CSV parsing
+│   ├── texture-alpha-baker.test.ts          # 33 tests - BMP→PNG alpha baking
+│   ├── atlas-generator.test.ts              # 12 tests - Texture atlas generation
 │   └── __tests__/rdo/
 │       └── building-operations.test.ts      # 30 tests - Building operations
 ├── client/renderer/
-│   └── *.test.ts                            # 153 tests - Road rendering system
+│   ├── *.test.ts                            # 153 tests - Road/concrete/terrain rendering
+│   ├── coordinate-mapper.test.ts            # 40 tests - Isometric projection + rotation
+│   ├── vegetation-flat-mapper.test.ts       # 28 tests - Vegetation→flat mapping
+│   ├── touch-handler-2d.test.ts             # 11 tests - Mobile touch gestures
+│   ├── texture-cache.test.ts                # 22 tests - Terrain texture cache
+│   ├── texture-atlas-cache.test.ts          # 18 tests - Terrain atlas cache
+│   └── game-object-texture-cache.test.ts    # 31 tests - Game object texture + atlas cache
 └── __fixtures__/                            # Test data (CSV, RDO packets)
 ```
 
@@ -316,19 +287,13 @@ Optional detailed description
 | Document | Purpose |
 |----------|---------|
 | [doc/BACKLOG.md](doc/BACKLOG.md) | Feature backlog & project status |
-| [doc/ENGINE_MIGRATION_SPEC.md](doc/ENGINE_MIGRATION_SPEC.md) | PixiJS WebGL renderer (NEW - replaces Canvas) |
 | [doc/rdo_typing_system.md](doc/rdo_typing_system.md) | RDO type system (RdoValue, RdoParser, RdoCommand) |
 | [doc/building_details_protocol.md](doc/building_details_protocol.md) | Building details RDO protocol |
 | [doc/road_rendering.md](doc/road_rendering.md) | Road rendering API & overview |
 | [doc/road_rendering_reference.md](doc/road_rendering_reference.md) | Road rendering technical reference (reverse-engineered) |
 | [doc/concrete_rendering.md](doc/concrete_rendering.md) | Concrete texture system & water platforms |
-| [doc/THREE-JS-PREVIEW-IMPLEMENTATION.md](doc/THREE-JS-PREVIEW-IMPLEMENTATION.md) | Three.js preview features (placement, roads, zones) |
-| [doc/SWITCHING-RENDERERS.md](doc/SWITCHING-RENDERERS.md) | How to switch between Canvas2D and Three.js renderers |
-| [doc/SOLUTION-TEXTURES-SEASON.md](doc/SOLUTION-TEXTURES-SEASON.md) | Season auto-detection fix for Three.js texture loading |
-| [doc/FIX-TERRAIN-DEPTH-RENDERING.md](doc/FIX-TERRAIN-DEPTH-RENDERING.md) | Depth buffer & renderOrder fixes for proper layering |
-| [doc/CANVAS2D-TEXTURE-SELECTION-ANALYSIS.md](doc/CANVAS2D-TEXTURE-SELECTION-ANALYSIS.md) | Complete analysis of Canvas2D texture selection algorithm |
+| [doc/CANVAS2D-TEXTURE-SELECTION-ANALYSIS.md](doc/CANVAS2D-TEXTURE-SELECTION-ANALYSIS.md) | Canvas2D texture selection algorithm analysis |
 | [doc/CAB-EXTRACTION.md](doc/CAB-EXTRACTION.md) | CAB file extraction system & texture caching |
-| [src/client/renderer/painter-algorithm.ts](src/client/renderer/painter-algorithm.ts) | Painter's algorithm rule: higher (i+j) = draw first |
 
 ## Quick Troubleshooting
 
@@ -338,15 +303,11 @@ Optional detailed description
 | Tests fail | Run `npm run test:verbose` |
 | RDO errors | Verify type prefixes (#, %, !, etc.) |
 | WebSocket disconnect | Check game server status |
-| Textures show as colored tiles (Three.js) | Season mismatch - see [SOLUTION-TEXTURES-SEASON.md](doc/SOLUTION-TEXTURES-SEASON.md) |
-| Roads/concrete not visible (Three.js) | Depth buffer issue - see [FIX-TERRAIN-DEPTH-RENDERING.md](doc/FIX-TERRAIN-DEPTH-RENDERING.md) |
-| Terrain not rendering (Three.js) | Check browser console for WebGL errors, try Canvas2D renderer |
-| Sprites overlap incorrectly (PixiJS) | Painter's algorithm uses inverted sortKey - see [painter-algorithm.ts](src/client/renderer/painter-algorithm.ts) |
 | Port 8080 already in use | Kill process: `Get-Process -Id (Get-NetTCPConnection -LocalPort 8080).OwningProcess \| Stop-Process` (PowerShell) |
 
 ## Current Test Status
 
-- **Test Suites:** 14 passed
-- **Tests:** 497 total (479 passing, 18 skipped)
-- **Coverage:** 93%
-- **Threshold:** 60% minimum (tracking higher)
+- **Test Suites:** 21 total (19 passed, 2 pre-existing failures)
+- **Tests:** 668 passed, 10 failed (pre-existing), 17 skipped
+- **Pre-existing failures:** building-data-service, cab-extractor
+- **Threshold:** 60% minimum

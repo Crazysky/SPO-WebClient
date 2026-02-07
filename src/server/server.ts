@@ -13,6 +13,7 @@ import { SearchMenuService } from './search-menu-service';
 import { UpdateService } from './update-service';
 import { MapDataService } from './map-data-service';
 import { TextureExtractor } from './texture-extractor';
+import { TerrainChunkRenderer } from './terrain-chunk-renderer';
 import { serviceRegistry, setupGracefulShutdown } from './service-registry';
 import {
   WsMessageType,
@@ -134,10 +135,16 @@ serviceRegistry.register('mapData', new MapDataService(), {
   dependsOn: ['update']
 });
 
+// Terrain chunk renderer - depends on textures and mapData (needs atlas + map BMP data)
+serviceRegistry.register('terrainChunks', new TerrainChunkRenderer(), {
+  dependsOn: ['textures', 'mapData']
+});
+
 // Convenience getters for type-safe access to services
 const facilityDimensionsCache = () => serviceRegistry.get<FacilityDimensionsCache>('facilities');
 const mapDataService = () => serviceRegistry.get<MapDataService>('mapData');
 const textureExtractor = () => serviceRegistry.get<TextureExtractor>('textures');
+const terrainChunkRenderer = () => serviceRegistry.get<TerrainChunkRenderer>('terrainChunks');
 
 // WebClient-specific cache directory (for future needs, separate from update server mirror)
 const WEBCLIENT_CACHE_DIR = path.join(__dirname, '../../webclient-cache');
@@ -437,6 +444,242 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Terrain atlas endpoint: /api/terrain-atlas/:terrainType/:season
+  // Returns the pre-generated atlas PNG for a terrain type and season
+  // Example: /api/terrain-atlas/Earth/2
+  if (safePath.startsWith('/api/terrain-atlas/') && !safePath.includes('/manifest')) {
+    const parts = safePath.substring('/api/terrain-atlas/'.length).split('/');
+
+    if (parts.length < 2) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid URL format. Expected: /api/terrain-atlas/:terrainType/:season' }));
+      return;
+    }
+
+    const terrainType = decodeURIComponent(parts[0]);
+    const season = parseInt(parts[1].split('?')[0], 10);
+
+    if (isNaN(season) || season < 0 || season > 3) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid season (0-3)' }));
+      return;
+    }
+
+    const atlasPath = path.join(WEBCLIENT_CACHE_DIR, 'textures', terrainType, String(season), 'atlas.png');
+
+    if (!fs.existsSync(atlasPath)) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Atlas not found' }));
+      return;
+    }
+
+    try {
+      const content = fs.readFileSync(atlasPath);
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=31536000'
+      });
+      res.end(content);
+    } catch (error: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to read atlas file' }));
+    }
+    return;
+  }
+
+  // Terrain atlas manifest: /api/terrain-atlas/:terrainType/:season/manifest
+  // Returns the JSON manifest describing tile positions within the atlas
+  if (safePath.startsWith('/api/terrain-atlas/') && safePath.endsWith('/manifest')) {
+    const parts = safePath.substring('/api/terrain-atlas/'.length).replace('/manifest', '').split('/');
+
+    if (parts.length < 2) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid URL format' }));
+      return;
+    }
+
+    const terrainType = decodeURIComponent(parts[0]);
+    const season = parseInt(parts[1].split('?')[0], 10);
+
+    if (isNaN(season) || season < 0 || season > 3) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid season (0-3)' }));
+      return;
+    }
+
+    const manifestPath = path.join(WEBCLIENT_CACHE_DIR, 'textures', terrainType, String(season), 'atlas.json');
+
+    if (!fs.existsSync(manifestPath)) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Atlas manifest not found' }));
+      return;
+    }
+
+    try {
+      const content = fs.readFileSync(manifestPath, 'utf-8');
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=31536000'
+      });
+      res.end(content);
+    } catch (error: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to read manifest file' }));
+    }
+    return;
+  }
+
+  // Object atlas endpoint: /api/object-atlas/:category
+  // Returns the pre-generated atlas PNG for roads or concrete
+  // Example: /api/object-atlas/roads, /api/object-atlas/concrete
+  if (safePath.startsWith('/api/object-atlas/') && !safePath.endsWith('/manifest')) {
+    const category = safePath.substring('/api/object-atlas/'.length).split('?')[0];
+
+    const atlasPath = path.join(WEBCLIENT_CACHE_DIR, 'objects', `${category}-atlas.png`);
+
+    if (!fs.existsSync(atlasPath)) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Atlas not found for category: ${category}` }));
+      return;
+    }
+
+    try {
+      const content = fs.readFileSync(atlasPath);
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=31536000'
+      });
+      res.end(content);
+    } catch (error: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to read atlas file' }));
+    }
+    return;
+  }
+
+  // Object atlas manifest: /api/object-atlas/:category/manifest
+  if (safePath.startsWith('/api/object-atlas/') && safePath.endsWith('/manifest')) {
+    const category = safePath.substring('/api/object-atlas/'.length).replace('/manifest', '').split('?')[0];
+
+    const manifestPath = path.join(WEBCLIENT_CACHE_DIR, 'objects', `${category}-atlas.json`);
+
+    if (!fs.existsSync(manifestPath)) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Atlas manifest not found for category: ${category}` }));
+      return;
+    }
+
+    try {
+      const content = fs.readFileSync(manifestPath, 'utf-8');
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=31536000'
+      });
+      res.end(content);
+    } catch (error: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to read manifest file' }));
+    }
+    return;
+  }
+
+  // Terrain chunk endpoint: /api/terrain-chunk/:mapName/:terrainType/:season/:zoom/:chunkI/:chunkJ
+  // Returns pre-rendered isometric terrain chunk as PNG at specified zoom level
+  // Example: /api/terrain-chunk/Antiqua/Earth/2/3/31/31
+  if (safePath.startsWith('/api/terrain-chunk/') && !safePath.endsWith('/manifest')) {
+    const parts = safePath.substring('/api/terrain-chunk/'.length).split('/');
+
+    if (parts.length < 6) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid URL format. Expected: /api/terrain-chunk/:mapName/:terrainType/:season/:zoom/:chunkI/:chunkJ' }));
+      return;
+    }
+
+    const mapName = decodeURIComponent(parts[0]);
+    const terrainType = decodeURIComponent(parts[1]);
+    const season = parseInt(parts[2], 10);
+    const zoomLevel = parseInt(parts[3], 10);
+    const chunkI = parseInt(parts[4], 10);
+    const chunkJ = parseInt(parts[5].split('?')[0], 10);
+
+    if (isNaN(season) || season < 0 || season > 3 ||
+        isNaN(zoomLevel) || zoomLevel < 0 || zoomLevel > 3 ||
+        isNaN(chunkI) || isNaN(chunkJ) || chunkI < 0 || chunkJ < 0) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid parameters' }));
+      return;
+    }
+
+    if (!terrainChunkRenderer().hasAtlas(terrainType, season)) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Atlas not available for ${terrainType}/${season}` }));
+      return;
+    }
+
+    try {
+      const reqT0 = Date.now();
+      const chunkPng = await terrainChunkRenderer().getChunk(mapName, terrainType, season, chunkI, chunkJ, zoomLevel);
+
+      if (!chunkPng) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to generate chunk' }));
+        return;
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=31536000'
+      });
+      res.end(chunkPng);
+      const reqDt = Date.now() - reqT0;
+      if (reqDt > 20) {
+        console.log(`[TerrainChunk API] z${zoomLevel} ${chunkI},${chunkJ}: ${reqDt}ms (${(chunkPng.length / 1024).toFixed(0)} KB)`);
+      }
+    } catch (error: unknown) {
+      console.error(`[TerrainChunk] Error generating chunk z${zoomLevel} ${chunkI},${chunkJ}:`, error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal server error' }));
+    }
+    return;
+  }
+
+  // Terrain chunk manifest: /api/terrain-chunks/:mapName/:terrainType/:season/manifest
+  // Returns JSON metadata about the chunk grid
+  if (safePath.startsWith('/api/terrain-chunks/') && safePath.endsWith('/manifest')) {
+    const parts = safePath.substring('/api/terrain-chunks/'.length).replace('/manifest', '').split('/');
+
+    if (parts.length < 3) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid URL format' }));
+      return;
+    }
+
+    const mapName = decodeURIComponent(parts[0]);
+    const terrainType = decodeURIComponent(parts[1]);
+    const season = parseInt(parts[2].split('?')[0], 10);
+
+    if (isNaN(season) || season < 0 || season > 3) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid season (0-3)' }));
+      return;
+    }
+
+    const manifest = terrainChunkRenderer().getChunkManifest(mapName, terrainType, season);
+
+    if (!manifest) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Map data not available' }));
+      return;
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=3600'
+    });
+    res.end(JSON.stringify(manifest));
+    return;
+  }
+
   // Terrain texture endpoint: /api/terrain-texture/:terrainType/:season/:paletteIndex
   // Season: 0=Winter, 1=Spring, 2=Summer, 3=Autumn
   // Example: /api/terrain-texture/Earth/2/128 (Summer, palette index 128)
@@ -506,6 +749,7 @@ const server = http.createServer(async (req, res) => {
 
   // Cache endpoint: /cache/{category}/{filename}
   // Serves files from the update server cache (roads, buildings, etc.)
+  // Prefers pre-baked PNG (with alpha) over original BMP when available
   if (safePath.startsWith('/cache/')) {
     const relativePath = safePath.substring('/cache/'.length);
     const filePath = path.join(CACHE_DIR, relativePath);
@@ -519,7 +763,6 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Determine content type
-    const ext = path.extname(filePath).toLowerCase();
     const contentTypes: Record<string, string> = {
       '.bmp': 'image/bmp',
       '.gif': 'image/gif',
@@ -528,7 +771,14 @@ const server = http.createServer(async (req, res) => {
       '.jpeg': 'image/jpeg',
     };
 
-    fs.readFile(filePath, (err, content) => {
+    // If requesting a BMP, check if a pre-baked PNG exists (has alpha channel pre-applied)
+    const ext = path.extname(filePath).toLowerCase();
+    const pngPath = ext === '.bmp' ? filePath.replace(/\.bmp$/i, '.png') : null;
+
+    const servePath = (pngPath && fs.existsSync(pngPath)) ? pngPath : filePath;
+    const serveExt = path.extname(servePath).toLowerCase();
+
+    fs.readFile(servePath, (err, content) => {
       if (err) {
         if (err.code === 'ENOENT') {
           res.writeHead(404);
@@ -538,7 +788,10 @@ const server = http.createServer(async (req, res) => {
           res.end('Server Error: ' + err.code);
         }
       } else {
-        res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'application/octet-stream' });
+        res.writeHead(200, {
+          'Content-Type': contentTypes[serveExt] || 'application/octet-stream',
+          'Cache-Control': 'public, max-age=31536000' // Cache for 1 year
+        });
         res.end(content);
       }
     });

@@ -99,3 +99,23 @@ export const SEASON_NAMES: Record<Season, string> = {
   [Season.SUMMER]: 'Summer',
   [Season.AUTUMN]: 'Autumn'
 };
+
+/**
+ * Map name to terrain type mapping.
+ * Used by both client and server to determine which texture set to load.
+ */
+export const MAP_TERRAIN_TYPES: Record<string, string> = {
+  'Shamba': 'Alien Swamp',
+  'Zorcon': 'Earth',
+  'Angelicus': 'Earth',
+  'Antiqua': 'Earth',
+  'Zyrane': 'Earth',
+};
+
+/**
+ * Get the terrain type for a given map name.
+ * Falls back to 'Earth' for unknown maps.
+ */
+export function getTerrainTypeForMap(mapName: string): string {
+  return MAP_TERRAIN_TYPES[mapName] || 'Earth';
+}

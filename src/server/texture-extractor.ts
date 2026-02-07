@@ -26,6 +26,8 @@ import * as path from 'path';
 import { Season, SEASON_NAMES } from '../shared/map-config';
 import type { Service } from './service-registry';
 import { extractCabArchive } from './cab-extractor';
+import { bakeAlpha, bakeDirectory } from './texture-alpha-baker';
+import { generateTerrainAtlas, generateObjectAtlas } from './atlas-generator';
 
 /**
  * Mapping from palette index to texture filename, parsed from LandClasses INI files
@@ -100,6 +102,21 @@ export class TextureExtractor implements Service {
         await this.extractTerrainTextures(terrainType, season);
       }
     }
+
+    // Pre-bake alpha for object textures (roads, concrete)
+    // These use dynamic color key detection from corner pixel (0,0)
+    this.bakeObjectTextures();
+
+    // Generate terrain atlases (one per terrain type + season)
+    for (const terrainType of terrainTypes) {
+      const seasons = await this.getAvailableSeasons(terrainType);
+      for (const season of seasons) {
+        this.generateTerrainAtlasForSeason(terrainType, season);
+      }
+    }
+
+    // Generate object atlases (roads, concrete)
+    this.generateObjectAtlases();
 
     this.initialized = true;
     console.log('[TextureExtractor] Initialization complete');
@@ -178,6 +195,132 @@ export class TextureExtractor implements Service {
   }
 
   /**
+   * Pre-bake alpha for object textures (roads, concrete).
+   * Uses dynamic color key detection from corner pixel (0,0).
+   * Building textures (GIF) are skipped - they continue using client-side handling.
+   */
+  private bakeObjectTextures(): void {
+    const objectDirs: Array<{ dir: string; name: string }> = [
+      { dir: path.join(this.cacheDir, 'RoadBlockImages'), name: 'roads' },
+      { dir: path.join(this.cacheDir, 'ConcreteImages'), name: 'concrete' },
+    ];
+
+    for (const { dir, name } of objectDirs) {
+      if (!fs.existsSync(dir)) {
+        console.log(`[TextureExtractor] ${name} directory not found: ${dir}`);
+        continue;
+      }
+
+      // Bake all BMP files with dynamic color key detection (null = auto-detect)
+      const results = bakeDirectory(dir, null);
+      const bakedCount = results.filter(r => r.success && r.width > 0).length;
+      const skippedCount = results.filter(r => r.success && r.width === 0).length;
+      console.log(`[TextureExtractor] ${name} alpha baked: ${bakedCount} new, ${skippedCount} cached`);
+    }
+  }
+
+  /**
+   * Generate a terrain atlas for a specific terrain type and season.
+   * Packs all textures into a single atlas PNG + JSON manifest.
+   */
+  private generateTerrainAtlasForSeason(terrainType: string, season: Season): void {
+    const key = `${terrainType}-${season}`;
+    const index = this.textureIndex.get(key);
+    if (!index) return;
+
+    const targetDir = path.join(this.extractedDir, terrainType, String(season));
+    const atlasPath = path.join(targetDir, 'atlas.png');
+    const manifestPath = path.join(targetDir, 'atlas.json');
+
+    // Skip if atlas already exists and is up to date (check index version in same dir)
+    const indexFile = path.join(targetDir, 'index.json');
+    if (fs.existsSync(atlasPath) && fs.existsSync(manifestPath) && fs.existsSync(indexFile)) {
+      const indexData = JSON.parse(fs.readFileSync(indexFile, 'utf-8'));
+      if (indexData.version === 3) {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+        if (manifest.version === 1 && Object.keys(manifest.tiles).length > 0) {
+          console.log(`[TextureExtractor] Atlas cached: ${terrainType}/${SEASON_NAMES[season]} (${Object.keys(manifest.tiles).length} tiles)`);
+          return;
+        }
+        // Atlas exists but has 0 tiles — regenerate
+        if (Object.keys(manifest.tiles).length === 0) {
+          console.log(`[TextureExtractor] Atlas has 0 tiles, regenerating: ${terrainType}/${SEASON_NAMES[season]}`);
+        }
+      }
+    }
+
+    // Build texture list from index
+    const textures: Array<{ paletteIndex: number; filePath: string }> = [];
+    for (const [paletteIndex, infos] of index.textures) {
+      if (infos.length > 0) {
+        textures.push({ paletteIndex, filePath: infos[0].filePath });
+      }
+    }
+
+    const result = generateTerrainAtlas(textures, targetDir, terrainType, season);
+    if (result.success) {
+      console.log(`[TextureExtractor] Atlas generated: ${terrainType}/${SEASON_NAMES[season]} (${result.tileCount} tiles, ${result.atlasWidth}x${result.atlasHeight})`);
+    } else {
+      console.error(`[TextureExtractor] Atlas failed: ${terrainType}/${SEASON_NAMES[season]}: ${result.error}`);
+    }
+  }
+
+  /**
+   * Generate object atlases for roads and concrete.
+   * Stores in webclient-cache/objects/ directory.
+   */
+  private generateObjectAtlases(): void {
+    const objectsDir = path.join('webclient-cache', 'objects');
+    if (!fs.existsSync(objectsDir)) {
+      fs.mkdirSync(objectsDir, { recursive: true });
+    }
+
+    const atlasConfigs: Array<{ sourceDir: string; name: string; category: string }> = [
+      {
+        sourceDir: path.join(this.cacheDir, 'RoadBlockImages'),
+        name: 'road',
+        category: 'roads',
+      },
+      {
+        sourceDir: path.join(this.cacheDir, 'ConcreteImages'),
+        name: 'concrete',
+        category: 'concrete',
+      },
+    ];
+
+    for (const config of atlasConfigs) {
+      if (!fs.existsSync(config.sourceDir)) {
+        console.log(`[TextureExtractor] ${config.name} source not found: ${config.sourceDir}`);
+        continue;
+      }
+
+      const atlasPath = path.join(objectsDir, `${config.name}-atlas.png`);
+      const manifestPath = path.join(objectsDir, `${config.name}-atlas.json`);
+
+      // Skip if already generated and has tiles
+      if (fs.existsSync(atlasPath) && fs.existsSync(manifestPath)) {
+        try {
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+          if (manifest.tiles && Object.keys(manifest.tiles).length > 0) {
+            console.log(`[TextureExtractor] ${config.name} atlas cached`);
+            continue;
+          }
+          console.log(`[TextureExtractor] ${config.name} atlas has 0 tiles, regenerating`);
+        } catch {
+          console.log(`[TextureExtractor] ${config.name} atlas manifest invalid, regenerating`);
+        }
+      }
+
+      const result = generateObjectAtlas(config.sourceDir, atlasPath, manifestPath, config.category);
+      if (result.success) {
+        console.log(`[TextureExtractor] ${config.name} atlas generated: ${result.tileCount} tiles (${result.atlasWidth}x${result.atlasHeight})`);
+      } else {
+        console.error(`[TextureExtractor] ${config.name} atlas failed: ${result.error}`);
+      }
+    }
+  }
+
+  /**
    * Get available terrain types from landimages directory
    */
   private async getTerrainTypes(): Promise<string[]> {
@@ -225,8 +368,8 @@ export class TextureExtractor implements Service {
       // Load existing index
       const indexData = JSON.parse(fs.readFileSync(indexFile, 'utf-8'));
 
-      // Check if index was built with INI mapping (version 2)
-      if (indexData.version === 2) {
+      // Check if index was built with pre-baked alpha PNGs (version 3)
+      if (indexData.version === 3) {
         const textureMap = new Map<number, TextureInfo[]>();
 
         for (const [key, value] of Object.entries(indexData.textures)) {
@@ -239,10 +382,10 @@ export class TextureExtractor implements Service {
           textures: textureMap
         });
 
-        console.log(`[TextureExtractor] Loaded cached index (v2): ${terrainType}/${seasonName}`);
+        console.log(`[TextureExtractor] Loaded cached index (v3): ${terrainType}/${seasonName}`);
         return;
       } else {
-        console.log(`[TextureExtractor] Rebuilding index (old version): ${terrainType}/${seasonName}`);
+        console.log(`[TextureExtractor] Rebuilding index (version ${indexData.version} → 3): ${terrainType}/${seasonName}`);
       }
     }
 
@@ -266,17 +409,37 @@ export class TextureExtractor implements Service {
       }
     }
 
+    // Pre-bake alpha: convert BMP textures to PNG with alpha channel
+    // This eliminates per-pixel color keying on the client
+    const bakeResults = bakeDirectory(targetDir);
+    const bakedCount = bakeResults.filter(r => r.success && r.width > 0).length;
+    const skippedCount = bakeResults.filter(r => r.success && r.width === 0).length;
+    if (bakedCount > 0 || skippedCount > 0) {
+      console.log(`[TextureExtractor] Alpha baked: ${bakedCount} new PNGs, ${skippedCount} cached: ${terrainType}/${seasonName}`);
+    }
+
     // Build texture map using INI mappings as source of truth
     const textureMap = new Map<number, TextureInfo[]>();
 
-    // Get all extracted BMP files
-    const extractedFiles = fs.readdirSync(targetDir)
-      .filter(f => f.endsWith('.bmp'));
+    // Get all extracted files (prefer PNG over BMP)
+    const allFiles = fs.readdirSync(targetDir);
+    const pngFiles = allFiles.filter(f => f.toLowerCase().endsWith('.png') && f !== 'atlas.png');
+    const bmpFiles = allFiles.filter(f => f.toLowerCase().endsWith('.bmp'));
 
     // Create a case-insensitive filename lookup map
+    // For each BMP filename, check if a corresponding PNG exists (preferred)
     const filenameLookup = new Map<string, string>();
-    for (const file of extractedFiles) {
-      filenameLookup.set(file.toLowerCase(), file);
+    for (const file of bmpFiles) {
+      const pngName = file.replace(/\.bmp$/i, '.png');
+      const hasPng = pngFiles.some(p => p.toLowerCase() === pngName.toLowerCase());
+      if (hasPng) {
+        // Use PNG version (pre-baked alpha)
+        const actualPng = pngFiles.find(p => p.toLowerCase() === pngName.toLowerCase())!;
+        filenameLookup.set(file.toLowerCase(), actualPng);
+      } else {
+        // Fallback to BMP
+        filenameLookup.set(file.toLowerCase(), file);
+      }
     }
 
     // For each palette index in INI mappings, find the corresponding texture file
@@ -301,9 +464,9 @@ export class TextureExtractor implements Service {
     };
     this.textureIndex.set(`${terrainType}-${season}`, index);
 
-    // Save index to file for faster startup next time (version 2 = INI-based)
+    // Save index to file for faster startup next time (version 3 = pre-baked alpha PNGs)
     const indexData = {
-      version: 2,
+      version: 3,
       terrainType,
       season,
       seasonName,
@@ -311,7 +474,7 @@ export class TextureExtractor implements Service {
     };
     fs.writeFileSync(indexFile, JSON.stringify(indexData, null, 2));
 
-    console.log(`[TextureExtractor] Indexed ${textureMap.size} textures using INI mapping: ${terrainType}/${seasonName}`);
+    console.log(`[TextureExtractor] Indexed ${textureMap.size} textures (v3 pre-baked alpha): ${terrainType}/${seasonName}`);
   }
 
   /**
@@ -327,14 +490,14 @@ export class TextureExtractor implements Service {
     // Try standard format: land.<index>.<Type><Direction><Variant>.bmp
     // Types: Grass, MidGrass, DryGround, Water
     // Directions: Center, NEi, NEo, NWi, NWo, SEi, SEo, SWi, SWo, Ni, No, Si, So, Ei, Eo, Wi, Wo
-    const standardMatch = fileName.match(/^land\.\d+\.(Grass|MidGrass|DryGround|Water)(Center|[NS][EW]?[io])(\d)\.bmp$/i);
+    const standardMatch = fileName.match(/^land\.\d+\.(Grass|MidGrass|DryGround|Water)(Center|[NS][EW]?[io])(\d)\.(bmp|png)$/i);
     if (standardMatch) {
       terrainType = standardMatch[1];
       direction = standardMatch[2] || 'Center';
       variant = parseInt(standardMatch[3], 10);
     } else {
       // Try special format: <Type>Special<N>.bmp
-      const specialMatch = fileName.match(/^(Grass|MidGrass|DryGround|Water)Special(\d+)\.bmp$/i);
+      const specialMatch = fileName.match(/^(Grass|MidGrass|DryGround|Water)Special(\d+)\.(bmp|png)$/i);
       if (specialMatch) {
         terrainType = specialMatch[1];
         direction = 'Special';

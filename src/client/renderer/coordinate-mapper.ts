@@ -41,17 +41,17 @@ export class CoordinateMapper {
     const rows = this.mapHeight;
     const cols = this.mapWidth;
 
-    // TODO: Apply rotation transformation (disabled for now)
-    // const rotated = this.rotateMapCoordinates(i, j, rotation);
-    // const ri = rotated.x;
-    // const rj = rotated.y;
+    // Apply rotation transformation (90° snap: N/E/S/W)
+    const rotated = this.rotateMapCoordinates(i, j, rotation);
+    const ri = rotated.x;
+    const rj = rotated.y;
 
     // Modified Lander.pas formula for seamless isometric tiling:
     // - X uses u (not 2*u) for step = tileWidth/2 between adjacent tiles
     // - Y uses u/2 for step = tileHeight/2 between adjacent tiles
     // This ensures tiles overlap by exactly half their dimensions.
-    const x = u * (rows - i + j) - origin.x;
-    const y = (u / 2) * ((rows - i) + (cols - j)) - origin.y;
+    const x = u * (rows - ri + rj) - origin.x;
+    const y = (u / 2) * ((rows - ri) + (cols - rj)) - origin.y;
 
     return { x, y };
   }
@@ -99,14 +99,12 @@ export class CoordinateMapper {
     const A = screenX / u;
     const B = (2 * screenY) / u;
 
-    const i = Math.floor((2 * rows + cols - A - B) / 2);
-    const j = Math.floor((A - B + cols) / 2);
+    const ri = Math.floor((2 * rows + cols - A - B) / 2);
+    const rj = Math.floor((A - B + cols) / 2);
 
-    // TODO: Apply inverse rotation (disabled for now)
-    // const original = this.rotateMapCoordinates(i, j, this.getInverseRotation(rotation));
-    // return { x: original.x, y: original.y };
-
-    return { x: i, y: j };
+    // Apply inverse rotation to get back to original map coordinates
+    const original = this.rotateMapCoordinates(ri, rj, this.getInverseRotation(rotation));
+    return { x: original.x, y: original.y };
   }
 
   /**

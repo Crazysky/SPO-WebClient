@@ -32,7 +32,7 @@ describe('TextureCache', () => {
     it('should create cache with default max size', () => {
       const defaultCache = new TextureCache();
       const stats = defaultCache.getStats();
-      expect(stats.maxSize).toBe(200);
+      expect(stats.maxSize).toBe(1024);
     });
 
     it('should create cache with custom max size', () => {

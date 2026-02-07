@@ -452,6 +452,21 @@ export class UpdateService implements Service {
   }
 
   /**
+   * Check if a file is a derived file (e.g., pre-baked PNG from a CAB-extracted BMP).
+   * These files are generated locally by the texture pipeline and should not be deleted.
+   */
+  private isDerivedFile(relativePath: string): boolean {
+    // Pre-baked alpha PNGs: if a .png has a corresponding .bmp that is a CAB-extracted file
+    if (relativePath.toLowerCase().endsWith('.png')) {
+      const bmpPath = relativePath.replace(/\.png$/i, '.bmp');
+      if (this.isExtractedCabFile(bmpPath)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Synchronize cache with remote server
    */
   async syncAll(): Promise<void> {
@@ -567,6 +582,11 @@ export class UpdateService implements Service {
 
       // Don't delete files that were extracted from CAB files
       if (this.isExtractedCabFile(localFile)) {
+        continue;
+      }
+
+      // Don't delete derived files (e.g., pre-baked PNGs from BMP textures)
+      if (this.isDerivedFile(localFile)) {
         continue;
       }
 

@@ -37,11 +37,8 @@
   },
   "dependencies": {
     "7zip-min": "^1.4.5",
-    "bmp-js": "^0.1.0",
-    "cabarc": "^0.4.1",
     "cheerio": "^1.1.2",
     "node-fetch": "^2.7.0",
-    "pixi.js": "^8.15.0",
     "ws": "^8.19.0"
   },
   "devDependencies": {
