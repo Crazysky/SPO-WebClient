@@ -95,6 +95,32 @@ The renderer is initialized in [src/client/ui/map-navigation-ui.ts](src/client/u
 
 **Performance:** 60 FPS on 1000x1000 maps with chunk caching
 
+### Zone Loading & Refresh Management
+
+**ZoneRequestManager** - Intelligent zone loading system with movement-aware request delays
+
+**Zone Loading Strategy:**
+- **Movement-aware delays:** Requests sent when movement stops, not during pan/zoom/rotate
+- **Zoom-based delays:** Z3 (closest): 0ms, Z2: 100ms, Z1: 300ms, Z0 (farthest): 500ms
+- **Request queue:** Distance-based prioritization (closest zones first)
+- **Server-safe limits:** Max 3 concurrent requests, 15s timeout per request
+- **Complete coverage:** All visible zones eventually loaded (no missing content)
+
+**Zone Refresh System:**
+- **Auto-expiry:** Zones older than 5 minutes automatically reload when revisited
+- **Manual invalidation API:**
+  - `invalidateZone(x, y)` - Force refresh specific zone
+  - `invalidateArea(x1, y1, x2, y2)` - Force refresh rectangular area
+  - `invalidateAllZones()` - Force refresh all cached zones
+- **Lazy loading:** Invalidated zones reload only when they come into view
+- **Timestamp tracking:** Each zone stores `lastLoadTime` for staleness detection
+
+**Benefits:**
+- Prevents server spam during movement at far zoom levels
+- Ensures all visible content is loaded (no missing zones)
+- Automatic refresh of stale data when revisiting areas
+- Server can force-refresh specific zones via invalidation API
+
 ### Texture Pipeline (Server → Client)
 
 1. **Extraction:** CAB archives → BMP files (texture-extractor.ts)
