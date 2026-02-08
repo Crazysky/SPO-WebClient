@@ -428,6 +428,41 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Car classes endpoint: /api/car-classes
+  // Returns a list of all car class INI files with their content
+  if (safePath === '/api/car-classes') {
+    const carClassesDir = path.join(CACHE_DIR, 'CarClasses');
+
+    try {
+      if (!fs.existsSync(carClassesDir)) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ files: [] }));
+        return;
+      }
+
+      const files = fs.readdirSync(carClassesDir)
+        .filter(f => f.toLowerCase().endsWith('.ini'));
+
+      const iniContents: Array<{ filename: string; content: string }> = [];
+      for (const file of files) {
+        const filePath = path.join(carClassesDir, file);
+        const content = fs.readFileSync(filePath, 'utf-8');
+        iniContents.push({ filename: file, content });
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=3600'
+      });
+      res.end(JSON.stringify({ files: iniContents }));
+    } catch (error: unknown) {
+      console.error('[CarClasses] Failed to read INI files:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to read car classes' }));
+    }
+    return;
+  }
+
   if (safePath.startsWith('/api/terrain-info/')) {
     const terrainType = decodeURIComponent(safePath.substring('/api/terrain-info/'.length).split('?')[0]);
 
@@ -926,12 +961,18 @@ wss.on('connection', (ws: WebSocket) => {
         if (loginCredentials) {
           loginCredentials.companyId = companyMsg.companyId;
         }
+      } else if (msg.type === WsMessageType.REQ_SWITCH_COMPANY) {
+        const switchMsg = msg as WsReqSwitchCompany;
+        if (loginCredentials) {
+          loginCredentials.companyId = switchMsg.company.id;
+        }
       }
 
       await handleClientMessage(ws, spSession, searchMenuService, msg);
 
       // Initialize SearchMenuService after successful login response
-      if (msg.type === WsMessageType.REQ_SELECT_COMPANY && !searchMenuService && loginCredentials && loginCredentials.worldInfo) {
+      const isCompanySelection = msg.type === WsMessageType.REQ_SELECT_COMPANY || msg.type === WsMessageType.REQ_SWITCH_COMPANY;
+      if (isCompanySelection && !searchMenuService && loginCredentials && loginCredentials.worldInfo) {
         setTimeout(() => {
           if (loginCredentials && loginCredentials.worldInfo && spSession) {
             const daAddr = spSession.getDAAddr();

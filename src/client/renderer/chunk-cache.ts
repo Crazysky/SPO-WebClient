@@ -49,12 +49,15 @@ const isOffscreenCanvasSupported = typeof OffscreenCanvas !== 'undefined';
  * Calculate chunk canvas dimensions for isometric rendering
  * Based on seamless tiling formula where tiles overlap by half their dimensions
  * Flat-only: no extra height needed for tall textures
+ *
+ * Height: tile (0,0) at y = u*chunkSize extends to y = u*(chunkSize+1),
+ * so canvas must be at least u*(chunkSize+1) = u*chunkSize + tileHeight.
  */
 function calculateChunkCanvasDimensions(chunkSize: number, config: ZoomConfig): { width: number; height: number } {
   const u = config.u;
 
   const width = u * (2 * chunkSize - 1) + config.tileWidth;
-  const height = (u / 2) * (2 * chunkSize - 1) + config.tileHeight;
+  const height = u * chunkSize + config.tileHeight;
 
   return { width, height };
 }
@@ -495,6 +498,11 @@ export class ChunkCache {
     const ctx = entry.canvas.getContext('2d');
     if (!ctx) return;
 
+    // Disable image smoothing: texture scaling must produce hard (binary) alpha edges.
+    // With smoothing ON, scaled tiles get semi-transparent border pixels that create
+    // visible dark seam lines at chunk boundaries (compositing artifact).
+    ctx.imageSmoothingEnabled = false;
+
     // Clear canvas
     ctx.clearRect(0, 0, entry.canvas.width, entry.canvas.height);
 
@@ -626,7 +634,7 @@ export class ChunkCache {
       origin
     );
 
-    ctx.drawImage(chunk, screenPos.x, screenPos.y);
+    ctx.drawImage(chunk, Math.round(screenPos.x), Math.round(screenPos.y));
     return true;
   }
 

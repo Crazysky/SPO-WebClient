@@ -40,7 +40,7 @@ const ZOOM3_HALF_WIDTH = ZOOM3_TILE_WIDTH / 2; // 32
 
 /** Chunk canvas dimensions at zoom level 3 */
 export const CHUNK_CANVAS_WIDTH = ZOOM3_U * (2 * CHUNK_SIZE - 1) + ZOOM3_TILE_WIDTH;   // 2080
-export const CHUNK_CANVAS_HEIGHT = (ZOOM3_U / 2) * (2 * CHUNK_SIZE - 1) + ZOOM3_TILE_HEIGHT; // 1040
+export const CHUNK_CANVAS_HEIGHT = ZOOM3_U * CHUNK_SIZE + ZOOM3_TILE_HEIGHT;            // 1056
 
 /** Maximum zoom level (base resolution) */
 const MAX_ZOOM = 3;
@@ -765,12 +765,12 @@ export class TerrainChunkRenderer implements Service {
     const chunksI = Math.ceil(map.height / CHUNK_SIZE);
     const chunksJ = Math.ceil(map.width / CHUNK_SIZE);
 
-    // Z0 chunk dimensions (260×130 at CHUNK_SIZE=32)
+    // Z0 chunk dimensions (260×132 at CHUNK_SIZE=32)
     const z0U = 4;
     const z0TileW = 8;
     const z0TileH = 4;
     const chunkW = z0U * (2 * CHUNK_SIZE - 1) + z0TileW;   // 260
-    const chunkH = (z0U / 2) * (2 * CHUNK_SIZE - 1) + z0TileH; // 130
+    const chunkH = z0U * CHUNK_SIZE + z0TileH;              // 132
 
     // Calculate preview image dimensions using the isometric layout formula.
     // Each chunk at Z0 occupies a diamond in screen space. We need to find the

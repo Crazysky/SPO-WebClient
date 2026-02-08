@@ -36,9 +36,9 @@ describe('Chunk constants', () => {
   it('should have correct chunk canvas dimensions at zoom level 3', () => {
     // u=32, CHUNK_SIZE=32
     // width = u * (2*32 - 1) + tileWidth = 32*63 + 64 = 2080
-    // height = (u/2) * (2*32 - 1) + tileHeight = 16*63 + 32 = 1040
+    // height = u * CHUNK_SIZE + tileHeight = 32*32 + 32 = 1056
     expect(CHUNK_CANVAS_WIDTH).toBe(2080);
-    expect(CHUNK_CANVAS_HEIGHT).toBe(1040);
+    expect(CHUNK_CANVAS_HEIGHT).toBe(1056);
   });
 });
 

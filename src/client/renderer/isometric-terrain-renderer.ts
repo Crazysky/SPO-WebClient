@@ -294,9 +294,10 @@ export class IsometricTerrainRenderer {
     );
 
     // Origin makes camera position appear at canvas center
+    // Round to integers to prevent sub-pixel chunk positioning (causes seam lines)
     this.origin = {
-      x: cameraScreen.x - this.canvas.width / 2,
-      y: cameraScreen.y - this.canvas.height / 2
+      x: Math.round(cameraScreen.x - this.canvas.width / 2),
+      y: Math.round(cameraScreen.y - this.canvas.height / 2)
     };
   }
 
@@ -401,6 +402,11 @@ export class IsometricTerrainRenderer {
     const canvasWidth = this.canvas.width;
     const canvasHeight = this.canvas.height;
 
+    // Disable image smoothing while drawing chunk canvases to prevent
+    // edge bleeding artifacts (dark seam lines between chunks)
+    const prevSmoothing = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+
     // At Z0/Z1, draw the terrain preview as a base layer before chunks.
     // This provides an instant visual while chunks stream in (no blue triangles).
     if (this.terrainPreview && this.zoomLevel <= 1) {
@@ -461,6 +467,9 @@ export class IsometricTerrainRenderer {
       const centerChunkJ = Math.floor((visMinJ + visMaxJ) / 2);
       this.chunkCache.preloadChunks(centerChunkI, centerChunkJ, preloadRadius, this.zoomLevel);
     }
+
+    // Restore image smoothing for non-chunk rendering (text, overlays, etc.)
+    ctx.imageSmoothingEnabled = prevSmoothing;
 
     return tilesRendered;
   }

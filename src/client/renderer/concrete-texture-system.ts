@@ -12,7 +12,7 @@
  * 5. INI-based texture class loading
  */
 
-import { LandClass, landClassOf } from '../../shared/land-utils';
+import { LandClass, landClassOf, landTypeOf, LandType } from '../../shared/land-utils';
 import { Rotation } from './road-texture-system';
 import { parseIniFile, parseDelphiInt } from './road-texture-system';
 
@@ -37,6 +37,9 @@ export const CONCRETE_PLATFORM_MASK = 0x7F;
 
 /** No concrete present */
 export const CONCRETE_NONE = 0xFF;
+
+/** Platform visual elevation in pixels at base zoom (64x32 tiles) */
+export const PLATFORM_SHIFT = 12;
 
 // =============================================================================
 // NEIGHBOR CONFIGURATION
@@ -145,37 +148,38 @@ export const PLATFORM_IDS = {
  * Key bits: [top][left][right][bottom] (each 1 bit)
  * Key = (top ? 8 : 0) | (left ? 4 : 0) | (right ? 2 : 0) | (bottom ? 1 : 0)
  *
- * IMPORTANT: The edge/corner NAME refers to which edge is EXPOSED (no neighbor):
- * - Missing T (row-1) = NORTH edge exposed → use platN
- * - Missing B (row+1) = SOUTH edge exposed → use platS
- * - Missing L (col-1) = WEST edge exposed → use platW
- * - Missing R (col+1) = EAST edge exposed → use platE
+ * IMPORTANT: Map cardinal directions differ from on-screen texture names due to
+ * isometric projection. The texture name matches the VISUAL screen direction:
+ * - Missing T (row-1, screen top-right) → SE edge on screen → use platSE
+ * - Missing B (row+1, screen bottom-left) → NW edge on screen → use platNW
+ * - Missing L (col-1, screen top-left) → SW edge on screen → use platSW
+ * - Missing R (col+1, screen bottom-right) → NE edge on screen → use platNE
  *
- * | Pattern | Missing | Exposed Edge | INI ID |
+ * | Pattern | Missing | Screen Edge  | INI ID |
  * |---------|---------|--------------|--------|
  * | TLRB    | none    | center       | $80    |
- * | _LRB    | T       | N edge       | $82    |
- * | T_RB    | L       | W edge       | $88    |
- * | TL_B    | R       | E edge       | $81    |
- * | TLR_    | B       | S edge       | $85    |
- * | __RB    | T,L     | NW corner    | $84    |
- * | _L_B    | T,R     | NE corner    | $83    |
+ * | _LRB    | T       | SE edge      | $86    |
+ * | T_RB    | L       | SW edge      | $87    |
+ * | TL_B    | R       | NE edge      | $83    |
+ * | TLR_    | B       | NW edge      | $84    |
+ * | __RB    | T,L     | S corner     | $85    |
+ * | _L_B    | T,R     | E corner     | $81    |
  * | T__B    | L,R     | (vertical)   | $80    |
- * | TL__    | R,B     | SE corner    | $86    |
- * | T_R_    | L,B     | SW corner    | $87    |
+ * | TL__    | R,B     | N corner     | $82    |
+ * | T_R_    | L,B     | W corner     | $88    |
  * | _LR_    | T,B     | (horizontal) | $80    |
  */
 const WATER_CONCRETE_LOOKUP: Record<number, number> = {
   0b1111: PLATFORM_IDS.CENTER, // TLRB = all present → center
-  0b0111: PLATFORM_IDS.N,      // _LRB = missing T → N edge exposed
-  0b1011: PLATFORM_IDS.W,      // T_RB = missing L → W edge exposed
-  0b1101: PLATFORM_IDS.E,      // TL_B = missing R → E edge exposed
-  0b1110: PLATFORM_IDS.S,      // TLR_ = missing B → S edge exposed
-  0b0011: PLATFORM_IDS.NW,     // __RB = missing T,L → NW corner exposed
-  0b0101: PLATFORM_IDS.NE,     // _L_B = missing T,R → NE corner exposed
+  0b0111: PLATFORM_IDS.SE,     // _LRB = missing T → SE edge on screen
+  0b1011: PLATFORM_IDS.SW,     // T_RB = missing L → SW edge on screen
+  0b1101: PLATFORM_IDS.NE,     // TL_B = missing R → NE edge on screen
+  0b1110: PLATFORM_IDS.NW,     // TLR_ = missing B → NW edge on screen
+  0b0011: PLATFORM_IDS.S,      // __RB = missing T,L → S corner on screen
+  0b0101: PLATFORM_IDS.E,      // _L_B = missing T,R → E corner on screen
   0b1001: PLATFORM_IDS.CENTER, // T__B = missing L,R → vertical strip (use center)
-  0b1100: PLATFORM_IDS.SE,     // TL__ = missing R,B → SE corner exposed
-  0b1010: PLATFORM_IDS.SW,     // T_R_ = missing L,B → SW corner exposed
+  0b1100: PLATFORM_IDS.N,      // TL__ = missing R,B → N corner on screen
+  0b1010: PLATFORM_IDS.W,      // T_R_ = missing L,B → W corner on screen
   0b0110: PLATFORM_IDS.CENTER, // _LR_ = missing T,B → horizontal strip (use center)
   // Isolated patterns - use center as fallback
   0b0001: PLATFORM_IDS.CENTER, // ___B
@@ -405,6 +409,18 @@ export function getWaterConcreteId(cfg: ConcreteCfg): number {
 function isWaterPlatformTile(row: number, col: number, mapData: ConcreteMapData): boolean {
   const landId = mapData.getLandId(row, col);
   return landClassOf(landId) === LandClass.ZoneD;
+}
+
+/**
+ * Check if a tile can receive concrete based on its terrain type.
+ * On water (ZoneD), only ldtCenter (deep water) tiles accept concrete.
+ * Water edge and corner tiles are excluded — no concrete on shorelines.
+ */
+export function canReceiveConcrete(landId: number): boolean {
+  if (landClassOf(landId) === LandClass.ZoneD) {
+    return landTypeOf(landId) === LandType.Center;
+  }
+  return true;
 }
 
 /**

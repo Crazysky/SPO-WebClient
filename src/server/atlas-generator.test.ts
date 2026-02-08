@@ -331,4 +331,110 @@ describe('generateObjectAtlas', () => {
     expect(result.atlasWidth).toBe(128);  // 2 * 64
     expect(result.atlasHeight).toBe(64);  // 2 * 32
   });
+
+  it('should handle mixed standard and tall textures (bridges)', () => {
+    // Standard road: 64×32, bridge: 64×49
+    fs.writeFileSync(path.join(tmpDir, 'Roadhorz.bmp'), createTestBmp(64, 32));
+    fs.writeFileSync(path.join(tmpDir, 'NSBridge.bmp'), createTestBmp(64, 49));
+
+    const atlasPath = path.join(tmpDir, 'atlas.png');
+    const manifestPath = path.join(tmpDir, 'atlas.json');
+    const result = generateObjectAtlas(tmpDir, atlasPath, manifestPath, 'roads');
+
+    expect(result.success).toBe(true);
+    expect(result.tileCount).toBe(2);
+
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+
+    // Cell height should be 49 (max texture height)
+    expect(manifest.cellHeight).toBe(49);
+
+    // Bridge texture: full height, bottom-aligned → yOffset = 0
+    const bridge = manifest.tiles['NSBridge'];
+    expect(bridge).toBeDefined();
+    expect(bridge.height).toBe(49);
+    expect(bridge.y % 49).toBe(0); // starts at cell top (yOffset = 49-49 = 0)
+
+    // Standard road: 32px, bottom-aligned → yOffset = 49-32 = 17
+    const road = manifest.tiles['Roadhorz'];
+    expect(road).toBeDefined();
+    expect(road.height).toBe(32);
+    expect(road.y % 49).toBe(17); // bottom-aligned offset
+  });
+
+  it('should handle very tall textures (platform 80px)', () => {
+    fs.writeFileSync(path.join(tmpDir, 'platC.bmp'), createTestBmp(64, 80));
+    fs.writeFileSync(path.join(tmpDir, 'platS.bmp'), createTestBmp(64, 80));
+    fs.writeFileSync(path.join(tmpDir, 'concrete1.bmp'), createTestBmp(64, 32));
+
+    const atlasPath = path.join(tmpDir, 'atlas.png');
+    const manifestPath = path.join(tmpDir, 'atlas.json');
+    const result = generateObjectAtlas(tmpDir, atlasPath, manifestPath, 'concrete');
+
+    expect(result.success).toBe(true);
+
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+
+    // Cell height should be 80 (max texture height)
+    expect(manifest.cellHeight).toBe(80);
+
+    // Platform texture: 80px height, yOffset = 0
+    const platC = manifest.tiles['platC'];
+    expect(platC.height).toBe(80);
+
+    // Standard concrete: 32px, bottom-aligned → yOffset = 80-32 = 48
+    const std = manifest.tiles['concrete1'];
+    expect(std.height).toBe(32);
+    expect(std.y % 80).toBe(48); // bottom-aligned
+  });
+
+  it('should handle wider-than-standard textures (platW 68px)', () => {
+    fs.writeFileSync(path.join(tmpDir, 'platW.bmp'), createTestBmp(68, 80));
+    fs.writeFileSync(path.join(tmpDir, 'standard.bmp'), createTestBmp(64, 32));
+
+    const atlasPath = path.join(tmpDir, 'atlas.png');
+    const manifestPath = path.join(tmpDir, 'atlas.json');
+    const result = generateObjectAtlas(tmpDir, atlasPath, manifestPath, 'concrete');
+
+    expect(result.success).toBe(true);
+
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+
+    // Cell width should be 68 (max texture width)
+    expect(manifest.cellWidth).toBe(68);
+    expect(manifest.cellHeight).toBe(80);
+
+    // platW: 68px wide
+    const platW = manifest.tiles['platW'];
+    expect(platW.width).toBe(68);
+    expect(platW.height).toBe(80);
+
+    // standard: 64px wide (less than cellWidth)
+    const std = manifest.tiles['standard'];
+    expect(std.width).toBe(64);
+  });
+
+  it('should preserve standard tile dimensions in manifest for uniform sets', () => {
+    // All 64×32 → cellWidth=64, cellHeight=32, no bottom-alignment offset
+    fs.writeFileSync(path.join(tmpDir, 'road1.bmp'), createTestBmp(64, 32));
+    fs.writeFileSync(path.join(tmpDir, 'road2.bmp'), createTestBmp(64, 32));
+
+    const atlasPath = path.join(tmpDir, 'atlas.png');
+    const manifestPath = path.join(tmpDir, 'atlas.json');
+    generateObjectAtlas(tmpDir, atlasPath, manifestPath, 'roads');
+
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+
+    // When all tiles are 32px, no offset applied
+    expect(manifest.tileWidth).toBe(64);
+    expect(manifest.tileHeight).toBe(32);
+    expect(manifest.cellWidth).toBe(64);
+    expect(manifest.cellHeight).toBe(32);
+
+    // Both tiles at their cell top (yOffset = 32-32 = 0)
+    for (const key of Object.keys(manifest.tiles)) {
+      expect(manifest.tiles[key].height).toBe(32);
+      expect(manifest.tiles[key].width).toBe(64);
+    }
+  });
 });

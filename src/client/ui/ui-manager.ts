@@ -229,4 +229,13 @@ export class UIManager {
         break;
     }
   }
+
+  /**
+   * Show an error in the search menu panel (for fire-and-forget error responses)
+   */
+  public handleSearchMenuError(errorMessage: string) {
+    if (this.searchMenuPanel) {
+      this.searchMenuPanel.showError(errorMessage);
+    }
+  }
 }

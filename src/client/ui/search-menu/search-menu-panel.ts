@@ -614,6 +614,14 @@ export class SearchMenuPanel {
   }
 
   /**
+   * Show an error message in the content area
+   */
+  public showError(message: string): void {
+    if (this.panel.style.display === 'none') return;
+    this.contentElement.innerHTML = `<div class="no-results" style="color: #ff6b6b;">${message}</div>`;
+  }
+
+  /**
    * Handle "Show in map" clicks
    */
   private onShowInMap(x: number, y: number): void {

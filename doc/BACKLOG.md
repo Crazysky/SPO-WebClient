@@ -1,6 +1,6 @@
-# Project Backlog - Détails Complets
+# Project Backlog - Complete Details
 
-> 📋 **Historique complet des features et implémentations**
+> Complete history of features and implementations
 
 ---
 

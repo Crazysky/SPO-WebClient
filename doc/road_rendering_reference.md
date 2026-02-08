@@ -1,68 +1,68 @@
-# Données de référence - Système de rendu des routes (Reverse Engineered)
+# Reference Data - Road Rendering System (Reverse Engineered)
 
-**Source:** Client officiel Starpeace Online (Delphi)
-**Fichiers clés:** `Concrete.pas`, `Roads.pas`, `Map.pas`, `VoyagerServerInterfaces.pas`
+**Source:** Official Starpeace Online client (Delphi)
+**Key files:** `Concrete.pas`, `Roads.pas`, `Map.pas`, `VoyagerServerInterfaces.pas`
 
 ---
 
-## 1. Types de terrain pour l'eau (TerrainGrid)
+## 1. Water Terrain Types (TerrainGrid)
 
-### 1.1 Encodage dans la palette BMP
+### 1.1 BMP Palette Encoding
 
 **Source:** `Voyager/Components/MapIsoView/Concrete.pas`
 
 ```typescript
-const cPlatformFlag = 0x80;  // Bit haut = eau
-const cPlatformMask = 0x7F;  // Masque pour extraire le type
+const cPlatformFlag = 0x80;  // High bit = water
+const cPlatformMask = 0x7F;  // Mask to extract the type
 
-// Détection:
+// Detection:
 function isWater(paletteIndex: number): boolean {
   return (paletteIndex & 0x80) !== 0;
 }
 
-// Extraction du type:
+// Type extraction:
 function getWaterType(paletteIndex: number): number {
-  return paletteIndex & 0x7F;  // Retourne 0-8
+  return paletteIndex & 0x7F;  // Returns 0-8
 }
 ```
 
-### 1.2 Table de mapping Palette → Type d'eau
+### 1.2 Palette → Water Type Mapping Table
 
-| Palette Index | Valeur Type | Constante | Description |
-|---------------|-------------|-----------|-------------|
-| 0x80 (128) | 0 | `WATER_CENTER` | Centre (eau complète, 4 voisins eau) |
-| 0x81 (129) | 1 | `WATER_N` | Bord Nord (eau au Nord) |
-| 0x82 (130) | 2 | `WATER_E` | Bord Est (eau à l'Est) |
-| 0x83 (131) | 3 | `WATER_NE` | Coin Nord-Est |
-| 0x84 (132) | 4 | `WATER_S` | Bord Sud (eau au Sud) |
-| 0x85 (133) | 5 | `WATER_SW` | Coin Sud-Ouest |
-| 0x86 (134) | 6 | `WATER_W` | Bord Ouest (eau à l'Ouest) |
-| 0x87 (135) | 7 | `WATER_SE` | Coin Sud-Est |
-| 0x88 (136) | 8 | `WATER_NW` | Coin Nord-Ouest |
+| Palette Index | Type Value | Constant | Description |
+|---------------|------------|----------|-------------|
+| 0x80 (128) | 0 | `WATER_CENTER` | Center (full water, 4 water neighbors) |
+| 0x81 (129) | 1 | `WATER_N` | North edge (water to the North) |
+| 0x82 (130) | 2 | `WATER_E` | East edge (water to the East) |
+| 0x83 (131) | 3 | `WATER_NE` | North-East corner |
+| 0x84 (132) | 4 | `WATER_S` | South edge (water to the South) |
+| 0x85 (133) | 5 | `WATER_SW` | South-West corner |
+| 0x86 (134) | 6 | `WATER_W` | West edge (water to the West) |
+| 0x87 (135) | 7 | `WATER_SE` | South-East corner |
+| 0x88 (136) | 8 | `WATER_NW` | North-West corner |
 
-**Total:** 9 types d'eau (0-8)
+**Total:** 9 water types (0-8)
 
-### 1.3 Configuration 8-voisins
+### 1.3 8-Neighbor Configuration
 
 **Source:** `Concrete.pas:66-77` - `cWaterConcreteConfigs`
 
 ```typescript
-// Configuration [NW, NE, SE, SW] pour chaque type d'eau
-// true = voisin a de l'eau, false = voisin a de la terre
+// Configuration [NW, NE, SE, SW] for each water type
+// true = neighbor has water, false = neighbor has land
 const waterConfigs: boolean[][] = [
-  [true,  true,  true,  true],   // 0 - WATER_CENTER (4 coins eau)
-  [false, true,  false, true],   // 1 - WATER_N (coins NE et NW eau)
-  [true,  true,  false, false],  // 2 - WATER_E (coins NE et SE eau)
-  [true,  true,  false, true],   // 3 - WATER_NE (coins NE, NW, SW eau)
-  [true,  true,  true,  false],  // 4 - WATER_S (coins SE et SW eau)
-  [false, false, true,  true],   // 5 - WATER_SW (coins SW et SE eau)
-  [false, true,  true,  true],   // 6 - WATER_W (coins NW et SW eau)
-  [true,  false, true,  true],   // 7 - WATER_SE (coins SE, SW, NW eau)
-  [true,  false, true,  false]   // 8 - WATER_NW (coins NW et SW eau)
+  [true,  true,  true,  true],   // 0 - WATER_CENTER (4 water corners)
+  [false, true,  false, true],   // 1 - WATER_N (NE and NW water corners)
+  [true,  true,  false, false],  // 2 - WATER_E (NE and SE water corners)
+  [true,  true,  false, true],   // 3 - WATER_NE (NE, NW, SW water corners)
+  [true,  true,  true,  false],  // 4 - WATER_S (SE and SW water corners)
+  [false, false, true,  true],   // 5 - WATER_SW (SW and SE water corners)
+  [false, true,  true,  true],   // 6 - WATER_W (NW and SW water corners)
+  [true,  false, true,  true],   // 7 - WATER_SE (SE, SW, NW water corners)
+  [true,  false, true,  false]   // 8 - WATER_NW (NW and SW water corners)
 ];
 ```
 
-### 1.4 Structure TypeScript
+### 1.4 TypeScript Structure
 
 ```typescript
 interface TerrainCell {
@@ -93,32 +93,32 @@ class TerrainGridParser {
 
 ---
 
-## 2. Grille de béton (ConcreteGrid)
+## 2. Concrete Grid (ConcreteGrid)
 
-### 2.1 Source des données
+### 2.1 Data Source
 
 **Source:** `Map.pas:2312-2321`
 
-**Important:** Pas de fichier `.concrete` séparé ! Le béton est calculé **dynamiquement** à partir des bâtiments urbains.
+**Important:** There is no separate `.concrete` file! Concrete is calculated **dynamically** from urban buildings.
 
-### 2.2 Algorithme de calcul
+### 2.2 Calculation Algorithm
 
 ```typescript
-// Pseudo-code basé sur Map.pas
+// Pseudo-code based on Map.pas
 function calculateConcreteGrid(buildings: Building[]): number[][] {
   const grid: number[][] = Array(mapHeight).fill(0).map(() => Array(mapWidth).fill(0));
-  const CONCRETE_SIZE = 2;  // Rayon d'expansion du béton
+  const CONCRETE_SIZE = 2;  // Concrete expansion radius
 
   for (const building of buildings) {
-    if (!building.isUrban) continue;  // Seulement bâtiments urbains
+    if (!building.isUrban) continue;  // Urban buildings only
 
     const { row, col, size } = building;
 
-    // Expand béton autour du bâtiment
+    // Expand concrete around the building
     for (let i = row - CONCRETE_SIZE; i < row + size + CONCRETE_SIZE; i++) {
       for (let j = col - CONCRETE_SIZE; j < col + size + CONCRETE_SIZE; j++) {
         if (i >= 0 && i < mapHeight && j >= 0 && j < mapWidth) {
-          grid[i][j]++;  // Incrémente compteur béton
+          grid[i][j]++;  // Increment concrete counter
         }
       }
     }
@@ -127,30 +127,30 @@ function calculateConcreteGrid(buildings: Building[]): number[][] {
   return grid;
 }
 
-// Usage pour les routes
+// Usage for roads
 function hasConcrete(x: number, y: number): boolean {
   return concreteGrid[y][x] > 0;
 }
 ```
 
-### 2.3 Structure de stockage
+### 2.3 Storage Structure
 
 **Source:** `Map.pas` - `TConcreteItems`
 
 ```typescript
-// Grid 64×64 par bloc (chunk)
+// 64×64 grid per block (chunk)
 type ConcreteItems = Uint8Array;  // [64 * 64]
 type TConcrete = number;  // 0-12
 
-// Configurations béton (similaire à l'eau)
-const cFullConcrete = 12;      // Béton complet (sous un bâtiment)
-const cRoadConcrete = 0x10;    // Modificateur pour routes
+// Concrete configurations (similar to water)
+const cFullConcrete = 12;      // Full concrete (under a building)
+const cRoadConcrete = 0x10;    // Modifier for roads
 
-// 13 configurations béton selon les 8 voisins (0-12)
-// Même logique que les types d'eau pour déterminer la texture
+// 13 concrete configurations based on 8 neighbors (0-12)
+// Same logic as water types to determine texture
 ```
 
-### 2.4 Propriété Urban des bâtiments
+### 2.4 Urban Building Property
 
 ```typescript
 interface Building {
@@ -158,69 +158,69 @@ interface Building {
   row: number;
   col: number;
   size: number;
-  isUrban: boolean;  // buildclass.Urban = true → génère du béton
+  isUrban: boolean;  // buildclass.Urban = true → generates concrete
 }
 
-// Exemples de bâtiments urbains:
+// Examples of urban buildings:
 // - Offices
-// - Magasins
-// - Immeubles résidentiels
-// - Services publics (police, pompiers, etc.)
+// - Shops
+// - Residential buildings
+// - Public services (police, fire, etc.)
 ```
 
 ---
 
-## 3. Grille de voies ferrées (RailroadGrid)
+## 3. Railroad Grid (RailroadGrid)
 
-### 3.1 Format des segments
+### 3.1 Segment Format
 
 **Source:** `VoyagerServerInterfaces.pas` - `TSegmentInfo`
 
 ```typescript
 interface RailSegment {
-  x1: number;  // word - Point de départ X
-  y1: number;  // word - Point de départ Y
-  x2: number;  // word - Point d'arrivée X
-  y2: number;  // word - Point d'arrivée Y
-  cargo?: number[];  // TCargoArray - Cargaisons transportées
+  x1: number;  // word - Start point X
+  y1: number;  // word - Start point Y
+  x2: number;  // word - End point X
+  y2: number;  // word - End point Y
+  cargo?: number[];  // TCargoArray - Transported cargo
 }
 ```
 
-**Format identique aux segments de routes** (`{x1, y1, x2, y2}`)
+**Format identical to road segments** (`{x1, y1, x2, y2}`)
 
 ### 3.2 RDO Protocol
 
 ```typescript
-const cirRoads = 1;      // Identifiant circuits routes
-const cirRailRoads = 2;  // Identifiant circuits rails
+const cirRoads = 1;      // Road circuit identifier
+const cirRailRoads = 2;  // Rail circuit identifier
 
-// Récupération via RDO
+// Retrieval via RDO
 interface IRailroadsRendering {
   RefreshArea(circuitType: number, x: number, y: number, w: number, h: number): RailSegment[];
 }
 
-// Exemple d'appel
+// Example call
 const railSegments = fCircuitsHandler.RefreshArea(cirRailRoads, x, y, width, height);
 ```
 
-### 3.3 Types de blocs rail
+### 3.3 Rail Block Types
 
 **Source:** `Roads.pas`
 
-**Total:** 60 types de blocs rail (vs 16 pour routes)
+**Total:** 60 rail block types (vs 16 for roads)
 
-| Catégorie | Exemples | Description |
-|-----------|----------|-------------|
-| **Basiques** | `rrbNS`, `rrbWE`, `rrbNSStart`, `rrbWEEnd` | Segments droits avec start/end |
-| **Jonctions** | `rrbmNE`, `rrbmtN`, `rrbc` | Merge points et centre |
-| **Ponts** | `rrbNSBrClimb1`, `rrbNSBrClimb2`, `rrbNSBr`, `rrbNSBrDesc1`, `rrbNSBrDesc2` | Rails sur ponts avec montées/descentes |
-| **Croisements** | `rrbcNE`, `rrbctN` | Croisements ferroviaires |
+| Category | Examples | Description |
+|----------|----------|-------------|
+| **Basic** | `rrbNS`, `rrbWE`, `rrbNSStart`, `rrbWEEnd` | Straight segments with start/end |
+| **Junctions** | `rrbmNE`, `rrbmtN`, `rrbc` | Merge points and center |
+| **Bridges** | `rrbNSBrClimb1`, `rrbNSBrClimb2`, `rrbNSBr`, `rrbNSBrDesc1`, `rrbNSBrDesc2` | Rails on bridges with climb/descent |
+| **Crossings** | `rrbcNE`, `rrbctN` | Railway crossings |
 
-**Différence avec routes:**
-- Routes: 16 types (topologie simple)
-- Rails: 60 types (inclut ponts avec élévation, croisements complexes)
+**Difference from roads:**
+- Roads: 16 types (simple topology)
+- Rails: 60 types (includes bridges with elevation, complex crossings)
 
-### 3.4 Structure TypeScript
+### 3.4 TypeScript Structure
 
 ```typescript
 class RailroadGridBuilder {
@@ -230,16 +230,16 @@ class RailroadGridBuilder {
     for (const segment of segments) {
       const { x1, y1, x2, y2 } = segment;
 
-      // Marquer toutes les cases du segment
+      // Mark all cells in the segment
       if (x1 === x2) {
-        // Segment vertical
+        // Vertical segment
         const yMin = Math.min(y1, y2);
         const yMax = Math.max(y1, y2);
         for (let y = yMin; y <= yMax; y++) {
           grid[y][x1] = true;
         }
       } else if (y1 === y2) {
-        // Segment horizontal
+        // Horizontal segment
         const xMin = Math.min(x1, x2);
         const xMax = Math.max(x1, x2);
         for (let x = xMin; x <= xMax; x++) {
@@ -259,15 +259,15 @@ class RailroadGridBuilder {
 
 ---
 
-## 4. Textures de routes officielles
+## 4. Official Road Textures
 
-### 4.1 Organisation des fichiers
+### 4.1 File Organization
 
-**Source:** Client officiel Starpeace Online
+**Source:** Official Starpeace Online client
 
 ```
 cache/
-├── RoadBlockImages/      ← Textures téléchargées du serveur
+├── RoadBlockImages/      ← Textures downloaded from server
 │   ├── Roadvert.bmp
 │   ├── Roadhorz.bmp
 │   ├── RoadcornerN.bmp
@@ -279,101 +279,101 @@ cache/
 │   ├── RoadTS.bmp
 │   ├── RoadTW.bmp
 │   ├── Roadcross.bmp
-│   └── ... (variantes urban, bridge, etc.)
-└── RoadBlockClasses/     ← INI files de configuration
+│   └── ... (urban, bridge variants, etc.)
+└── RoadBlockClasses/     ← INI configuration files
     └── *.ini
 ```
 
-**Important:** Le repo de développement ne contient PAS les textures de production. Elles sont téléchargées dynamiquement depuis le serveur.
+**Important:** The development repo does NOT contain production textures. They are downloaded dynamically from the server.
 
-### 4.2 Types de blocs route
+### 4.2 Road Block Types
 
 **Source:** `Roads.pas` - Enum `TRoadBlock`
 
-| ID | Nom | Constante | Description |
-|----|-----|-----------|-------------|
-| 0 | None | `rbNone` | Aucune route |
-| 1 | NS Start | `rbNSRoadStart` | Début segment Nord-Sud |
-| 2 | NS End | `rbNSRoadEnd` | Fin segment Nord-Sud |
-| 3 | WE Start | `rbWERoadStart` | Début segment Ouest-Est |
-| 4 | WE End | `rbWERoadEnd` | Fin segment Ouest-Est |
-| 5 | NS | `rbNS` | Segment Nord-Sud |
-| 6 | WE | `rbWE` | Segment Ouest-Est |
-| 7 | Left Plug | `rbLeftPlug` | Jonction T ouvert à gauche |
-| 8 | Right Plug | `rbRightPlug` | Jonction T ouvert à droite |
-| 9 | Top Plug | `rbTopPlug` | Jonction T ouvert en haut |
-| 10 | Bottom Plug | `rbBottomPlug` | Jonction T ouvert en bas |
-| 11 | Corner W | `rbCornerW` | Coin direction Ouest |
-| 12 | Corner S | `rbCornerS` | Coin direction Sud |
-| 13 | Corner N | `rbCornerN` | Coin direction Nord |
-| 14 | Corner E | `rbCornerE` | Coin direction Est |
-| 15 | Crossroads | `rbCrossRoads` | Carrefour 4 directions |
+| ID | Name | Constant | Description |
+|----|------|----------|-------------|
+| 0 | None | `rbNone` | No road |
+| 1 | NS Start | `rbNSRoadStart` | North-South segment start |
+| 2 | NS End | `rbNSRoadEnd` | North-South segment end |
+| 3 | WE Start | `rbWERoadStart` | West-East segment start |
+| 4 | WE End | `rbWERoadEnd` | West-East segment end |
+| 5 | NS | `rbNS` | North-South segment |
+| 6 | WE | `rbWE` | West-East segment |
+| 7 | Left Plug | `rbLeftPlug` | T-junction open left |
+| 8 | Right Plug | `rbRightPlug` | T-junction open right |
+| 9 | Top Plug | `rbTopPlug` | T-junction open top |
+| 10 | Bottom Plug | `rbBottomPlug` | T-junction open bottom |
+| 11 | Corner W | `rbCornerW` | West corner |
+| 12 | Corner S | `rbCornerS` | South corner |
+| 13 | Corner N | `rbCornerN` | North corner |
+| 14 | Corner E | `rbCornerE` | East corner |
+| 15 | Crossroads | `rbCrossRoads` | 4-way intersection |
 
-**Total:** 16 types de base
+**Total:** 16 base types
 
-### 4.3 Format des images
+### 4.3 Image Format
 
-**Spécifications:**
-- **Dimensions:** 64×32 pixels (isométrique)
+**Specifications:**
+- **Dimensions:** 64x32 pixels (isometric)
 - **Format:** BMP (Windows Bitmap)
-- **Profondeur:** 8-bit indexed color (palette)
-- **Transparence:** Color key (RGB spécifique selon type)
+- **Depth:** 8-bit indexed color (palette)
+- **Transparency:** Color key (specific RGB per type)
 
-**Variantes supplémentaires:**
-- Chaque type peut avoir une image de **garde-fou** (`RailingImgPath`)
-- Variantes **urbaines** (sur béton)
-- Variantes **ponts** (sur eau)
-- Variantes **passages à niveau** (sur rails)
-- Variantes **smooth corners** (coins arrondis)
+**Additional variants:**
+- Each type can have a **railing** image (`RailingImgPath`)
+- **Urban** variants (on concrete)
+- **Bridge** variants (over water)
+- **Level crossing** variants (over rails)
+- **Smooth corner** variants (rounded corners)
 
-### 4.4 Nomenclature des fichiers
+### 4.4 File Naming Convention
 
-**Format actuel (client officiel):**
+**Current format (official client):**
 ```
 Road{Type}.bmp
 ```
 
-**Exemples:**
+**Examples:**
 ```
-Roadvert.bmp          → Segment vertical (N-S)
-Roadhorz.bmp          → Segment horizontal (E-O)
-RoadcornerN.bmp       → Coin Nord
-RoadcornerE.bmp       → Coin Est
-RoadcornerS.bmp       → Coin Sud
-RoadcornerW.bmp       → Coin Ouest
-RoadTN.bmp            → T-junction ouvert Nord
-RoadTE.bmp            → T-junction ouvert Est
-RoadTS.bmp            → T-junction ouvert Sud
-RoadTW.bmp            → T-junction ouvert Ouest
-Roadcross.bmp         → Carrefour (crossroads)
+Roadvert.bmp          → Vertical segment (N-S)
+Roadhorz.bmp          → Horizontal segment (E-W)
+RoadcornerN.bmp       → North corner
+RoadcornerE.bmp       → East corner
+RoadcornerS.bmp       → South corner
+RoadcornerW.bmp       → West corner
+RoadTN.bmp            → T-junction open North
+RoadTE.bmp            → T-junction open East
+RoadTS.bmp            → T-junction open South
+RoadTW.bmp            → T-junction open West
+Roadcross.bmp         → Crossroads
 ```
 
-**Format étendu (avec surfaces):**
+**Extended format (with surfaces):**
 ```
 Road{Type}_{Surface}.bmp
 ```
 
-**Exemples théoriques (système complet):**
+**Theoretical examples (complete system):**
 ```
-Roadvert_land.bmp         → Vertical rural
-Roadvert_urban.bmp        → Vertical urbain
-Roadhorz_bridge_east.bmp  → Horizontal pont direction Est
-RoadcornerE_smooth.bmp    → Coin Est arrondi
-Roadcross_urban.bmp       → Carrefour urbain
+Roadvert_land.bmp         → Rural vertical
+Roadvert_urban.bmp        → Urban vertical
+Roadhorz_bridge_east.bmp  → Horizontal bridge eastbound
+RoadcornerE_smooth.bmp    → Smooth east corner
+Roadcross_urban.bmp       → Urban crossroads
 ```
 
-### 4.5 Mapping textureId → Fichier
+### 4.5 TextureId → File Mapping
 
 ```typescript
-// Encodage: textureId = (topology - 1) | (surface << 4)
+// Encoding: textureId = (topology - 1) | (surface << 4)
 function getTextureFilename(textureId: number): string {
   const topologyIndex = textureId & 0x0F;  // Bits 0-3
   const surfaceIndex = (textureId >> 4) & 0x0F;  // Bits 4-7
 
-  const topology = topologyIndex + 1;  // 1-15 (TOPO_NS_START à TOPO_CROSSROADS)
-  const surface = surfaceIndex;  // 0-10 (SURFACE_LAND à SURFACE_URBAN_SMOOTH)
+  const topology = topologyIndex + 1;  // 1-15 (TOPO_NS_START to TOPO_CROSSROADS)
+  const surface = surfaceIndex;  // 0-10 (SURFACE_LAND to SURFACE_URBAN_SMOOTH)
 
-  // Table de mapping topology → nom
+  // Topology → name mapping table
   const topologyNames = [
     'NSStart', 'NSEnd', 'WEStart', 'WEEnd',
     'NS', 'WE',
@@ -382,7 +382,7 @@ function getTextureFilename(textureId: number): string {
     'Crossroads'
   ];
 
-  // Table de mapping surface → nom
+  // Surface → name mapping table
   const surfaceNames = [
     'land', 'urban',
     'bridge_north', 'bridge_south', 'bridge_east', 'bridge_west', 'bridge_full',
@@ -396,49 +396,49 @@ function getTextureFilename(textureId: number): string {
   return `Road${topoName}_${surfName}.bmp`;
 }
 
-// Exemple
+// Example
 textureId = 13 | (10 << 4);  // CORNER_E + URBAN_SMOOTH
 // → "RoadCornerE_urban_smooth.bmp"
 ```
 
 ---
 
-## 5. Correspondances avec notre implémentation actuelle
+## 5. Mapping to Our Current Implementation
 
-### 5.1 Types de routes actuels → Types officiels
+### 5.1 Our Road Types → Official Types
 
-| Notre type | Type officiel | ID | Correspondance exacte |
-|------------|---------------|----|-----------------------|
-| `Roadvert` | `rbNS` | 5 | ✅ Oui |
-| `Roadhorz` | `rbWE` | 6 | ✅ Oui |
-| `RoadcornerN` | `rbCornerN` | 13 | ✅ Oui |
-| `RoadcornerE` | `rbCornerE` | 14 | ✅ Oui |
-| `RoadcornerS` | `rbCornerS` | 12 | ✅ Oui |
-| `RoadcornerW` | `rbCornerW` | 11 | ✅ Oui |
-| `RoadTN` | `rbTopPlug` | 9 | ✅ Oui |
-| `RoadTE` | `rbRightPlug` | 8 | ✅ Oui |
-| `RoadTS` | `rbBottomPlug` | 10 | ✅ Oui |
-| `RoadTW` | `rbLeftPlug` | 7 | ✅ Oui |
-| `Roadcross` | `rbCrossRoads` | 15 | ✅ Oui |
+| Our type | Official type | ID | Exact match |
+|----------|---------------|----|-|
+| `Roadvert` | `rbNS` | 5 | Yes |
+| `Roadhorz` | `rbWE` | 6 | Yes |
+| `RoadcornerN` | `rbCornerN` | 13 | Yes |
+| `RoadcornerE` | `rbCornerE` | 14 | Yes |
+| `RoadcornerS` | `rbCornerS` | 12 | Yes |
+| `RoadcornerW` | `rbCornerW` | 11 | Yes |
+| `RoadTN` | `rbTopPlug` | 9 | Yes |
+| `RoadTE` | `rbRightPlug` | 8 | Yes |
+| `RoadTS` | `rbBottomPlug` | 10 | Yes |
+| `RoadTW` | `rbLeftPlug` | 7 | Yes |
+| `Roadcross` | `rbCrossRoads` | 15 | Yes |
 
-**Résultat:** Notre nomenclature correspond exactement aux fichiers officiels ! ✅
+**Result:** Our naming convention matches the official files exactly!
 
-### 5.2 Types manquants dans notre système
+### 5.2 Types Missing from Our System
 
-| Type officiel | ID | Description | Nécessaire pour |
-|---------------|----|--------------|--------------------|
-| `rbNSRoadStart` | 1 | Début N-S | Système complet avec transitions |
-| `rbNSRoadEnd` | 2 | Fin N-S | Système complet avec transitions |
-| `rbWERoadStart` | 3 | Début W-E | Système complet avec transitions |
-| `rbWERoadEnd` | 4 | Fin W-E | Système complet avec transitions |
+| Official type | ID | Description | Needed for |
+|---------------|----|-|-|
+| `rbNSRoadStart` | 1 | N-S start | Complete transition system |
+| `rbNSRoadEnd` | 2 | N-S end | Complete transition system |
+| `rbWERoadStart` | 3 | W-E start | Complete transition system |
+| `rbWERoadEnd` | 4 | W-E end | Complete transition system |
 
-**Note:** Ces types nécessitent l'implémentation des **tables de transition** pour être utilisés correctement.
+**Note:** These types require implementing **transition tables** to be used correctly.
 
 ---
 
-## 6. Exemples de code TypeScript complet
+## 6. Complete TypeScript Code Examples
 
-### 6.1 Parser de terrain avec eau
+### 6.1 Terrain Parser with Water Detection
 
 ```typescript
 class TerrainParser {
@@ -465,7 +465,7 @@ class TerrainParser {
 }
 ```
 
-### 6.2 Générateur de grille de béton
+### 6.2 Concrete Grid Generator
 
 ```typescript
 class ConcreteGridGenerator {
@@ -476,16 +476,16 @@ class ConcreteGridGenerator {
     mapWidth: number,
     mapHeight: number
   ): number[][] {
-    // Initialiser grille vide
+    // Initialize empty grid
     const grid = Array(mapHeight).fill(0).map(() => Array(mapWidth).fill(0));
 
-    // Appliquer béton pour chaque bâtiment urbain
+    // Apply concrete for each urban building
     for (const building of buildings) {
       if (!building.isUrban) continue;
 
       const { x, y, xsize, ysize } = building;
 
-      // Expand béton autour du bâtiment
+      // Expand concrete around the building
       const minI = Math.max(0, y - this.CONCRETE_RADIUS);
       const maxI = Math.min(mapHeight - 1, y + ysize + this.CONCRETE_RADIUS - 1);
       const minJ = Math.max(0, x - this.CONCRETE_RADIUS);
@@ -507,7 +507,7 @@ class ConcreteGridGenerator {
 }
 ```
 
-### 6.3 Builder de grille ferroviaire
+### 6.3 Railroad Grid Builder
 
 ```typescript
 class RailroadGridBuilder {
@@ -529,7 +529,7 @@ class RailroadGridBuilder {
     const { x1, y1, x2, y2 } = segment;
 
     if (x1 === x2) {
-      // Segment vertical
+      // Vertical segment
       const yMin = Math.min(y1, y2);
       const yMax = Math.max(y1, y2);
       for (let y = yMin; y <= yMax; y++) {
@@ -538,7 +538,7 @@ class RailroadGridBuilder {
         }
       }
     } else if (y1 === y2) {
-      // Segment horizontal
+      // Horizontal segment
       const xMin = Math.min(x1, x2);
       const xMax = Math.max(x1, x2);
       for (let x = xMin; x <= xMax; x++) {
@@ -553,31 +553,31 @@ class RailroadGridBuilder {
 
 ---
 
-## 7. Récapitulatif des sources de données
+## 7. Data Source Summary
 
-| Donnée | Source | Format | Disponibilité |
-|--------|--------|--------|---------------|
-| **TerrainGrid** | Fichier BMP de la carte | Palette 8-bit (0x80-0x88 = eau) | ✅ Disponible |
-| **ConcreteGrid** | Calculé dynamiquement | À partir des bâtiments urbains | ✅ Implémentable |
-| **RailroadGrid** | RDO Protocol | Segments `{x1,y1,x2,y2}` via `cirRailRoads=2` | ✅ Récupérable |
-| **Textures routes** | Serveur (cache) | BMP 64×32 pixels | ⚠️ Téléchargeables à l'exécution |
-
----
-
-## 8. Références
-
-- **Fichiers sources Delphi:**
-  - `Voyager/Components/MapIsoView/Concrete.pas` - Détection eau/béton
-  - `Protocol/Roads.pas` - Types de routes
-  - `Voyager/Map.pas` - Calcul du béton
-  - `Voyager/VoyagerServerInterfaces.pas` - Structures RDO
-
-- **Documentation projet:**
-  - [road_rendering_algorithm.md](road_rendering_algorithm.md) - Algorithme complet
-  - [CLAUDE.md](../CLAUDE.md) - État de l'implémentation
+| Data | Source | Format | Availability |
+|------|--------|--------|--------------|
+| **TerrainGrid** | Map BMP file | 8-bit palette (0x80-0x88 = water) | Available |
+| **ConcreteGrid** | Dynamically calculated | From urban buildings | Implementable |
+| **RailroadGrid** | RDO Protocol | Segments `{x1,y1,x2,y2}` via `cirRailRoads=2` | Retrievable |
+| **Road textures** | Server (cache) | BMP 64x32 pixels | Downloaded at runtime |
 
 ---
 
-**Document créé:** Janvier 2026
-**Source:** Reverse engineering du client officiel Starpeace Online
-**Auteur:** Documentation technique basée sur le code source Delphi
+## 8. References
+
+- **Delphi source files:**
+  - `Voyager/Components/MapIsoView/Concrete.pas` - Water/concrete detection
+  - `Protocol/Roads.pas` - Road types
+  - `Voyager/Map.pas` - Concrete calculation
+  - `Voyager/VoyagerServerInterfaces.pas` - RDO structures
+
+- **Project documentation:**
+  - [road_rendering.md](road_rendering.md) - Road rendering API & overview
+  - [CLAUDE.md](../CLAUDE.md) - Project overview
+
+---
+
+**Document created:** January 2026
+**Source:** Reverse engineering of the official Starpeace Online client
+**Translated:** February 2026 (French → English)

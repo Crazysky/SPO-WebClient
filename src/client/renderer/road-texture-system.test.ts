@@ -26,6 +26,8 @@ import {
   highRoadIdOf,
   makeRoadBlockOf,
   isBridge,
+  isJunctionTopology,
+  getConnectedDirections,
   landClassOf,
   landTypeOf,
   isWater,
@@ -34,6 +36,8 @@ import {
   detectSmoothCorner,
   rotateRoadBlockId,
   validateRoadId,
+  parseCarPathSegments,
+  parseCarPaths,
   SegmentInfo,
   MapData
 } from './road-texture-system';
@@ -262,6 +266,68 @@ Id=5
   });
 
   // ==========================================================================
+  // JUNCTION TOPOLOGY TESTS
+  // ==========================================================================
+
+  describe('Junction Topology Detection', () => {
+    it('should identify corners as junctions', () => {
+      expect(isJunctionTopology(RoadBlockId.CornerW)).toBe(true);
+      expect(isJunctionTopology(RoadBlockId.CornerS)).toBe(true);
+      expect(isJunctionTopology(RoadBlockId.CornerN)).toBe(true);
+      expect(isJunctionTopology(RoadBlockId.CornerE)).toBe(true);
+    });
+
+    it('should identify T-intersections as junctions', () => {
+      expect(isJunctionTopology(RoadBlockId.LeftPlug)).toBe(true);
+      expect(isJunctionTopology(RoadBlockId.RightPlug)).toBe(true);
+      expect(isJunctionTopology(RoadBlockId.TopPlug)).toBe(true);
+      expect(isJunctionTopology(RoadBlockId.BottomPlug)).toBe(true);
+    });
+
+    it('should identify crossroads as junction', () => {
+      expect(isJunctionTopology(RoadBlockId.CrossRoads)).toBe(true);
+    });
+
+    it('should NOT identify straight segments as junctions', () => {
+      expect(isJunctionTopology(RoadBlockId.NSRoad)).toBe(false);
+      expect(isJunctionTopology(RoadBlockId.WERoad)).toBe(false);
+      expect(isJunctionTopology(RoadBlockId.NSRoadStart)).toBe(false);
+      expect(isJunctionTopology(RoadBlockId.NSRoadEnd)).toBe(false);
+      expect(isJunctionTopology(RoadBlockId.WERoadStart)).toBe(false);
+      expect(isJunctionTopology(RoadBlockId.WERoadEnd)).toBe(false);
+      expect(isJunctionTopology(RoadBlockId.None)).toBe(false);
+    });
+  });
+
+  describe('Connected Directions', () => {
+    it('should return 2 directions for corners', () => {
+      // CornerW connects S+E
+      const cornerW = getConnectedDirections(RoadBlockId.CornerW);
+      expect(cornerW.length).toBe(2);
+      expect(cornerW).toContainEqual([1, 0]);   // South
+      expect(cornerW).toContainEqual([0, 1]);    // East
+    });
+
+    it('should return 3 directions for T-intersections', () => {
+      const bottomPlug = getConnectedDirections(RoadBlockId.BottomPlug);
+      expect(bottomPlug.length).toBe(3);
+      expect(bottomPlug).toContainEqual([1, 0]);   // South
+      expect(bottomPlug).toContainEqual([0, 1]);    // East
+      expect(bottomPlug).toContainEqual([0, -1]);   // West
+    });
+
+    it('should return 4 directions for crossroads', () => {
+      const cross = getConnectedDirections(RoadBlockId.CrossRoads);
+      expect(cross.length).toBe(4);
+    });
+
+    it('should return 0 directions for None', () => {
+      const none = getConnectedDirections(RoadBlockId.None);
+      expect(none.length).toBe(0);
+    });
+  });
+
+  // ==========================================================================
   // SEGMENT RENDERING TESTS
   // ==========================================================================
 
@@ -330,6 +396,134 @@ Id=5
       // Should be a corner
       const block = rendering.get(5, 5);
       expect([RoadBlockId.CornerW, RoadBlockId.CornerS, RoadBlockId.CornerN, RoadBlockId.CornerE]).toContain(block);
+    });
+  });
+
+  // ==========================================================================
+  // SMOOTH CORNER DETECTION TESTS
+  // ==========================================================================
+
+  describe('Smooth Corner Detection', () => {
+    const noConcreteAnywhere = (_r: number, _c: number) => false;
+    const concreteEverywhere = (_r: number, _c: number) => true;
+
+    it('should use smooth for isolated CornerW (no adjacent opposite corner)', () => {
+      // L-shaped road: NS then WE, creating CornerW at (5,5)
+      const rendering = new RoadsRendering(0, 0, 10, 10);
+      renderRoadSegment(rendering, { x1: 5, y1: 5, x2: 5, y2: 8 }); // NS going south
+      renderRoadSegment(rendering, { x1: 5, y1: 5, x2: 8, y2: 5 }); // WE going east
+
+      const result = detectSmoothCorner(5, 5, rendering, noConcreteAnywhere);
+      expect(result.isSmooth).toBe(true);
+      expect(highRoadIdOf(result.roadBlock)).toBe(ROAD_TYPE.SMOOTH_ROAD);
+    });
+
+    it('should use smooth for isolated CornerE (no adjacent opposite corner)', () => {
+      const rendering = new RoadsRendering(0, 0, 10, 10);
+      renderRoadSegment(rendering, { x1: 5, y1: 2, x2: 5, y2: 5 }); // NS from north
+      renderRoadSegment(rendering, { x1: 2, y1: 5, x2: 5, y2: 5 }); // WE from west
+
+      const result = detectSmoothCorner(5, 5, rendering, noConcreteAnywhere);
+      expect(result.isSmooth).toBe(true);
+      expect(highRoadIdOf(result.roadBlock)).toBe(ROAD_TYPE.SMOOTH_ROAD);
+    });
+
+    it('should use smooth for isolated CornerS (no adjacent opposite corner)', () => {
+      const rendering = new RoadsRendering(0, 0, 10, 10);
+      renderRoadSegment(rendering, { x1: 5, y1: 2, x2: 5, y2: 5 }); // NS from north
+      renderRoadSegment(rendering, { x1: 5, y1: 5, x2: 8, y2: 5 }); // WE going east
+
+      const result = detectSmoothCorner(5, 5, rendering, noConcreteAnywhere);
+      expect(result.isSmooth).toBe(true);
+      expect(highRoadIdOf(result.roadBlock)).toBe(ROAD_TYPE.SMOOTH_ROAD);
+    });
+
+    it('should use smooth for isolated CornerN (no adjacent opposite corner)', () => {
+      const rendering = new RoadsRendering(0, 0, 10, 10);
+      renderRoadSegment(rendering, { x1: 5, y1: 5, x2: 5, y2: 8 }); // NS going south
+      renderRoadSegment(rendering, { x1: 2, y1: 5, x2: 5, y2: 5 }); // WE from west
+
+      const result = detectSmoothCorner(5, 5, rendering, noConcreteAnywhere);
+      expect(result.isSmooth).toBe(true);
+      expect(highRoadIdOf(result.roadBlock)).toBe(ROAD_TYPE.SMOOTH_ROAD);
+    });
+
+    it('should NOT use smooth for diagonal (CornerW adjacent to CornerE)', () => {
+      // Tight staircase: 1-tile steps create adjacent opposite corners
+      // WE(0,3→1,3) then NS(1,3→1,4) then WE(1,4→2,4)
+      // → (3,1)=CornerE, (4,1)=CornerW, (4,2)=CornerE
+      const rendering = new RoadsRendering(0, 0, 10, 10);
+      renderRoadSegment(rendering, { x1: 0, y1: 3, x2: 1, y2: 3 }); // WE
+      renderRoadSegment(rendering, { x1: 1, y1: 3, x2: 1, y2: 4 }); // NS (1 tile)
+      renderRoadSegment(rendering, { x1: 1, y1: 4, x2: 2, y2: 4 }); // WE
+
+      expect(rendering.get(4, 1)).toBe(RoadBlockId.CornerW);
+      expect(rendering.get(3, 1)).toBe(RoadBlockId.CornerE);
+
+      // CornerW at (4,1) has CornerE at (3,1) below → diagonal, NOT smooth
+      const resultW = detectSmoothCorner(4, 1, rendering, noConcreteAnywhere);
+      expect(resultW.isSmooth).toBe(false);
+
+      // CornerE at (3,1) has CornerW at (4,1) above → diagonal, NOT smooth
+      const resultE = detectSmoothCorner(3, 1, rendering, noConcreteAnywhere);
+      expect(resultE.isSmooth).toBe(false);
+    });
+
+    it('should NOT use smooth for diagonal (CornerN adjacent to CornerS)', () => {
+      // Tight staircase going the other way:
+      // WE(1,3→0,3) then NS(0,3→0,4) then WE(0,4→-1,4)
+      // Or equivalently: NS then WE then NS with 1-tile steps
+      // NS(1,2→1,3) then WE(1,3→0,3) then NS(0,3→0,4)
+      // → (3,1)=CornerN, (3,0)=CornerS
+      const rendering = new RoadsRendering(0, 0, 10, 10);
+      renderRoadSegment(rendering, { x1: 1, y1: 2, x2: 1, y2: 3 }); // NS
+      renderRoadSegment(rendering, { x1: 0, y1: 3, x2: 1, y2: 3 }); // WE
+      renderRoadSegment(rendering, { x1: 0, y1: 3, x2: 0, y2: 4 }); // NS
+
+      const blockAt31 = rendering.get(3, 1);
+      const blockAt30 = rendering.get(3, 0);
+      expect(blockAt31).toBe(RoadBlockId.CornerN);
+      expect(blockAt30).toBe(RoadBlockId.CornerS);
+
+      // CornerN at (3,1) has CornerS at (3,0) to the left → diagonal, NOT smooth
+      const resultN = detectSmoothCorner(3, 1, rendering, noConcreteAnywhere);
+      expect(resultN.isSmooth).toBe(false);
+
+      // CornerS at (3,0) has CornerN at (3,1) to the right → diagonal, NOT smooth
+      const resultS = detectSmoothCorner(3, 0, rendering, noConcreteAnywhere);
+      expect(resultS.isSmooth).toBe(false);
+    });
+
+    it('should use URBAN_SMOOTH_ROAD on concrete', () => {
+      const rendering = new RoadsRendering(0, 0, 10, 10);
+      renderRoadSegment(rendering, { x1: 5, y1: 5, x2: 5, y2: 8 });
+      renderRoadSegment(rendering, { x1: 5, y1: 5, x2: 8, y2: 5 });
+
+      const result = detectSmoothCorner(5, 5, rendering, concreteEverywhere);
+      expect(result.isSmooth).toBe(true);
+      expect(highRoadIdOf(result.roadBlock)).toBe(ROAD_TYPE.URBAN_SMOOTH_ROAD);
+    });
+
+    it('should return isSmooth=false for non-corner blocks', () => {
+      const rendering = new RoadsRendering(0, 0, 10, 10);
+      renderRoadSegment(rendering, { x1: 2, y1: 5, x2: 8, y2: 5 }); // Straight WE
+
+      const result = detectSmoothCorner(5, 4, rendering, noConcreteAnywhere);
+      expect(result.isSmooth).toBe(false);
+    });
+
+    it('should work with non-zero top/left offsets', () => {
+      // This was the coordinate bug: RoadsRendering with offset
+      const rendering = new RoadsRendering(100, 200, 20, 20);
+      renderRoadSegment(rendering, { x1: 205, y1: 105, x2: 205, y2: 108 });
+      renderRoadSegment(rendering, { x1: 205, y1: 105, x2: 208, y2: 105 });
+
+      const topology = rendering.get(105, 205);
+      expect(topology).not.toBe(RoadBlockId.None);
+
+      const result = detectSmoothCorner(105, 205, rendering, noConcreteAnywhere);
+      expect(result.isSmooth).toBe(true);
+      expect(highRoadIdOf(result.roadBlock)).toBe(ROAD_TYPE.SMOOTH_ROAD);
     });
   });
 
@@ -542,6 +736,178 @@ Railing64x32=WEBridgeCover.bmp`;
       console.log(`IDs: ${Array.from(ids).sort((a, b) => a - b).join(', ')}`);
 
       expect(ids.size).toBeGreaterThan(0);
+    });
+  });
+
+  // ==========================================================================
+  // CAR PATHS PARSING
+  // ==========================================================================
+
+  describe('CarPaths Parsing', () => {
+    describe('parseCarPathSegments', () => {
+      it('should parse a single segment', () => {
+        const segments = parseCarPathSegments('(40, -6, 10, 9, W, 6)');
+
+        expect(segments).toHaveLength(1);
+        expect(segments[0]).toEqual({
+          startX: 40, startY: -6,
+          endX: 10, endY: 9,
+          direction: 'W', steps: 6
+        });
+      });
+
+      it('should parse multiple segments', () => {
+        const segments = parseCarPathSegments(
+          '(40, -7, 32, -3, W, 4) (32, -3, 32, -3, NW, 1) (32, -3, 19, -8, N, 4)'
+        );
+
+        expect(segments).toHaveLength(3);
+        expect(segments[0].direction).toBe('W');
+        expect(segments[0].steps).toBe(4);
+        expect(segments[1].direction).toBe('NW');
+        expect(segments[1].steps).toBe(1);
+        expect(segments[2].direction).toBe('N');
+        expect(segments[2].steps).toBe(4);
+      });
+
+      it('should handle negative coordinates', () => {
+        const segments = parseCarPathSegments('(49,  7, 33, -1, N, 4)');
+
+        expect(segments).toHaveLength(1);
+        expect(segments[0].startX).toBe(49);
+        expect(segments[0].startY).toBe(7);
+        expect(segments[0].endX).toBe(33);
+        expect(segments[0].endY).toBe(-1);
+      });
+
+      it('should return empty array for invalid input', () => {
+        expect(parseCarPathSegments('')).toHaveLength(0);
+        expect(parseCarPathSegments('invalid')).toHaveLength(0);
+      });
+    });
+
+    describe('parseCarPaths', () => {
+      it('should parse simple straight road paths', () => {
+        const section = new Map<string, string>();
+        section.set('N.GW', '(40, -6, 10,  9, W, 6)');
+        section.set('S.GE', '(20, 14, 50, -1, E, 6)');
+
+        const paths = parseCarPaths(section);
+
+        expect(paths).toHaveLength(2);
+        expect(paths[0].entryDirection).toBe('N');
+        expect(paths[0].exitDirection).toBe('W');
+        expect(paths[0].segments).toHaveLength(1);
+        expect(paths[1].entryDirection).toBe('S');
+        expect(paths[1].exitDirection).toBe('E');
+      });
+
+      it('should parse crossroads with turning paths', () => {
+        const section = new Map<string, string>();
+        section.set('N.GN', '(40, -7, 32, -3, W, 4) (32, -3, 32, -3, NW, 1) (32, -3, 19, -8, N, 4)');
+        section.set('N.GS', '(40, -7, 24,  1, W, 4) (24,  1, 24,  1, SW, 1) (24,  1, 42, 13, S, 4)');
+        section.set('N.GW', '(40, -6, 10,  9, W, 6)');
+
+        const paths = parseCarPaths(section);
+
+        expect(paths).toHaveLength(3);
+
+        // N.GN: enter from N, exit to N (U-turn through cross)
+        const nToN = paths.find(p => p.entryDirection === 'N' && p.exitDirection === 'N');
+        expect(nToN).toBeDefined();
+        expect(nToN!.segments).toHaveLength(3);
+
+        // N.GW: enter from N, exit to W (straight through)
+        const nToW = paths.find(p => p.entryDirection === 'N' && p.exitDirection === 'W');
+        expect(nToW).toBeDefined();
+        expect(nToW!.segments).toHaveLength(1);
+      });
+
+      it('should skip invalid key formats', () => {
+        const section = new Map<string, string>();
+        section.set('Invalid', '(40, -6, 10, 9, W, 6)');
+        section.set('X.GY', '(40, -6, 10, 9, W, 6)'); // Invalid directions
+        section.set('N.GW', '(40, -6, 10, 9, W, 6)');
+
+        const paths = parseCarPaths(section);
+        expect(paths).toHaveLength(1);
+        expect(paths[0].entryDirection).toBe('N');
+      });
+
+      it('should handle empty section', () => {
+        expect(parseCarPaths(new Map())).toHaveLength(0);
+      });
+    });
+
+    describe('CarPaths in loadRoadBlockClassFromIni', () => {
+      it('should include carPaths in road block config', () => {
+        const ini = `[General]
+Id=5
+
+[Images]
+64x32=CountryRoadhorz.bmp
+
+[CarPaths]
+N.GW = (40, -6, 10,  9, W, 6)
+S.GE = (20, 14, 50, -1, E, 6)`;
+
+        const config = loadRoadBlockClassFromIni(ini);
+
+        expect(config.id).toBe(5);
+        expect(config.imagePath).toBe('CountryRoadhorz.bmp');
+        expect(config.carPaths).toHaveLength(2);
+        expect(config.carPaths[0].entryDirection).toBe('N');
+        expect(config.carPaths[0].exitDirection).toBe('W');
+        expect(config.carPaths[1].entryDirection).toBe('S');
+        expect(config.carPaths[1].exitDirection).toBe('E');
+      });
+
+      it('should return empty carPaths when section is missing', () => {
+        const ini = `[General]
+Id=5
+
+[Images]
+64x32=CountryRoadhorz.bmp`;
+
+        const config = loadRoadBlockClassFromIni(ini);
+        expect(config.carPaths).toHaveLength(0);
+      });
+
+      it('should parse real crossroads INI with all 12 paths', () => {
+        const crossroadsPath = path.join(ROAD_CLASSES_DIR, 'Roadcross.Land.ini');
+        if (!fs.existsSync(crossroadsPath)) return;
+
+        const content = fs.readFileSync(crossroadsPath, 'utf-8');
+        const config = loadRoadBlockClassFromIni(content);
+
+        // Crossroads has 12 paths (4 entry dirs × 3 exit dirs each)
+        expect(config.carPaths.length).toBe(12);
+
+        // Verify all 4 entry directions exist
+        const entryDirs = new Set(config.carPaths.map(p => p.entryDirection));
+        expect(entryDirs).toEqual(new Set(['N', 'S', 'E', 'W']));
+      });
+
+      it('should parse all real road block INI files with CarPaths', () => {
+        if (!fs.existsSync(ROAD_CLASSES_DIR)) return;
+
+        const iniFiles = fs.readdirSync(ROAD_CLASSES_DIR).filter(f => f.endsWith('.ini'));
+        let totalPaths = 0;
+        let filesWithPaths = 0;
+
+        for (const file of iniFiles) {
+          const content = fs.readFileSync(path.join(ROAD_CLASSES_DIR, file), 'utf-8');
+          const config = loadRoadBlockClassFromIni(content);
+
+          if (config.carPaths.length > 0) {
+            filesWithPaths++;
+            totalPaths += config.carPaths.length;
+          }
+        }
+
+        console.log(`CarPaths: ${filesWithPaths}/${iniFiles.length} files have paths, ${totalPaths} total paths`);
+        expect(filesWithPaths).toBeGreaterThan(0);
+      });
     });
   });
 });

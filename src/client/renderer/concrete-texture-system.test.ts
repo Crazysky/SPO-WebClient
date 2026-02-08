@@ -21,6 +21,7 @@ import {
   CONCRETE_PLATFORM_FLAG,
   CONCRETE_PLATFORM_MASK,
   CONCRETE_NONE,
+  PLATFORM_SHIFT,
   NEIGHBOR_OFFSETS,
   CARDINAL_INDICES,
   DIAGONAL_INDICES,
@@ -34,11 +35,12 @@ import {
   getWaterConcreteId,
   getConcreteId,
   rotateConcreteId,
+  canReceiveConcrete,
   LAND_CONCRETE_ROTATION,
   WATER_CONCRETE_ROTATION
 } from './concrete-texture-system';
 import { Rotation } from './road-texture-system';
-import { LandClass } from '../../shared/land-utils';
+import { LandClass, LandType } from '../../shared/land-utils';
 
 // Path to cache directories
 const CACHE_DIR = path.join(__dirname, '../../../cache');
@@ -122,6 +124,7 @@ describe('Concrete Texture System', () => {
       expect(CONCRETE_PLATFORM_FLAG).toBe(0x80);
       expect(CONCRETE_PLATFORM_MASK).toBe(0x7F);
       expect(CONCRETE_NONE).toBe(0xFF);
+      expect(PLATFORM_SHIFT).toBe(12);
     });
 
     it('should have correct neighbor offset count', () => {
@@ -140,6 +143,53 @@ describe('Concrete Texture System', () => {
       expect(DIAGONAL_INDICES.TOP_RIGHT).toBe(2);
       expect(DIAGONAL_INDICES.BOTTOM_LEFT).toBe(5);
       expect(DIAGONAL_INDICES.BOTTOM_RIGHT).toBe(7);
+    });
+  });
+
+  // ===========================================================================
+  // WATER CONCRETE PLACEMENT FILTER TESTS
+  // ===========================================================================
+
+  describe('canReceiveConcrete', () => {
+    it('should allow concrete on all land tiles (ZoneA/B/C)', () => {
+      // ZoneA (Grass) - various types
+      expect(canReceiveConcrete(0x00)).toBe(true); // ZoneA Center
+      expect(canReceiveConcrete(0x04)).toBe(true); // ZoneA N edge
+      expect(canReceiveConcrete(0x34)).toBe(true); // ZoneA Special
+      // ZoneB (MidGrass)
+      expect(canReceiveConcrete(0x40)).toBe(true); // ZoneB Center
+      expect(canReceiveConcrete(0x48)).toBe(true); // ZoneB E edge
+      // ZoneC (DryGround)
+      expect(canReceiveConcrete(0x80)).toBe(true); // ZoneC Center
+      expect(canReceiveConcrete(0x90)).toBe(true); // ZoneC W edge
+    });
+
+    it('should allow concrete on deep water (Center) tiles', () => {
+      expect(canReceiveConcrete(0xC0)).toBe(true); // ZoneD Center var=0
+      expect(canReceiveConcrete(0xC1)).toBe(true); // ZoneD Center var=1
+      expect(canReceiveConcrete(0xC2)).toBe(true); // ZoneD Center var=2
+      expect(canReceiveConcrete(0xC3)).toBe(true); // ZoneD Center var=3
+    });
+
+    it('should reject concrete on water cardinal edge tiles', () => {
+      expect(canReceiveConcrete(0xC4)).toBe(false); // ZoneD N edge
+      expect(canReceiveConcrete(0xC8)).toBe(false); // ZoneD E edge
+      expect(canReceiveConcrete(0xCC)).toBe(false); // ZoneD S edge
+      expect(canReceiveConcrete(0xD0)).toBe(false); // ZoneD W edge
+    });
+
+    it('should reject concrete on water outer corner tiles', () => {
+      expect(canReceiveConcrete(0xD4)).toBe(false); // ZoneD NEo
+      expect(canReceiveConcrete(0xD8)).toBe(false); // ZoneD SEo
+      expect(canReceiveConcrete(0xDC)).toBe(false); // ZoneD SWo
+      expect(canReceiveConcrete(0xE0)).toBe(false); // ZoneD NWo
+    });
+
+    it('should reject concrete on water inner corner tiles', () => {
+      expect(canReceiveConcrete(0xE4)).toBe(false); // ZoneD NEi
+      expect(canReceiveConcrete(0xE8)).toBe(false); // ZoneD SEi
+      expect(canReceiveConcrete(0xEC)).toBe(false); // ZoneD SWi
+      expect(canReceiveConcrete(0xF0)).toBe(false); // ZoneD NWi
     });
   });
 
@@ -269,25 +319,25 @@ describe('Concrete Texture System', () => {
     });
 
     it('should return correct INI ID for each cardinal pattern', () => {
-      // Pattern: _L_B = missing T,R → NE corner exposed
-      const cfgNE: ConcreteCfg = [false, false, false, true, false, false, true, false];
-      expect(getWaterConcreteId(cfgNE)).toBe(PLATFORM_IDS.NE);
+      // Pattern: _L_B = missing T,R → E corner on screen
+      const cfgE: ConcreteCfg = [false, false, false, true, false, false, true, false];
+      expect(getWaterConcreteId(cfgE)).toBe(PLATFORM_IDS.E);
 
-      // Pattern: TL__ = missing R,B → SE corner exposed
-      const cfgSE: ConcreteCfg = [false, true, false, true, false, false, false, false];
-      expect(getWaterConcreteId(cfgSE)).toBe(PLATFORM_IDS.SE);
+      // Pattern: TL__ = missing R,B → N corner on screen
+      const cfgN: ConcreteCfg = [false, true, false, true, false, false, false, false];
+      expect(getWaterConcreteId(cfgN)).toBe(PLATFORM_IDS.N);
 
       // Pattern: TLRB = all cardinals → center
       const cfgCenter: ConcreteCfg = [false, true, false, true, true, false, true, false];
       expect(getWaterConcreteId(cfgCenter)).toBe(PLATFORM_IDS.CENTER);
 
-      // Pattern: _LRB = missing T → N edge exposed
-      const cfgN: ConcreteCfg = [false, false, false, true, true, false, true, false];
-      expect(getWaterConcreteId(cfgN)).toBe(PLATFORM_IDS.N);
+      // Pattern: _LRB = missing T → SE edge on screen
+      const cfgSE: ConcreteCfg = [false, false, false, true, true, false, true, false];
+      expect(getWaterConcreteId(cfgSE)).toBe(PLATFORM_IDS.SE);
 
-      // Pattern: TLR_ = missing B → S edge exposed
-      const cfgS: ConcreteCfg = [false, true, false, true, true, false, false, false];
-      expect(getWaterConcreteId(cfgS)).toBe(PLATFORM_IDS.S);
+      // Pattern: TLR_ = missing B → NW edge on screen
+      const cfgNW: ConcreteCfg = [false, true, false, true, true, false, false, false];
+      expect(getWaterConcreteId(cfgNW)).toBe(PLATFORM_IDS.NW);
     });
 
     it('should ignore diagonal neighbors', () => {

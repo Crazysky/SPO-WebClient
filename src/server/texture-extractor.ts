@@ -195,7 +195,7 @@ export class TextureExtractor implements Service {
   }
 
   /**
-   * Pre-bake alpha for object textures (roads, concrete).
+   * Pre-bake alpha for object textures (roads, concrete, cars).
    * Uses dynamic color key detection from corner pixel (0,0).
    * Building textures (GIF) are skipped - they continue using client-side handling.
    */
@@ -203,6 +203,7 @@ export class TextureExtractor implements Service {
     const objectDirs: Array<{ dir: string; name: string }> = [
       { dir: path.join(this.cacheDir, 'RoadBlockImages'), name: 'roads' },
       { dir: path.join(this.cacheDir, 'ConcreteImages'), name: 'concrete' },
+      { dir: path.join(this.cacheDir, 'CarImages'), name: 'cars' },
     ];
 
     for (const { dir, name } of objectDirs) {
@@ -285,6 +286,11 @@ export class TextureExtractor implements Service {
         sourceDir: path.join(this.cacheDir, 'ConcreteImages'),
         name: 'concrete',
         category: 'concrete',
+      },
+      {
+        sourceDir: path.join(this.cacheDir, 'CarImages'),
+        name: 'car',
+        category: 'cars',
       },
     ];
 

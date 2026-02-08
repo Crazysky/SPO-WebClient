@@ -289,12 +289,22 @@ export function generateObjectAtlas(
       };
     }
 
-    // Calculate grid dimensions
-    // Object textures are all 64×32 for roads/concrete
+    // Pre-scan: find max dimensions across all BMP files
+    // Textures vary in size (roads: 64×32, bridges: 64×49, platforms: 68×80)
+    let cellWidth = TILE_WIDTH;
+    let cellHeight = STANDARD_TILE_HEIGHT;
+    for (const file of bmpFiles) {
+      try {
+        const buf = fs.readFileSync(path.join(sourceDir, file));
+        const bmp = decodeBmp(buf);
+        if (bmp.width > cellWidth) cellWidth = bmp.width;
+        if (bmp.height > cellHeight) cellHeight = bmp.height;
+      } catch { /* skip unreadable files — they'll fail again in the main loop */ }
+    }
+
+    // Calculate grid dimensions using max cell size
     const cols = Math.ceil(Math.sqrt(bmpFiles.length));
     const rows = Math.ceil(bmpFiles.length / cols);
-    const cellWidth = TILE_WIDTH;
-    const cellHeight = STANDARD_TILE_HEIGHT;
     const atlasWidth = cols * cellWidth;
     const atlasHeight = rows * cellHeight;
 
@@ -313,16 +323,24 @@ export function generateObjectAtlas(
         const colorKey = detectColorKey(bmpData.pixels);
         applyColorKey(bmpData.pixels, bmpData.width, bmpData.height, colorKey);
 
+        const texWidth = bmpData.width;
+        const texHeight = bmpData.height;
+
         const col = idx % cols;
         const row = Math.floor(idx / cols);
         const cellX = col * cellWidth;
         const cellY = row * cellHeight;
 
-        // Copy pixels
-        for (let y = 0; y < Math.min(bmpData.height, cellHeight); y++) {
-          for (let x = 0; x < Math.min(bmpData.width, cellWidth); x++) {
-            const srcIdx = (y * bmpData.width + x) * 4;
-            const dstIdx = ((cellY + y) * atlasWidth + (cellX + x)) * 4;
+        // Bottom-align: tall textures anchor at cell bottom (same as terrain atlas)
+        const yOffset = cellHeight - texHeight;
+
+        // Copy pixels into the atlas at the bottom-aligned position
+        for (let y = 0; y < texHeight; y++) {
+          for (let x = 0; x < Math.min(texWidth, cellWidth); x++) {
+            const srcIdx = (y * texWidth + x) * 4;
+            const dstX = cellX + x;
+            const dstY = cellY + yOffset + y;
+            const dstIdx = (dstY * atlasWidth + dstX) * 4;
             atlasPixels[dstIdx] = bmpData.pixels[srcIdx];
             atlasPixels[dstIdx + 1] = bmpData.pixels[srcIdx + 1];
             atlasPixels[dstIdx + 2] = bmpData.pixels[srcIdx + 2];
@@ -330,13 +348,13 @@ export function generateObjectAtlas(
           }
         }
 
-        // Use filename without extension as key
+        // Manifest stores actual texture position and dimensions (bottom-aligned)
         const name = file.replace(/\.bmp$/i, '');
         tileEntries[name] = {
           x: cellX,
-          y: cellY,
-          width: Math.min(bmpData.width, cellWidth),
-          height: Math.min(bmpData.height, cellHeight),
+          y: cellY + yOffset,
+          width: Math.min(texWidth, cellWidth),
+          height: texHeight,
         };
         tileCount++;
       } catch (texError) {
@@ -356,8 +374,10 @@ export function generateObjectAtlas(
     const manifest = {
       version: 1,
       category,
-      tileWidth: cellWidth,
-      tileHeight: cellHeight,
+      tileWidth: TILE_WIDTH,
+      tileHeight: STANDARD_TILE_HEIGHT,
+      cellWidth,
+      cellHeight,
       atlasWidth,
       atlasHeight,
       columns: cols,

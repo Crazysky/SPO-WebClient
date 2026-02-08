@@ -390,6 +390,17 @@ export class StarpeaceClient {
       case WsMessageType.RESP_SEARCH_MENU_BANKS:
         this.ui.handleSearchMenuResponse(msg);
         break;
+
+      // Error responses without wsRequestId (from fire-and-forget messages like search menu)
+      case WsMessageType.RESP_ERROR: {
+        const errorResp = msg as WsRespError;
+        this.ui.log('Error', errorResp.errorMessage || 'Unknown error');
+        // If search menu is open, show the error there
+        if (this.ui.searchMenuPanel) {
+          this.ui.handleSearchMenuError(errorResp.errorMessage || 'Request failed');
+        }
+        break;
+      }
     }
   }
 

@@ -442,6 +442,36 @@ export function isBridge(roadblock: number): boolean {
 }
 
 /**
+ * Check if a road topology is a junction that cannot use bridge textures.
+ * Corners, T-intersections, and crossroads must use regular road textures on a platform.
+ */
+export function isJunctionTopology(topId: RoadBlockId): boolean {
+  return topId === RoadBlockId.CornerW ||
+         topId === RoadBlockId.CornerS ||
+         topId === RoadBlockId.CornerN ||
+         topId === RoadBlockId.CornerE ||
+         topId === RoadBlockId.LeftPlug ||
+         topId === RoadBlockId.RightPlug ||
+         topId === RoadBlockId.TopPlug ||
+         topId === RoadBlockId.BottomPlug ||
+         topId === RoadBlockId.CrossRoads;
+}
+
+/**
+ * Get the connected directions for a road topology.
+ * Returns [di, dj] offsets for each direction the road connects to.
+ * Used to find adjacent tiles that need concrete for water platform transitions.
+ */
+export function getConnectedDirections(topId: RoadBlockId): Array<[number, number]> {
+  const dirs: Array<[number, number]> = [];
+  if (NORTH_POINTING_BLOCKS.has(topId)) dirs.push([-1, 0]); // row-1
+  if (SOUTH_POINTING_BLOCKS.has(topId)) dirs.push([1, 0]);  // row+1
+  if (EAST_POINTING_BLOCKS.has(topId))  dirs.push([0, 1]);  // col+1
+  if (WEST_POINTING_BLOCKS.has(topId))  dirs.push([0, -1]); // col-1
+  return dirs;
+}
+
+/**
  * Check if a road is horizontal (West-East)
  */
 function isHorizontalRoad(topId: RoadBlockId): boolean {
@@ -568,44 +598,40 @@ export function roadBlockId(
 // =============================================================================
 
 /**
- * Detect if a corner should use smooth textures
- * Smooth corners are used when a corner is NOT adjacent to an opposite corner
+ * Detect if a corner should use smooth textures.
+ * All corners use smooth textures EXCEPT when part of a diagonal
+ * (adjacent opposite corner = staircase pattern that needs "oblique" textures).
  */
 export function detectSmoothCorner(
   row: number,
   col: number,
-  renderedRoads: RoadBlockId[][],
-  getRoadIdAt: (r: number, c: number) => RoadBlockId,
+  renderedRoads: RoadsRendering,
   hasConcrete: (r: number, c: number) => boolean
 ): { isSmooth: boolean; roadBlock: number } {
-  const currentBlock = renderedRoads[row]?.[col] ?? RoadBlockId.None;
+  const currentBlock = renderedRoads.get(row, col);
 
-  // Get adjacent blocks (use rendered if available, otherwise query map)
-  const getBlock = (r: number, c: number): RoadBlockId => {
-    if (renderedRoads[r]?.[c] !== undefined) {
-      return renderedRoads[r][c];
-    }
-    return getRoadIdAt(r, c);
-  };
-
-  const uBlock = getBlock(row + 1, col);
-  const dBlock = getBlock(row - 1, col);
-  const rBlock = getBlock(row, col + 1);
-  const lBlock = getBlock(row, col - 1);
+  const uBlock = renderedRoads.get(row + 1, col);
+  const dBlock = renderedRoads.get(row - 1, col);
+  const rBlock = renderedRoads.get(row, col + 1);
+  const lBlock = renderedRoads.get(row, col - 1);
 
   let isSmooth = false;
 
   switch (currentBlock) {
     case RoadBlockId.CornerW:
+      // CornerW (S+E): diagonal if adjacent CornerE (N+W) at south or east
       isSmooth = dBlock !== RoadBlockId.CornerE && rBlock !== RoadBlockId.CornerE;
       break;
     case RoadBlockId.CornerS:
+      // CornerS (N+E): diagonal if adjacent CornerN (S+W) at north or east
       isSmooth = uBlock !== RoadBlockId.CornerN && rBlock !== RoadBlockId.CornerN;
       break;
     case RoadBlockId.CornerN:
+      // CornerN (S+W): diagonal if adjacent CornerS (N+E) at south or west
       isSmooth = dBlock !== RoadBlockId.CornerS && lBlock !== RoadBlockId.CornerS;
       break;
     case RoadBlockId.CornerE:
+      // CornerE (N+W): diagonal if adjacent CornerW (S+E) at north or west
       isSmooth = uBlock !== RoadBlockId.CornerW && lBlock !== RoadBlockId.CornerW;
       break;
   }
@@ -876,6 +902,80 @@ export function parseIniFile(content: string): Map<string, Map<string, string>> 
 }
 
 /**
+ * A single segment of a vehicle path within a road tile.
+ * Coordinates are relative to the tile (64x32 pixel space).
+ */
+export interface CarPathSegment {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  direction: string; // Visual direction for sprite: N, NE, E, SE, S, SW, W, NW
+  steps: number;     // Animation steps for this segment
+}
+
+/**
+ * A complete vehicle path across a road tile.
+ * Vehicles enter from one side and exit to another.
+ */
+export interface CarPath {
+  entryDirection: string; // N, S, E, W — side the vehicle enters from
+  exitDirection: string;  // N, S, E, W — side the vehicle exits to
+  segments: CarPathSegment[];
+}
+
+/**
+ * Parse a CarPaths section value into an array of CarPathSegments.
+ * Format: "(x1, y1, x2, y2, dir, steps) (x1, y1, x2, y2, dir, steps) ..."
+ */
+export function parseCarPathSegments(value: string): CarPathSegment[] {
+  const segments: CarPathSegment[] = [];
+  const segmentPattern = /\(([^)]+)\)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = segmentPattern.exec(value)) !== null) {
+    const parts = match[1].split(',').map(s => s.trim());
+    if (parts.length >= 6) {
+      segments.push({
+        startX: parseFloat(parts[0]),
+        startY: parseFloat(parts[1]),
+        endX: parseFloat(parts[2]),
+        endY: parseFloat(parts[3]),
+        direction: parts[4],
+        steps: parseInt(parts[5], 10)
+      });
+    }
+  }
+
+  return segments;
+}
+
+/**
+ * Parse the [CarPaths] section from a road block INI.
+ * Keys are formatted as "ENTRY.GEXIT" (e.g., "N.GW" = enter from North, going West).
+ */
+export function parseCarPaths(carPathsSection: Map<string, string>): CarPath[] {
+  const paths: CarPath[] = [];
+
+  for (const [key, value] of carPathsSection) {
+    // Parse key format: "N.GW" → entry=N, exit=W
+    const keyMatch = key.match(/^([NSEW])\.G([NSEW])$/);
+    if (!keyMatch) continue;
+
+    const segments = parseCarPathSegments(value);
+    if (segments.length > 0) {
+      paths.push({
+        entryDirection: keyMatch[1],
+        exitDirection: keyMatch[2],
+        segments
+      });
+    }
+  }
+
+  return paths;
+}
+
+/**
  * Road block class loaded from INI file
  */
 export interface RoadBlockClassConfig {
@@ -883,6 +983,7 @@ export interface RoadBlockClassConfig {
   imagePath: string;
   railingImagePath: string;
   frequency: number;
+  carPaths: CarPath[];
 }
 
 /**
@@ -917,11 +1018,15 @@ export function loadRoadBlockClassFromIni(iniContent: string): RoadBlockClassCon
   const general = sections.get('General') ?? new Map();
   const images = sections.get('Images') ?? new Map();
 
+  const carPathsSection = sections.get('CarPaths') ?? new Map();
+  const carPaths = parseCarPaths(carPathsSection);
+
   return {
     id: parseDelphiInt(general.get('Id') ?? '', 255),
     imagePath: images.get('64x32') ?? '',
     railingImagePath: images.get('Railing64x32') ?? '',
-    frequency: parseDelphiInt(general.get('Freq') ?? '', 1)
+    frequency: parseDelphiInt(general.get('Freq') ?? '', 1),
+    carPaths
   };
 }
 
@@ -1014,8 +1119,7 @@ export class RoadTextureResolver {
     // Check for smooth corner
     const smoothResult = detectSmoothCorner(
       row, col,
-      renderedRoads.getAll(),
-      (r, c) => roadIdOf(mapData.getRoad(r, c)),
+      renderedRoads,
       (r, c) => mapData.hasConcrete(r, c)
     );
 

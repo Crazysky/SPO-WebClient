@@ -339,14 +339,29 @@ export class GameObjectTextureCache {
       atlasKey = 'road';
     } else if (category === 'ConcreteImages') {
       atlasKey = 'concrete';
+    } else if (category === 'CarImages') {
+      atlasKey = 'car';
     } else {
-      return null; // No atlas for buildings/cars
+      return null; // No atlas for buildings
     }
 
     const entry = this.atlases.get(atlasKey);
     if (!entry) return null;
 
-    const tile = entry.manifest.tiles[name];
+    // Atlas keys are stored without .bmp extension
+    const lookupName = name.replace(/\.bmp$/i, '');
+    let tile = entry.manifest.tiles[name] ?? entry.manifest.tiles[lookupName];
+
+    // Case-insensitive fallback: INI files may reference "Car1.N.bmp" but filesystem has "car1.N.bmp"
+    if (!tile) {
+      const lowerName = lookupName.toLowerCase();
+      for (const key of Object.keys(entry.manifest.tiles)) {
+        if (key.toLowerCase() === lowerName) {
+          tile = entry.manifest.tiles[key];
+          break;
+        }
+      }
+    }
     if (!tile) return null;
 
     return {

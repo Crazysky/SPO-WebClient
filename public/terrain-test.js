@@ -1173,7 +1173,7 @@
   function calculateChunkCanvasDimensions(chunkSize, config) {
     const u = config.u;
     const width = u * (2 * chunkSize - 1) + config.tileWidth;
-    const height = u / 2 * (2 * chunkSize - 1) + config.tileHeight;
+    const height = u * chunkSize + config.tileHeight;
     return { width, height };
   }
   function getTileScreenPosInChunk(localI, localJ, chunkSize, config) {
@@ -1213,6 +1213,10 @@
       // Rendering queue
       this.renderQueue = [];
       this.isProcessingQueue = false;
+      // Debounced chunk-ready notification (reduces render thrashing at Z0/Z1)
+      this.chunkReadyTimer = null;
+      this.CHUNK_READY_DEBOUNCE_MS = 80;
+      // Batch notifications within this window
       // Stats
       this.stats = {
         chunksRendered: 0,
@@ -1333,16 +1337,45 @@
       this.processRenderQueue();
     }
     /**
-     * Process render queue with parallel fetching (up to CONCURRENCY chunks at once)
+     * Get concurrency level based on zoom level in the current queue.
+     * Z0/Z1 chunks are tiny (260×130 / 520×260 px) — safe to parallelize more aggressively.
+     */
+    getConcurrency(zoomLevel) {
+      if (zoomLevel <= 0) return 16;
+      if (zoomLevel <= 1) return 12;
+      return 6;
+    }
+    /**
+     * Schedule a debounced chunk-ready notification.
+     * At Z0, dozens of chunks complete in rapid succession — coalescing notifications
+     * reduces full pipeline re-renders from ~11 to ~2-3.
+     */
+    scheduleChunkReadyNotification() {
+      if (!this.onChunkReady) return;
+      if (this.chunkReadyTimer !== null) {
+        clearTimeout(this.chunkReadyTimer);
+      }
+      this.chunkReadyTimer = setTimeout(() => {
+        this.chunkReadyTimer = null;
+        if (this.onChunkReady) {
+          this.onChunkReady();
+        }
+      }, this.CHUNK_READY_DEBOUNCE_MS);
+    }
+    /**
+     * Process render queue with parallel fetching.
+     * Concurrency scales with zoom level (tiny Z0 chunks allow more parallelism).
+     * Notifications are debounced to reduce render thrashing at far zoom.
      */
     async processRenderQueue() {
       if (this.isProcessingQueue) return;
       this.isProcessingQueue = true;
-      const CONCURRENCY = 6;
       const queueStart = performance.now();
       let processed = 0;
       while (this.renderQueue.length > 0) {
-        const batch = this.renderQueue.splice(0, CONCURRENCY);
+        const currentZoom = this.renderQueue[0].zoomLevel;
+        const concurrency = this.getConcurrency(currentZoom);
+        const batch = this.renderQueue.splice(0, concurrency);
         const promises = batch.map(async (request) => {
           const t0 = performance.now();
           await this.renderChunk(request.chunkI, request.chunkJ, request.zoomLevel);
@@ -1353,11 +1386,10 @@
         });
         await Promise.all(promises);
         processed += batch.length;
-        if (this.onChunkReady) {
-          this.onChunkReady();
-        }
+        this.scheduleChunkReadyNotification();
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
+      this.scheduleChunkReadyNotification();
       const totalDt = performance.now() - queueStart;
       if (processed > 1) {
         console.log(`[ChunkCache] queue done: ${processed} chunks in ${totalDt.toFixed(0)}ms (avg ${(totalDt / processed).toFixed(0)}ms/chunk)`);
@@ -1447,6 +1479,7 @@
       const config = ZOOM_LEVELS[zoomLevel];
       const ctx = entry.canvas.getContext("2d");
       if (!ctx) return;
+      ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, entry.canvas.width, entry.canvas.height);
       const startI = chunkI * CHUNK_SIZE;
       const startJ = chunkJ * CHUNK_SIZE;
@@ -1551,7 +1584,7 @@
         this.mapWidth,
         origin
       );
-      ctx.drawImage(chunk, screenPos.x, screenPos.y);
+      ctx.drawImage(chunk, Math.round(screenPos.x), Math.round(screenPos.y));
       return true;
     }
     /**
@@ -1646,6 +1679,10 @@
         cache.clear();
       }
       this.renderQueue = [];
+      if (this.chunkReadyTimer !== null) {
+        clearTimeout(this.chunkReadyTimer);
+        this.chunkReadyTimer = null;
+      }
       this.stats = {
         chunksRendered: 0,
         cacheHits: 0,
@@ -1712,6 +1749,14 @@
       // State flags
       this.loaded = false;
       this.mapName = "";
+      // Z0 terrain preview — a single low-res image of the entire map used as an
+      // instant backdrop while chunks stream in (eliminates blue triangle flicker)
+      this.terrainPreview = null;
+      this.terrainPreviewLoading = false;
+      // Preview origin offset: the preview image's (0,0) corresponds to chunk (0,0)'s
+      // screen position. We store the world-space offset so we can position it correctly.
+      this.previewOriginX = 0;
+      this.previewOriginY = 0;
       // Available seasons for current terrain type (auto-detected from server)
       this.availableSeasons = [0 /* WINTER */, 1 /* SPRING */, 2 /* SUMMER */, 3 /* AUTUMN */];
       // Rendering stats (for debug info)
@@ -1785,8 +1830,54 @@
       this.updateOrigin();
       this.mapName = mapName;
       this.loaded = true;
+      this.loadTerrainPreview(mapName, terrainType, this.season);
       this.render();
       return terrainData;
+    }
+    /**
+     * Load the terrain preview image — a single low-res image of the entire map.
+     * Used as an instant backdrop at Z0/Z1 while chunks stream in.
+     */
+    async loadTerrainPreview(mapName, terrainType, season) {
+      if (this.terrainPreviewLoading) return;
+      this.terrainPreviewLoading = true;
+      try {
+        const url = `/api/terrain-preview/${encodeURIComponent(mapName)}/${encodeURIComponent(terrainType)}/${season}`;
+        const response = await fetch(url);
+        if (!response.ok) {
+          console.log(`[IsometricRenderer] Terrain preview not available (${response.status})`);
+          return;
+        }
+        const blob = await response.blob();
+        this.terrainPreview = await createImageBitmap(blob);
+        const mapH = this.terrainLoader.getDimensions().height;
+        const mapW = this.terrainLoader.getDimensions().width;
+        const z0U = 4;
+        const chunkSize = 32;
+        const localOriginX = z0U * chunkSize;
+        const localOriginY = z0U / 2 * (chunkSize + chunkSize);
+        const chunksI = Math.ceil(mapH / chunkSize);
+        const chunksJ = Math.ceil(mapW / chunkSize);
+        let minX = Infinity, minY = Infinity;
+        for (let ci = 0; ci < chunksI; ci++) {
+          for (let cj = 0; cj < chunksJ; cj++) {
+            const baseI = ci * chunkSize;
+            const baseJ = cj * chunkSize;
+            const sx = z0U * (mapH - baseI + baseJ) - localOriginX;
+            const sy = z0U / 2 * (mapH - baseI + (mapW - baseJ)) - localOriginY;
+            minX = Math.min(minX, sx);
+            minY = Math.min(minY, sy);
+          }
+        }
+        this.previewOriginX = minX;
+        this.previewOriginY = minY;
+        console.log(`[IsometricRenderer] Terrain preview loaded: ${this.terrainPreview.width}\xD7${this.terrainPreview.height}`);
+        this.requestRender();
+      } catch (error) {
+        console.warn("[IsometricRenderer] Failed to load terrain preview:", error);
+      } finally {
+        this.terrainPreviewLoading = false;
+      }
     }
     /**
      * Fetch available seasons for a terrain type from server
@@ -1826,8 +1917,8 @@
         { x: 0, y: 0 }
       );
       this.origin = {
-        x: cameraScreen.x - this.canvas.width / 2,
-        y: cameraScreen.y - this.canvas.height / 2
+        x: Math.round(cameraScreen.x - this.canvas.width / 2),
+        y: Math.round(cameraScreen.y - this.canvas.height / 2)
       };
     }
     /**
@@ -1896,13 +1987,19 @@
     }
     /**
      * Chunk-based terrain rendering (fast path)
-     * Renders pre-cached chunks instead of individual tiles
+     * Renders pre-cached chunks instead of individual tiles.
+     * At Z0/Z1, draws the terrain preview image as an instant backdrop while chunks load.
      */
     renderTerrainLayerChunked(bounds) {
       if (!this.chunkCache) return 0;
       const ctx = this.ctx;
       const canvasWidth = this.canvas.width;
       const canvasHeight = this.canvas.height;
+      const prevSmoothing = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = false;
+      if (this.terrainPreview && this.zoomLevel <= 1) {
+        this.drawTerrainPreview(ctx);
+      }
       const visibleChunks = this.chunkCache.getVisibleChunksFromBounds(bounds);
       let chunksDrawn = 0;
       let tilesRendered = 0;
@@ -1928,7 +2025,7 @@
           if (drawn) {
             chunksDrawn++;
             tilesRendered += CHUNK_SIZE * CHUNK_SIZE;
-          } else {
+          } else if (this.zoomLevel >= 2) {
             tilesRendered += this.renderChunkTilesFallback(ci, cj);
           }
         }
@@ -1939,6 +2036,7 @@
         const centerChunkJ = Math.floor((visMinJ + visMaxJ) / 2);
         this.chunkCache.preloadChunks(centerChunkI, centerChunkJ, preloadRadius, this.zoomLevel);
       }
+      ctx.imageSmoothingEnabled = prevSmoothing;
       return tilesRendered;
     }
     /**
@@ -1975,6 +2073,20 @@
         }
       }
       return tilesRendered;
+    }
+    /**
+     * Draw the terrain preview image as a backdrop.
+     * The preview is a single image of the entire map at Z0 scale, positioned
+     * using the same isometric projection as chunks. At Z1 we scale it 2×.
+     */
+    drawTerrainPreview(ctx) {
+      if (!this.terrainPreview) return;
+      const scale = this.zoomLevel === 0 ? 1 : 2;
+      const drawX = this.previewOriginX * scale - this.origin.x;
+      const drawY = this.previewOriginY * scale - this.origin.y;
+      const drawW = this.terrainPreview.width * scale;
+      const drawH = this.terrainPreview.height * scale;
+      ctx.drawImage(this.terrainPreview, drawX, drawY, drawW, drawH);
     }
     /**
      * Tile-by-tile terrain rendering (slow path, fallback for non-NORTH rotations)

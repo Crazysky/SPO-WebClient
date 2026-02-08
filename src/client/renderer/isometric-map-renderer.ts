@@ -42,10 +42,16 @@ import {
   loadRoadBlockClassFromIni,
   RoadBlockId,
   roadBlockId,
+  detectSmoothCorner,
+  isJunctionTopology,
+  getConnectedDirections,
+  isBridge,
   ROAD_TYPE,
   LandClass,
+  LandType,
   landClassOf,
-  landTypeOf
+  landTypeOf,
+  isWater
 } from './road-texture-system';
 import { formatLandId, landTypeName, landClassName, decodeLandId, isSpecialTile } from '../../shared/land-utils';
 import {
@@ -53,13 +59,17 @@ import {
   loadConcreteBlockClassFromIni,
   getConcreteId,
   buildNeighborConfig,
+  canReceiveConcrete,
   CONCRETE_NONE,
   CONCRETE_FULL,
   PLATFORM_IDS,
+  PLATFORM_SHIFT,
   ConcreteMapData,
   ConcreteCfg
 } from './concrete-texture-system';
 import { painterSort } from './painter-algorithm';
+import { CarClassManager } from './car-class-system';
+import { VehicleAnimationSystem } from './vehicle-animation-system';
 
 interface CachedZone {
   x: number;
@@ -435,6 +445,13 @@ export class IsometricMapRenderer {
   // Render debouncing (RAF-based, prevents redundant renders per frame)
   private pendingRender: number | null = null;
 
+  // Vehicle animation system
+  private carClassManager: CarClassManager = new CarClassManager();
+  private vehicleSystem: VehicleAnimationSystem | null = null;
+  private vehicleSystemReady: boolean = false;
+  private animationLoopRunning: boolean = false;
+  private lastRenderTime: number = 0;
+
   constructor(canvasId: string) {
     const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
     if (!canvas) {
@@ -466,15 +483,16 @@ export class IsometricMapRenderer {
 
     // Setup callback to re-render when textures are loaded
     this.gameObjectTextureCache.setOnTextureLoaded((category, name) => {
-      if (category === 'BuildingImages' || category === 'RoadBlockImages' || category === 'ConcreteImages') {
+      if (category === 'BuildingImages' || category === 'RoadBlockImages' || category === 'ConcreteImages' || category === 'CarImages') {
         // Re-render when textures become available (debounced)
         this.requestRender();
       }
     });
 
-    // Load road and concrete atlases (non-blocking, fallback to individual textures)
+    // Load road, concrete, and car atlases (non-blocking, fallback to individual textures)
     this.gameObjectTextureCache.loadObjectAtlas('road').then(() => this.requestRender());
     this.gameObjectTextureCache.loadObjectAtlas('concrete').then(() => this.requestRender());
+    this.gameObjectTextureCache.loadObjectAtlas('car').then(() => this.requestRender());
 
     // Initialize road block class manager
     this.roadBlockClassManager = new RoadBlockClassManager();
@@ -489,6 +507,9 @@ export class IsometricMapRenderer {
 
     // Load concrete block classes asynchronously
     this.loadConcreteBlockClasses();
+
+    // Load car classes and initialize vehicle animation system
+    this.loadCarClasses();
 
     // Setup event handlers
     this.setupMouseControls();
@@ -545,6 +566,9 @@ export class IsometricMapRenderer {
     this.terrainRenderer.setRotation(next);
     this.markCameraMoving();
 
+    // Clear vehicles on rotation change (CarPaths are in tile-local coords)
+    if (this.vehicleSystem) this.vehicleSystem.clear();
+
     // Mark zone request manager and trigger delayed zone load
     if (this.zoneRequestManager) {
       const currentZoom = this.terrainRenderer.getZoomLevel();
@@ -565,6 +589,9 @@ export class IsometricMapRenderer {
     const next = (current + 3) % 4 as Rotation; // +3 is equivalent to -1 mod 4
     this.terrainRenderer.setRotation(next);
     this.markCameraMoving();
+
+    // Clear vehicles on rotation change (CarPaths are in tile-local coords)
+    if (this.vehicleSystem) this.vehicleSystem.clear();
 
     // Mark zone request manager and trigger delayed zone load
     if (this.zoneRequestManager) {
@@ -613,6 +640,15 @@ export class IsometricMapRenderer {
         const current = this.terrainRenderer.getZoomLevel();
         const newZoom = current + delta;
         this.terrainRenderer.setZoomLevel(newZoom);
+
+        // Clear vehicles when zooming out of Z2/Z3
+        if (current >= 2 && newZoom < 2 && this.vehicleSystem) {
+          this.vehicleSystem.clear();
+          this.animationLoopRunning = false;
+        }
+        if (current < 2 && newZoom >= 2) {
+          this.startAnimationLoop();
+        }
 
         // Mark as moving then stopped (triggers delayed zone load based on new zoom)
         if (this.zoneRequestManager) {
@@ -751,6 +787,110 @@ export class IsometricMapRenderer {
     }
   }
 
+  /**
+   * Load car class configurations from the server and initialize the vehicle animation system
+   */
+  private async loadCarClasses(): Promise<void> {
+    try {
+      const response = await fetch('/api/car-classes');
+      if (!response.ok) {
+        console.error('[IsometricMapRenderer] Failed to load car classes:', response.status);
+        return;
+      }
+
+      const data = await response.json();
+      const files: Array<{ filename: string; content: string }> = data.files || [];
+
+      console.log(`[IsometricMapRenderer] Loading ${files.length} car classes...`);
+
+      for (const file of files) {
+        this.carClassManager.loadFromIni(file.content);
+      }
+
+      console.log(`[IsometricMapRenderer] Car classes loaded: ${this.carClassManager.getClassCount()} classes`);
+
+      // Initialize vehicle animation system
+      this.vehicleSystem = new VehicleAnimationSystem();
+      this.vehicleSystem.setCarClassManager(this.carClassManager);
+      this.vehicleSystem.setRoadBlockClassManager(this.roadBlockClassManager);
+      this.vehicleSystem.setGameObjectTextureCache(this.gameObjectTextureCache);
+      this.vehicleSystemReady = true;
+    } catch (error) {
+      console.error('[IsometricMapRenderer] Error loading car classes:', error);
+    }
+  }
+
+  /**
+   * Start the continuous animation loop for vehicles.
+   * Only runs when vehicles are active (Z2/Z3 + vehicles exist).
+   */
+  private startAnimationLoop(): void {
+    if (this.animationLoopRunning) return;
+    this.animationLoopRunning = true;
+    this.lastRenderTime = performance.now();
+
+    const loop = () => {
+      if (!this.animationLoopRunning) return;
+
+      const zoom = this.terrainRenderer.getZoomLevel();
+      // Only animate at Z2 and Z3
+      if (zoom >= 2 && this.vehicleSystemReady && this.vehicleSystem) {
+        this.requestRender();
+        requestAnimationFrame(loop);
+      } else {
+        this.animationLoopRunning = false;
+      }
+    };
+
+    requestAnimationFrame(loop);
+  }
+
+  /**
+   * Draw animated vehicles on roads (layer between buildings and zone overlay).
+   * Active only at Z2 and Z3 zoom levels.
+   */
+  private drawVehicles(bounds: TileBounds, deltaTime: number, occupiedTiles: Set<string>): void {
+    const zoom = this.terrainRenderer.getZoomLevel();
+    if (zoom < 2) return;
+    if (!this.vehicleSystemReady || !this.vehicleSystem) return;
+
+    // Update road data dependencies for the vehicle system
+    this.vehicleSystem.setRoadData(
+      this.roadTilesMap,
+      this.roadsRendering,
+      (col, row) => {
+        const terrainLoader = this.terrainRenderer.getTerrainLoader();
+        return terrainLoader.getLandId(col, row);
+      },
+      (col, row) => this.hasConcrete(col, row)
+    );
+
+    // Pass building tile positions for proximity-based spawning
+    this.vehicleSystem.setBuildingTiles(occupiedTiles);
+
+    // Pause during camera movement
+    this.vehicleSystem.setPaused(this.isCameraMoving);
+
+    // Update vehicle positions and spawn new vehicles
+    this.vehicleSystem.update(deltaTime, bounds);
+
+    // Render visible vehicles
+    const config = ZOOM_LEVELS[zoom];
+    this.vehicleSystem.render(
+      this.ctx,
+      (i: number, j: number) => this.terrainRenderer.mapToScreen(i, j),
+      config,
+      this.canvas.width,
+      this.canvas.height,
+      (col: number, row: number) => this.isOnWaterPlatform(col, row)
+    );
+
+    // Start animation loop if vehicles are active
+    if (this.vehicleSystem.isActive() || this.vehicleSystem.getVehicleCount() === 0) {
+      this.startAnimationLoop();
+    }
+  }
+
   // =========================================================================
   // ZONE MANAGEMENT
   // =========================================================================
@@ -825,8 +965,15 @@ export class IsometricMapRenderer {
       }
     });
 
-    // Pre-compute concrete adjacency tiles (tiles within 1 tile of any building)
+    // Rebuild road topology FIRST — needed to identify junctions for concrete placement
+    this.rebuildRoadsRendering();
+
+    // Pre-compute concrete adjacency tiles:
+    // 1. Tiles within 1 tile of any building
+    // 2. Water road junctions (corners, T, crossroads) + their adjacent connected road tiles
+    // On water (ZoneD), only place concrete on deep water (Center) tiles — skip edges/corners
     this.concreteTilesSet.clear();
+    const terrainLoaderForConcrete = this.terrainRenderer.getTerrainLoader();
     for (const building of this.allBuildings) {
       const dims = this.facilityDimensionsCache.get(building.visualClass);
       const bw = dims?.xsize || 1;
@@ -835,13 +982,28 @@ export class IsometricMapRenderer {
       // Expand building bounds by 1 tile in each direction
       for (let y = building.y - 1; y < building.y + bh + 1; y++) {
         for (let x = building.x - 1; x < building.x + bw + 1; x++) {
+          // Filter out water edge/corner tiles — only ldtCenter accepts concrete
+          if (terrainLoaderForConcrete) {
+            const landId = terrainLoaderForConcrete.getLandId(x, y);
+            if (!canReceiveConcrete(landId)) continue;
+          }
           this.concreteTilesSet.add(`${x},${y}`);
         }
       }
     }
 
-    // Rebuild road topology rendering buffer
-    this.rebuildRoadsRendering();
+    // Add concrete under road tiles on water adjacent to building concrete
+    this.addWaterRoadNearBuildingConcrete(terrainLoaderForConcrete);
+
+    // Add concrete platforms around water road junctions (corners, T, crossroads)
+    // Bridge textures don't support these topologies, so they need a concrete platform
+    // with regular road textures. Also adds concrete to the one adjacent tile in each
+    // connected direction (transition from bridge to platform road).
+    this.addWaterRoadJunctionConcrete(terrainLoaderForConcrete);
+
+    // Final pass: ensure every non-bridge road tile on water has a 1-tile concrete border
+    // for proper platform edge textures (platN, platSE, etc.)
+    this.expandWaterRoadConcreteBorders(terrainLoaderForConcrete);
 
     // Update vegetation→flat zones (used by drawVegetation to hide vegetation near buildings/roads)
     this.vegetationMapper.updateDynamicContent(
@@ -988,6 +1150,7 @@ export class IsometricMapRenderer {
    */
   private rebuildConcreteSet(): void {
     this.concreteTilesSet.clear();
+    const terrainLoader = this.terrainRenderer.getTerrainLoader();
     for (const building of this.allBuildings) {
       const dims = this.facilityDimensionsCache.get(building.visualClass);
       const bw = dims?.xsize || 1;
@@ -995,7 +1158,171 @@ export class IsometricMapRenderer {
 
       for (let y = building.y - 1; y < building.y + bh + 1; y++) {
         for (let x = building.x - 1; x < building.x + bw + 1; x++) {
+          // Filter out water edge/corner tiles — only ldtCenter accepts concrete
+          if (terrainLoader) {
+            const landId = terrainLoader.getLandId(x, y);
+            if (!canReceiveConcrete(landId)) continue;
+          }
           this.concreteTilesSet.add(`${x},${y}`);
+        }
+      }
+    }
+    // Add concrete under road tiles on water adjacent to building concrete
+    this.addWaterRoadNearBuildingConcrete(terrainLoader);
+    // Also add concrete around water road junctions
+    this.addWaterRoadJunctionConcrete(terrainLoader);
+    // Final pass: 1-tile border around all platform road tiles on water
+    this.expandWaterRoadConcreteBorders(terrainLoader);
+  }
+
+  /**
+   * Add concrete platforms around road junctions on water.
+   *
+   * Bridge textures only support straight segments (NS/WE roads and their start/end caps).
+   * Corners, T-intersections, and crossroads CANNOT use bridge textures — they need
+   * a concrete platform with regular urban road textures.
+   *
+   * For each junction tile on water:
+   * 1. The junction tile itself gets concrete (+ 1-tile border for platform edges)
+   * 2. Each adjacent connected road tile also gets concrete (bridge→road transition)
+   *    This is the "one tile before" rule: the straight road segment immediately
+   *    adjacent to a junction transitions from bridge to platform road.
+   */
+  private addWaterRoadJunctionConcrete(terrainLoader: ReturnType<typeof this.terrainRenderer.getTerrainLoader>): void {
+    if (!this.roadsRendering || !terrainLoader) return;
+
+    // Helper: add concrete tile if it passes the water filter
+    const addConcreteTile = (x: number, y: number) => {
+      const landId = terrainLoader.getLandId(x, y);
+      if (canReceiveConcrete(landId)) {
+        this.concreteTilesSet.add(`${x},${y}`);
+      }
+    };
+
+    // Helper: add concrete for a tile and its 1-tile border (platform edges)
+    const addConcreteWithBorder = (cx: number, cy: number) => {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          addConcreteTile(cx + dx, cy + dy);
+        }
+      }
+    };
+
+    // Scan all road tiles for junctions on water
+    for (const [key] of this.roadTilesMap) {
+      const [xStr, yStr] = key.split(',');
+      const x = parseInt(xStr, 10);
+      const y = parseInt(yStr, 10);
+
+      // Get topology from rendered roads
+      const topology = this.roadsRendering.get(y, x);
+      if (topology === RoadBlockId.None) continue;
+
+      // Only process junction topologies (corners, T, crossroads)
+      if (!isJunctionTopology(topology)) continue;
+
+      // Only process tiles on water
+      const landId = terrainLoader.getLandId(x, y);
+      if (!isWater(landId)) continue;
+
+      // Skip if already on building concrete (already handled)
+      if (this.concreteTilesSet.has(key)) continue;
+
+      // Add concrete platform around the junction tile
+      addConcreteWithBorder(x, y);
+
+      // Add concrete for adjacent connected road tiles (bridge→road transition)
+      const dirs = getConnectedDirections(topology);
+      for (const [di, dj] of dirs) {
+        const adjX = x + dj;  // col offset
+        const adjY = y + di;  // row offset
+        // Only add if it's also a road tile on water
+        if (this.roadTilesMap.has(`${adjX},${adjY}`)) {
+          const adjLandId = terrainLoader.getLandId(adjX, adjY);
+          if (isWater(adjLandId)) {
+            addConcreteWithBorder(adjX, adjY);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Add concrete under road tiles on water that are adjacent to water-side building concrete.
+   * Only extends when the neighboring concrete is also on water (not land→water transitions).
+   * Does NOT add a border — just the road tile itself (max distance from road = 0).
+   */
+  private addWaterRoadNearBuildingConcrete(terrainLoader: ReturnType<typeof this.terrainRenderer.getTerrainLoader>): void {
+    if (!terrainLoader) return;
+
+    // Snapshot current concrete set (building buffer only at this point)
+    const buildingConcreteSnapshot = new Set(this.concreteTilesSet);
+
+    for (const [key] of this.roadTilesMap) {
+      const [xStr, yStr] = key.split(',');
+      const x = parseInt(xStr, 10);
+      const y = parseInt(yStr, 10);
+
+      // Only process road tiles on water
+      const landId = terrainLoader.getLandId(x, y);
+      if (!isWater(landId)) continue;
+
+      // Already has concrete from building buffer
+      if (this.concreteTilesSet.has(key)) continue;
+
+      // Check if any of the 8 neighbors is in the building concrete set AND on water
+      // Skip land-side concrete to avoid placing platforms at land→water transitions
+      let nearWaterBuilding = false;
+      for (let dy = -1; dy <= 1 && !nearWaterBuilding; dy++) {
+        for (let dx = -1; dx <= 1 && !nearWaterBuilding; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (buildingConcreteSnapshot.has(`${nx},${ny}`) && isWater(terrainLoader.getLandId(nx, ny))) {
+            nearWaterBuilding = true;
+          }
+        }
+      }
+
+      if (nearWaterBuilding) {
+        if (canReceiveConcrete(landId)) {
+          this.concreteTilesSet.add(key);
+        }
+      }
+    }
+  }
+
+  /**
+   * Final expansion pass: every road tile on water that already has concrete (= platform road)
+   * gets a 1-tile concrete border for proper platform edge texture rendering.
+   * Uses a snapshot to avoid cascading — only expands from road tiles, not from newly added edges.
+   */
+  private expandWaterRoadConcreteBorders(terrainLoader: ReturnType<typeof this.terrainRenderer.getTerrainLoader>): void {
+    if (!terrainLoader) return;
+
+    // Snapshot: only expand from road tiles that already have concrete
+    const snapshot = new Set(this.concreteTilesSet);
+
+    for (const [key] of this.roadTilesMap) {
+      // Only road tiles that have concrete (= platform roads, not bridges)
+      if (!snapshot.has(key)) continue;
+
+      const [xStr, yStr] = key.split(',');
+      const x = parseInt(xStr, 10);
+      const y = parseInt(yStr, 10);
+
+      // Only expand on water tiles
+      if (!isWater(terrainLoader.getLandId(x, y))) continue;
+
+      // Add 1-tile border around this road tile
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          const nLandId = terrainLoader.getLandId(nx, ny);
+          if (canReceiveConcrete(nLandId)) {
+            this.concreteTilesSet.add(`${nx},${ny}`);
+          }
         }
       }
     }
@@ -1143,8 +1470,20 @@ export class IsometricMapRenderer {
    * Set zoom level (0-3)
    */
   public setZoom(level: number) {
+    const previousZoom = this.terrainRenderer.getZoomLevel();
     this.terrainRenderer.setZoomLevel(level);
     this.terrainRenderer.clearDistantZoomCaches(level);
+
+    // Clear vehicles when zooming out of Z2/Z3 range
+    if (previousZoom >= 2 && level < 2 && this.vehicleSystem) {
+      this.vehicleSystem.clear();
+      this.animationLoopRunning = false;
+    }
+    // Start animation loop when zooming into Z2/Z3 range
+    if (previousZoom < 2 && level >= 2) {
+      this.startAnimationLoop();
+    }
+
     this.checkVisibleZones();
     this.requestRender();
   }
@@ -1290,6 +1629,11 @@ export class IsometricMapRenderer {
    * Main render loop
    */
   public render() {
+    // Calculate deltaTime for animations
+    const now = performance.now();
+    const deltaTime = this.lastRenderTime > 0 ? (now - this.lastRenderTime) / 1000 : 0;
+    this.lastRenderTime = now;
+
     // First, render terrain (this clears and draws the base layer)
     this.terrainRenderer.render();
 
@@ -1308,6 +1652,7 @@ export class IsometricMapRenderer {
     this.drawConcrete(bounds);
     this.drawRoads(bounds, occupiedTiles);
     this.drawBuildings(bounds);
+    this.drawVehicles(bounds, deltaTime, occupiedTiles);
     this.drawZoneOverlay(bounds);
     this.drawPlacementPreview();
     this.drawRoadDrawingPreview();
@@ -1370,6 +1715,17 @@ export class IsometricMapRenderer {
    */
   private hasConcrete(x: number, y: number): boolean {
     return this.concreteTilesSet.has(`${x},${y}`);
+  }
+
+  /**
+   * Check if a tile is on a water platform (has concrete AND is on water).
+   * Used for applying platform Y-shift to concrete, roads, and buildings.
+   */
+  private isOnWaterPlatform(x: number, y: number): boolean {
+    if (!this.hasConcrete(x, y)) return false;
+    const terrainLoader = this.terrainRenderer.getTerrainLoader();
+    if (!terrainLoader) return false;
+    return isWater(terrainLoader.getLandId(x, y));
   }
 
   /**
@@ -1466,27 +1822,33 @@ export class IsometricMapRenderer {
     // Painter's algorithm: higher (i+j) drawn first, lower drawn last (on top)
     concreteTiles.sort(painterSort);
 
+    // Platform elevation: water platforms float above water surface
+    const scaleFactor = config.tileWidth / 64;
+    const platformYShift = Math.round(PLATFORM_SHIFT * scaleFactor);
+
     // Draw sorted concrete tiles
     for (const tile of concreteTiles) {
+      const isWaterPlatform = (tile.concreteId & 0x80) !== 0;
+      const drawY = isWaterPlatform ? tile.screenY - platformYShift : tile.screenY;
+
       // Get texture filename from class manager
       const filename = this.concreteBlockClassManager.getImageFilename(tile.concreteId);
       if (filename) {
         // Try atlas first (single large image with source rectangles)
         const atlasRect = this.gameObjectTextureCache.getAtlasRect('ConcreteImages', filename);
         if (atlasRect) {
-          const isWaterPlatform = (tile.concreteId & 0x80) !== 0;
           if (isWaterPlatform) {
             ctx.drawImage(
               atlasRect.atlas,
               atlasRect.sx, atlasRect.sy, atlasRect.sw, atlasRect.sh,
-              tile.screenX - atlasRect.sw / 2, tile.screenY,
+              tile.screenX - atlasRect.sw / 2, drawY,
               atlasRect.sw, atlasRect.sh
             );
           } else {
             ctx.drawImage(
               atlasRect.atlas,
               atlasRect.sx, atlasRect.sy, atlasRect.sw, atlasRect.sh,
-              tile.screenX - halfWidth, tile.screenY,
+              tile.screenX - halfWidth, drawY,
               config.tileWidth, config.tileHeight
             );
           }
@@ -1496,18 +1858,17 @@ export class IsometricMapRenderer {
         // Fallback: individual texture
         const texture = this.gameObjectTextureCache.getTextureSync('ConcreteImages', filename);
         if (texture) {
-          const isWaterPlatform = (tile.concreteId & 0x80) !== 0;
           if (isWaterPlatform) {
-            ctx.drawImage(texture, tile.screenX - texture.width / 2, tile.screenY);
+            ctx.drawImage(texture, tile.screenX - texture.width / 2, drawY);
           } else {
-            ctx.drawImage(texture, tile.screenX - halfWidth, tile.screenY, config.tileWidth, config.tileHeight);
+            ctx.drawImage(texture, tile.screenX - halfWidth, drawY, config.tileWidth, config.tileHeight);
           }
           continue;
         }
       }
 
       // Fallback: draw debug colored tile if texture not available
-      this.drawDebugConcreteTile(ctx, tile.screenX, tile.screenY, tile.concreteId, config);
+      this.drawDebugConcreteTile(ctx, tile.screenX, drawY, tile.concreteId, config);
     }
   }
 
@@ -1572,17 +1933,13 @@ export class IsometricMapRenderer {
     // Standard tile height at base resolution (64×32)
     const BASE_TILE_HEIGHT = 32;
 
-    // Collect road tiles for two-pass rendering
-    // Each tile can have either atlas rect or individual texture (or neither)
-    const standardTiles: Array<{
-      sx: number;
-      sy: number;
-      topology: RoadBlockId;
-      texture: ImageBitmap | null;
-      atlasRect: { atlas: ImageBitmap; sx: number; sy: number; sw: number; sh: number } | null;
-    }> = [];
+    // Platform elevation for roads on water platforms
+    const scaleFactor = config.tileWidth / 64;
+    const platformYShift = Math.round(PLATFORM_SHIFT * scaleFactor);
 
-    const tallTiles: Array<{
+    // Collect all road tiles into a single array for unified painter's algorithm sorting.
+    // Bridges and standard tiles are interleaved so bridges don't render on top of closer roads.
+    const allRoadTiles: Array<{
       x: number;
       y: number;
       sx: number;
@@ -1590,7 +1947,10 @@ export class IsometricMapRenderer {
       topology: RoadBlockId;
       texture: ImageBitmap | null;
       atlasRect: { atlas: ImageBitmap; sx: number; sy: number; sw: number; sh: number } | null;
+      onWaterPlatform: boolean;
+      isTall: boolean;
       textureHeight: number;
+      roadBlockId: number;
     }> = [];
 
     for (const [key] of this.roadTilesMap) {
@@ -1623,6 +1983,7 @@ export class IsometricMapRenderer {
       let texture: ImageBitmap | null = null;
       let atlasRect: { atlas: ImageBitmap; sx: number; sy: number; sw: number; sh: number } | null = null;
       let textureHeight = 0;
+      let fullRoadBlockId = 0;
 
       if (this.roadBlockClassesLoaded && this.roadsRendering) {
         topology = this.roadsRendering.get(y, x);
@@ -1631,13 +1992,16 @@ export class IsometricMapRenderer {
           const landId = terrainLoader.getLandId(x, y);
           const onConcrete = this.hasConcrete(x, y);
 
-          const fullRoadBlockId = roadBlockId(
-            topology,
-            landId,
-            onConcrete,
-            false, // onRailroad
-            false  // isDummy
+          // Check for smooth corner: angles use smooth textures,
+          // diagonals (adjacent opposite corners) keep regular "oblique" textures
+          const smoothResult = detectSmoothCorner(
+            y, x, this.roadsRendering,
+            (_r, c) => this.hasConcrete(c, _r)
           );
+
+          fullRoadBlockId = smoothResult.isSmooth
+            ? smoothResult.roadBlock
+            : roadBlockId(topology, landId, onConcrete, false, false);
 
           const texturePath = this.roadBlockClassManager.getImagePath(fullRoadBlockId);
           if (texturePath) {
@@ -1657,47 +2021,83 @@ export class IsometricMapRenderer {
         }
       }
 
-      // Separate tall textures (bridges) from standard textures
-      if ((texture || atlasRect) && textureHeight > BASE_TILE_HEIGHT) {
-        tallTiles.push({ x, y, sx, sy, topology, texture, atlasRect, textureHeight });
-      } else {
-        standardTiles.push({ sx, sy, topology, texture, atlasRect });
-      }
+      // Check if this road is on a water platform (concrete + water = elevated urban road)
+      const onWaterPlatform = this.isOnWaterPlatform(x, y);
+      const isTall = (texture !== null || atlasRect !== null) && textureHeight > BASE_TILE_HEIGHT;
+
+      allRoadTiles.push({
+        x, y, sx, sy, topology, texture, atlasRect,
+        onWaterPlatform, isTall, textureHeight,
+        roadBlockId: fullRoadBlockId
+      });
     }
 
-    // Pass 1: Render standard tiles
-    for (const tile of standardTiles) {
-      if (tile.atlasRect) {
-        const r = tile.atlasRect;
-        ctx.drawImage(r.atlas, r.sx, r.sy, r.sw, r.sh, tile.sx - halfWidth, tile.sy, config.tileWidth, config.tileHeight);
-      } else if (tile.texture) {
-        ctx.drawImage(tile.texture, tile.sx - halfWidth, tile.sy, config.tileWidth, config.tileHeight);
+    // Unified painter's algorithm: sort all tiles by (i+j) descending (back-to-front)
+    allRoadTiles.sort((a, b) => (b.y + b.x) - (a.y + a.x));
+
+    const scale = config.tileWidth / 64;
+
+    // Single pass: render each tile according to its type, in painter's order.
+    // Bridge base + cover textures are drawn together so they respect depth ordering
+    // relative to standard road tiles.
+    for (const tile of allRoadTiles) {
+      if (tile.isTall) {
+        // Tall tile (bridge): draw base texture bottom-aligned
+        const scaledHeight = tile.textureHeight * scale;
+        const yOffset = scaledHeight - config.tileHeight;
+
+        if (tile.atlasRect) {
+          const r = tile.atlasRect;
+          ctx.drawImage(r.atlas, r.sx, r.sy, r.sw, r.sh, tile.sx - halfWidth, tile.sy - yOffset, config.tileWidth, scaledHeight);
+        } else if (tile.texture) {
+          ctx.drawImage(tile.texture, tile.sx - halfWidth, tile.sy - yOffset, config.tileWidth, scaledHeight);
+        }
+
+        // Draw bridge cover/railing texture immediately on top of base
+        if (isBridge(tile.roadBlockId)) {
+          const railingPath = this.roadBlockClassManager.getRailingImagePath(tile.roadBlockId);
+          if (railingPath) {
+            const railingFilename = railingPath.split('/').pop() || '';
+            const railingRect = this.gameObjectTextureCache.getAtlasRect('RoadBlockImages', railingFilename);
+
+            if (railingRect) {
+              const rScaledHeight = railingRect.sh * scale;
+              const rYOffset = rScaledHeight - config.tileHeight;
+              ctx.drawImage(
+                railingRect.atlas,
+                railingRect.sx, railingRect.sy, railingRect.sw, railingRect.sh,
+                tile.sx - halfWidth, tile.sy - rYOffset,
+                config.tileWidth, rScaledHeight
+              );
+            } else {
+              const railingTex = this.gameObjectTextureCache.getTextureSync('RoadBlockImages', railingFilename);
+              if (railingTex) {
+                const rScaledHeight = railingTex.height * scale;
+                const rYOffset = rScaledHeight - config.tileHeight;
+                ctx.drawImage(railingTex, tile.sx - halfWidth, tile.sy - rYOffset, config.tileWidth, rScaledHeight);
+              }
+            }
+          }
+        }
       } else {
-        // Fallback: draw colored diamond
-        ctx.beginPath();
-        ctx.moveTo(tile.sx, tile.sy);
-        ctx.lineTo(tile.sx - halfWidth, tile.sy + halfHeight);
-        ctx.lineTo(tile.sx, tile.sy + config.tileHeight);
-        ctx.lineTo(tile.sx + halfWidth, tile.sy + halfHeight);
-        ctx.closePath();
-        ctx.fillStyle = this.getDebugColorForTopology(tile.topology);
-        ctx.fill();
-      }
-    }
-
-    // Pass 2: Render tall tiles (bridges) sorted by (i+j) descending
-    tallTiles.sort((a, b) => (b.y + b.x) - (a.y + a.x));
-
-    for (const tile of tallTiles) {
-      const scale = config.tileWidth / 64;
-      const scaledHeight = tile.textureHeight * scale;
-      const yOffset = scaledHeight - config.tileHeight;
-
-      if (tile.atlasRect) {
-        const r = tile.atlasRect;
-        ctx.drawImage(r.atlas, r.sx, r.sy, r.sw, r.sh, tile.sx - halfWidth, tile.sy - yOffset, config.tileWidth, scaledHeight);
-      } else if (tile.texture) {
-        ctx.drawImage(tile.texture, tile.sx - halfWidth, tile.sy - yOffset, config.tileWidth, scaledHeight);
+        // Standard tile: draw at tile size, elevated if on water platform
+        const drawSy = tile.onWaterPlatform ? tile.sy - platformYShift : tile.sy;
+        if (tile.atlasRect) {
+          const r = tile.atlasRect;
+          ctx.drawImage(r.atlas, r.sx, r.sy, r.sw, r.sh, tile.sx - halfWidth, drawSy, config.tileWidth, config.tileHeight);
+        } else if (tile.texture) {
+          ctx.drawImage(tile.texture, tile.sx - halfWidth, drawSy, config.tileWidth, config.tileHeight);
+        } else {
+          // Fallback: draw colored diamond
+          ctx.beginPath();
+          ctx.moveTo(tile.sx, drawSy);
+          ctx.lineTo(tile.sx - halfWidth, drawSy + halfHeight);
+          ctx.lineTo(tile.sx, drawSy + config.tileHeight);
+          ctx.lineTo(tile.sx + halfWidth, drawSy + halfHeight);
+          ctx.closePath();
+          ctx.fillStyle = this.getDebugColorForTopology(tile.topology);
+          ctx.fill();
+        }
       }
     }
   }
@@ -1959,7 +2359,13 @@ export class IsometricMapRenderer {
         // The texture bottom-center should align with the south vertex of the south corner tile
         // South vertex is at screenPos.y + tileHeight
         const drawX = Math.round(southCornerScreenPos.x - scaledWidth / 2);
-        const drawY = Math.round(southCornerScreenPos.y + config.tileHeight - scaledHeight);
+        let drawY = Math.round(southCornerScreenPos.y + config.tileHeight - scaledHeight);
+
+        // Buildings on water platforms are elevated to match the platform
+        if (this.isOnWaterPlatform(building.x, building.y)) {
+          const platformYShift = Math.round(PLATFORM_SHIFT * scaleFactor);
+          drawY -= platformYShift;
+        }
 
         // Cull if completely off-screen
         if (drawX + scaledWidth < 0 ||
