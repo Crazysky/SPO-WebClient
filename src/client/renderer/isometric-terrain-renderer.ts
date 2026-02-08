@@ -350,9 +350,12 @@ export class IsometricTerrainRenderer {
     }
 
     // Preload neighboring chunks (anticipate pan)
+    // At z0/z1, visible area is already large; preload only immediate neighbors
+    // At z2/z3, visible area is smaller; preload wider ring for smoother panning
+    const preloadRadius = this.zoomLevel <= 1 ? 1 : 2;
     const centerChunkI = Math.floor((visibleChunks.minChunkI + visibleChunks.maxChunkI) / 2);
     const centerChunkJ = Math.floor((visibleChunks.minChunkJ + visibleChunks.maxChunkJ) / 2);
-    this.chunkCache.preloadChunks(centerChunkI, centerChunkJ, 2, this.zoomLevel);
+    this.chunkCache.preloadChunks(centerChunkI, centerChunkJ, preloadRadius, this.zoomLevel);
 
     return tilesRendered;
   }

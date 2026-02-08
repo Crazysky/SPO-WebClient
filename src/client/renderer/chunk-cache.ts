@@ -23,7 +23,21 @@ import { isSpecialTile } from '../../shared/land-utils';
 
 // Chunk configuration
 export const CHUNK_SIZE = 32; // tiles per chunk dimension (32×32 = 1024 tiles per chunk)
-const MAX_CHUNKS_PER_ZOOM = 96; // Maximum cached chunks per zoom level
+/**
+ * Maximum cached chunks per zoom level.
+ * Sized so visible chunks + preload buffer fit without LRU thrashing.
+ * Memory per zoom:
+ *   z0: 300 * ~135 KB = ~40 MB  (tiny 260x130 canvases)
+ *   z1: 160 * ~541 KB = ~86 MB  (small 520x260 canvases)
+ *   z2:  96 * ~2.1 MB = ~202 MB (medium 1040x520 canvases)
+ *   z3:  48 * ~8.6 MB = ~413 MB (large 2080x1040 canvases)
+ */
+export const MAX_CHUNKS_PER_ZOOM: Record<number, number> = {
+  0: 300,
+  1: 160,
+  2: 96,
+  3: 48,
+};
 
 /** Bit mask to extract LandClass only (Center, variant 0) — flattens vegetation */
 const FLAT_MASK = 0xC0;
@@ -313,6 +327,11 @@ export class ChunkCache {
       await Promise.all(promises);
       processed += batch.length;
 
+      // Notify once per batch (not per-chunk) to reduce render thrashing
+      if (this.onChunkReady) {
+        this.onChunkReady();
+      }
+
       // Small yield between batches to prevent blocking
       await new Promise(resolve => setTimeout(resolve, 0));
     }
@@ -406,10 +425,7 @@ export class ChunkCache {
       // Evict if needed
       this.evictIfNeeded(zoomLevel);
 
-      // Notify that chunk is ready
-      if (this.onChunkReady) {
-        this.onChunkReady();
-      }
+      // Notification is batched in processRenderQueue()
 
       const total = tDraw - t0;
       if (total > 30) {
@@ -543,10 +559,7 @@ export class ChunkCache {
     // Evict if needed
     this.evictIfNeeded(zoomLevel);
 
-    // Notify that chunk is ready
-    if (this.onChunkReady) {
-      this.onChunkReady();
-    }
+    // Notification is batched in processRenderQueue()
   }
 
   /**
@@ -682,7 +695,8 @@ export class ChunkCache {
   private evictIfNeeded(zoomLevel: number): void {
     const cache = this.caches.get(zoomLevel)!;
 
-    while (cache.size > MAX_CHUNKS_PER_ZOOM) {
+    const maxChunks = MAX_CHUNKS_PER_ZOOM[zoomLevel] ?? 96;
+    while (cache.size > maxChunks) {
       let oldestKey: string | null = null;
       let oldestAccess = Infinity;
 
