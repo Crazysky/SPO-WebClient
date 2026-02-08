@@ -277,7 +277,7 @@ export class ToolbarUI {
   }
 
   /**
-   * Affiche un feedback visuel lors du clic
+   * Display visual feedback on click
    */
   private showButtonFeedback(btn: HTMLElement) {
     // Ripple effect
@@ -349,7 +349,7 @@ export class ToolbarUI {
   }
 
   /**
-   * Affiche/masque la toolbar
+   * Show/hide the toolbar
    */
   public setVisible(visible: boolean) {
     if (this.toolbar) {

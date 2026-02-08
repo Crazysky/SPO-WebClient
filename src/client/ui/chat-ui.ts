@@ -80,7 +80,7 @@ export class ChatUI {
   }
 
   /**
-   * Affiche un message dans le chat
+   * Display a message in the chat
    */
   public renderMessage(from: string, message: string, isSystem: boolean = false) {
     if (!this.messagesContainer) return;
@@ -139,7 +139,7 @@ export class ChatUI {
   }
 
   /**
-   * Met à jour la liste des utilisateurs
+   * Update the user list
    */
   public updateUserList(users: ChatUser[]) {
     this.chatUsers.clear();
@@ -150,7 +150,7 @@ export class ChatUI {
   }
 
   /**
-   * Met à jour la liste des canaux
+   * Update the channel list
    */
   public updateChannelList(channels: string[]) {
     // Always include Lobby as first channel (empty string = lobby in protocol)
@@ -159,7 +159,7 @@ export class ChatUI {
   }
 
   /**
-   * Met à jour le canal actuel
+   * Update the current channel
    */
   public setCurrentChannel(channelName: string) {
     this.currentChannel = channelName;
@@ -183,7 +183,7 @@ export class ChatUI {
   }
 
   /**
-   * Met à jour le statut de typing d'un utilisateur
+   * Update a user's typing status
    */
   public updateUserTypingStatus(username: string, isTyping: boolean) {
     if (isTyping) {
@@ -204,7 +204,7 @@ export class ChatUI {
   }
 
   /**
-   * Initialise le panel de chat
+   * Initialize the chat panel
    */
   private init() {
     // Calculate initial position (bottom-left corner)
@@ -572,7 +572,7 @@ export class ChatUI {
   }
 
   /**
-   * Met à jour l'indicateur de typing
+   * Update the typing indicator
    */
   private updateTypingIndicator() {
     if (!this.typingIndicator) return;
@@ -798,7 +798,7 @@ export class ChatUI {
   }
 
   /**
-   * Récupère les initiales d'un nom
+   * Get initials from a name
    */
   private getInitials(name: string): string {
     const parts = name.trim().split(' ');

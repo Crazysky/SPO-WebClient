@@ -620,47 +620,20 @@ export class ChunkCache {
   }
 
   /**
-   * Get visible chunk range for current viewport
+   * Get visible chunk range from pre-computed tile bounds.
+   * O(1) — converts tile bounds to chunk bounds with ±1 padding for isometric overlap.
    */
-  getVisibleChunks(
-    canvasWidth: number,
-    canvasHeight: number,
-    zoomLevel: number,
-    origin: Point
+  getVisibleChunksFromBounds(
+    tileBounds: { minI: number; maxI: number; minJ: number; maxJ: number }
   ): { minChunkI: number; maxChunkI: number; minChunkJ: number; maxChunkJ: number } {
-    // Calculate max chunks in each direction
     const maxChunkI = Math.ceil(this.mapHeight / CHUNK_SIZE);
     const maxChunkJ = Math.ceil(this.mapWidth / CHUNK_SIZE);
 
-    // Find chunks that intersect with viewport
-    let minVisibleI = maxChunkI;
-    let maxVisibleI = 0;
-    let minVisibleJ = maxChunkJ;
-    let maxVisibleJ = 0;
-
-    // Check all chunks and find visible ones
-    for (let ci = 0; ci < maxChunkI; ci++) {
-      for (let cj = 0; cj < maxChunkJ; cj++) {
-        const bounds = this.getChunkScreenBounds(ci, cj, zoomLevel, origin);
-
-        // Check if chunk intersects viewport
-        if (bounds.x + bounds.width >= 0 &&
-            bounds.x <= canvasWidth &&
-            bounds.y + bounds.height >= 0 &&
-            bounds.y <= canvasHeight) {
-          minVisibleI = Math.min(minVisibleI, ci);
-          maxVisibleI = Math.max(maxVisibleI, ci);
-          minVisibleJ = Math.min(minVisibleJ, cj);
-          maxVisibleJ = Math.max(maxVisibleJ, cj);
-        }
-      }
-    }
-
     return {
-      minChunkI: minVisibleI,
-      maxChunkI: maxVisibleI,
-      minChunkJ: minVisibleJ,
-      maxChunkJ: maxVisibleJ
+      minChunkI: Math.max(0, Math.floor(tileBounds.minI / CHUNK_SIZE) - 1),
+      maxChunkI: Math.min(maxChunkI - 1, Math.floor(tileBounds.maxI / CHUNK_SIZE) + 1),
+      minChunkJ: Math.max(0, Math.floor(tileBounds.minJ / CHUNK_SIZE) - 1),
+      maxChunkJ: Math.min(maxChunkJ - 1, Math.floor(tileBounds.maxJ / CHUNK_SIZE) + 1),
     };
   }
 

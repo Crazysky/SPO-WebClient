@@ -1,5 +1,5 @@
 /**
- * UIManager - Orchestration de tous les composants UI
+ * UIManager - Orchestrates all UI components
  */
 
 import { LoginUI } from './login-ui';
@@ -11,7 +11,20 @@ import { BuildMenuUI } from './build-menu-ui';
 import { ZoneOverlayUI } from './zone-overlay-ui';
 import { BuildingDetailsPanel } from './building-details';
 import { SearchMenuPanel } from './search-menu';
-import { BuildingDetailsResponse } from '../../shared/types';
+import {
+  BuildingDetailsResponse,
+  WsMessage,
+  WsMessageType,
+  WsRespSearchMenuHome,
+  WsRespSearchMenuTowns,
+  WsRespSearchMenuTycoonProfile,
+  WsRespSearchMenuPeopleSearch,
+  WsRespSearchMenuRankings,
+  WsRespSearchMenuRankingDetail,
+  WsRespSearchMenuBanks,
+  MapBuilding,
+  MapSegment,
+} from '../../shared/types';
 
 export class UIManager {
   // UI Components
@@ -34,9 +47,9 @@ export class UIManager {
   }
 
   /**
-   * Initialise les composants de jeu (appelé après connexion réussie)
+   * Initialize game components (called after successful connection)
    */
-  public initGameUI(gamePanel: HTMLElement, sendMessage?: (msg: any) => void) {
+  public initGameUI(gamePanel: HTMLElement, sendMessage?: (msg: WsMessage) => void) {
     // Map & Navigation
     this.mapNavigationUI = new MapNavigationUI(gamePanel);
     this.mapNavigationUI.init();
@@ -79,7 +92,7 @@ export class UIManager {
   }
 
   /**
-   * Affiche un message dans la console
+   * Display a message in the console
    */
   public log(source: string, message: string) {
     const line = document.createElement('div');
@@ -89,7 +102,7 @@ export class UIManager {
   }
 
   /**
-   * Affiche un message de chat
+   * Display a chat message
    */
   public renderChatMessage(from: string, message: string, isSystem: boolean = false) {
     if (this.chatUI) {
@@ -98,9 +111,9 @@ export class UIManager {
   }
 
   /**
-   * Met à jour les données de la carte
+   * Update map data
    */
-  public updateMapData(mapData: any) {
+  public updateMapData(mapData: { x: number; y: number; w: number; h: number; buildings: MapBuilding[]; segments: MapSegment[] }) {
     if (this.mapNavigationUI) {
       const renderer = this.mapNavigationUI.getRenderer();
       if (renderer) {
@@ -139,13 +152,14 @@ export class UIManager {
   ) {
     if (this.buildingDetailsPanel) {
       // Update options with callbacks
-      const options = (this.buildingDetailsPanel as any).options;
-      options.onPropertyChange = onPropertyChange;
-      options.onNavigateToBuilding = onNavigateToBuilding;
-      options.onUpgradeAction = onUpgradeAction;
-      options.onRefresh = onRefresh;
-      options.onRename = onRename;
-      options.onDelete = onDelete;
+      this.buildingDetailsPanel.updateOptions({
+        onPropertyChange,
+        onNavigateToBuilding,
+        onUpgradeAction,
+        onRefresh,
+        onRename,
+        onDelete,
+      });
       this.buildingDetailsPanel.show(details);
     }
   }
@@ -182,36 +196,36 @@ export class UIManager {
   /**
    * Handle search menu responses and render appropriate page
    */
-  public handleSearchMenuResponse(msg: any) {
+  public handleSearchMenuResponse(msg: WsMessage) {
     if (!this.searchMenuPanel) {
       console.error('[UIManager] searchMenuPanel is null!');
       return;
     }
 
     switch (msg.type) {
-      case 'RESP_SEARCH_MENU_HOME':
-        this.searchMenuPanel.renderHomePage(msg);
+      case WsMessageType.RESP_SEARCH_MENU_HOME:
+        this.searchMenuPanel.renderHomePage(msg as WsRespSearchMenuHome);
         break;
-      case 'RESP_SEARCH_MENU_TOWNS':
-        this.searchMenuPanel.renderTownsPage(msg);
+      case WsMessageType.RESP_SEARCH_MENU_TOWNS:
+        this.searchMenuPanel.renderTownsPage(msg as WsRespSearchMenuTowns);
         break;
-      case 'RESP_SEARCH_MENU_TYCOON_PROFILE':
-        this.searchMenuPanel.renderTycoonProfile(msg);
+      case WsMessageType.RESP_SEARCH_MENU_TYCOON_PROFILE:
+        this.searchMenuPanel.renderTycoonProfile(msg as WsRespSearchMenuTycoonProfile);
         break;
-      case 'RESP_SEARCH_MENU_PEOPLE':
+      case WsMessageType.RESP_SEARCH_MENU_PEOPLE:
         // Just acknowledges the page is ready
         break;
-      case 'RESP_SEARCH_MENU_PEOPLE_SEARCH':
-        this.searchMenuPanel.renderPeopleSearchResults(msg);
+      case WsMessageType.RESP_SEARCH_MENU_PEOPLE_SEARCH:
+        this.searchMenuPanel.renderPeopleSearchResults(msg as WsRespSearchMenuPeopleSearch);
         break;
-      case 'RESP_SEARCH_MENU_RANKINGS':
-        this.searchMenuPanel.renderRankingsPage(msg);
+      case WsMessageType.RESP_SEARCH_MENU_RANKINGS:
+        this.searchMenuPanel.renderRankingsPage(msg as WsRespSearchMenuRankings);
         break;
-      case 'RESP_SEARCH_MENU_RANKING_DETAIL':
-        this.searchMenuPanel.renderRankingDetail(msg);
+      case WsMessageType.RESP_SEARCH_MENU_RANKING_DETAIL:
+        this.searchMenuPanel.renderRankingDetail(msg as WsRespSearchMenuRankingDetail);
         break;
-      case 'RESP_SEARCH_MENU_BANKS':
-        this.searchMenuPanel.renderBanksPage(msg);
+      case WsMessageType.RESP_SEARCH_MENU_BANKS:
+        this.searchMenuPanel.renderBanksPage(msg as WsRespSearchMenuBanks);
         break;
     }
   }

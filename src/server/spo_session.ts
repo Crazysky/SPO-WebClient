@@ -44,6 +44,7 @@ import {
 } from '../shared/rdo-types';
 import { config } from '../shared/config';
 import { toProxyUrl, isProxyUrl } from '../shared/proxy-utils';
+import { toErrorMessage } from '../shared/error-utils';
 import {
   cleanPayload as cleanPayloadHelper,
   splitMultilinePayload as splitMultilinePayloadHelper,
@@ -79,7 +80,7 @@ export class StarpeaceSession extends EventEmitter {
   // Pending requests map
   private pendingRequests = new Map<number, {
     resolve: (msg: RdoPacket) => void;
-    reject: (err: any) => void;
+    reject: (err: unknown) => void;
   }>();
   private availableWorlds: Map<string, WorldInfo> = new Map();
 
@@ -136,7 +137,7 @@ export class StarpeaceSession extends EventEmitter {
     socketName: string;
     packetData: Partial<RdoPacket>;
     resolve: (packet: RdoPacket) => void;
-    reject: (err: any) => void;
+    reject: (err: unknown) => void;
   }> = [];
   private readonly MAX_BUFFER_SIZE = 5; // Maximum 5 buffered requests
   private isServerBusy: boolean = false;
@@ -749,8 +750,8 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 		  this.currentFocusedCoords.x,
 		  this.currentFocusedCoords.y
 		);
-	  } catch (e: any) {
-		console.warn(`[Session] Failed to parse RefreshObject:`, e.message);
+	  } catch (e: unknown) {
+		console.warn(`[Session] Failed to parse RefreshObject:`, toErrorMessage(e));
 		return null;
 	  }
 	}
@@ -1198,11 +1199,11 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       return {
         status: 'OK'
       };
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(`[Construction] Error:`, e);
       return {
         status: 'ERROR',
-        error: e.message || String(e)
+        error: toErrorMessage(e)
       };
     }
   }
@@ -1289,9 +1290,9 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
 
       console.log(`[Session] Building renamed successfully`);
       return { success: true, message: 'Building renamed successfully' };
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(`[Session] Failed to rename building:`, e);
-      return { success: false, message: e.message || 'Failed to rename building' };
+      return { success: false, message: toErrorMessage(e) };
     }
   }
 
@@ -1334,9 +1335,9 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       this.currentFocusedCoords = null;
 
       return { success: true, message: 'Building deleted successfully' };
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(`[Session] Failed to delete building:`, e);
-      return { success: false, message: e.message || 'Failed to delete building' };
+      return { success: false, message: toErrorMessage(e) };
     }
   }
 
@@ -1573,13 +1574,13 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
           errorCode: failedSegment?.errorCode || 1
         };
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(`[RoadBuilding] Failed to build road:`, e);
       return {
         success: false,
         cost: 0,
         tileCount: 0,
-        message: e.message || 'Failed to build road',
+        message: toErrorMessage(e),
         errorCode: 1
       };
     }
@@ -1845,7 +1846,7 @@ private async executeRdoRequest(socketName: string, packetData: Partial<RdoPacke
         clearTimeout(timeout);
         resolve(response);
       },
-      reject: (err: any) => {
+      reject: (err: unknown) => {
         clearTimeout(timeout);
         reject(err);
       }

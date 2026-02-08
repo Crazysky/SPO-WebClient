@@ -1162,7 +1162,12 @@
 
   // src/client/renderer/chunk-cache.ts
   var CHUNK_SIZE = 32;
-  var MAX_CHUNKS_PER_ZOOM = 96;
+  var MAX_CHUNKS_PER_ZOOM = {
+    0: 300,
+    1: 160,
+    2: 96,
+    3: 48
+  };
   var FLAT_MASK = 192;
   var isOffscreenCanvasSupported = typeof OffscreenCanvas !== "undefined";
   function calculateChunkCanvasDimensions(chunkSize, config) {
@@ -1348,6 +1353,9 @@
         });
         await Promise.all(promises);
         processed += batch.length;
+        if (this.onChunkReady) {
+          this.onChunkReady();
+        }
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
       const totalDt = performance.now() - queueStart;
@@ -1417,9 +1425,6 @@
         this.stats.chunksRendered++;
         this.stats.serverChunksLoaded++;
         this.evictIfNeeded(zoomLevel);
-        if (this.onChunkReady) {
-          this.onChunkReady();
-        }
         const total = tDraw - t0;
         if (total > 30) {
           console.log(`[ChunkCache] fetch ${chunkI},${chunkJ} z${zoomLevel}: fetch=${(tFetch - t0).toFixed(0)}ms blob=${(tBlob - tFetch).toFixed(0)}ms bitmap=${(tBitmap - tBlob).toFixed(0)}ms draw=${(tDraw - tBitmap).toFixed(0)}ms total=${total.toFixed(0)}ms (${(blob.size / 1024).toFixed(0)} KB)`);
@@ -1529,9 +1534,6 @@
       entry.rendering = false;
       this.stats.chunksRendered++;
       this.evictIfNeeded(zoomLevel);
-      if (this.onChunkReady) {
-        this.onChunkReady();
-      }
     }
     /**
      * Draw a chunk to the main canvas
@@ -1575,31 +1577,17 @@
       };
     }
     /**
-     * Get visible chunk range for current viewport
+     * Get visible chunk range from pre-computed tile bounds.
+     * O(1) — converts tile bounds to chunk bounds with ±1 padding for isometric overlap.
      */
-    getVisibleChunks(canvasWidth, canvasHeight, zoomLevel, origin) {
+    getVisibleChunksFromBounds(tileBounds) {
       const maxChunkI = Math.ceil(this.mapHeight / CHUNK_SIZE);
       const maxChunkJ = Math.ceil(this.mapWidth / CHUNK_SIZE);
-      let minVisibleI = maxChunkI;
-      let maxVisibleI = 0;
-      let minVisibleJ = maxChunkJ;
-      let maxVisibleJ = 0;
-      for (let ci = 0; ci < maxChunkI; ci++) {
-        for (let cj = 0; cj < maxChunkJ; cj++) {
-          const bounds = this.getChunkScreenBounds(ci, cj, zoomLevel, origin);
-          if (bounds.x + bounds.width >= 0 && bounds.x <= canvasWidth && bounds.y + bounds.height >= 0 && bounds.y <= canvasHeight) {
-            minVisibleI = Math.min(minVisibleI, ci);
-            maxVisibleI = Math.max(maxVisibleI, ci);
-            minVisibleJ = Math.min(minVisibleJ, cj);
-            maxVisibleJ = Math.max(maxVisibleJ, cj);
-          }
-        }
-      }
       return {
-        minChunkI: minVisibleI,
-        maxChunkI: maxVisibleI,
-        minChunkJ: minVisibleJ,
-        maxChunkJ: maxVisibleJ
+        minChunkI: Math.max(0, Math.floor(tileBounds.minI / CHUNK_SIZE) - 1),
+        maxChunkI: Math.min(maxChunkI - 1, Math.floor(tileBounds.maxI / CHUNK_SIZE) + 1),
+        minChunkJ: Math.max(0, Math.floor(tileBounds.minJ / CHUNK_SIZE) - 1),
+        maxChunkJ: Math.min(maxChunkJ - 1, Math.floor(tileBounds.maxJ / CHUNK_SIZE) + 1)
       };
     }
     /**
@@ -1623,7 +1611,8 @@
      */
     evictIfNeeded(zoomLevel) {
       const cache = this.caches.get(zoomLevel);
-      while (cache.size > MAX_CHUNKS_PER_ZOOM) {
+      const maxChunks = MAX_CHUNKS_PER_ZOOM[zoomLevel] ?? 96;
+      while (cache.size > maxChunks) {
         let oldestKey = null;
         let oldestAccess = Infinity;
         for (const [key, entry] of cache) {
@@ -1737,6 +1726,9 @@
       this.lastMouseY = 0;
       // Render debouncing (prevents flickering when multiple chunks become ready)
       this.pendingRenderRequest = null;
+      // External render callback: when set, chunk-ready events delegate to the parent renderer
+      // instead of triggering terrain-only renders (which cause blinking)
+      this.onRenderNeeded = null;
       this.canvas = canvas;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
@@ -1781,7 +1773,13 @@
       this.chunkCache.setAtlasCache(this.atlasCache);
       this.chunkCache.setMapDimensions(terrainData.width, terrainData.height);
       this.chunkCache.setMapInfo(mapName, terrainType, this.season);
-      this.chunkCache.setOnChunkReady(() => this.requestRender());
+      this.chunkCache.setOnChunkReady(() => {
+        if (this.onRenderNeeded) {
+          this.onRenderNeeded();
+        } else {
+          this.requestRender();
+        }
+      });
       this.cameraI = Math.floor(terrainData.height / 2);
       this.cameraJ = Math.floor(terrainData.width / 2);
       this.updateOrigin();
@@ -1892,7 +1890,7 @@
      */
     renderTerrainLayer(bounds) {
       if (this.useChunks && this.chunkCache && this.chunkCache.isSupported() && this.rotation === 0 /* NORTH */) {
-        return this.renderTerrainLayerChunked();
+        return this.renderTerrainLayerChunked(bounds);
       }
       return this.renderTerrainLayerTiles(bounds);
     }
@@ -1900,19 +1898,26 @@
      * Chunk-based terrain rendering (fast path)
      * Renders pre-cached chunks instead of individual tiles
      */
-    renderTerrainLayerChunked() {
+    renderTerrainLayerChunked(bounds) {
       if (!this.chunkCache) return 0;
       const ctx = this.ctx;
-      const visibleChunks = this.chunkCache.getVisibleChunks(
-        this.canvas.width,
-        this.canvas.height,
-        this.zoomLevel,
-        this.origin
-      );
+      const canvasWidth = this.canvas.width;
+      const canvasHeight = this.canvas.height;
+      const visibleChunks = this.chunkCache.getVisibleChunksFromBounds(bounds);
       let chunksDrawn = 0;
       let tilesRendered = 0;
+      let visMinI = visibleChunks.maxChunkI, visMaxI = visibleChunks.minChunkI;
+      let visMinJ = visibleChunks.maxChunkJ, visMaxJ = visibleChunks.minChunkJ;
       for (let ci = visibleChunks.minChunkI; ci <= visibleChunks.maxChunkI; ci++) {
         for (let cj = visibleChunks.minChunkJ; cj <= visibleChunks.maxChunkJ; cj++) {
+          const screenBounds = this.chunkCache.getChunkScreenBounds(ci, cj, this.zoomLevel, this.origin);
+          if (screenBounds.x + screenBounds.width < 0 || screenBounds.x > canvasWidth || screenBounds.y + screenBounds.height < 0 || screenBounds.y > canvasHeight) {
+            continue;
+          }
+          visMinI = Math.min(visMinI, ci);
+          visMaxI = Math.max(visMaxI, ci);
+          visMinJ = Math.min(visMinJ, cj);
+          visMaxJ = Math.max(visMaxJ, cj);
           const drawn = this.chunkCache.drawChunkToCanvas(
             ctx,
             ci,
@@ -1928,9 +1933,12 @@
           }
         }
       }
-      const centerChunkI = Math.floor((visibleChunks.minChunkI + visibleChunks.maxChunkI) / 2);
-      const centerChunkJ = Math.floor((visibleChunks.minChunkJ + visibleChunks.maxChunkJ) / 2);
-      this.chunkCache.preloadChunks(centerChunkI, centerChunkJ, 2, this.zoomLevel);
+      if (visMinI <= visMaxI) {
+        const preloadRadius = this.zoomLevel <= 1 ? 1 : 2;
+        const centerChunkI = Math.floor((visMinI + visMaxI) / 2);
+        const centerChunkJ = Math.floor((visMinJ + visMaxJ) / 2);
+        this.chunkCache.preloadChunks(centerChunkI, centerChunkJ, preloadRadius, this.zoomLevel);
+      }
       return tilesRendered;
     }
     /**
@@ -2285,6 +2293,44 @@
      */
     getRenderStats() {
       return { ...this.lastRenderStats };
+    }
+    /**
+     * Set external render callback.
+     * When set, chunk-ready events call this instead of triggering a terrain-only render.
+     * This prevents blinking: the parent renderer can do a full-pipeline render
+     * (terrain + buildings + roads) instead of a terrain-only render.
+     */
+    setOnRenderNeeded(callback) {
+      this.onRenderNeeded = callback;
+    }
+    /**
+     * Clear chunk caches for zoom levels far from the current one.
+     * Keeps current and ±1 adjacent zoom levels to allow smooth transitions.
+     */
+    clearDistantZoomCaches(currentZoom) {
+      if (!this.chunkCache) return;
+      for (let z = 0; z <= 3; z++) {
+        if (Math.abs(z - currentZoom) > 1) {
+          this.chunkCache.clearZoomLevel(z);
+        }
+      }
+    }
+    /**
+     * Destroy renderer and release all resources.
+     * Cancels pending RAF, clears all caches.
+     */
+    destroy() {
+      if (this.pendingRenderRequest !== null) {
+        cancelAnimationFrame(this.pendingRenderRequest);
+        this.pendingRenderRequest = null;
+      }
+      this.onRenderNeeded = null;
+      this.terrainLoader.unload();
+      this.textureCache.clear();
+      this.atlasCache.clear();
+      this.chunkCache?.clearAll();
+      this.chunkCache = null;
+      this.loaded = false;
     }
     /**
      * Unload and cleanup

@@ -68,6 +68,8 @@ interface CachedZone {
   h: number;
   buildings: MapBuilding[];
   segments: MapSegment[];
+  lastLoadTime: number; // Timestamp when zone was loaded
+  forceRefresh?: boolean; // Flag to force reload on next visibility check
 }
 
 interface PlacementPreview {
@@ -79,6 +81,257 @@ interface PlacementPreview {
   zoneRequirement: string;
   xsize: number;
   ysize: number;
+}
+
+/**
+ * Zone Request Manager
+ *
+ * Manages zone loading with:
+ * - Movement-aware request delays (send when movement stops, not during)
+ * - Zoom-based delay strategy (Z3 immediate, Z0 longest delay)
+ * - Request queue with prioritization by distance to camera
+ * - Server-safe concurrent request limit (max 3)
+ * - Timeout handling and cleanup
+ */
+class ZoneRequestManager {
+  // Queue of pending zone requests (sorted by priority)
+  private zoneQueue: Array<{x: number, y: number, priority: number}> = [];
+
+  // Currently loading zones with timestamps for timeout detection
+  private loadingZones: Map<string, number> = new Map();
+
+  // Movement state tracking
+  private isMoving: boolean = false;
+  private movementStopTimer: number | null = null;
+
+  // Zoom-based delay configuration (milliseconds)
+  private readonly ZOOM_DELAYS = {
+    0: 500,  // Z0 (farthest) - wait for movement fully stops
+    1: 300,  // Z1 - moderate delay
+    2: 100,  // Z2 - short delay
+    3: 0     // Z3 (closest) - immediate
+  };
+
+  // Server limit: max 3 concurrent requests
+  private readonly MAX_CONCURRENT = 3;
+  private readonly REQUEST_TIMEOUT = 15000; // 15s timeout
+
+  // Zone staleness threshold (5 minutes)
+  private readonly ZONE_EXPIRY_MS = 5 * 60 * 1000;
+
+  constructor(
+    private onLoadZone: (x: number, y: number, w: number, h: number) => void,
+    private zoneSize: number = 64
+  ) {}
+
+  /**
+   * Mark camera as moving (called during pan/zoom/rotate)
+   */
+  public markMoving(): void {
+    this.isMoving = true;
+
+    // Clear any pending movement stop timer
+    if (this.movementStopTimer !== null) {
+      clearTimeout(this.movementStopTimer);
+      this.movementStopTimer = null;
+    }
+  }
+
+  /**
+   * Mark camera as stopped (called after pan/zoom/rotate ends)
+   * Triggers delayed zone loading based on zoom level
+   */
+  public markStopped(currentZoom: number): void {
+    this.isMoving = false;
+
+    // Clear any pending timer
+    if (this.movementStopTimer !== null) {
+      clearTimeout(this.movementStopTimer);
+    }
+
+    // Use zoom-based delay
+    const delay = this.ZOOM_DELAYS[currentZoom as keyof typeof this.ZOOM_DELAYS] || 500;
+
+    this.movementStopTimer = window.setTimeout(() => {
+      this.processQueue();
+    }, delay);
+  }
+
+  /**
+   * Request zones for visible area
+   * Queues all needed zones and processes them based on movement state
+   */
+  public requestVisibleZones(
+    visibleBounds: TileBounds,
+    cachedZones: Map<string, CachedZone>,
+    cameraPos: {i: number, j: number},
+    currentZoom: number
+  ): void {
+    // Calculate zone boundaries (aligned to zoneSize grid)
+    const minI = Math.min(visibleBounds.minI, visibleBounds.maxI);
+    const maxI = Math.max(visibleBounds.minI, visibleBounds.maxI);
+    const minJ = Math.min(visibleBounds.minJ, visibleBounds.maxJ);
+    const maxJ = Math.max(visibleBounds.minJ, visibleBounds.maxJ);
+
+    const startZoneX = Math.floor(minJ / this.zoneSize) * this.zoneSize;
+    const endZoneX = Math.ceil(maxJ / this.zoneSize) * this.zoneSize;
+    const startZoneY = Math.floor(minI / this.zoneSize) * this.zoneSize;
+    const endZoneY = Math.ceil(maxI / this.zoneSize) * this.zoneSize;
+
+    // Collect zones that need loading (new or stale)
+    const zonesToAdd: Array<{x: number, y: number, priority: number}> = [];
+    const now = Date.now();
+
+    for (let zx = startZoneX; zx < endZoneX; zx += this.zoneSize) {
+      for (let zy = startZoneY; zy < endZoneY; zy += this.zoneSize) {
+        const key = `${zx},${zy}`;
+        const cached = cachedZones.get(key);
+
+        // Check if zone needs refresh
+        let needsLoad = false;
+
+        if (!cached) {
+          // Zone not loaded yet
+          needsLoad = true;
+        } else {
+          // Zone exists - check if stale or force refresh
+          const age = now - cached.lastLoadTime;
+          const isStale = age > this.ZONE_EXPIRY_MS;
+
+          if (cached.forceRefresh || isStale) {
+            // Remove stale zone from cache so it gets reloaded
+            cachedZones.delete(key);
+            needsLoad = true;
+
+            if (isStale) {
+              console.log(`[ZoneRequestManager] Zone ${key} is stale (${Math.floor(age / 1000)}s old), reloading`);
+            } else {
+              console.log(`[ZoneRequestManager] Zone ${key} marked for force refresh, reloading`);
+            }
+          }
+        }
+
+        if (!needsLoad) {
+          continue;
+        }
+
+        // Skip if already loading
+        if (this.loadingZones.has(key)) {
+          continue;
+        }
+
+        // Skip if already in queue
+        if (this.zoneQueue.some(z => z.x === zx && z.y === zy)) {
+          continue;
+        }
+
+        // Calculate priority (distance to camera center)
+        const centerX = zx + this.zoneSize / 2;
+        const centerY = zy + this.zoneSize / 2;
+        const distSq = (centerX - cameraPos.j) ** 2 + (centerY - cameraPos.i) ** 2;
+
+        zonesToAdd.push({ x: zx, y: zy, priority: distSq });
+      }
+    }
+
+    // Add new zones to queue and sort by priority (closest first)
+    this.zoneQueue.push(...zonesToAdd);
+    this.zoneQueue.sort((a, b) => a.priority - b.priority);
+
+    // For Z3 (closest zoom), process immediately even during movement
+    if (currentZoom === 3 && !this.isMoving) {
+      this.processQueue();
+    }
+  }
+
+  /**
+   * Process zone queue - send requests up to concurrent limit
+   */
+  private processQueue(): void {
+    // Clean up timed-out requests
+    this.cleanupTimedOutRequests();
+
+    // Calculate how many requests we can send
+    const currentLoading = this.loadingZones.size;
+    const slotsAvailable = this.MAX_CONCURRENT - currentLoading;
+
+    if (slotsAvailable <= 0 || this.zoneQueue.length === 0) {
+      return;
+    }
+
+    // Send up to slotsAvailable requests
+    const zonesToRequest = this.zoneQueue.splice(0, slotsAvailable);
+
+    for (const zone of zonesToRequest) {
+      const key = `${zone.x},${zone.y}`;
+      this.loadingZones.set(key, Date.now());
+      this.onLoadZone(zone.x, zone.y, this.zoneSize, this.zoneSize);
+    }
+  }
+
+  /**
+   * Mark zone as loaded (called when response arrives)
+   */
+  public markZoneLoaded(x: number, y: number): void {
+    // Align to zone grid
+    const alignedX = Math.floor(x / this.zoneSize) * this.zoneSize;
+    const alignedY = Math.floor(y / this.zoneSize) * this.zoneSize;
+    const key = `${alignedX},${alignedY}`;
+
+    this.loadingZones.delete(key);
+
+    // Process more zones if queue not empty
+    if (this.zoneQueue.length > 0 && !this.isMoving) {
+      this.processQueue();
+    }
+  }
+
+  /**
+   * Clean up requests that have timed out
+   */
+  private cleanupTimedOutRequests(): void {
+    const now = Date.now();
+    const timedOut: string[] = [];
+
+    this.loadingZones.forEach((timestamp, key) => {
+      if (now - timestamp > this.REQUEST_TIMEOUT) {
+        timedOut.push(key);
+      }
+    });
+
+    timedOut.forEach(key => {
+      console.warn(`[ZoneRequestManager] Zone ${key} request timed out`);
+      this.loadingZones.delete(key);
+    });
+  }
+
+  /**
+   * Clear all pending requests and queue
+   */
+  public clear(): void {
+    this.zoneQueue = [];
+    this.loadingZones.clear();
+    this.isMoving = false;
+
+    if (this.movementStopTimer !== null) {
+      clearTimeout(this.movementStopTimer);
+      this.movementStopTimer = null;
+    }
+  }
+
+  /**
+   * Get current queue size (for debugging)
+   */
+  public getQueueSize(): number {
+    return this.zoneQueue.length;
+  }
+
+  /**
+   * Get current loading count (for debugging)
+   */
+  public getLoadingCount(): number {
+    return this.loadingZones.size;
+  }
 }
 
 export class IsometricMapRenderer {
@@ -102,6 +355,9 @@ export class IsometricMapRenderer {
   // Road tiles map for texture type detection
   private roadTilesMap: Map<string, boolean> = new Map();
 
+  // Pre-computed concrete adjacency tiles (tiles within 1 tile of any building)
+  private concreteTilesSet: Set<string> = new Set();
+
   // Road texture system
   private roadBlockClassManager: RoadBlockClassManager;
   private roadsRendering: RoadsRendering | null = null;
@@ -122,10 +378,8 @@ export class IsometricMapRenderer {
   private mouseMapI: number = 0;
   private mouseMapJ: number = 0;
 
-  // Zone loading
-  private loadingZones: Set<string> = new Set();
-  private zoneCheckDebounceTimer: number | null = null;
-  private readonly ZONE_CHECK_DEBOUNCE_MS = 500; // Match old renderer to prevent server spam
+  // Zone loading - managed by ZoneRequestManager
+  private zoneRequestManager: ZoneRequestManager | null = null;
 
   // Callbacks
   private onLoadZone: ((x: number, y: number, w: number, h: number) => void) | null = null;
@@ -178,6 +432,9 @@ export class IsometricMapRenderer {
   private cameraStopTimer: number | null = null;
   private readonly CAMERA_STOP_DEBOUNCE_MS = 200;
 
+  // Render debouncing (RAF-based, prevents redundant renders per frame)
+  private pendingRender: number | null = null;
+
   constructor(canvasId: string) {
     const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
     if (!canvas) {
@@ -200,20 +457,24 @@ export class IsometricMapRenderer {
     // Disable terrain renderer's debug info - this renderer handles its own overlay at the end
     this.terrainRenderer.setShowDebugInfo(false);
 
+    // Wire up render delegation: when terrain chunks become ready, trigger a full-pipeline render
+    // instead of terrain-only render (prevents blinking where buildings/roads disappear for 1 frame)
+    this.terrainRenderer.setOnRenderNeeded(() => this.requestRender());
+
     // Create game object texture cache (roads, buildings, etc.)
     this.gameObjectTextureCache = new GameObjectTextureCache();
 
     // Setup callback to re-render when textures are loaded
     this.gameObjectTextureCache.setOnTextureLoaded((category, name) => {
       if (category === 'BuildingImages' || category === 'RoadBlockImages' || category === 'ConcreteImages') {
-        // Re-render when textures become available
-        this.render();
+        // Re-render when textures become available (debounced)
+        this.requestRender();
       }
     });
 
     // Load road and concrete atlases (non-blocking, fallback to individual textures)
-    this.gameObjectTextureCache.loadObjectAtlas('road').then(() => this.render());
-    this.gameObjectTextureCache.loadObjectAtlas('concrete').then(() => this.render());
+    this.gameObjectTextureCache.loadObjectAtlas('road').then(() => this.requestRender());
+    this.gameObjectTextureCache.loadObjectAtlas('concrete').then(() => this.requestRender());
 
     // Initialize road block class manager
     this.roadBlockClassManager = new RoadBlockClassManager();
@@ -255,22 +516,22 @@ export class IsometricMapRenderer {
       if (e.key === 'd' || e.key === 'D') {
         this.debugMode = !this.debugMode;
         console.log(`[IsometricMapRenderer] Debug mode: ${this.debugMode ? 'ON' : 'OFF'}`);
-        this.render();
+        this.requestRender();
       }
       // '1' toggles tile info in debug mode
       if (e.key === '1' && this.debugMode) {
         this.debugShowTileInfo = !this.debugShowTileInfo;
-        this.render();
+        this.requestRender();
       }
       // '2' toggles building info in debug mode
       if (e.key === '2' && this.debugMode) {
         this.debugShowBuildingInfo = !this.debugShowBuildingInfo;
-        this.render();
+        this.requestRender();
       }
       // '3' toggles concrete info in debug mode
       if (e.key === '3' && this.debugMode) {
         this.debugShowConcreteInfo = !this.debugShowConcreteInfo;
-        this.render();
+        this.requestRender();
       }
     });
   }
@@ -283,8 +544,17 @@ export class IsometricMapRenderer {
     const next = (current + 1) % 4 as Rotation;
     this.terrainRenderer.setRotation(next);
     this.markCameraMoving();
+
+    // Mark zone request manager and trigger delayed zone load
+    if (this.zoneRequestManager) {
+      const currentZoom = this.terrainRenderer.getZoomLevel();
+      this.zoneRequestManager.markMoving();
+      this.zoneRequestManager.markStopped(currentZoom);
+    }
+    this.checkVisibleZones();
+
     console.log(`[IsometricMapRenderer] Rotation: ${Rotation[next]}`);
-    this.render();
+    this.requestRender();
   }
 
   /**
@@ -295,8 +565,17 @@ export class IsometricMapRenderer {
     const next = (current + 3) % 4 as Rotation; // +3 is equivalent to -1 mod 4
     this.terrainRenderer.setRotation(next);
     this.markCameraMoving();
+
+    // Mark zone request manager and trigger delayed zone load
+    if (this.zoneRequestManager) {
+      const currentZoom = this.terrainRenderer.getZoomLevel();
+      this.zoneRequestManager.markMoving();
+      this.zoneRequestManager.markStopped(currentZoom);
+    }
+    this.checkVisibleZones();
+
     console.log(`[IsometricMapRenderer] Rotation: ${Rotation[next]}`);
-    this.render();
+    this.requestRender();
   }
 
   /**
@@ -312,12 +591,37 @@ export class IsometricMapRenderer {
         const mapDeltaJ = (dy / u - dx / (2 * u)) * 0.5;
         this.terrainRenderer.pan(mapDeltaI, -mapDeltaJ);
         this.markCameraMoving();
-        this.render();
+
+        // Mark zone request manager as moving
+        if (this.zoneRequestManager) {
+          this.zoneRequestManager.markMoving();
+        }
+
+        this.requestRender();
+      },
+      onPanEnd: () => {
+        // Mark movement stopped and trigger delayed zone loading
+        if (this.zoneRequestManager) {
+          const currentZoom = this.terrainRenderer.getZoomLevel();
+          this.zoneRequestManager.markStopped(currentZoom);
+        }
+
+        // Also request immediately (manager will handle delay internally)
+        this.checkVisibleZones();
       },
       onZoom: (delta) => {
         const current = this.terrainRenderer.getZoomLevel();
-        this.terrainRenderer.setZoomLevel(current + delta);
-        this.render();
+        const newZoom = current + delta;
+        this.terrainRenderer.setZoomLevel(newZoom);
+
+        // Mark as moving then stopped (triggers delayed zone load based on new zoom)
+        if (this.zoneRequestManager) {
+          this.zoneRequestManager.markMoving();
+          this.zoneRequestManager.markStopped(newZoom);
+        }
+
+        this.checkVisibleZones();
+        this.requestRender();
       },
       onRotate: (direction) => {
         if (direction === 'cw') {
@@ -330,7 +634,7 @@ export class IsometricMapRenderer {
         // Center camera on tapped location
         const mapPos = this.terrainRenderer.screenToMap(x, y);
         this.terrainRenderer.centerOn(mapPos.x, mapPos.y);
-        this.render();
+        this.requestRender();
       },
     });
   }
@@ -350,7 +654,9 @@ export class IsometricMapRenderer {
 
     // Clear cached zones when loading new map
     this.cachedZones.clear();
-    this.loadingZones.clear();
+    if (this.zoneRequestManager) {
+      this.zoneRequestManager.clear();
+    }
     this.allBuildings = [];
     this.allSegments = [];
 
@@ -394,7 +700,7 @@ export class IsometricMapRenderer {
       console.log(`[IsometricMapRenderer] Road block classes loaded successfully`);
 
       // Re-render to show road textures
-      this.render();
+      this.requestRender();
     } catch (error) {
       console.error('[IsometricMapRenderer] Error loading road block classes:', error);
     }
@@ -439,7 +745,7 @@ export class IsometricMapRenderer {
       console.log(`[ConcreteDebug] All ${allIds.length} loaded IDs:`, allIds.map(id => `0x${id.toString(16)}(${id})`).join(', '));
 
       // Re-render to show concrete textures
-      this.render();
+      this.requestRender();
     } catch (error) {
       console.error('[IsometricMapRenderer] Error loading concrete block classes:', error);
     }
@@ -467,8 +773,21 @@ export class IsometricMapRenderer {
     const alignedY = Math.floor(y / zoneSize) * zoneSize;
     const key = `${alignedX},${alignedY}`;
 
-    this.cachedZones.set(key, { x: alignedX, y: alignedY, w, h, buildings, segments });
-    this.loadingZones.delete(key);
+    this.cachedZones.set(key, {
+      x: alignedX,
+      y: alignedY,
+      w,
+      h,
+      buildings,
+      segments,
+      lastLoadTime: Date.now(),
+      forceRefresh: false
+    });
+
+    // Notify zone request manager that zone is loaded
+    if (this.zoneRequestManager) {
+      this.zoneRequestManager.markZoneLoaded(alignedX, alignedY);
+    }
 
     // Rebuild aggregated lists
     this.rebuildAggregatedData();
@@ -476,7 +795,7 @@ export class IsometricMapRenderer {
     // Fetch dimensions for new buildings
     this.fetchDimensionsForBuildings(buildings);
 
-    this.render();
+    this.requestRender();
   }
 
   /**
@@ -505,6 +824,21 @@ export class IsometricMapRenderer {
         }
       }
     });
+
+    // Pre-compute concrete adjacency tiles (tiles within 1 tile of any building)
+    this.concreteTilesSet.clear();
+    for (const building of this.allBuildings) {
+      const dims = this.facilityDimensionsCache.get(building.visualClass);
+      const bw = dims?.xsize || 1;
+      const bh = dims?.ysize || 1;
+
+      // Expand building bounds by 1 tile in each direction
+      for (let y = building.y - 1; y < building.y + bh + 1; y++) {
+        for (let x = building.x - 1; x < building.x + bw + 1; x++) {
+          this.concreteTilesSet.add(`${x},${y}`);
+        }
+      }
+    }
 
     // Rebuild road topology rendering buffer
     this.rebuildRoadsRendering();
@@ -639,10 +973,32 @@ export class IsometricMapRenderer {
       }
     }
 
+    // Rebuild concrete set now that we have accurate dimensions
+    this.rebuildConcreteSet();
+
     // Preload building textures for all unique visual classes
     this.preloadBuildingTextures(buildings);
 
-    this.render();
+    this.requestRender();
+  }
+
+  /**
+   * Rebuild the pre-computed concrete adjacency set from all buildings.
+   * Called when building dimensions change (after fetching from server).
+   */
+  private rebuildConcreteSet(): void {
+    this.concreteTilesSet.clear();
+    for (const building of this.allBuildings) {
+      const dims = this.facilityDimensionsCache.get(building.visualClass);
+      const bw = dims?.xsize || 1;
+      const bh = dims?.ysize || 1;
+
+      for (let y = building.y - 1; y < building.y + bh + 1; y++) {
+        for (let x = building.x - 1; x < building.x + bw + 1; x++) {
+          this.concreteTilesSet.add(`${x},${y}`);
+        }
+      }
+    }
   }
 
   /**
@@ -666,12 +1022,70 @@ export class IsometricMapRenderer {
     this.addCachedZone(mapData.x, mapData.y, mapData.w, mapData.h, mapData.buildings, mapData.segments);
   }
 
+  /**
+   * Invalidate a specific zone, forcing it to reload on next visibility check
+   * Use this when the server notifies that a specific area has changed
+   */
+  public invalidateZone(x: number, y: number): void {
+    const zoneSize = 64;
+    const alignedX = Math.floor(x / zoneSize) * zoneSize;
+    const alignedY = Math.floor(y / zoneSize) * zoneSize;
+    const key = `${alignedX},${alignedY}`;
+
+    const cached = this.cachedZones.get(key);
+    if (cached) {
+      cached.forceRefresh = true;
+      console.log(`[IsometricMapRenderer] Zone ${key} marked for refresh`);
+    }
+  }
+
+  /**
+   * Invalidate all cached zones, forcing full reload
+   * Use this when reconnecting or after major game state changes
+   */
+  public invalidateAllZones(): void {
+    let count = 0;
+    this.cachedZones.forEach(zone => {
+      zone.forceRefresh = true;
+      count++;
+    });
+    console.log(`[IsometricMapRenderer] Marked ${count} zones for refresh`);
+  }
+
+  /**
+   * Invalidate zones within a rectangular area
+   * Use this when the server notifies that a region has changed
+   */
+  public invalidateArea(x1: number, y1: number, x2: number, y2: number): void {
+    const zoneSize = 64;
+    const startX = Math.floor(Math.min(x1, x2) / zoneSize) * zoneSize;
+    const endX = Math.ceil(Math.max(x1, x2) / zoneSize) * zoneSize;
+    const startY = Math.floor(Math.min(y1, y2) / zoneSize) * zoneSize;
+    const endY = Math.ceil(Math.max(y1, y2) / zoneSize) * zoneSize;
+
+    let count = 0;
+    for (let x = startX; x < endX; x += zoneSize) {
+      for (let y = startY; y < endY; y += zoneSize) {
+        const key = `${x},${y}`;
+        const cached = this.cachedZones.get(key);
+        if (cached) {
+          cached.forceRefresh = true;
+          count++;
+        }
+      }
+    }
+    console.log(`[IsometricMapRenderer] Marked ${count} zones in area for refresh`);
+  }
+
   // =========================================================================
   // CALLBACKS
   // =========================================================================
 
   public setLoadZoneCallback(callback: (x: number, y: number, w: number, h: number) => void) {
     this.onLoadZone = callback;
+
+    // Initialize zone request manager now that we have the callback
+    this.zoneRequestManager = new ZoneRequestManager(callback, 64);
   }
 
   /**
@@ -730,8 +1144,9 @@ export class IsometricMapRenderer {
    */
   public setZoom(level: number) {
     this.terrainRenderer.setZoomLevel(level);
+    this.terrainRenderer.clearDistantZoomCaches(level);
     this.checkVisibleZones();
-    this.render();
+    this.requestRender();
   }
 
   /**
@@ -752,7 +1167,7 @@ export class IsometricMapRenderer {
       this.zoneOverlayX1 = x1 || 0;
       this.zoneOverlayY1 = y1 || 0;
     }
-    this.render();
+    this.requestRender();
   }
 
   // =========================================================================
@@ -785,7 +1200,7 @@ export class IsometricMapRenderer {
       this.placementPreview = null;
       this.canvas.style.cursor = 'grab';
     }
-    this.render();
+    this.requestRender();
   }
 
   public getPlacementCoordinates(): { x: number; y: number } | null {
@@ -809,7 +1224,7 @@ export class IsometricMapRenderer {
       mouseDownTime: 0
     };
     this.canvas.style.cursor = enabled ? 'crosshair' : 'grab';
-    this.render();
+    this.requestRender();
   }
 
   public isRoadDrawingModeActive(): boolean {
@@ -859,6 +1274,19 @@ export class IsometricMapRenderer {
   // =========================================================================
 
   /**
+   * Schedule a render on the next animation frame (debounced).
+   * Multiple calls within the same frame are coalesced into one render.
+   * Use this for event-driven updates (mouse move, texture loaded, chunk ready).
+   */
+  private requestRender(): void {
+    if (this.pendingRender !== null) return;
+    this.pendingRender = requestAnimationFrame(() => {
+      this.pendingRender = null;
+      this.render();
+    });
+  }
+
+  /**
    * Main render loop
    */
   public render() {
@@ -867,14 +1295,14 @@ export class IsometricMapRenderer {
 
     if (!this.mapLoaded) return;
 
-    // Build tile occupation map
-    const occupiedTiles = this.buildTileOccupationMap();
-
     // Get visible bounds for culling
     const bounds = this.getVisibleBounds();
 
     // Draw vegetation overlay (special terrain tiles) above flat terrain base
     this.drawVegetation(bounds);
+
+    // Build tile occupation map (buildings have priority over roads)
+    const occupiedTiles = this.buildTileOccupationMap();
 
     // Draw game object layers on top of terrain + vegetation
     this.drawConcrete(bounds);
@@ -938,22 +1366,10 @@ export class IsometricMapRenderer {
 
   /**
    * Check if a tile has concrete (building adjacency approach)
-   * Returns true if the tile is occupied by a building or within 1 tile of any building
+   * Uses pre-computed Set for O(1) lookup instead of scanning all buildings
    */
   private hasConcrete(x: number, y: number): boolean {
-    // Check if any building occupies or is adjacent to this tile
-    for (const building of this.allBuildings) {
-      const dims = this.facilityDimensionsCache.get(building.visualClass);
-      const bw = dims?.xsize || 1;
-      const bh = dims?.ysize || 1;
-
-      // Expand building bounds by 1 tile in each direction for adjacency check
-      if (x >= building.x - 1 && x < building.x + bw + 1 &&
-          y >= building.y - 1 && y < building.y + bh + 1) {
-        return true;
-      }
-    }
-    return false;
+    return this.concreteTilesSet.has(`${x},${y}`);
   }
 
   /**
@@ -997,6 +1413,8 @@ export class IsometricMapRenderer {
    */
   private drawConcrete(bounds: TileBounds): void {
     if (!this.concreteBlockClassesLoaded) return;
+    // Skip concrete at far zoom levels — tiles are too small (8×4 or 16×8 px) to see concrete detail
+    if (this.terrainRenderer.getZoomLevel() <= 1) return;
 
     const ctx = this.ctx;
     const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
@@ -1294,8 +1712,11 @@ export class IsometricMapRenderer {
   private drawVegetation(bounds: TileBounds): void {
     // Skip if vegetation is globally disabled
     if (!this.vegetationEnabled) return;
-    // Skip during camera movement if option is enabled
-    if (this.hideVegetationOnMove && this.isCameraMoving) return;
+    // Skip entirely at the farthest zoom level — vegetation is too small to see
+    const currentZoom = this.terrainRenderer.getZoomLevel();
+    if (currentZoom === 0) return;
+    // At z1, auto-enable hide-on-move behavior for performance
+    if ((this.hideVegetationOnMove || currentZoom === 1) && this.isCameraMoving) return;
 
     const ctx = this.ctx;
     const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
@@ -1491,10 +1912,20 @@ export class IsometricMapRenderer {
     const halfWidth = config.tileWidth / 2;
     const halfHeight = config.tileHeight / 2;
 
+    // Pre-filter buildings by visible bounds (with margin for multi-tile buildings)
+    const margin = 10; // Generous margin for large buildings
+    const visibleBuildings = this.allBuildings.filter(b => {
+      const dims = this.facilityDimensionsCache.get(b.visualClass);
+      const bw = dims?.xsize || 1;
+      const bh = dims?.ysize || 1;
+      return b.x + bw > bounds.minJ - margin && b.x < bounds.maxJ + margin &&
+             b.y + bh > bounds.minI - margin && b.y < bounds.maxI + margin;
+    });
+
     // Painter's algorithm: sort by depth (x+y)
     // In isometric view, lower (x+y) = closer to viewer = lower on screen = draw LAST (on top)
     // Higher (x+y) = farther from viewer = higher on screen = draw FIRST (behind)
-    const sortedBuildings = [...this.allBuildings].sort((a, b) => {
+    const sortedBuildings = visibleBuildings.sort((a, b) => {
       const aDepth = a.y + a.x;
       const bDepth = b.y + b.x;
       return bDepth - aDepth; // Descending: draw farther buildings first, closer ones last
@@ -1552,51 +1983,20 @@ export class IsometricMapRenderer {
         // Draw VisualClass label for debugging/identification
         this.drawBuildingLabel(building.visualClass, southCornerScreenPos.x, southCornerScreenPos.y + halfHeight);
       } else {
-        // Fallback: draw solid colored tiles for each tile of building footprint
-        for (let dy = 0; dy < ysize; dy++) {
-          for (let dx = 0; dx < xsize; dx++) {
-            const tileX = building.x + dx;
-            const tileY = building.y + dy;
-
-            // Convert to isometric (x = j, y = i)
-            const screenPos = this.terrainRenderer.mapToScreen(tileY, tileX);
-
-            // Cull if off-screen
-            if (screenPos.x < -config.tileWidth || screenPos.x > this.canvas.width + config.tileWidth ||
-                screenPos.y < -config.tileHeight || screenPos.y > this.canvas.height + config.tileHeight) {
-              continue;
-            }
-
-            // Round coordinates to avoid sub-pixel gaps
-            const sx = Math.round(screenPos.x);
-            const sy = Math.round(screenPos.y);
-
-            // Draw isometric building tile
-            ctx.beginPath();
-            ctx.moveTo(sx, sy);
-            ctx.lineTo(sx - halfWidth, sy + halfHeight);
-            ctx.lineTo(sx, sy + config.tileHeight);
-            ctx.lineTo(sx + halfWidth, sy + halfHeight);
-            ctx.closePath();
-
-            ctx.fillStyle = isHovered ? '#5fadff' : '#4a90e2';
-            ctx.fill();
-          }
-        }
-
-        // Draw VisualClass label on fallback placeholder
-        const centerX = building.x + (xsize - 1) / 2;
-        const centerY = building.y + (ysize - 1) / 2;
-        const centerPos = this.terrainRenderer.mapToScreen(centerY, centerX);
-        this.drawBuildingLabel(building.visualClass, centerPos.x, centerPos.y + halfHeight);
+        // Texture not loaded yet — skip (will render once texture arrives via onTextureLoaded callback)
+        return;
       }
     });
   }
 
   /**
    * Draw building VisualClass label for identification
+   * Skipped at zoom levels 0-1 where tiles are too small for readable labels
    */
   private drawBuildingLabel(visualClass: string, x: number, y: number): void {
+    // Skip labels at far zoom levels — tiles are too small for readable text
+    if (this.terrainRenderer.getZoomLevel() <= 1) return;
+
     const ctx = this.ctx;
 
     // Draw label background
@@ -2464,7 +2864,7 @@ export class IsometricMapRenderer {
       this.cameraStopTimer = null;
       // Re-render with vegetation visible again
       if (this.hideVegetationOnMove) {
-        this.render();
+        this.requestRender();
       }
     }, this.CAMERA_STOP_DEBOUNCE_MS);
   }
@@ -2475,7 +2875,7 @@ export class IsometricMapRenderer {
   public setVegetationEnabled(enabled: boolean): void {
     if (this.vegetationEnabled !== enabled) {
       this.vegetationEnabled = enabled;
-      this.render();
+      this.requestRender();
     }
   }
 
@@ -2548,7 +2948,7 @@ export class IsometricMapRenderer {
         this.roadDrawingState.startY = mapPos.i;
         this.roadDrawingState.endX = mapPos.j;
         this.roadDrawingState.endY = mapPos.i;
-        this.render();
+        this.requestRender();
       } else if (this.placementMode) {
         // Building placement handled by client
       } else {
@@ -2585,8 +2985,10 @@ export class IsometricMapRenderer {
       // Mark camera as moving (for vegetation hide-on-move option)
       this.markCameraMoving();
 
-      // NOTE: Do NOT call checkVisibleZones() during drag to prevent server spam
-      // Zone loading will be triggered AFTER drag stops (in onMouseUp/onMouseLeave)
+      // Mark zone request manager as moving (prevents zone requests during drag)
+      if (this.zoneRequestManager) {
+        this.zoneRequestManager.markMoving();
+      }
     }
 
     if (this.roadDrawingMode && this.roadDrawingState.isDrawing) {
@@ -2603,14 +3005,21 @@ export class IsometricMapRenderer {
     this.hoveredBuilding = this.getBuildingAt(mapPos.j, mapPos.i);
     this.updateCursor();
 
-    this.render();
+    this.requestRender();
   }
 
   private onMouseUp(e: MouseEvent) {
     if (e.button === 2 && this.isDragging) {
       this.isDragging = false;
       this.updateCursor();
-      // CRITICAL: Load zones AFTER drag stops (matching old renderer behavior)
+
+      // Mark movement stopped and trigger delayed zone loading
+      if (this.zoneRequestManager) {
+        const currentZoom = this.terrainRenderer.getZoomLevel();
+        this.zoneRequestManager.markStopped(currentZoom);
+      }
+
+      // Also request immediately (manager will handle delay internally)
       this.checkVisibleZones();
     }
 
@@ -2632,7 +3041,14 @@ export class IsometricMapRenderer {
     if (this.isDragging) {
       this.isDragging = false;
       this.updateCursor();
-      // CRITICAL: Load zones AFTER drag stops (matching old renderer behavior)
+
+      // Mark movement stopped and trigger delayed zone loading
+      if (this.zoneRequestManager) {
+        const currentZoom = this.terrainRenderer.getZoomLevel();
+        this.zoneRequestManager.markStopped(currentZoom);
+      }
+
+      // Also request immediately (manager will handle delay internally)
       this.checkVisibleZones();
     }
   }
@@ -2647,7 +3063,16 @@ export class IsometricMapRenderer {
 
     if (newZoom !== oldZoom) {
       this.terrainRenderer.setZoomLevel(newZoom);
+      this.terrainRenderer.clearDistantZoomCaches(newZoom);
+
+      // Mark as moving then stopped (triggers delayed zone load based on new zoom)
+      if (this.zoneRequestManager) {
+        this.zoneRequestManager.markMoving();
+        this.zoneRequestManager.markStopped(newZoom);
+      }
+
       this.checkVisibleZones();
+      this.requestRender();
     }
   }
 
@@ -2697,62 +3122,21 @@ export class IsometricMapRenderer {
    * Check and load zones for visible area
    */
   private checkVisibleZones() {
-    if (!this.onLoadZone) {
-      return;
-    }
-
-    // Debounce zone checking
-    if (this.zoneCheckDebounceTimer) {
-      clearTimeout(this.zoneCheckDebounceTimer);
-    }
-
-    this.zoneCheckDebounceTimer = window.setTimeout(() => {
-      this.loadVisibleZones();
-    }, this.ZONE_CHECK_DEBOUNCE_MS);
-  }
-
-  private loadVisibleZones() {
-    if (!this.onLoadZone) {
+    if (!this.zoneRequestManager) {
       return;
     }
 
     const bounds = this.getVisibleBounds();
-    const zoneSize = 64;
+    const cameraPos = this.terrainRenderer.getCameraPosition();
+    const currentZoom = this.terrainRenderer.getZoomLevel();
 
-    // FIX: Ensure min < max (bounds can be inverted depending on camera orientation)
-    const minI = Math.min(bounds.minI, bounds.maxI);
-    const maxI = Math.max(bounds.minI, bounds.maxI);
-    const minJ = Math.min(bounds.minJ, bounds.maxJ);
-    const maxJ = Math.max(bounds.minJ, bounds.maxJ);
-
-    // Calculate zone boundaries (aligned to zoneSize grid)
-    const startZoneX = Math.floor(minJ / zoneSize) * zoneSize;
-    const endZoneX = Math.ceil(maxJ / zoneSize) * zoneSize;
-    const startZoneY = Math.floor(minI / zoneSize) * zoneSize;
-    const endZoneY = Math.ceil(maxI / zoneSize) * zoneSize;
-
-    const zonesToLoad: Array<{ x: number; y: number }> = [];
-
-    for (let zx = startZoneX; zx < endZoneX; zx += zoneSize) {
-      for (let zy = startZoneY; zy < endZoneY; zy += zoneSize) {
-        const key = `${zx},${zy}`;
-        if (!this.cachedZones.has(key) && !this.loadingZones.has(key)) {
-          zonesToLoad.push({ x: zx, y: zy });
-        }
-      }
-    }
-
-    // Limit to prevent server spam (server has max 3 concurrent requests)
-    // Use 2 to stay well under limit and allow other requests to go through
-    const MAX_ZONES_PER_BATCH = 2;
-    const zonesToRequest = zonesToLoad.slice(0, MAX_ZONES_PER_BATCH);
-
-    // Load zones (limited batch)
-    for (const zone of zonesToRequest) {
-      const key = `${zone.x},${zone.y}`;
-      this.loadingZones.add(key);
-      this.onLoadZone(zone.x, zone.y, zoneSize, zoneSize);
-    }
+    // Request visible zones (manager handles queuing, prioritization, and delays)
+    this.zoneRequestManager.requestVisibleZones(
+      bounds,
+      this.cachedZones,
+      cameraPos,
+      currentZoom
+    );
   }
 
   // =========================================================================
@@ -2760,6 +3144,50 @@ export class IsometricMapRenderer {
   // =========================================================================
 
   public destroy() {
-    this.terrainRenderer.unload();
+    // Cancel pending render
+    if (this.pendingRender !== null) {
+      cancelAnimationFrame(this.pendingRender);
+      this.pendingRender = null;
+    }
+
+    // Cancel camera stop timer
+    if (this.cameraStopTimer !== null) {
+      clearTimeout(this.cameraStopTimer);
+      this.cameraStopTimer = null;
+    }
+
+    // Destroy touch handler
+    if (this.touchHandler) {
+      this.touchHandler.destroy();
+      this.touchHandler = null;
+    }
+
+    // Destroy terrain renderer (cancels its own RAF, clears caches)
+    this.terrainRenderer.destroy();
+
+    // Clear game object cache
+    this.gameObjectTextureCache.clear();
+
+    // Clear data
+    this.cachedZones.clear();
+    this.allBuildings = [];
+    this.allSegments = [];
+    this.roadTilesMap.clear();
+    this.concreteTilesSet.clear();
+    this.facilityDimensionsCache.clear();
+
+    // Clear zone request manager
+    if (this.zoneRequestManager) {
+      this.zoneRequestManager.clear();
+      this.zoneRequestManager = null;
+    }
+
+    // Null out callbacks
+    this.onLoadZone = null;
+    this.onBuildingClick = null;
+    this.onCancelPlacement = null;
+    this.onFetchFacilityDimensions = null;
+    this.onRoadSegmentComplete = null;
+    this.onCancelRoadDrawing = null;
   }
 }

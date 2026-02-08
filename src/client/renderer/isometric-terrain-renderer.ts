@@ -81,6 +81,10 @@ export class IsometricTerrainRenderer {
   // Render debouncing (prevents flickering when multiple chunks become ready)
   private pendingRenderRequest: number | null = null;
 
+  // External render callback: when set, chunk-ready events delegate to the parent renderer
+  // instead of triggering terrain-only renders (which cause blinking)
+  private onRenderNeeded: (() => void) | null = null;
+
   constructor(canvas: HTMLCanvasElement, options?: { disableMouseControls?: boolean }) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d');
@@ -145,7 +149,14 @@ export class IsometricTerrainRenderer {
     this.chunkCache.setAtlasCache(this.atlasCache);
     this.chunkCache.setMapDimensions(terrainData.width, terrainData.height);
     this.chunkCache.setMapInfo(mapName, terrainType, this.season);
-    this.chunkCache.setOnChunkReady(() => this.requestRender());
+    this.chunkCache.setOnChunkReady(() => {
+      if (this.onRenderNeeded) {
+        // Delegate to parent renderer for full-pipeline render (prevents blinking)
+        this.onRenderNeeded();
+      } else {
+        this.requestRender();
+      }
+    });
 
     // Center camera on map
     this.cameraI = Math.floor(terrainData.height / 2);
@@ -302,7 +313,7 @@ export class IsometricTerrainRenderer {
   private renderTerrainLayer(bounds: TileBounds): number {
     // Use chunk-based rendering only for NORTH rotation (chunk layout is rotation-unaware)
     if (this.useChunks && this.chunkCache && this.chunkCache.isSupported() && this.rotation === Rotation.NORTH) {
-      return this.renderTerrainLayerChunked();
+      return this.renderTerrainLayerChunked(bounds);
     }
 
     // Fallback: tile-by-tile rendering (supports all rotations via CoordinateMapper)
@@ -313,25 +324,39 @@ export class IsometricTerrainRenderer {
    * Chunk-based terrain rendering (fast path)
    * Renders pre-cached chunks instead of individual tiles
    */
-  private renderTerrainLayerChunked(): number {
+  private renderTerrainLayerChunked(bounds: TileBounds): number {
     if (!this.chunkCache) return 0;
 
     const ctx = this.ctx;
+    const canvasWidth = this.canvas.width;
+    const canvasHeight = this.canvas.height;
 
-    // Get visible chunk range
-    const visibleChunks = this.chunkCache.getVisibleChunks(
-      this.canvas.width,
-      this.canvas.height,
-      this.zoomLevel,
-      this.origin
-    );
+    // Get visible chunk range from tile bounds (O(1) instead of O(N²))
+    const visibleChunks = this.chunkCache.getVisibleChunksFromBounds(bounds);
 
     let chunksDrawn = 0;
     let tilesRendered = 0;
 
-    // Draw visible chunks
+    // Track actually-visible chunks for preload centering
+    let visMinI = visibleChunks.maxChunkI, visMaxI = visibleChunks.minChunkI;
+    let visMinJ = visibleChunks.maxChunkJ, visMaxJ = visibleChunks.minChunkJ;
+
+    // Draw visible chunks (with viewport clipping to skip off-screen chunks)
     for (let ci = visibleChunks.minChunkI; ci <= visibleChunks.maxChunkI; ci++) {
       for (let cj = visibleChunks.minChunkJ; cj <= visibleChunks.maxChunkJ; cj++) {
+        // Viewport clipping: skip chunks that don't intersect the screen
+        const screenBounds = this.chunkCache.getChunkScreenBounds(ci, cj, this.zoomLevel, this.origin);
+        if (screenBounds.x + screenBounds.width < 0 || screenBounds.x > canvasWidth ||
+            screenBounds.y + screenBounds.height < 0 || screenBounds.y > canvasHeight) {
+          continue;
+        }
+
+        // Track visible range for preload
+        visMinI = Math.min(visMinI, ci);
+        visMaxI = Math.max(visMaxI, ci);
+        visMinJ = Math.min(visMinJ, cj);
+        visMaxJ = Math.max(visMaxJ, cj);
+
         const drawn = this.chunkCache.drawChunkToCanvas(
           ctx,
           ci, cj,
@@ -349,13 +374,15 @@ export class IsometricTerrainRenderer {
       }
     }
 
-    // Preload neighboring chunks (anticipate pan)
+    // Preload neighboring chunks (anticipate pan) using actually-visible center
     // At z0/z1, visible area is already large; preload only immediate neighbors
     // At z2/z3, visible area is smaller; preload wider ring for smoother panning
-    const preloadRadius = this.zoomLevel <= 1 ? 1 : 2;
-    const centerChunkI = Math.floor((visibleChunks.minChunkI + visibleChunks.maxChunkI) / 2);
-    const centerChunkJ = Math.floor((visibleChunks.minChunkJ + visibleChunks.maxChunkJ) / 2);
-    this.chunkCache.preloadChunks(centerChunkI, centerChunkJ, preloadRadius, this.zoomLevel);
+    if (visMinI <= visMaxI) {
+      const preloadRadius = this.zoomLevel <= 1 ? 1 : 2;
+      const centerChunkI = Math.floor((visMinI + visMaxI) / 2);
+      const centerChunkJ = Math.floor((visMinJ + visMaxJ) / 2);
+      this.chunkCache.preloadChunks(centerChunkI, centerChunkJ, preloadRadius, this.zoomLevel);
+    }
 
     return tilesRendered;
   }
@@ -807,6 +834,47 @@ export class IsometricTerrainRenderer {
    */
   getRenderStats(): typeof this.lastRenderStats {
     return { ...this.lastRenderStats };
+  }
+
+  /**
+   * Set external render callback.
+   * When set, chunk-ready events call this instead of triggering a terrain-only render.
+   * This prevents blinking: the parent renderer can do a full-pipeline render
+   * (terrain + buildings + roads) instead of a terrain-only render.
+   */
+  setOnRenderNeeded(callback: (() => void) | null): void {
+    this.onRenderNeeded = callback;
+  }
+
+  /**
+   * Clear chunk caches for zoom levels far from the current one.
+   * Keeps current and ±1 adjacent zoom levels to allow smooth transitions.
+   */
+  clearDistantZoomCaches(currentZoom: number): void {
+    if (!this.chunkCache) return;
+    for (let z = 0; z <= 3; z++) {
+      if (Math.abs(z - currentZoom) > 1) {
+        this.chunkCache.clearZoomLevel(z);
+      }
+    }
+  }
+
+  /**
+   * Destroy renderer and release all resources.
+   * Cancels pending RAF, clears all caches.
+   */
+  destroy(): void {
+    if (this.pendingRenderRequest !== null) {
+      cancelAnimationFrame(this.pendingRenderRequest);
+      this.pendingRenderRequest = null;
+    }
+    this.onRenderNeeded = null;
+    this.terrainLoader.unload();
+    this.textureCache.clear();
+    this.atlasCache.clear();
+    this.chunkCache?.clearAll();
+    this.chunkCache = null;
+    this.loaded = false;
   }
 
   /**

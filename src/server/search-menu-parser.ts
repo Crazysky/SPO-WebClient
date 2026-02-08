@@ -6,6 +6,7 @@
  */
 
 import * as cheerio from 'cheerio';
+import type { AnyNode } from 'domhandler';
 import {
   SearchMenuCategory,
   TownInfo,
@@ -203,11 +204,11 @@ export function parsePeopleSearchResults(html: string): string[] {
 export function parseRankingsPage(html: string): RankingCategory[] {
   const $ = cheerio.load(html);
 
-  function parseLevel(container: any, level: number): RankingCategory[] {
+  function parseLevel(container: cheerio.Cheerio<AnyNode>, level: number): RankingCategory[] {
     const items: RankingCategory[] = [];
 
     // Use dirHref attribute selector (case-insensitive and reliable)
-    container.find('tr[dirhref]').each((_: any, el: any) => {
+    container.find('tr[dirhref]').each((_, el) => {
       const $row = $(el);
 
       // Only process direct children of current container (prevent processing nested items multiple times)

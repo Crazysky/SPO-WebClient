@@ -57,6 +57,13 @@ export class BuildingDetailsPanel {
   }
 
   /**
+   * Update panel callback options
+   */
+  public updateOptions(opts: Partial<BuildingDetailsPanelOptions>): void {
+    Object.assign(this.options, opts);
+  }
+
+  /**
    * Initialize the panel DOM
    */
   private init(): void {

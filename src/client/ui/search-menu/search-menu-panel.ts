@@ -10,6 +10,7 @@ import {
   TycoonProfile,
   RankingCategory,
   RankingEntry,
+  WsMessage,
   WsMessageType,
   WsReqSearchMenuHome,
   WsRespSearchMenuHome,
@@ -37,7 +38,7 @@ export class SearchMenuPanel {
   private contentElement: HTMLElement;
   private backButton: HTMLElement;
   private closeButton: HTMLElement;
-  private sendMessage: (msg: any) => void;
+  private sendMessage: (msg: WsMessage) => void;
 
   private currentPage: SearchMenuPage = 'home';
   private pageHistory: SearchMenuPage[] = [];
@@ -47,7 +48,7 @@ export class SearchMenuPanel {
   private dragOffsetX = 0;
   private dragOffsetY = 0;
 
-  constructor(sendMessage: (msg: any) => void) {
+  constructor(sendMessage: (msg: WsMessage) => void) {
     this.sendMessage = sendMessage;
     this.panel = this.createPanel();
     this.titleElement = this.panel.querySelector('.search-menu-title')!;

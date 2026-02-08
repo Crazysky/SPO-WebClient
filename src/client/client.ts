@@ -65,13 +65,14 @@ import {
   WsRespLogout,
 } from '../shared/types';
 import { getErrorMessage } from '../shared/error-codes';
+import { toErrorMessage } from '../shared/error-utils';
 import { UIManager } from './ui/ui-manager';
 import { getFacilityDimensionsCache } from './facility-dimensions-cache';
 
 export class StarpeaceClient {
   private ws: WebSocket | null = null;
   private isConnected: boolean = false;
-  private pendingRequests = new Map<string, { resolve: (msg: WsMessage) => void, reject: (err: any) => void }>();
+  private pendingRequests = new Map<string, { resolve: (msg: WsMessage) => void, reject: (err: unknown) => void }>();
 
   // UI Manager
   private ui: UIManager;
@@ -412,9 +413,9 @@ export class StarpeaceClient {
       this.ui.log('Directory', `Authentication Success. Found ${resp.worlds.length} world(s) in ${zoneDisplay}.`);
       this.ui.loginUI.renderWorldList(resp.worlds);
       this.ui.loginUI.hideConnectButton();
-    } catch (err: any) {
-      this.ui.log('Error', `Directory Auth Failed: ${err.message}`);
-      alert('Login Failed: ' + err.message);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Directory Auth Failed: ${toErrorMessage(err)}`);
+      alert('Login Failed: ' + toErrorMessage(err));
     }
   }
 
@@ -452,10 +453,10 @@ export class StarpeaceClient {
         this.showNotification('No companies available for this account', 'error');
       }
 
-    } catch (err: any) {
-      this.ui.log('Error', `Login failed: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Login failed: ${toErrorMessage(err)}`);
       this.ui.loginUI.showWorldListLoading('Connection failed. Please try again.');
-      this.showNotification(`World login failed: ${err.message}`, 'error');
+      this.showNotification(`World login failed: ${toErrorMessage(err)}`, 'error');
     }
   }
 
@@ -513,10 +514,10 @@ export class StarpeaceClient {
 
       // NOTE: Initial map area is loaded by the zone system via triggerZoneCheck()
       // Do NOT call loadMapArea() here to avoid duplicate requests
-    } catch (err: any) {
-      this.ui.log('Error', `Company selection failed: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Company selection failed: ${toErrorMessage(err)}`);
       this.ui.loginUI.showCompanyListLoading('Failed to load world. Please try again.');
-      this.showNotification(`Company selection failed: ${err.message}`, 'error');
+      this.showNotification(`Company selection failed: ${toErrorMessage(err)}`, 'error');
     } finally {
       this.isSelectingCompany = false;
     }
@@ -568,8 +569,8 @@ export class StarpeaceClient {
         message
       };
       await this.sendRequest(req);
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to send message: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to send message: ${toErrorMessage(err)}`);
     } finally {
       this.isSendingChatMessage = false;
     }
@@ -593,8 +594,8 @@ export class StarpeaceClient {
       if (this.ui.chatUI) {
         this.ui.chatUI.updateUserList(resp.users);
       }
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to get user list: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to get user list: ${toErrorMessage(err)}`);
     }
   }
 
@@ -608,8 +609,8 @@ export class StarpeaceClient {
       if (this.ui.chatUI) {
         this.ui.chatUI.updateChannelList(resp.channels);
       }
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to get channel list: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to get channel list: ${toErrorMessage(err)}`);
     }
   }
 
@@ -633,8 +634,8 @@ export class StarpeaceClient {
         this.ui.chatUI.clearMessages();
         this.ui.chatUI.hideChannelList();
       }
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to join channel: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to join channel: ${toErrorMessage(err)}`);
     } finally {
       this.isJoiningChannel = false;
     }
@@ -758,8 +759,8 @@ export class StarpeaceClient {
 
       this.ui.log('Building', `Focused: ${response.building.buildingName}`);
 
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to focus building: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to focus building: ${toErrorMessage(err)}`);
     } finally {
       this.isFocusingBuilding = false;
     }
@@ -779,8 +780,8 @@ export class StarpeaceClient {
       this.ui.hideBuildingDetailsPanel();
       this.currentFocusedBuilding = null;
       this.currentFocusedVisualClass = null;
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to unfocus building: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to unfocus building: ${toErrorMessage(err)}`);
     }
   }
 
@@ -817,8 +818,8 @@ export class StarpeaceClient {
       const response = await this.sendRequest(req) as WsRespBuildingDetails;
       this.ui.log('Building', `Got details: ${response.details.templateName}`);
       return response.details;
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to get building details: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to get building details: ${toErrorMessage(err)}`);
       return null;
     }
   }
@@ -855,8 +856,8 @@ export class StarpeaceClient {
         this.ui.log('Error', `Failed to set ${propertyName}`);
         return false;
       }
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to set property: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to set property: ${toErrorMessage(err)}`);
       return false;
     }
   }
@@ -893,8 +894,8 @@ export class StarpeaceClient {
         this.ui.log('Error', response.message || 'Failed to perform upgrade action');
         return false;
       }
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to perform upgrade action: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to perform upgrade action: ${toErrorMessage(err)}`);
       return false;
     }
   }
@@ -922,8 +923,8 @@ export class StarpeaceClient {
         this.ui.log('Error', response.message || 'Failed to rename building');
         return false;
       }
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to rename building: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to rename building: ${toErrorMessage(err)}`);
       return false;
     }
   }
@@ -952,8 +953,8 @@ export class StarpeaceClient {
         this.ui.log('Error', response.message || 'Failed to delete building');
         return false;
       }
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to delete building: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to delete building: ${toErrorMessage(err)}`);
       return false;
     }
   }
@@ -1062,8 +1063,8 @@ export class StarpeaceClient {
       } else {
         this.ui.log('Error', response.message || 'Failed to build road');
       }
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to build road: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to build road: ${toErrorMessage(err)}`);
     } finally {
       this.isBuildingRoad = false;
     }
@@ -1105,8 +1106,8 @@ export class StarpeaceClient {
       }
 
       this.ui.log('Build', `Loaded ${response.categories.length} building categories`);
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to load building categories: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to load building categories: ${toErrorMessage(err)}`);
     }
   }
 
@@ -1134,8 +1135,8 @@ export class StarpeaceClient {
       }
 
       this.ui.log('Build', `Loaded ${response.facilities.length} facilities`);
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to load facilities: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to load facilities: ${toErrorMessage(err)}`);
     }
   }
 
@@ -1157,7 +1158,7 @@ export class StarpeaceClient {
       cache.initialize(response.dimensions);
 
       this.ui.log('Cache', `Loaded ${cache.getSize()} facility dimensions`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[Client] Failed to preload facility dimensions:', err);
       this.ui.log('Error', 'Failed to load facility dimensions. Building placement may not work correctly.');
     }
@@ -1287,9 +1288,9 @@ export class StarpeaceClient {
 
       // Exit placement mode
       this.cancelBuildingPlacement();
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Show detailed error message
-      const errorMsg = err.message || 'Unknown error';
+      const errorMsg = toErrorMessage(err);
       this.ui.log('Error', `✗ Failed to place ${building.name}: ${errorMsg}`);
       this.showNotification(`Failed to place building: ${errorMsg}`, 'error');
 
@@ -1387,8 +1388,8 @@ export class StarpeaceClient {
       renderer.setZoneOverlay(true, response.data, x1, y1);
 
       this.ui.log('Zones', `Loaded ${type} overlay data`);
-    } catch (err: any) {
-      this.ui.log('Error', `Failed to load zone overlay: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to load zone overlay: ${toErrorMessage(err)}`);
       // Disable overlay on error
       renderer.setZoneOverlay(false);
       if (this.ui.zoneOverlayUI) {
@@ -1415,13 +1416,16 @@ export class StarpeaceClient {
       return;
     }
 
-    // Get camera position and reload that area
+    // Get camera position and invalidate visible area
     const cameraPos = renderer.getCameraPosition();
     const x = Math.floor(cameraPos.x);
     const y = Math.floor(cameraPos.y);
 
-    // Clear and reload the map area (64x64 centered on camera)
-    this.loadMapArea(x, y, 64, 64);
+    // Invalidate 128x128 area around camera (2x2 zones)
+    renderer.invalidateArea(x - 64, y - 64, x + 64, y + 64);
+
+    // Trigger zone check to reload invalidated zones
+    renderer.triggerZoneCheck();
 
     this.showNotification('Map refreshed', 'info');
   }
@@ -1456,8 +1460,8 @@ export class StarpeaceClient {
       } else {
         this.ui.log('Error', response.message || 'Logout failed');
       }
-    } catch (err: any) {
-      this.ui.log('Error', `Logout error: ${err.message}`);
+    } catch (err: unknown) {
+      this.ui.log('Error', `Logout error: ${toErrorMessage(err)}`);
       // Force close connection on error
       this.ws?.close();
     } finally {

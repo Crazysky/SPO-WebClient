@@ -19,6 +19,7 @@ import {
   WsMessageType,
   WsMessage,
   FacilityDimensions,
+  WorldInfo,
   WsReqConnectDirectory,
   WsReqLoginWorld,
   WsReqRdoDirect,
@@ -97,6 +98,7 @@ import {
   WsReqLogout,
   WsRespLogout,
 } from '../shared/types';
+import { toErrorMessage } from '../shared/error-utils';
 
 /**
  * Starpeace Gateway Server
@@ -343,10 +345,10 @@ const server = http.createServer(async (req, res) => {
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ metadata, bmpUrl }));
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`[MapDataService] Error loading map ${mapName}:`, error);
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: error.message || 'Failed to load map data' }));
+      res.end(JSON.stringify({ error: toErrorMessage(error) || 'Failed to load map data' }));
     }
     return;
   }
@@ -382,7 +384,7 @@ const server = http.createServer(async (req, res) => {
         'Cache-Control': 'public, max-age=3600' // Cache for 1 hour
       });
       res.end(JSON.stringify({ files: iniContents }));
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[RoadBlockClasses] Failed to read INI files:', error);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Failed to read road block classes' }));
@@ -418,7 +420,7 @@ const server = http.createServer(async (req, res) => {
         'Cache-Control': 'public, max-age=3600' // Cache for 1 hour
       });
       res.end(JSON.stringify({ files: iniContents }));
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[ConcreteBlockClasses] Failed to read INI files:', error);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Failed to read concrete block classes' }));
@@ -480,7 +482,7 @@ const server = http.createServer(async (req, res) => {
         'Cache-Control': 'public, max-age=31536000'
       });
       res.end(content);
-    } catch (error: any) {
+    } catch (error: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Failed to read atlas file' }));
     }
@@ -522,7 +524,7 @@ const server = http.createServer(async (req, res) => {
         'Cache-Control': 'public, max-age=31536000'
       });
       res.end(content);
-    } catch (error: any) {
+    } catch (error: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Failed to read manifest file' }));
     }
@@ -550,7 +552,7 @@ const server = http.createServer(async (req, res) => {
         'Cache-Control': 'public, max-age=31536000'
       });
       res.end(content);
-    } catch (error: any) {
+    } catch (error: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Failed to read atlas file' }));
     }
@@ -576,7 +578,7 @@ const server = http.createServer(async (req, res) => {
         'Cache-Control': 'public, max-age=31536000'
       });
       res.end(content);
-    } catch (error: any) {
+    } catch (error: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Failed to read manifest file' }));
     }
@@ -724,7 +726,7 @@ const server = http.createServer(async (req, res) => {
         'Cache-Control': 'public, max-age=31536000' // Cache for 1 year (textures don't change)
       });
       res.end(content);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`[TextureExtractor] Failed to serve texture ${texturePath}:`, error);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Failed to read texture file' }));
@@ -848,10 +850,10 @@ wss.on('connection', (ws: WebSocket) => {
 
   // Search Menu Service (will be initialized after login)
   let searchMenuService: SearchMenuService | null = null;
-  let loginCredentials: { username: string; worldName: string; worldInfo: any; companyId: string } | null = null;
+  let loginCredentials: { username: string; worldName: string; worldInfo: WorldInfo | undefined; companyId: string } | null = null;
 
   // -- Forward Events: Gateway -> Browser --
-  spSession.on('ws_event', (payload: any) => {
+  spSession.on('ws_event', (payload: WsMessage) => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(payload));
     }
@@ -1192,12 +1194,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
           });
           
           ws.send(JSON.stringify(focusResp));
-        } catch (focusErr: any) {
-          console.error(`[Gateway] Building focus error:`, focusErr.message);
+        } catch (focusErr: unknown) {
+          console.error(`[Gateway] Building focus error:`, toErrorMessage(focusErr));
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: focusErr.message || 'Failed to focus building',
+            errorMessage: toErrorMessage(focusErr) || 'Failed to focus building',
             code: ErrorCodes.ERROR_FacilityNotFound
           };
           ws.send(JSON.stringify(errorResp));
@@ -1227,11 +1229,11 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             categories
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to fetch building categories',
+            errorMessage: toErrorMessage(err) || 'Failed to fetch building categories',
             code: ErrorCodes.ERROR_UnknownClass
           };
           ws.send(JSON.stringify(errorResp));
@@ -1258,11 +1260,11 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             facilities
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to fetch building facilities',
+            errorMessage: toErrorMessage(err) || 'Failed to fetch building facilities',
             code: ErrorCodes.ERROR_UnknownClass
           };
           ws.send(JSON.stringify(errorResp));
@@ -1295,11 +1297,11 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             };
             ws.send(JSON.stringify(errorResp));
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to place building',
+            errorMessage: toErrorMessage(err) || 'Failed to place building',
             code: ErrorCodes.ERROR_CannotInstantiate
           };
           ws.send(JSON.stringify(errorResp));
@@ -1325,11 +1327,11 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             data
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to get surface data',
+            errorMessage: toErrorMessage(err) || 'Failed to get surface data',
             code: ErrorCodes.ERROR_InvalidParameter
           };
           ws.send(JSON.stringify(errorResp));
@@ -1352,11 +1354,11 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
 
           console.log(`[Gateway] Sending ${Object.keys(dimensions).length} facility dimensions`);
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to get all facility dimensions',
+            errorMessage: toErrorMessage(err) || 'Failed to get all facility dimensions',
             code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
@@ -1381,12 +1383,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             details
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to get building details:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to get building details',
+            errorMessage: toErrorMessage(err) || 'Failed to get building details',
             code: ErrorCodes.ERROR_FacilityNotFound
           };
           ws.send(JSON.stringify(errorResp));
@@ -1415,12 +1417,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             newValue: result.newValue
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to set building property:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to set property',
+            errorMessage: toErrorMessage(err) || 'Failed to set property',
             code: ErrorCodes.ERROR_AccessDenied
           };
           ws.send(JSON.stringify(errorResp));
@@ -1448,12 +1450,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             message: result.message
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to perform upgrade action:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to perform upgrade action',
+            errorMessage: toErrorMessage(err) || 'Failed to perform upgrade action',
             code: ErrorCodes.ERROR_AccessDenied
           };
           ws.send(JSON.stringify(errorResp));
@@ -1476,12 +1478,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             message: result.message
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to rename facility:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to rename facility',
+            errorMessage: toErrorMessage(err) || 'Failed to rename facility',
             code: ErrorCodes.ERROR_AccessDenied
           };
           ws.send(JSON.stringify(errorResp));
@@ -1503,12 +1505,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             message: result.message
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to delete facility:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to delete facility',
+            errorMessage: toErrorMessage(err) || 'Failed to delete facility',
             code: ErrorCodes.ERROR_AccessDenied
           };
           ws.send(JSON.stringify(errorResp));
@@ -1537,12 +1539,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             errorCode: result.errorCode
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to build road:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to build road',
+            errorMessage: toErrorMessage(err) || 'Failed to build road',
             code: ErrorCodes.ERROR_AccessDenied
           };
           ws.send(JSON.stringify(errorResp));
@@ -1565,12 +1567,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             costPerTile: result.costPerTile
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to get road cost:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to get road cost',
+            errorMessage: toErrorMessage(err) || 'Failed to get road cost',
             code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
@@ -1602,12 +1604,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             categories
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to fetch search menu home:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to fetch search menu',
+            errorMessage: toErrorMessage(err) || 'Failed to fetch search menu',
             code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
@@ -1635,12 +1637,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             towns
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to fetch towns:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to fetch towns',
+            errorMessage: toErrorMessage(err) || 'Failed to fetch towns',
             code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
@@ -1669,12 +1671,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             profile
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to fetch tycoon profile:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to fetch tycoon profile',
+            errorMessage: toErrorMessage(err) || 'Failed to fetch tycoon profile',
             code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
@@ -1700,12 +1702,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             wsRequestId: msg.wsRequestId
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to fetch people page:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to fetch people page',
+            errorMessage: toErrorMessage(err) || 'Failed to fetch people page',
             code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
@@ -1734,12 +1736,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             results
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to search people:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to search people',
+            errorMessage: toErrorMessage(err) || 'Failed to search people',
             code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
@@ -1767,12 +1769,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             categories
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to fetch rankings:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to fetch rankings',
+            errorMessage: toErrorMessage(err) || 'Failed to fetch rankings',
             code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
@@ -1802,12 +1804,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             entries: result.entries
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to fetch ranking detail:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to fetch ranking detail',
+            errorMessage: toErrorMessage(err) || 'Failed to fetch ranking detail',
             code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
@@ -1835,12 +1837,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             banks
           };
           ws.send(JSON.stringify(response));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Failed to fetch banks:', err);
           const errorResp: WsRespError = {
             type: WsMessageType.RESP_ERROR,
             wsRequestId: msg.wsRequestId,
-            errorMessage: err.message || 'Failed to fetch banks',
+            errorMessage: toErrorMessage(err) || 'Failed to fetch banks',
             code: ErrorCodes.ERROR_Unknown
           };
           ws.send(JSON.stringify(errorResp));
@@ -1871,13 +1873,13 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
           setTimeout(() => {
             ws.close(1000, 'User logged out');
           }, 100);
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Gateway] Logout error:', err);
           const response: WsRespLogout = {
             type: WsMessageType.RESP_LOGOUT,
             wsRequestId: msg.wsRequestId,
             success: false,
-            message: err.message || 'Logout failed'
+            message: toErrorMessage(err) || 'Logout failed'
           };
           ws.send(JSON.stringify(response));
         }
@@ -1888,12 +1890,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
         console.warn(`[Gateway] Unknown message type: ${msg.type}`);
     }
 
-  } catch (err: any) {
-    console.error('[Gateway] Request Failed:', err.message);
+  } catch (err: unknown) {
+    console.error('[Gateway] Request Failed:', toErrorMessage(err));
     const errorResp: WsRespError = {
       type: WsMessageType.RESP_ERROR,
       wsRequestId: msg.wsRequestId,
-      errorMessage: err.message || 'Internal Server Error',
+      errorMessage: toErrorMessage(err) || 'Internal Server Error',
       code: ErrorCodes.ERROR_Unknown
     };
     ws.send(JSON.stringify(errorResp));
@@ -1938,7 +1940,7 @@ process.on('uncaughtException', (error: Error) => {
   // Continue running - don't crash the server
 });
 
-process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+process.on('unhandledRejection', (reason: unknown, _promise: Promise<unknown>) => {
   logger.error('[Gateway] Unhandled promise rejection:', reason);
   // Continue running - don't crash the server
 });

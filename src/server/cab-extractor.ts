@@ -12,6 +12,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { toErrorMessage } from '../shared/error-utils';
 
 // 7zip-min is a CommonJS module
 const _7z = require('7zip-min');
@@ -48,7 +49,7 @@ export interface CabExtractionResult {
  *   block: '0'
  * }]
  */
-function parse7zList(output: any[]): CabFileInfo[] {
+function parse7zList(output: Array<{ name: string; size: string; date?: string; time?: string; attr?: string; method?: string; block?: string }>): CabFileInfo[] {
   const files: CabFileInfo[] = [];
 
   if (!Array.isArray(output)) {
@@ -146,8 +147,8 @@ export async function extractCabArchive(
     result.extractedFiles = extractedFiles;
     result.success = true;
 
-  } catch (error: any) {
-    result.errors.push(`Extraction error: ${error.message || String(error)}`);
+  } catch (error: unknown) {
+    result.errors.push(`Extraction error: ${toErrorMessage(error)}`);
   }
 
   return result;

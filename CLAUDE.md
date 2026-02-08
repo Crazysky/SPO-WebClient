@@ -22,7 +22,7 @@ See [doc/CAB-EXTRACTION.md](doc/CAB-EXTRACTION.md) for CAB extraction details.
 ```bash
 npm run dev          # Build + start server
 npm run build        # Build all (server + client)
-npm test             # Run Jest tests (788 tests)
+npm test             # Run Jest tests (~750 tests)
 npm run test:watch   # Tests in watch mode
 npm run test:verbose # Verbose test output
 ```
@@ -60,9 +60,11 @@ src/
 │   ├── rdo.ts        # RDO protocol parser
 │   ├── texture-alpha-baker.ts # BMP→PNG alpha pre-baking (no external deps)
 │   ├── atlas-generator.ts    # Terrain/object texture atlas generator
+│   ├── terrain-chunk-renderer.ts # Server-side terrain chunk pre-rendering
 │   └── services/     # Background services
 └── shared/           # Shared code
     ├── rdo-types.ts  # RDO type system (CRITICAL)
+    ├── error-utils.ts # Safe error message extraction (unknown catch types)
     ├── types/        # Type definitions
     └── building-details/ # Property templates
 ```
@@ -102,12 +104,19 @@ The renderer is initialized in [src/client/ui/map-navigation-ui.ts](src/client/u
 5. **Client rendering:** `ctx.drawImage(atlas, sx, sy, sw, sh, dx, dy, dw, dh)` — hardware-accelerated
 
 **API endpoints:**
+- `GET /api/map-data/:mapName` — map terrain/building/road data
+- `GET /api/road-block-classes` — road block class definitions
+- `GET /api/concrete-block-classes` — concrete block class definitions
+- `GET /api/terrain-info/:terrainType` — terrain type metadata
 - `GET /api/terrain-atlas/:terrainType/:season` — terrain atlas PNG
 - `GET /api/terrain-atlas/:terrainType/:season/manifest` — terrain atlas JSON
 - `GET /api/object-atlas/:category` — road/concrete atlas PNG
 - `GET /api/object-atlas/:category/manifest` — road/concrete atlas JSON
+- `GET /api/terrain-chunk/:mapName/:terrainType/:season/:zoom/:chunkI/:chunkJ` — pre-rendered terrain chunk PNG
+- `GET /api/terrain-chunks/:mapName/:terrainType/:season/manifest` — terrain chunk availability manifest
 - `GET /api/terrain-texture/:terrainType/:season/:id` — individual texture fallback
 - `GET /cache/:category/:filename` — individual object texture fallback (prefers pre-baked PNG)
+- `GET /proxy-image?url=<encoded_url>` — image proxy for remote assets
 
 **Cache sizes:** TextureCache 1024, GameObjectTextureCache 2048, ChunkCache 96 chunks/zoom
 
@@ -168,8 +177,11 @@ src/
 │   ├── facility-csv-parser.test.ts          # 18 tests - CSV parsing
 │   ├── texture-alpha-baker.test.ts          # 33 tests - BMP→PNG alpha baking
 │   ├── atlas-generator.test.ts              # 12 tests - Texture atlas generation
+│   ├── terrain-chunk-renderer.test.ts       # Server-side chunk rendering
 │   └── __tests__/rdo/
-│       └── building-operations.test.ts      # 30 tests - Building operations
+│       ├── building-operations.test.ts      # 30 tests - Building operations
+│       ├── login-flow.test.ts               # Login flow integration
+│       └── company-session.test.ts          # Company session integration
 ├── client/renderer/
 │   ├── *.test.ts                            # 153 tests - Road/concrete/terrain rendering
 │   ├── coordinate-mapper.test.ts            # 40 tests - Isometric projection + rotation
@@ -221,7 +233,7 @@ describe('Feature', () => {
 
 - **TypeScript strict mode** enabled
 - **Naming:** camelCase (variables/methods), PascalCase (classes/interfaces)
-- **No `any` types** - project has 0 `any` types
+- **Minimize `any` types** - use `unknown` for catch blocks, typed interfaces for data
 - **Error handling:** try-catch for async, logs with context
 - **Comments:** JSDoc for public API only
 
@@ -281,6 +293,7 @@ Optional detailed description
 | `facilities` | Building dimensions | update |
 | `textures` | Extract CAB textures | update |
 | `mapData` | Map data caching | update |
+| `terrainChunks` | Server-side terrain chunk pre-rendering | textures, mapData |
 
 ## Documentation
 
@@ -292,6 +305,7 @@ Optional detailed description
 | [doc/road_rendering.md](doc/road_rendering.md) | Road rendering API & overview |
 | [doc/road_rendering_reference.md](doc/road_rendering_reference.md) | Road rendering technical reference (reverse-engineered) |
 | [doc/concrete_rendering.md](doc/concrete_rendering.md) | Concrete texture system & water platforms |
+| [doc/ROAD-TEXTURE-MAPPING.md](doc/ROAD-TEXTURE-MAPPING.md) | Road texture mapping reference |
 | [doc/CANVAS2D-TEXTURE-SELECTION-ANALYSIS.md](doc/CANVAS2D-TEXTURE-SELECTION-ANALYSIS.md) | Canvas2D texture selection algorithm analysis |
 | [doc/CAB-EXTRACTION.md](doc/CAB-EXTRACTION.md) | CAB file extraction system & texture caching |
 
@@ -307,9 +321,10 @@ Optional detailed description
 
 ## Current Test Status
 
-- **Test Suites:** 21 total (19 passed, 2 pre-existing failures)
-- **Tests:** 668 passed, 10 failed (pre-existing), 17 skipped
-- **Pre-existing failures:** building-data-service, cab-extractor
+- **Test Suites:** 23 total (21 passed, 2 pre-existing failures)
+- **Tests:** ~750 total (721 passed, 10 failed pre-existing, 17 skipped)
+- **Pre-existing failures:** building-data-service, cab-extractor (legacy data format issues)
+- **Skipped tests:** 17 in facility-csv-parser.test.ts (backlog edge cases)
 - **Threshold:** 60% minimum
 
 ## E2E Testing with Playwright MCP

@@ -50,7 +50,7 @@ export class LoginUI {
   }
 
   /**
-   * Affiche le formulaire de login
+   * Display the login form
    */
   private renderLoginForm() {
     // Le bouton est maintenant dans le HTML (btn-connect)
@@ -120,7 +120,7 @@ export class LoginUI {
   }
 
   /**
-   * Affiche la liste des mondes disponibles
+   * Display the available worlds list
    */
   public renderWorldList(worlds: WorldInfo[]) {
     this.uiWorldList.innerHTML = '';
@@ -227,7 +227,7 @@ export class LoginUI {
 
 
   /**
-   * Affiche la sélection de compagnie (groupée par rôle)
+   * Display company selection (grouped by role)
    */
   public renderCompanySelection(companies: CompanyInfo[]) {
     // Hide world list section
@@ -305,7 +305,7 @@ export class LoginUI {
 
 
   /**
-   * Affiche une notification (toast simple)
+   * Display a notification (simple toast)
    */
   private showNotification(message: string, type: 'success' | 'error' | 'info' = 'info') {
     // TODO: integrate with global notification system
@@ -355,7 +355,7 @@ export class LoginUI {
   }
 
   /**
-   * Met à jour le statut de connexion
+   * Update the connection status
    */
   public setStatus(text: string, color: string) {
     const statusText = this.uiStatus.querySelector('span:last-child');

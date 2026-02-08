@@ -10,6 +10,7 @@
 
 export interface TouchCallbacks {
   onPan: (dx: number, dy: number) => void;
+  onPanEnd?: () => void; // Optional: called when pan gesture ends
   onZoom: (delta: number) => void;
   onRotate: (direction: 'cw' | 'ccw') => void;
   onDoubleTap: (x: number, y: number) => void;
@@ -148,6 +149,11 @@ export class TouchHandler2D {
     }
     if (this.activeTouches.size === 0) {
       this.isPanning = false;
+
+      // Notify that pan gesture has ended
+      if (this.callbacks.onPanEnd) {
+        this.callbacks.onPanEnd();
+      }
     } else if (this.activeTouches.size === 1) {
       // One finger lifted - switch back to pan mode
       this.isPanning = true;
