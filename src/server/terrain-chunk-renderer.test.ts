@@ -583,4 +583,79 @@ describe('TerrainChunkRenderer', () => {
     const success = renderer.generateChunkAllZooms('TestMap', 'NonExistent', 0, 0, 0);
     expect(success).toBe(false);
   });
+
+  describe('terrain preview generation', () => {
+    it('should generate a terrain preview PNG', async () => {
+      const renderer = createRenderer();
+      await renderer.initialize();
+
+      const preview = await renderer.getTerrainPreview('TestMap', 'Earth', 2);
+
+      expect(preview).not.toBeNull();
+      // Verify it's a valid PNG
+      expect(preview![0]).toBe(137); // PNG signature
+      expect(preview![1]).toBe(80);
+
+      // Decode and verify dimensions are reasonable for a 64×64 tile map
+      const decoded = decodePng(preview!);
+      expect(decoded.width).toBeGreaterThan(0);
+      expect(decoded.height).toBeGreaterThan(0);
+      // Z0 scale: 4px per tile unit, so preview should be small
+      expect(decoded.width).toBeLessThan(2000);
+      expect(decoded.height).toBeLessThan(2000);
+    });
+
+    it('should cache preview to disk', async () => {
+      const renderer = createRenderer();
+      await renderer.initialize();
+
+      await renderer.getTerrainPreview('TestMap', 'Earth', 2);
+
+      const cachePath = renderer.getPreviewCachePath('TestMap', 'Earth', 2);
+      expect(fs.existsSync(cachePath)).toBe(true);
+    });
+
+    it('should return cached preview on second call', async () => {
+      const renderer = createRenderer();
+      await renderer.initialize();
+
+      const first = await renderer.getTerrainPreview('TestMap', 'Earth', 2);
+      const second = await renderer.getTerrainPreview('TestMap', 'Earth', 2);
+
+      expect(first).not.toBeNull();
+      expect(second).not.toBeNull();
+      expect(first!.equals(second!)).toBe(true);
+    });
+
+    it('should return null for missing map', async () => {
+      const renderer = createRenderer();
+      await renderer.initialize();
+
+      const preview = await renderer.getTerrainPreview('NonExistent', 'Earth', 2);
+      expect(preview).toBeNull();
+    });
+
+    it('should return null for missing atlas', async () => {
+      const renderer = createRenderer();
+      await renderer.initialize();
+
+      const preview = await renderer.getTerrainPreview('TestMap', 'NonExistent', 0);
+      expect(preview).toBeNull();
+    });
+
+    it('should produce preview with non-transparent pixels', async () => {
+      const renderer = createRenderer();
+      await renderer.initialize();
+
+      const preview = await renderer.getTerrainPreview('TestMap', 'Earth', 2);
+      expect(preview).not.toBeNull();
+
+      const decoded = decodePng(preview!);
+      let nonTransparentCount = 0;
+      for (let i = 0; i < decoded.pixels.length; i += 4) {
+        if (decoded.pixels[i + 3] > 0) nonTransparentCount++;
+      }
+      expect(nonTransparentCount).toBeGreaterThan(0);
+    });
+  });
 });

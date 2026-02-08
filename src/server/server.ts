@@ -682,6 +682,50 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Terrain preview endpoint: /api/terrain-preview/:mapName/:terrainType/:season
+  // Returns a low-res PNG of the entire map at Z0 scale — used as instant backdrop
+  // while chunks stream in, eliminating blue triangle flicker at far zoom.
+  if (safePath.startsWith('/api/terrain-preview/')) {
+    const parts = safePath.substring('/api/terrain-preview/'.length).split('/');
+
+    if (parts.length < 3) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Expected: /api/terrain-preview/:mapName/:terrainType/:season' }));
+      return;
+    }
+
+    const mapName = decodeURIComponent(parts[0]);
+    const terrainType = decodeURIComponent(parts[1]);
+    const season = parseInt(parts[2].split('?')[0], 10);
+
+    if (isNaN(season) || season < 0 || season > 3) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid season (0-3)' }));
+      return;
+    }
+
+    try {
+      const previewPng = await terrainChunkRenderer().getTerrainPreview(mapName, terrainType, season);
+
+      if (!previewPng) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Preview not available' }));
+        return;
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=31536000'
+      });
+      res.end(previewPng);
+    } catch (error: unknown) {
+      console.error(`[TerrainPreview] Error generating preview:`, error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal server error' }));
+    }
+    return;
+  }
+
   // Terrain texture endpoint: /api/terrain-texture/:terrainType/:season/:paletteIndex
   // Season: 0=Winter, 1=Spring, 2=Summer, 3=Autumn
   // Example: /api/terrain-texture/Earth/2/128 (Summer, palette index 128)

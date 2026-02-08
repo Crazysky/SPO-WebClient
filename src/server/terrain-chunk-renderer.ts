@@ -739,6 +739,124 @@ export class TerrainChunkRenderer implements Service {
   }
 
   /**
+   * Generate a low-res preview PNG of the entire map at Z0 scale.
+   * Stitches all Z0 chunks into a single image. The result is small enough
+   * (~320×256 for a 1280×1024 tile map) to load instantly and use as a
+   * backdrop while chunks stream in — eliminating blue triangle flicker.
+   *
+   * Returns the PNG buffer, or null if data isn't available.
+   * Caches the result to disk for fast subsequent requests.
+   */
+  async getTerrainPreview(
+    mapName: string,
+    terrainType: string,
+    season: number
+  ): Promise<Buffer | null> {
+    // Check disk cache first
+    const cachePath = this.getPreviewCachePath(mapName, terrainType, season);
+    if (fs.existsSync(cachePath)) {
+      return fs.readFileSync(cachePath);
+    }
+
+    // Need map data for dimensions
+    if (!this.loadMapData(mapName)) return null;
+    const map = this.mapData.get(mapName)!;
+
+    const chunksI = Math.ceil(map.height / CHUNK_SIZE);
+    const chunksJ = Math.ceil(map.width / CHUNK_SIZE);
+
+    // Z0 chunk dimensions (260×130 at CHUNK_SIZE=32)
+    const z0U = 4;
+    const z0TileW = 8;
+    const z0TileH = 4;
+    const chunkW = z0U * (2 * CHUNK_SIZE - 1) + z0TileW;   // 260
+    const chunkH = (z0U / 2) * (2 * CHUNK_SIZE - 1) + z0TileH; // 130
+
+    // Calculate preview image dimensions using the isometric layout formula.
+    // Each chunk at Z0 occupies a diamond in screen space. We need to find the
+    // bounding box of all chunks to determine the full image size.
+    // Use the same getChunkScreenPosition formula as the client, with origin=(0,0).
+    // Screen position of chunk (ci, cj):
+    //   x = z0U * (mapHeight - ci*CHUNK_SIZE + cj*CHUNK_SIZE) - localOriginX
+    //   y = (z0U/2) * ((mapHeight - ci*CHUNK_SIZE) + (mapWidth - cj*CHUNK_SIZE)) - localOriginY
+    const localOriginX = z0U * CHUNK_SIZE; // getTileScreenPosInChunk(0,0) x
+    const localOriginY = (z0U / 2) * (CHUNK_SIZE + CHUNK_SIZE); // getTileScreenPosInChunk(0,0) y
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let ci = 0; ci < chunksI; ci++) {
+      for (let cj = 0; cj < chunksJ; cj++) {
+        const baseI = ci * CHUNK_SIZE;
+        const baseJ = cj * CHUNK_SIZE;
+        const sx = z0U * (map.height - baseI + baseJ) - localOriginX;
+        const sy = (z0U / 2) * ((map.height - baseI) + (map.width - baseJ)) - localOriginY;
+        minX = Math.min(minX, sx);
+        minY = Math.min(minY, sy);
+        maxX = Math.max(maxX, sx + chunkW);
+        maxY = Math.max(maxY, sy + chunkH);
+      }
+    }
+
+    const previewW = Math.ceil(maxX - minX);
+    const previewH = Math.ceil(maxY - minY);
+
+    if (previewW <= 0 || previewH <= 0 || previewW > 16384 || previewH > 16384) {
+      console.warn(`[TerrainChunkRenderer] Preview size out of range: ${previewW}×${previewH}`);
+      return null;
+    }
+
+    // Allocate RGBA buffer for the preview
+    const pixels = Buffer.alloc(previewW * previewH * 4, 0);
+
+    // Composite all Z0 chunks into the preview buffer
+    let composited = 0;
+    for (let ci = 0; ci < chunksI; ci++) {
+      for (let cj = 0; cj < chunksJ; cj++) {
+        // Get the Z0 chunk PNG (from cache or generate)
+        const chunkPng = await this.getChunk(mapName, terrainType, season, ci, cj, 0);
+        if (!chunkPng) continue;
+
+        // Decode the chunk PNG to RGBA
+        const decoded = decodePng(chunkPng);
+
+        // Calculate where this chunk goes in the preview
+        const baseI = ci * CHUNK_SIZE;
+        const baseJ = cj * CHUNK_SIZE;
+        const dstX = Math.round(z0U * (map.height - baseI + baseJ) - localOriginX - minX);
+        const dstY = Math.round((z0U / 2) * ((map.height - baseI) + (map.width - baseJ)) - localOriginY - minY);
+
+        // Blit chunk pixels with alpha blending
+        blitTileWithAlpha(
+          decoded.pixels, decoded.width,
+          0, 0, decoded.width, decoded.height,
+          pixels, previewW, previewH,
+          dstX, dstY
+        );
+        composited++;
+      }
+    }
+
+    if (composited === 0) return null;
+
+    // Encode and cache
+    const png = encodePng(previewW, previewH, pixels);
+    const dir = path.dirname(cachePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(cachePath, png);
+
+    console.log(`[TerrainChunkRenderer] Preview generated: ${mapName}/${season} ${previewW}×${previewH} (${(png.length / 1024).toFixed(0)} KB, ${composited} chunks)`);
+    return png;
+  }
+
+  /**
+   * Get disk cache path for a terrain preview PNG.
+   */
+  getPreviewCachePath(mapName: string, terrainType: string, season: number): string {
+    return path.join(this.cacheDir, 'chunks', mapName, terrainType, String(season), 'preview.png');
+  }
+
+  /**
    * Get loaded atlas count for monitoring.
    */
   getStats(): { atlasCount: number; mapCount: number; generatingCount: number; preGenerating: boolean } {

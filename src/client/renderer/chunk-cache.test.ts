@@ -273,6 +273,74 @@ describe('ChunkCache', () => {
     });
   });
 
+  describe('zoom-aware concurrency', () => {
+    it('should use higher concurrency for Z0 chunks (tiny 260×130px)', () => {
+      // Access the private method via prototype
+      const concurrency = (cache as any).getConcurrency(0);
+      expect(concurrency).toBe(16);
+    });
+
+    it('should use moderate concurrency for Z1 chunks', () => {
+      const concurrency = (cache as any).getConcurrency(1);
+      expect(concurrency).toBe(12);
+    });
+
+    it('should use standard concurrency for Z2/Z3 chunks', () => {
+      expect((cache as any).getConcurrency(2)).toBe(6);
+      expect((cache as any).getConcurrency(3)).toBe(6);
+    });
+  });
+
+  describe('debounced chunk-ready notification', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('should schedule notification instead of firing immediately', () => {
+      const callback = jest.fn();
+      cache.setOnChunkReady(callback);
+
+      // Directly invoke the private method
+      (cache as any).scheduleChunkReadyNotification();
+
+      // Should NOT fire immediately
+      expect(callback).not.toHaveBeenCalled();
+
+      // Should fire after debounce period
+      jest.advanceTimersByTime(80);
+      expect(callback).toHaveBeenCalledTimes(1);
+    });
+
+    it('should coalesce rapid notifications into one', () => {
+      const callback = jest.fn();
+      cache.setOnChunkReady(callback);
+
+      // Fire multiple rapid notifications
+      (cache as any).scheduleChunkReadyNotification();
+      (cache as any).scheduleChunkReadyNotification();
+      (cache as any).scheduleChunkReadyNotification();
+
+      // Still only one notification after debounce
+      jest.advanceTimersByTime(80);
+      expect(callback).toHaveBeenCalledTimes(1);
+    });
+
+    it('should cancel pending notification on clearAll', () => {
+      const callback = jest.fn();
+      cache.setOnChunkReady(callback);
+
+      (cache as any).scheduleChunkReadyNotification();
+      cache.clearAll();
+
+      jest.advanceTimersByTime(80);
+      expect(callback).not.toHaveBeenCalled();
+    });
+  });
+
   describe('stats tracking', () => {
     it('should track cache misses', () => {
       cache.getChunkSync(1, 1, 2);

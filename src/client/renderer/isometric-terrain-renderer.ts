@@ -63,6 +63,15 @@ export class IsometricTerrainRenderer {
   private loaded: boolean = false;
   private mapName: string = '';
 
+  // Z0 terrain preview — a single low-res image of the entire map used as an
+  // instant backdrop while chunks stream in (eliminates blue triangle flicker)
+  private terrainPreview: ImageBitmap | null = null;
+  private terrainPreviewLoading: boolean = false;
+  // Preview origin offset: the preview image's (0,0) corresponds to chunk (0,0)'s
+  // screen position. We store the world-space offset so we can position it correctly.
+  private previewOriginX: number = 0;
+  private previewOriginY: number = 0;
+
   // Available seasons for current terrain type (auto-detected from server)
   private availableSeasons: Season[] = [Season.WINTER, Season.SPRING, Season.SUMMER, Season.AUTUMN];
 
@@ -168,10 +177,70 @@ export class IsometricTerrainRenderer {
     this.mapName = mapName;
     this.loaded = true;
 
+    // Load terrain preview image (non-blocking — instant Z0 backdrop)
+    this.loadTerrainPreview(mapName, terrainType, this.season);
+
     // Render the loaded map
     this.render();
 
     return terrainData;
+  }
+
+  /**
+   * Load the terrain preview image — a single low-res image of the entire map.
+   * Used as an instant backdrop at Z0/Z1 while chunks stream in.
+   */
+  private async loadTerrainPreview(mapName: string, terrainType: string, season: number): Promise<void> {
+    if (this.terrainPreviewLoading) return;
+    this.terrainPreviewLoading = true;
+
+    try {
+      const url = `/api/terrain-preview/${encodeURIComponent(mapName)}/${encodeURIComponent(terrainType)}/${season}`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        console.log(`[IsometricRenderer] Terrain preview not available (${response.status})`);
+        return;
+      }
+
+      const blob = await response.blob();
+      this.terrainPreview = await createImageBitmap(blob);
+
+      // Calculate the preview origin offset using the same formula as Z0 chunk positioning.
+      // The preview image's top-left corresponds to the minimum screen position across all chunks.
+      // We compute this the same way the server does when stitching chunks.
+      const mapH = this.terrainLoader.getDimensions().height;
+      const mapW = this.terrainLoader.getDimensions().width;
+      const z0U = 4;
+      const chunkSize = 32; // CHUNK_SIZE
+      const localOriginX = z0U * chunkSize;
+      const localOriginY = (z0U / 2) * (chunkSize + chunkSize);
+
+      const chunksI = Math.ceil(mapH / chunkSize);
+      const chunksJ = Math.ceil(mapW / chunkSize);
+
+      let minX = Infinity, minY = Infinity;
+      for (let ci = 0; ci < chunksI; ci++) {
+        for (let cj = 0; cj < chunksJ; cj++) {
+          const baseI = ci * chunkSize;
+          const baseJ = cj * chunkSize;
+          const sx = z0U * (mapH - baseI + baseJ) - localOriginX;
+          const sy = (z0U / 2) * ((mapH - baseI) + (mapW - baseJ)) - localOriginY;
+          minX = Math.min(minX, sx);
+          minY = Math.min(minY, sy);
+        }
+      }
+
+      this.previewOriginX = minX;
+      this.previewOriginY = minY;
+
+      console.log(`[IsometricRenderer] Terrain preview loaded: ${this.terrainPreview.width}×${this.terrainPreview.height}`);
+      this.requestRender();
+    } catch (error) {
+      console.warn('[IsometricRenderer] Failed to load terrain preview:', error);
+    } finally {
+      this.terrainPreviewLoading = false;
+    }
   }
 
   /**
@@ -322,7 +391,8 @@ export class IsometricTerrainRenderer {
 
   /**
    * Chunk-based terrain rendering (fast path)
-   * Renders pre-cached chunks instead of individual tiles
+   * Renders pre-cached chunks instead of individual tiles.
+   * At Z0/Z1, draws the terrain preview image as an instant backdrop while chunks load.
    */
   private renderTerrainLayerChunked(bounds: TileBounds): number {
     if (!this.chunkCache) return 0;
@@ -330,6 +400,12 @@ export class IsometricTerrainRenderer {
     const ctx = this.ctx;
     const canvasWidth = this.canvas.width;
     const canvasHeight = this.canvas.height;
+
+    // At Z0/Z1, draw the terrain preview as a base layer before chunks.
+    // This provides an instant visual while chunks stream in (no blue triangles).
+    if (this.terrainPreview && this.zoomLevel <= 1) {
+      this.drawTerrainPreview(ctx);
+    }
 
     // Get visible chunk range from tile bounds (O(1) instead of O(N²))
     const visibleChunks = this.chunkCache.getVisibleChunksFromBounds(bounds);
@@ -367,8 +443,10 @@ export class IsometricTerrainRenderer {
         if (drawn) {
           chunksDrawn++;
           tilesRendered += CHUNK_SIZE * CHUNK_SIZE;
-        } else {
+        } else if (this.zoomLevel >= 2) {
           // Chunk not ready - render individual tiles for this chunk
+          // Skip at Z0/Z1: tiles are 8×4 / 16×8 px — fallback diamonds are invisible
+          // and cost ~1024 fill ops per chunk (up to 65K total at Z0)
           tilesRendered += this.renderChunkTilesFallback(ci, cj);
         }
       }
@@ -430,6 +508,27 @@ export class IsometricTerrainRenderer {
     }
 
     return tilesRendered;
+  }
+
+  /**
+   * Draw the terrain preview image as a backdrop.
+   * The preview is a single image of the entire map at Z0 scale, positioned
+   * using the same isometric projection as chunks. At Z1 we scale it 2×.
+   */
+  private drawTerrainPreview(ctx: CanvasRenderingContext2D): void {
+    if (!this.terrainPreview) return;
+
+    // The preview was generated at Z0 scale. At Z1, scale it 2×.
+    const scale = this.zoomLevel === 0 ? 1 : 2;
+
+    // Position: the preview's (0,0) in world-space is at (previewOriginX, previewOriginY).
+    // Apply the camera origin offset to get screen coordinates.
+    const drawX = (this.previewOriginX * scale) - this.origin.x;
+    const drawY = (this.previewOriginY * scale) - this.origin.y;
+    const drawW = this.terrainPreview.width * scale;
+    const drawH = this.terrainPreview.height * scale;
+
+    ctx.drawImage(this.terrainPreview, drawX, drawY, drawW, drawH);
   }
 
   /**
