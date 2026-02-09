@@ -44,7 +44,7 @@ import {
   roadBlockId,
   detectSmoothCorner,
   isJunctionTopology,
-  getConnectedDirections,
+
   isBridge,
   ROAD_TYPE,
   LandClass,
@@ -431,6 +431,11 @@ export class IsometricMapRenderer {
   private debugShowTileInfo: boolean = true;
   private debugShowBuildingInfo: boolean = true;
   private debugShowConcreteInfo: boolean = true;
+  private debugShowRoadInfo: boolean = false;
+  private debugShowWaterGrid: boolean = false;
+
+  // Debug: track why each concrete tile was added (building buffer / junction 3×3)
+  private debugConcreteSourceMap: Map<string, 'building' | 'junction'> = new Map();
 
   // Touch handler for mobile
   private touchHandler: TouchHandler2D | null = null;
@@ -552,6 +557,16 @@ export class IsometricMapRenderer {
       // '3' toggles concrete info in debug mode
       if (e.key === '3' && this.debugMode) {
         this.debugShowConcreteInfo = !this.debugShowConcreteInfo;
+        this.requestRender();
+      }
+      // '4' toggles water concrete grid in debug mode
+      if (e.key === '4' && this.debugMode) {
+        this.debugShowWaterGrid = !this.debugShowWaterGrid;
+        this.requestRender();
+      }
+      // '5' toggles road info in debug mode
+      if (e.key === '5' && this.debugMode) {
+        this.debugShowRoadInfo = !this.debugShowRoadInfo;
         this.requestRender();
       }
     });
@@ -973,6 +988,7 @@ export class IsometricMapRenderer {
     // 2. Water road junctions (corners, T, crossroads) + their adjacent connected road tiles
     // On water (ZoneD), only place concrete on deep water (Center) tiles — skip edges/corners
     this.concreteTilesSet.clear();
+    this.debugConcreteSourceMap.clear();
     const terrainLoaderForConcrete = this.terrainRenderer.getTerrainLoader();
     for (const building of this.allBuildings) {
       const dims = this.facilityDimensionsCache.get(building.visualClass);
@@ -987,23 +1003,18 @@ export class IsometricMapRenderer {
             const landId = terrainLoaderForConcrete.getLandId(x, y);
             if (!canReceiveConcrete(landId)) continue;
           }
-          this.concreteTilesSet.add(`${x},${y}`);
+          const key = `${x},${y}`;
+          this.concreteTilesSet.add(key);
+          this.debugConcreteSourceMap.set(key, 'building');
         }
       }
     }
-
-    // Add concrete under road tiles on water adjacent to building concrete
-    this.addWaterRoadNearBuildingConcrete(terrainLoaderForConcrete);
 
     // Add concrete platforms around water road junctions (corners, T, crossroads)
     // Bridge textures don't support these topologies, so they need a concrete platform
     // with regular road textures. Also adds concrete to the one adjacent tile in each
     // connected direction (transition from bridge to platform road).
     this.addWaterRoadJunctionConcrete(terrainLoaderForConcrete);
-
-    // Final pass: ensure every non-bridge road tile on water has a 1-tile concrete border
-    // for proper platform edge textures (platN, platSE, etc.)
-    this.expandWaterRoadConcreteBorders(terrainLoaderForConcrete);
 
     // Update vegetation→flat zones (used by drawVegetation to hide vegetation near buildings/roads)
     this.vegetationMapper.updateDynamicContent(
@@ -1150,6 +1161,7 @@ export class IsometricMapRenderer {
    */
   private rebuildConcreteSet(): void {
     this.concreteTilesSet.clear();
+    this.debugConcreteSourceMap.clear();
     const terrainLoader = this.terrainRenderer.getTerrainLoader();
     for (const building of this.allBuildings) {
       const dims = this.facilityDimensionsCache.get(building.visualClass);
@@ -1163,16 +1175,14 @@ export class IsometricMapRenderer {
             const landId = terrainLoader.getLandId(x, y);
             if (!canReceiveConcrete(landId)) continue;
           }
-          this.concreteTilesSet.add(`${x},${y}`);
+          const key = `${x},${y}`;
+          this.concreteTilesSet.add(key);
+          this.debugConcreteSourceMap.set(key, 'building');
         }
       }
     }
-    // Add concrete under road tiles on water adjacent to building concrete
-    this.addWaterRoadNearBuildingConcrete(terrainLoader);
     // Also add concrete around water road junctions
     this.addWaterRoadJunctionConcrete(terrainLoader);
-    // Final pass: 1-tile border around all platform road tiles on water
-    this.expandWaterRoadConcreteBorders(terrainLoader);
   }
 
   /**
@@ -1182,146 +1192,39 @@ export class IsometricMapRenderer {
    * Corners, T-intersections, and crossroads CANNOT use bridge textures — they need
    * a concrete platform with regular urban road textures.
    *
-   * For each junction tile on water:
-   * 1. The junction tile itself gets concrete (+ 1-tile border for platform edges)
-   * 2. Each adjacent connected road tile also gets concrete (bridge→road transition)
-   *    This is the "one tile before" rule: the straight road segment immediately
-   *    adjacent to a junction transitions from bridge to platform road.
+   * For each junction tile on water, add a 3×3 concrete area:
+   * - The junction tile itself
+   * - All 8 neighbors (includes connected road tiles at +1 AND border tiles)
+   * Roads at +2 and beyond remain bridges (outside the 3×3).
    */
   private addWaterRoadJunctionConcrete(terrainLoader: ReturnType<typeof this.terrainRenderer.getTerrainLoader>): void {
     if (!this.roadsRendering || !terrainLoader) return;
 
-    // Helper: add concrete tile if it passes the water filter
-    const addConcreteTile = (x: number, y: number) => {
-      const landId = terrainLoader.getLandId(x, y);
-      if (canReceiveConcrete(landId)) {
-        this.concreteTilesSet.add(`${x},${y}`);
-      }
-    };
-
-    // Helper: add concrete for a tile and its 1-tile border (platform edges)
-    const addConcreteWithBorder = (cx: number, cy: number) => {
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          addConcreteTile(cx + dx, cy + dy);
-        }
-      }
-    };
-
-    // Scan all road tiles for junctions on water
     for (const [key] of this.roadTilesMap) {
       const [xStr, yStr] = key.split(',');
       const x = parseInt(xStr, 10);
       const y = parseInt(yStr, 10);
 
-      // Get topology from rendered roads
       const topology = this.roadsRendering.get(y, x);
       if (topology === RoadBlockId.None) continue;
-
-      // Only process junction topologies (corners, T, crossroads)
       if (!isJunctionTopology(topology)) continue;
 
-      // Only process tiles on water
       const landId = terrainLoader.getLandId(x, y);
       if (!isWater(landId)) continue;
 
-      // Skip if already on building concrete (already handled)
-      if (this.concreteTilesSet.has(key)) continue;
-
-      // Add concrete platform around the junction tile
-      addConcreteWithBorder(x, y);
-
-      // Add concrete for adjacent connected road tiles (bridge→road transition)
-      const dirs = getConnectedDirections(topology);
-      for (const [di, dj] of dirs) {
-        const adjX = x + dj;  // col offset
-        const adjY = y + di;  // row offset
-        // Only add if it's also a road tile on water
-        if (this.roadTilesMap.has(`${adjX},${adjY}`)) {
-          const adjLandId = terrainLoader.getLandId(adjX, adjY);
-          if (isWater(adjLandId)) {
-            addConcreteWithBorder(adjX, adjY);
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * Add concrete under road tiles on water that are adjacent to water-side building concrete.
-   * Only extends when the neighboring concrete is also on water (not land→water transitions).
-   * Does NOT add a border — just the road tile itself (max distance from road = 0).
-   */
-  private addWaterRoadNearBuildingConcrete(terrainLoader: ReturnType<typeof this.terrainRenderer.getTerrainLoader>): void {
-    if (!terrainLoader) return;
-
-    // Snapshot current concrete set (building buffer only at this point)
-    const buildingConcreteSnapshot = new Set(this.concreteTilesSet);
-
-    for (const [key] of this.roadTilesMap) {
-      const [xStr, yStr] = key.split(',');
-      const x = parseInt(xStr, 10);
-      const y = parseInt(yStr, 10);
-
-      // Only process road tiles on water
-      const landId = terrainLoader.getLandId(x, y);
-      if (!isWater(landId)) continue;
-
-      // Already has concrete from building buffer
-      if (this.concreteTilesSet.has(key)) continue;
-
-      // Check if any of the 8 neighbors is in the building concrete set AND on water
-      // Skip land-side concrete to avoid placing platforms at land→water transitions
-      let nearWaterBuilding = false;
-      for (let dy = -1; dy <= 1 && !nearWaterBuilding; dy++) {
-        for (let dx = -1; dx <= 1 && !nearWaterBuilding; dx++) {
-          if (dx === 0 && dy === 0) continue;
-          const nx = x + dx;
-          const ny = y + dy;
-          if (buildingConcreteSnapshot.has(`${nx},${ny}`) && isWater(terrainLoader.getLandId(nx, ny))) {
-            nearWaterBuilding = true;
-          }
-        }
-      }
-
-      if (nearWaterBuilding) {
-        if (canReceiveConcrete(landId)) {
-          this.concreteTilesSet.add(key);
-        }
-      }
-    }
-  }
-
-  /**
-   * Final expansion pass: every road tile on water that already has concrete (= platform road)
-   * gets a 1-tile concrete border for proper platform edge texture rendering.
-   * Uses a snapshot to avoid cascading — only expands from road tiles, not from newly added edges.
-   */
-  private expandWaterRoadConcreteBorders(terrainLoader: ReturnType<typeof this.terrainRenderer.getTerrainLoader>): void {
-    if (!terrainLoader) return;
-
-    // Snapshot: only expand from road tiles that already have concrete
-    const snapshot = new Set(this.concreteTilesSet);
-
-    for (const [key] of this.roadTilesMap) {
-      // Only road tiles that have concrete (= platform roads, not bridges)
-      if (!snapshot.has(key)) continue;
-
-      const [xStr, yStr] = key.split(',');
-      const x = parseInt(xStr, 10);
-      const y = parseInt(yStr, 10);
-
-      // Only expand on water tiles
-      if (!isWater(terrainLoader.getLandId(x, y))) continue;
-
-      // Add 1-tile border around this road tile
+      // Add 3×3 area around junction (junction + 8 neighbors)
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
           const nx = x + dx;
           const ny = y + dy;
           const nLandId = terrainLoader.getLandId(nx, ny);
           if (canReceiveConcrete(nLandId)) {
-            this.concreteTilesSet.add(`${nx},${ny}`);
+            const nKey = `${nx},${ny}`;
+            this.concreteTilesSet.add(nKey);
+            // Only set source if not already set (building has priority)
+            if (!this.debugConcreteSourceMap.has(nKey)) {
+              this.debugConcreteSourceMap.set(nKey, 'junction');
+            }
           }
         }
       }
@@ -1774,7 +1677,6 @@ export class IsometricMapRenderer {
 
     const ctx = this.ctx;
     const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
-    const halfWidth = config.tileWidth / 2;
     const terrainLoader = this.terrainRenderer.getTerrainLoader();
 
     // Create map data adapter for concrete calculations
@@ -1822,53 +1724,112 @@ export class IsometricMapRenderer {
     // Painter's algorithm: higher (i+j) drawn first, lower drawn last (on top)
     concreteTiles.sort(painterSort);
 
-    // Platform elevation: water platforms float above water surface
     const scaleFactor = config.tileWidth / 64;
-    const platformYShift = Math.round(PLATFORM_SHIFT * scaleFactor);
+
+    // Debug: collect texture bounding boxes for overlay
+    const debugBoxes: Array<{
+      drawX: number; drawY: number; w: number; h: number;
+      screenX: number; screenY: number;
+      concreteId: number; texW: number; texH: number;
+      isPlatform: boolean;
+    }> = [];
+    const collectDebug = this.debugMode && this.debugShowWaterGrid;
 
     // Draw sorted concrete tiles
     for (const tile of concreteTiles) {
       const isWaterPlatform = (tile.concreteId & 0x80) !== 0;
-      const drawY = isWaterPlatform ? tile.screenY - platformYShift : tile.screenY;
 
       // Get texture filename from class manager
       const filename = this.concreteBlockClassManager.getImageFilename(tile.concreteId);
       if (filename) {
-        // Try atlas first (single large image with source rectangles)
+        // Resolve texture dimensions from atlas or individual texture
+        let texW = 0, texH = 0;
         const atlasRect = this.gameObjectTextureCache.getAtlasRect('ConcreteImages', filename);
         if (atlasRect) {
-          if (isWaterPlatform) {
-            ctx.drawImage(
-              atlasRect.atlas,
-              atlasRect.sx, atlasRect.sy, atlasRect.sw, atlasRect.sh,
-              tile.screenX - atlasRect.sw / 2, drawY,
-              atlasRect.sw, atlasRect.sh
-            );
-          } else {
-            ctx.drawImage(
-              atlasRect.atlas,
-              atlasRect.sx, atlasRect.sy, atlasRect.sw, atlasRect.sh,
-              tile.screenX - halfWidth, drawY,
-              config.tileWidth, config.tileHeight
-            );
+          texW = atlasRect.sw;
+          texH = atlasRect.sh;
+        } else {
+          const texture = this.gameObjectTextureCache.getTextureSync('ConcreteImages', filename);
+          if (texture) {
+            texW = texture.width;
+            texH = texture.height;
           }
-          continue;
         }
 
-        // Fallback: individual texture
-        const texture = this.gameObjectTextureCache.getTextureSync('ConcreteImages', filename);
-        if (texture) {
-          if (isWaterPlatform) {
-            ctx.drawImage(texture, tile.screenX - texture.width / 2, drawY);
+        if (texW > 0) {
+          // Scale to current zoom and center horizontally on tile top vertex
+          const scaledWidth = Math.round(texW * scaleFactor);
+          const scaledHeight = Math.round(texH * scaleFactor);
+          const drawX = tile.screenX - scaledWidth / 2;
+
+          // Position texture so its isometric diamond aligns with the tile.
+          // Standard 32px textures: diamond at row 0 → drawY = screenY (no offset).
+          // Platform 80px textures: diamond top vertex at row 30 (constant across
+          // all platform textures — verified from platC/N/S/E/W/NE/NW/SE/SW BMPs).
+          // Edge textures (N/E/W) have wall content starting at row 24 that extends
+          // above the diamond; foundation extends below from row 62.
+          const PLATFORM_DIAMOND_TOP = 30;
+          const yOffset = isWaterPlatform && scaledHeight > config.tileHeight
+            ? Math.round(PLATFORM_DIAMOND_TOP * scaleFactor)
+            : (scaledHeight - config.tileHeight);
+          const drawY = tile.screenY - yOffset;
+
+          if (atlasRect) {
+            ctx.drawImage(
+              atlasRect.atlas,
+              atlasRect.sx, atlasRect.sy, atlasRect.sw, atlasRect.sh,
+              drawX, drawY,
+              scaledWidth, scaledHeight
+            );
           } else {
-            ctx.drawImage(texture, tile.screenX - halfWidth, drawY, config.tileWidth, config.tileHeight);
+            const texture = this.gameObjectTextureCache.getTextureSync('ConcreteImages', filename)!;
+            ctx.drawImage(texture, drawX, drawY, scaledWidth, scaledHeight);
+          }
+
+          if (collectDebug) {
+            debugBoxes.push({ drawX, drawY, w: scaledWidth, h: scaledHeight,
+              screenX: tile.screenX, screenY: tile.screenY,
+              concreteId: tile.concreteId, texW, texH,
+              isPlatform: isWaterPlatform });
           }
           continue;
         }
       }
 
       // Fallback: draw debug colored tile if texture not available
-      this.drawDebugConcreteTile(ctx, tile.screenX, drawY, tile.concreteId, config);
+      this.drawDebugConcreteTile(ctx, tile.screenX, tile.screenY, tile.concreteId, config);
+    }
+
+    // Debug overlay: draw texture bounding boxes on top of concrete
+    if (collectDebug && debugBoxes.length > 0) {
+      ctx.save();
+      ctx.lineWidth = 1;
+      const zoomLevel = this.terrainRenderer.getZoomLevel();
+      const showLabels = zoomLevel >= 2;
+
+      for (const box of debugBoxes) {
+        // Bounding box outline: magenta for platform, cyan for land
+        ctx.strokeStyle = box.isPlatform ? '#ff00ff' : '#00ffff';
+        ctx.strokeRect(box.drawX, box.drawY, box.w, box.h);
+
+        // Crosshair at tile screen center (where mapToScreen points)
+        ctx.strokeStyle = '#ff0000';
+        ctx.beginPath();
+        ctx.moveTo(box.screenX - 3, box.screenY);
+        ctx.lineTo(box.screenX + 3, box.screenY);
+        ctx.moveTo(box.screenX, box.screenY - 3);
+        ctx.lineTo(box.screenX, box.screenY + 3);
+        ctx.stroke();
+
+        // Label: concrete ID + original texture dims
+        if (showLabels) {
+          const label = `$${box.concreteId.toString(16).toUpperCase()} ${box.texW}x${box.texH}`;
+          ctx.font = '9px monospace';
+          ctx.fillStyle = box.isPlatform ? '#ff00ff' : '#00ffff';
+          ctx.fillText(label, box.drawX + 1, box.drawY + 9);
+        }
+      }
+      ctx.restore();
     }
   }
 
@@ -2812,129 +2773,226 @@ export class IsometricMapRenderer {
   }
 
   /**
-   * Draw debug overlay showing tile and road metadata
+   * Draw water concrete debug grid overlay.
+   * Shows isometric diamond outlines for every concrete tile on water, color-coded by source:
+   *   Green  = building buffer (+1 around buildings)
+   *   Blue   = junction 3×3 (corners, T, crossroads on water)
+   * Road tiles on water with concrete get an orange outline.
+   * Labels show (x,y) coordinates and concreteId hex.
+   */
+  private drawWaterConcreteGrid(bounds: TileBounds) {
+    const ctx = this.ctx;
+    const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
+    const halfWidth = config.tileWidth / 2;
+    const halfHeight = config.tileHeight / 2;
+    const terrainLoader = this.terrainRenderer.getTerrainLoader();
+    const scaleFactor = config.tileWidth / 64;
+    const platformYShift = Math.round(PLATFORM_SHIFT * scaleFactor);
+
+    const mapData: ConcreteMapData = {
+      getLandId: (row, col) => terrainLoader ? terrainLoader.getLandId(col, row) : 0,
+      hasConcrete: (row, col) => this.hasConcrete(col, row),
+      hasRoad: (row, col) => this.roadTilesMap.has(`${col},${row}`),
+      hasBuilding: (row, col) => this.isTileOccupiedByBuilding(col, row)
+    };
+
+    const sourceColors: Record<string, string> = {
+      building: '#00ff00',   // Green
+      junction: '#4488ff',   // Blue
+    };
+
+    const sourceFills: Record<string, string> = {
+      building: 'rgba(0, 255, 0, 0.15)',
+      junction: 'rgba(68, 136, 255, 0.15)',
+    };
+
+    ctx.save();
+
+    for (let i = bounds.minI; i <= bounds.maxI; i++) {
+      for (let j = bounds.minJ; j <= bounds.maxJ; j++) {
+        const key = `${j},${i}`;
+        if (!this.concreteTilesSet.has(key)) continue;
+
+        // Only show water tiles in this grid
+        const landId = terrainLoader ? terrainLoader.getLandId(j, i) : 0;
+        if (!isWater(landId)) continue;
+
+        const screenPos = this.terrainRenderer.mapToScreen(i, j);
+
+        // Skip if off-screen
+        if (screenPos.x < -50 || screenPos.x > this.canvas.width + 50 ||
+            screenPos.y < -50 || screenPos.y > this.canvas.height + 50) {
+          continue;
+        }
+
+        const isRoadTile = this.roadTilesMap.has(key);
+        const source = this.debugConcreteSourceMap.get(key) || 'junction';
+
+        // Apply platform Y shift (same as drawConcrete)
+        const drawY = screenPos.y - platformYShift;
+
+        // Draw isometric diamond outline
+        ctx.beginPath();
+        ctx.moveTo(screenPos.x, drawY);                              // top
+        ctx.lineTo(screenPos.x - halfWidth, drawY + halfHeight);     // left
+        ctx.lineTo(screenPos.x, drawY + config.tileHeight);          // bottom
+        ctx.lineTo(screenPos.x + halfWidth, drawY + halfHeight);     // right
+        ctx.closePath();
+
+        // Fill with semi-transparent source color
+        if (isRoadTile) {
+          ctx.fillStyle = 'rgba(255, 136, 0, 0.12)';
+        } else {
+          ctx.fillStyle = sourceFills[source] || 'rgba(255, 255, 255, 0.1)';
+        }
+        ctx.fill();
+
+        // Stroke outline
+        if (isRoadTile) {
+          ctx.strokeStyle = '#ff8800';  // Orange for road tiles
+          ctx.lineWidth = 2;
+        } else {
+          ctx.strokeStyle = sourceColors[source] || '#ffffff';
+          ctx.lineWidth = 1.5;
+        }
+        ctx.stroke();
+
+        // Label: coordinates + concrete ID (only at Z2+ for readability)
+        if (config.tileWidth >= 32) {
+          const concreteId = getConcreteId(i, j, mapData);
+          const idHex = concreteId !== CONCRETE_NONE
+            ? concreteId.toString(16).toUpperCase().padStart(2, '0')
+            : '--';
+
+          ctx.font = '8px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = isRoadTile ? '#ff8800' : (sourceColors[source] || '#ffffff');
+          ctx.fillText(`${j},${i}`, screenPos.x, drawY + halfHeight - 2);
+          ctx.fillText(`$${idHex}`, screenPos.x, drawY + halfHeight + 8);
+
+          // Mark road tiles with 'R' and bridges with 'X'
+          if (isRoadTile) {
+            const topology = this.roadsRendering ? this.roadsRendering.get(i, j) : RoadBlockId.None;
+            const fullRbId = roadBlockId(topology, landId, this.hasConcrete(j, i), false, false);
+            const bridgeFlag = isBridge(fullRbId);
+            ctx.fillStyle = bridgeFlag ? '#ff4444' : '#ff8800';
+            ctx.fillText(bridgeFlag ? 'X' : 'R', screenPos.x, drawY + halfHeight + 18);
+          }
+        }
+      }
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Draw debug overlay showing tile metadata across the full screen.
+   * Optimized for screenshot analysis by sub-agents:
+   * - Every visible tile gets labeled (no mouse-radius limitation)
+   * - Compact labels: land type + concrete ID + road status per tile
+   * - High-contrast colors on dark backgrounds for OCR readability
+   * - Static legend (no mouse-dependent data that changes between captures)
    */
   private drawDebugOverlay(bounds: TileBounds) {
     const ctx = this.ctx;
     const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
     const terrainLoader = this.terrainRenderer.getTerrainLoader();
+    const halfWidth = config.tileWidth / 2;
+    const halfHeight = config.tileHeight / 2;
+    const scaleFactor = config.tileWidth / 64;
+    const platformYShift = Math.round(PLATFORM_SHIFT * scaleFactor);
 
-    // Only show detailed info for hovered tile area
-    const hoverRadius = 2; // Show info for 2 tiles around mouse
-    const centerI = this.mouseMapI;
-    const centerJ = this.mouseMapJ;
+    // Draw water concrete grid overlay (color-coded diamonds)
+    if (this.debugShowWaterGrid) {
+      this.drawWaterConcreteGrid(bounds);
+    }
 
-    // Draw debug info panel at top-left
-    this.drawDebugPanel(ctx);
+    // Build mapData adapter once for the whole pass
+    const mapData: ConcreteMapData = {
+      getLandId: (row, col) => terrainLoader ? terrainLoader.getLandId(col, row) : 0,
+      hasConcrete: (row, col) => this.hasConcrete(col, row),
+      hasRoad: (row, col) => this.roadTilesMap.has(`${col},${row}`),
+      hasBuilding: (row, col) => this.isTileOccupiedByBuilding(col, row)
+    };
 
-    // Draw tile metadata for tiles near mouse
-    if (this.debugShowTileInfo || this.debugShowRoadInfo) {
-      for (let i = centerI - hoverRadius; i <= centerI + hoverRadius; i++) {
-        for (let j = centerJ - hoverRadius; j <= centerJ + hoverRadius; j++) {
+    // Full-screen tile labels
+    const showLabels = this.debugShowTileInfo || this.debugShowRoadInfo || this.debugShowConcreteInfo;
+    if (showLabels) {
+      ctx.save();
+      ctx.font = config.tileWidth >= 32 ? '8px monospace' : '6px monospace';
+      ctx.textAlign = 'center';
+
+      for (let i = bounds.minI; i <= bounds.maxI; i++) {
+        for (let j = bounds.minJ; j <= bounds.maxJ; j++) {
           const screenPos = this.terrainRenderer.mapToScreen(i, j);
 
           // Skip if off-screen
-          if (screenPos.x < -100 || screenPos.x > this.canvas.width + 100 ||
-              screenPos.y < -100 || screenPos.y > this.canvas.height + 100) {
+          if (screenPos.x < -50 || screenPos.x > this.canvas.width + 50 ||
+              screenPos.y < -50 || screenPos.y > this.canvas.height + 50) {
             continue;
           }
 
-          const landId = terrainLoader.getLandId(j, i);
+          const key = `${j},${i}`;
+          const landId = terrainLoader ? terrainLoader.getLandId(j, i) : 0;
           const decoded = decodeLandId(landId);
-          const hasRoad = this.roadTilesMap.has(`${j},${i}`);
-          const isCenter = (i === centerI && j === centerJ);
+          const hasRoad = this.roadTilesMap.has(key);
+          const hasConcrete = this.concreteTilesSet.has(key);
+          const onWater = decoded.isWater;
 
-          // Highlight center tile
-          if (isCenter) {
-            const halfWidth = config.tileWidth / 2;
-            const halfHeight = config.tileHeight / 2;
+          // Skip empty tiles (no road, no concrete, no water) to reduce clutter
+          if (!hasRoad && !hasConcrete && !onWater && this.debugShowConcreteInfo) continue;
 
-            ctx.beginPath();
-            ctx.moveTo(screenPos.x, screenPos.y);
-            ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
-            ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
-            ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
-            ctx.closePath();
+          // Y position: shift up for water platforms
+          const isWaterPlatform = hasConcrete && onWater;
+          const baseY = isWaterPlatform ? screenPos.y - platformYShift : screenPos.y;
+          let labelY = baseY + halfHeight;
 
-            ctx.strokeStyle = '#ffff00';
-            ctx.lineWidth = 3;
-            ctx.stroke();
-          }
-
-          // Draw tile coordinates
-          ctx.font = '9px monospace';
-          ctx.textAlign = 'center';
-
+          // Line 1: tile coordinates (always shown when debugShowTileInfo)
           if (this.debugShowTileInfo) {
-            // Draw landId info
             const landClassChar = ['G', 'M', 'D', 'W'][decoded.landClass] || '?';
-            const landTypeChar = decoded.landType.toString(16).toUpperCase();
-
-            ctx.fillStyle = decoded.isWater ? '#00ffff' : '#ffffff';
-            ctx.fillText(`${landClassChar}${landTypeChar}`, screenPos.x, screenPos.y + config.tileHeight / 2 - 4);
-
-            // Show hex value for center tile
-            if (isCenter) {
-              ctx.fillStyle = '#ffff00';
-              ctx.fillText(`0x${landId.toString(16).toUpperCase().padStart(2, '0')}`, screenPos.x, screenPos.y + config.tileHeight / 2 + 8);
-            }
+            ctx.fillStyle = onWater ? '#00ffff' : 'rgba(255,255,255,0.6)';
+            ctx.fillText(`${j},${i} ${landClassChar}`, screenPos.x, labelY - 4);
           }
 
-          if (this.debugShowRoadInfo && hasRoad && this.roadsRendering) {
-            const topology = this.roadsRendering.get(i, j);
-            const fullRoadBlockId = roadBlockId(
-              topology,
-              landId,
-              this.isOnConcrete(j, i),
-              false,
-              false
-            );
-
-            // Show road block ID
-            ctx.fillStyle = '#ff8800';
-            const roadIdStr = `R:${fullRoadBlockId.toString(16).toUpperCase()}`;
-            ctx.fillText(roadIdStr, screenPos.x, screenPos.y + config.tileHeight / 2 + 20);
-          }
-
-          // Show concrete info on tiles
-          if (this.debugShowConcreteInfo && this.hasConcrete(j, i)) {
-            const mapData: ConcreteMapData = {
-              getLandId: (row, col) => terrainLoader.getLandId(col, row),
-              hasConcrete: (row, col) => this.hasConcrete(col, row),
-              hasRoad: (row, col) => this.roadTilesMap.has(`${col},${row}`),
-              hasBuilding: (row, col) => this.isTileOccupiedByBuilding(col, row)
-            };
-
+          // Line 2: concrete ID (when tile has concrete and debugShowConcreteInfo)
+          if (this.debugShowConcreteInfo && hasConcrete) {
             const concreteId = getConcreteId(i, j, mapData);
             if (concreteId !== CONCRETE_NONE) {
               const isPlatform = (concreteId & 0x80) !== 0;
-
-              // Show concrete ID with color coding
               ctx.fillStyle = isPlatform ? '#00ccff' : '#cc88ff';
-              const concreteIdStr = `C:${concreteId.toString(16).toUpperCase().padStart(2, '0')}`;
-              ctx.fillText(concreteIdStr, screenPos.x, screenPos.y + config.tileHeight / 2 + (hasRoad ? 32 : 20));
-
-              // For center tile, show texture filename and debug info
-              if (isCenter) {
-                const filename = this.concreteBlockClassManager.getImageFilename(concreteId);
-                const hasClass = this.concreteBlockClassManager.hasClass(concreteId);
-
-                // Log to console for debugging
-                console.log(`[TileDebug] Center tile (${i},${j}): concreteId=0x${concreteId.toString(16)} (${concreteId}), hasClass=${hasClass}, filename=${filename}`);
-
-                if (filename) {
-                  ctx.fillStyle = '#00ff00';
-                  ctx.fillText(filename, screenPos.x, screenPos.y + config.tileHeight / 2 + (hasRoad ? 44 : 32));
-                } else {
-                  ctx.fillStyle = '#ff0000';
-                  ctx.fillText(`NO TEX:${concreteId}`, screenPos.x, screenPos.y + config.tileHeight / 2 + (hasRoad ? 44 : 32));
-                }
-              }
+              ctx.fillText(`$${concreteId.toString(16).toUpperCase().padStart(2, '0')}`, screenPos.x, labelY + 6);
             }
+          }
+
+          // Line 3: road info (when tile has road and debugShowRoadInfo)
+          if (this.debugShowRoadInfo && hasRoad && this.roadsRendering) {
+            const topology = this.roadsRendering.get(i, j);
+            const fullRbId = roadBlockId(topology, landId, this.isOnConcrete(j, i), false, false);
+            const bridgeFlag = isBridge(fullRbId);
+            ctx.fillStyle = bridgeFlag ? '#ff4444' : '#ff8800';
+            ctx.fillText(bridgeFlag ? `X:${fullRbId.toString(16).toUpperCase()}` : `R:${fullRbId.toString(16).toUpperCase()}`, screenPos.x, labelY + 16);
           }
         }
       }
+      ctx.restore();
     }
+
+    // Highlight mouse tile with yellow diamond
+    {
+      const screenPos = this.terrainRenderer.mapToScreen(this.mouseMapI, this.mouseMapJ);
+      ctx.beginPath();
+      ctx.moveTo(screenPos.x, screenPos.y);
+      ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
+      ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
+      ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
+      ctx.closePath();
+      ctx.strokeStyle = '#ffff00';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Draw static legend + mouse-tile detail panel
+    this.drawDebugPanel(ctx);
   }
 
   /**
@@ -2945,167 +3003,115 @@ export class IsometricMapRenderer {
     const x = this.mouseMapJ;
     const y = this.mouseMapI;
 
-    const landId = terrainLoader.getLandId(x, y);
+    const landId = terrainLoader ? terrainLoader.getLandId(x, y) : 0;
     const decoded = decodeLandId(landId);
     const hasConcrete = this.hasConcrete(x, y);
+    const hasRoad = this.roadTilesMap.has(`${x},${y}`);
 
-    // Find building at current mouse position
-    const buildingAtMouse = this.getBuildingAtTile(x, y);
+    // --- Top-left: static legend (always visible, useful in screenshots) ---
+    const legendLines: Array<{ text: string; color: string }> = [];
+    legendLines.push({ text: 'DEBUG [D=off 1=tile 2=bldg 3=conc 4=wgrid 5=road]', color: '#ffff00' });
 
-    // Calculate panel height based on what info we're showing
-    let panelHeight = 140;
-    if (decoded.isWater) panelHeight += 32;
-    if (buildingAtMouse && this.debugShowBuildingInfo) panelHeight += 144;
-    if (hasConcrete && this.debugShowConcreteInfo) panelHeight += 96;
+    // Active toggles indicator
+    const toggles = [
+      this.debugShowTileInfo ? '1:ON' : '1:off',
+      this.debugShowBuildingInfo ? '2:ON' : '2:off',
+      this.debugShowConcreteInfo ? '3:ON' : '3:off',
+      this.debugShowWaterGrid ? '4:ON' : '4:off',
+      this.debugShowRoadInfo ? '5:ON' : '5:off',
+    ].join(' ');
+    legendLines.push({ text: toggles, color: '#aaaaaa' });
 
-    // Panel background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-    ctx.fillRect(10, 10, 340, panelHeight);
+    // Water grid legend (compact, always present when active)
+    if (this.debugShowWaterGrid) {
+      legendLines.push({ text: 'WATER GRID:', color: '#00ccff' });
+      legendLines.push({ text: ' Green=bldg  Blue=junc  Orange=road', color: '#cccccc' });
+    }
 
-    ctx.fillStyle = '#ffff00';
-    ctx.font = 'bold 12px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('DEBUG MODE [D=toggle, 1=tile, 2=building, 3=concrete]', 20, 28);
+    // Tile label legend
+    if (this.debugShowTileInfo || this.debugShowConcreteInfo || this.debugShowRoadInfo) {
+      legendLines.push({ text: 'TILE LABELS:', color: '#ffff00' });
+      const parts: string[] = [];
+      if (this.debugShowTileInfo) parts.push('j,i+land');
+      if (this.debugShowConcreteInfo) parts.push('$XX=concId');
+      if (this.debugShowRoadInfo) parts.push('R/X:rbId');
+      legendLines.push({ text: ' ' + parts.join('  '), color: '#cccccc' });
+    }
 
+    const legendH = 14 + legendLines.length * 14;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.fillRect(8, 8, 390, legendH);
     ctx.font = '11px monospace';
-    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    for (let li = 0; li < legendLines.length; li++) {
+      ctx.fillStyle = legendLines[li].color;
+      ctx.fillText(legendLines[li].text, 14, 22 + li * 14);
+    }
 
-    // Tile info
-    ctx.fillText(`Tile: (${x}, ${y}) | i=${y}, j=${x}`, 20, 50);
-    ctx.fillText(`LandId: 0x${landId.toString(16).toUpperCase().padStart(2, '0')} (${landId})`, 20, 66);
-    ctx.fillText(`LandClass: ${landClassName(decoded.landClass)} (${decoded.landClass})`, 20, 82);
-    ctx.fillText(`LandType: ${landTypeName(decoded.landType)} (${decoded.landType})`, 20, 98);
-    ctx.fillText(`LandVar: ${decoded.landVar}`, 20, 114);
+    // --- Bottom-left: mouse-tile detail panel (live use, not critical for screenshots) ---
+    const detailLines: Array<{ text: string; color: string }> = [];
+    detailLines.push({ text: `Tile (${x},${y}) LandId:0x${landId.toString(16).toUpperCase().padStart(2,'0')}`, color: '#ffffff' });
+    detailLines.push({ text: `${landClassName(decoded.landClass)} | ${landTypeName(decoded.landType)} | Var:${decoded.landVar}`, color: '#ffffff' });
 
-    let yOffset = 130;
-
-    // Water indicator
     if (decoded.isWater) {
-      ctx.fillStyle = '#00ffff';
-      ctx.fillText(`>>> WATER TILE <<<`, 20, yOffset);
-      yOffset += 16;
-      if (decoded.isDeepWater) {
-        ctx.fillText(`  Type: Deep Water (Center)`, 20, yOffset);
-      } else if (decoded.isWaterEdge) {
-        ctx.fillText(`  Type: Water Edge`, 20, yOffset);
-      }
-      yOffset += 16;
+      const wtype = decoded.isDeepWater ? 'Deep(Center)' : decoded.isWaterEdge ? 'Edge' : 'Water';
+      detailLines.push({ text: `WATER: ${wtype}`, color: '#00ffff' });
     }
 
-    // Building info
-    if (buildingAtMouse && this.debugShowBuildingInfo) {
-      const visualClass = buildingAtMouse.visualClass;
-      const dims = this.facilityDimensionsCache.get(visualClass);
-      const textureFilename = GameObjectTextureCache.getBuildingTextureFilename(visualClass);
-      const texture = this.gameObjectTextureCache.getTextureSync('BuildingImages', textureFilename);
-
-      ctx.fillStyle = '#ff8800';
-      ctx.fillText(`>>> BUILDING <<<`, 20, yOffset);
-      yOffset += 16;
-
-      // VisualClass from ObjectsInArea
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(`VisualClass: ${visualClass}`, 20, yOffset);
-      yOffset += 16;
-
-      // Building position
-      ctx.fillText(`Position: (${buildingAtMouse.x}, ${buildingAtMouse.y})`, 20, yOffset);
-      yOffset += 16;
-
-      // Facility lookup result
-      if (dims) {
-        ctx.fillStyle = '#00ff00';
-        ctx.fillText(`Lookup: FOUND - ${dims.name}`, 20, yOffset);
-        yOffset += 16;
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(`Size: ${dims.xsize}x${dims.ysize}`, 20, yOffset);
-        yOffset += 16;
-      } else {
-        ctx.fillStyle = '#ff0000';
-        ctx.fillText(`Lookup: NOT FOUND in buildings.json`, 20, yOffset);
-        yOffset += 16;
-        ctx.fillText(`(Add entry for visualClass ${visualClass})`, 20, yOffset);
-        yOffset += 16;
-      }
-
-      // Texture filename
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(`Texture: ${textureFilename}`, 20, yOffset);
-      yOffset += 16;
-
-      // Texture load status
-      if (texture) {
-        ctx.fillStyle = '#00ff00';
-        ctx.fillText(`Status: LOADED (${texture.width}x${texture.height})`, 20, yOffset);
-      } else {
-        ctx.fillStyle = '#ff0000';
-        ctx.fillText(`Status: NOT LOADED (file missing?)`, 20, yOffset);
-      }
-      yOffset += 16;
+    if (hasRoad && this.roadsRendering) {
+      const topology = this.roadsRendering.get(y, x);
+      const fullRbId = roadBlockId(topology, landId, this.isOnConcrete(x, y), false, false);
+      const bridgeFlag = isBridge(fullRbId);
+      detailLines.push({ text: `Road: ${bridgeFlag ? 'BRIDGE' : 'ROAD'} rbId=0x${fullRbId.toString(16).toUpperCase()}`, color: bridgeFlag ? '#ff4444' : '#ff8800' });
     }
 
-    // Concrete info
-    if (hasConcrete && this.debugShowConcreteInfo) {
-      ctx.fillStyle = '#cc88ff';
-      ctx.fillText(`>>> CONCRETE <<<`, 20, yOffset);
-      yOffset += 16;
-
-      // Build mapData adapter for this tile
-      const mapData: ConcreteMapData = {
-        getLandId: (row, col) => terrainLoader.getLandId(col, row),
+    if (hasConcrete) {
+      const concreteKey = `${x},${y}`;
+      const source = this.debugConcreteSourceMap.get(concreteKey) || '?';
+      const mapDataLocal: ConcreteMapData = {
+        getLandId: (row, col) => terrainLoader ? terrainLoader.getLandId(col, row) : 0,
         hasConcrete: (row, col) => this.hasConcrete(col, row),
         hasRoad: (row, col) => this.roadTilesMap.has(`${col},${row}`),
         hasBuilding: (row, col) => this.isTileOccupiedByBuilding(col, row)
       };
-
-      const concreteId = getConcreteId(y, x, mapData);
-      const cfg = buildNeighborConfig(y, x, mapData);
-
-      // Show neighbor config as visual diagram
-      // Format: [TL][T][TR] / [L][X][R] / [BL][B][BR]
-      const neighborStr = this.formatNeighborConfig(cfg);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(`Neighbors: ${neighborStr}`, 20, yOffset);
-      yOffset += 16;
-
-      // Show cardinal neighbors explicitly (for water platforms)
-      const cardinals = `T:${cfg[1]?'Y':'N'} L:${cfg[3]?'Y':'N'} R:${cfg[4]?'Y':'N'} B:${cfg[6]?'Y':'N'}`;
-      ctx.fillText(`Cardinals: ${cardinals}`, 20, yOffset);
-      yOffset += 16;
-
-      // Show concrete ID
+      const concreteId = getConcreteId(y, x, mapDataLocal);
+      const cfg = buildNeighborConfig(y, x, mapDataLocal);
       const isPlatform = (concreteId & 0x80) !== 0;
-      const hasRoadFlag = (concreteId & 0x10) !== 0;
-      const baseId = concreteId & 0x0F;
-      ctx.fillStyle = '#cc88ff';
-      ctx.fillText(`ConcreteId: 0x${concreteId.toString(16).toUpperCase().padStart(2, '0')} (${concreteId})`, 20, yOffset);
-      yOffset += 16;
-
-      // Decode ID
-      let idType = '';
+      const neighborStr = this.formatNeighborConfig(cfg);
+      let idType: string;
       if (isPlatform) {
         idType = this.getPlatformIdName(concreteId);
-      } else if (hasRoadFlag) {
-        idType = `ROAD_CONC (base=${baseId})`;
+      } else if ((concreteId & 0x10) !== 0) {
+        idType = `ROAD_CONC`;
       } else if (concreteId === CONCRETE_FULL) {
         idType = 'FULL';
-      } else if (concreteId === 15) {
-        idType = 'SPECIAL';
       } else {
-        idType = `EDGE/CORNER (${baseId})`;
+        idType = `EDGE(${concreteId & 0x0F})`;
       }
-      ctx.fillText(`Type: ${idType}`, 20, yOffset);
-      yOffset += 16;
+      detailLines.push({ text: `Concrete: $${concreteId.toString(16).toUpperCase().padStart(2,'0')} ${idType} src:${source}`, color: isPlatform ? '#00ccff' : '#cc88ff' });
+      detailLines.push({ text: `Neighbors: ${neighborStr}`, color: '#ffffff' });
+      const texPath = this.concreteBlockClassManager.getImageFilename(concreteId);
+      detailLines.push({ text: texPath ? `Tex: ${texPath}` : `Tex: MISSING id=${concreteId}`, color: texPath ? '#00ff00' : '#ff0000' });
+    }
 
-      // Show texture file
-      const texturePath = this.concreteBlockClassManager.getImageFilename(concreteId);
-      if (texturePath) {
-        ctx.fillStyle = '#00ff00';
-        ctx.fillText(`Texture: ${texturePath}`, 20, yOffset);
-      } else {
-        ctx.fillStyle = '#ff0000';
-        ctx.fillText(`Texture: NOT FOUND for ID ${concreteId}`, 20, yOffset);
+    // Building info (compact)
+    if (this.debugShowBuildingInfo) {
+      const buildingAtMouse = this.getBuildingAtTile(x, y);
+      if (buildingAtMouse) {
+        const dims = this.facilityDimensionsCache.get(buildingAtMouse.visualClass);
+        detailLines.push({ text: `Bldg: ${buildingAtMouse.visualClass} at(${buildingAtMouse.x},${buildingAtMouse.y}) ${dims ? dims.xsize + 'x' + dims.ysize : 'NO DIMS'}`, color: '#ff8800' });
       }
+    }
+
+    const detailH = 10 + detailLines.length * 14;
+    const detailY = this.canvas.height - detailH - 55;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.fillRect(8, detailY, 420, detailH);
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'left';
+    for (let li = 0; li < detailLines.length; li++) {
+      ctx.fillStyle = detailLines[li].color;
+      ctx.fillText(detailLines[li].text, 14, detailY + 14 + li * 14);
     }
   }
 

@@ -90,6 +90,129 @@ After successful login, run any relevant tests based on the current task. Exampl
 | **Console log** | Click "Protocol Log" header to expand, check for RDO errors |
 | **Responsive** | Use `browser_resize` to test different viewport sizes |
 
+## Debug Mode (In-Game Overlay)
+
+The renderer has a full-screen debug overlay activated via keyboard keys. **All keys target the game canvas** — make sure the canvas has focus (click on it first) before pressing debug keys.
+
+### Activation
+
+Press `D` to toggle debug mode ON/OFF. Once ON, press number keys to toggle sub-layers:
+
+| Key | Toggle | Default | What it shows |
+|-----|--------|---------|---------------|
+| `D` | Debug mode | OFF | Master switch — enables all debug drawing |
+| `1` | Tile info | ON | Per-tile label: `j,i` coordinates + land class letter (G/M/D/W) |
+| `2` | Building info | ON | Building details in mouse-detail panel (bottom-left) |
+| `3` | Concrete IDs | ON | Per-tile `$XX` concrete ID hex (cyan=water platform, purple=land) |
+| `4` | Water grid | OFF | Color-coded isometric diamond outlines on water concrete tiles |
+| `5` | Road info | OFF | Per-tile `R:XX` or `X:XX` (road/bridge + road block ID hex) |
+
+### Debug Key Sequences for Common Scenarios
+
+| Scenario | Keys to press (after `D`) | What to look for |
+|----------|---------------------------|------------------|
+| **Concrete positioning** | `D`, `4`, `3` | Water grid diamonds + concrete IDs on every tile |
+| **Road/bridge classification** | `D`, `5` | `R:` = urban road, `X:` = bridge. Check water tiles specifically |
+| **Full diagnostic** | `D`, `4`, `5` | Everything: grid + concrete IDs + road IDs + tile coords |
+| **Tile-only (land types)** | `D` | Just coordinates + land class. Disable `3` if concrete clutter |
+| **Clean screenshot (no labels)** | `D`, `1` off, `3` off | Only water grid diamonds, no text labels |
+
+### Water Grid Color Legend
+
+When toggle `4` (water grid) is active, isometric diamond outlines appear on every water tile that has concrete:
+
+| Color | Meaning | Source pass |
+|-------|---------|------------|
+| **Green** | Building buffer (+1 tile around buildings) | Pass 1: `rebuildConcreteSet` |
+| **Blue** | Junction 3×3 (corners, T-sections, crossroads on water) | Pass 2: `addWaterRoadJunctionConcrete` |
+| **Orange** | Road tile sitting on a platform | Road tile within concrete set |
+
+Labels inside diamonds: `j,i` coordinates, `$XX` concrete ID, `R`=road on platform / `X`=bridge (red).
+
+### On-Screen Panels
+
+| Panel | Position | Content |
+|-------|----------|---------|
+| **Legend** | Top-left | Static — active toggles, color legend, label format. Readable in any screenshot. |
+| **Mouse detail** | Bottom-left (above stats bar) | Live — tile details for tile under cursor. Useful for interactive debugging. |
+| **Stats bar** | Bottom-left | Always visible — building/segment/road counts, mouse coords. |
+
+## Screenshot Analysis Policy
+
+**MANDATORY: Never load screenshot images directly in the main conversation context.**
+
+Each screenshot costs ~3-5MB and the session limit is ~20MB. Always delegate to a sub-agent.
+
+### Protocol
+
+```
+1. Activate debug mode:  browser_press_key("d")  then toggle keys as needed
+2. Wait for render:      browser_wait_for(time: 0.5)
+3. Save to disk:         browser_take_screenshot(filename: "descriptive-name.png")
+4. Delegate analysis:    Task(subagent_type: "general-purpose", prompt: "...")
+5. Act on text verdict:  sub-agent returns PASS/FAIL per criterion (~100 bytes)
+```
+
+### Sub-Agent Prompt Template
+
+When spawning a screenshot analysis sub-agent, use this template. Adapt the criteria list to the specific debug scenario.
+
+```
+Read the screenshot at <absolute-path>.png.
+
+This is a Starpeace Online isometric game map with debug overlay enabled.
+The debug overlay shows:
+- Top-left legend panel (black background): active toggle states and color key
+- Per-tile labels on the map: "j,i" coordinates, "$XX" concrete IDs, "R:XX"/"X:XX" road IDs
+- [If water grid active]: Color-coded diamond outlines on water tiles:
+  Green=building buffer, Blue=junction, Orange=road on platform
+
+Check the following criteria and reply PASS or FAIL for each, with a brief explanation:
+1. <criterion 1>
+2. <criterion 2>
+...
+```
+
+### Example Prompts for Common Scenarios
+
+**Concrete positioning on water:**
+```
+Read the screenshot at C:\...\concrete-debug.png.
+Debug overlay is active with water grid (toggle 4) and concrete IDs (toggle 3).
+Diamond outlines: Green=building, Blue=junction, Orange=road.
+
+Check:
+1. Are concrete platform diamonds ($80-$88) aligned with the road tiles? (no half-tile offset)
+2. Do junction tiles (blue diamonds) form a 3x3 box around road intersections?
+3. Are bridge tiles (red "X" label) free of concrete diamonds?
+4. Do bridge tiles (X label, no diamond) have NO concrete underneath?
+```
+
+**Road rendering on water:**
+```
+Read the screenshot at C:\...\road-debug.png.
+Debug overlay is active with road info (toggle 5).
+Labels: "R:XX" = urban road on platform, "X:XX" = bridge, red = bridge.
+
+Check:
+1. Do straight road segments on water show "X:" (bridge) labels?
+2. Do junction tiles (corners/T/cross) show "R:" (urban road) labels?
+3. Are bridge textures visually different from urban road textures?
+4. Is there a visible concrete platform under junction road tiles?
+```
+
+**General rendering verification:**
+```
+Read the screenshot at C:\...\render-check.png.
+This is the game map without debug overlay.
+
+Check:
+1. Is the isometric map rendered (not blank canvas)?
+2. Are buildings visible and not floating/clipped?
+3. Are roads visible connecting buildings?
+4. Is there visible water with appropriate textures?
+```
+
 ### Step 4: Stop the Dev Server
 
 After all tests are done, **always** stop the server cleanly:

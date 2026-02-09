@@ -177,7 +177,7 @@ if (!hasW) return T_S;  // Missing SW → RoadTS
 
 ## Debugging
 
-Press **'d'** in the PixiJS renderer to debug the road tile under cursor.
+Press **'D'** to enable debug mode, then **'5'** to toggle road info overlay.
 
 **Checklist:**
 1. Check neighbor values (N/S/E/W) - remember they are LEGACY names

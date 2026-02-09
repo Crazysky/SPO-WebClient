@@ -26,7 +26,7 @@ import * as path from 'path';
 import { Season, SEASON_NAMES } from '../shared/map-config';
 import type { Service } from './service-registry';
 import { extractCabArchive } from './cab-extractor';
-import { bakeAlpha, bakeDirectory } from './texture-alpha-baker';
+import { bakeAlpha, bakeDirectory, decodePng, applyColorKey, encodePng } from './texture-alpha-baker';
 import { generateTerrainAtlas, generateObjectAtlas } from './atlas-generator';
 
 /**
@@ -217,6 +217,42 @@ export class TextureExtractor implements Service {
       const bakedCount = results.filter(r => r.success && r.width > 0).length;
       const skippedCount = results.filter(r => r.success && r.width === 0).length;
       console.log(`[TextureExtractor] ${name} alpha baked: ${bakedCount} new, ${skippedCount} cached`);
+
+      // Platform textures platE, platS, platSE have black (RGB 0,0,0) shadow pixels
+      // that survive the primary color key pass (which removes the teal background).
+      // Apply a second pass to make these black shadow pixels transparent too.
+      if (name === 'concrete') {
+        this.removeBlackShadowFromPlatforms(dir);
+      }
+    }
+  }
+
+  /**
+   * Remove black shadow pixels from platform textures (platE, platS, platSE).
+   * These textures have black (RGB 0,0,0) pixels simulating cast shadows that
+   * should be transparent instead.
+   */
+  private removeBlackShadowFromPlatforms(concreteDir: string): void {
+    const platformsWithShadow = ['platE', 'platS', 'platSE'];
+    const BLACK_KEY = { r: 0, g: 0, b: 0 };
+
+    for (const name of platformsWithShadow) {
+      const pngPath = path.join(concreteDir, `${name}.png`);
+      if (!fs.existsSync(pngPath)) continue;
+
+      try {
+        const pngBuffer = fs.readFileSync(pngPath);
+        const pngData = decodePng(pngBuffer);
+
+        const removed = applyColorKey(pngData.pixels, pngData.width, pngData.height, BLACK_KEY, 5);
+        if (removed > 0) {
+          const newPng = encodePng(pngData.width, pngData.height, pngData.pixels);
+          fs.writeFileSync(pngPath, newPng);
+          console.log(`[TextureExtractor] ${name}: removed ${removed} black shadow pixels`);
+        }
+      } catch (error) {
+        console.error(`[TextureExtractor] Failed to remove shadow from ${name}:`, error);
+      }
     }
   }
 
@@ -303,15 +339,16 @@ export class TextureExtractor implements Service {
       const atlasPath = path.join(objectsDir, `${config.name}-atlas.png`);
       const manifestPath = path.join(objectsDir, `${config.name}-atlas.json`);
 
-      // Skip if already generated and has tiles
+      // Skip if already generated with current atlas format (has cellHeight from pre-scan)
       if (fs.existsSync(atlasPath) && fs.existsSync(manifestPath)) {
         try {
           const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-          if (manifest.tiles && Object.keys(manifest.tiles).length > 0) {
-            console.log(`[TextureExtractor] ${config.name} atlas cached`);
+          if (manifest.tiles && Object.keys(manifest.tiles).length > 0 && manifest.cellHeight) {
+            console.log(`[TextureExtractor] ${config.name} atlas cached (${Object.keys(manifest.tiles).length} tiles, cell ${manifest.cellWidth}x${manifest.cellHeight})`);
             continue;
           }
-          console.log(`[TextureExtractor] ${config.name} atlas has 0 tiles, regenerating`);
+          const reason = !manifest.cellHeight ? 'stale format (missing cellHeight)' : '0 tiles';
+          console.log(`[TextureExtractor] ${config.name} atlas ${reason}, regenerating`);
         } catch {
           console.log(`[TextureExtractor] ${config.name} atlas manifest invalid, regenerating`);
         }

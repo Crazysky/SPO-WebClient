@@ -1267,3 +1267,87 @@
   - `src/client/ui/map-navigation-ui.ts` - Canvas2D only, removed PixiJS
 - **Tests:** 79 new tests (40 + 28 + 11), all passing
 
+#### Object Atlas Generator — Variable Cell Heights
+- **Status:** ✅ COMPLETED (February 2026)
+- **Goal:** Support textures of varying dimensions in road/concrete/car object atlases
+- **Problem:** Object atlases used fixed 64×32 cell size, truncating tall textures (bridges: 64×49, platforms: 68×80)
+- **Implementation:**
+  - **Module:** [src/server/atlas-generator.ts](src/server/atlas-generator.ts) `generateObjectAtlas()`
+  - **Pre-scan phase:** Reads all BMPs in source directory to find max width and max height
+  - **Variable cell dimensions:** Cell size = max(all widths) × max(all heights) instead of hardcoded 64×32
+  - **Bottom-alignment:** Each texture anchored at cell bottom (`yOffset = cellHeight - texHeight`)
+  - **Manifest stores actual positions:** `{x, y + yOffset, width: texWidth, height: texHeight}` per entry
+  - **Client compatibility:** `GameObjectTextureCache.getAtlasRect()` reads `sw`/`sh` from manifest — existing client code works without changes
+- **Atlas dimensions after fix:**
+  | Atlas | Cell Size | Textures | Notes |
+  |-------|-----------|----------|-------|
+  | Road | 64×49 | 55 | Bridges up to 49px tall |
+  | Concrete | 68×80 | 51 | Platforms 80px tall, platW 68px wide |
+  | Car | 64×32 | 88 | All uniform 64×32 |
+- **Tests:** Added atlas generator tests for mixed-height textures and bottom-alignment verification
+- **Files modified:**
+  - `src/server/atlas-generator.ts` - Pre-scan + variable cell + bottom-align + manifest update
+
+#### Concrete Platform Positioning Fix
+- **Status:** ✅ COMPLETED (February 2026)
+- **Goal:** Correct water platform concrete texture alignment on the isometric map
+- **Problem:** Platform textures (plat*.bmp, 80px tall) were misaligned on water tiles. The isometric diamond within these textures starts at decoded row 30, not at the bottom of the texture. Previous approaches tried:
+  1. `PLATFORM_SHIFT = 12` → diamond appeared 18px too low (half tile down-left)
+  2. Bottom-alignment (`yOffset = scaledHeight - tileHeight = 48`) → diamond 18px too high (one tile toward top-left on i-axis)
+- **Root cause:** `mapToScreen()` returns the diamond top vertex. Platform textures have their diamond at row 30 (not row 0 or row 48). The offset must match the actual diamond position in the decoded BMP.
+- **Solution:** Diamond-aligned positioning using `PLATFORM_DIAMOND_TOP = 30`:
+  ```typescript
+  const PLATFORM_DIAMOND_TOP = 30;
+  const yOffset = isWaterPlatform && scaledHeight > config.tileHeight
+    ? Math.round(PLATFORM_DIAMOND_TOP * scaleFactor)
+    : (scaledHeight - config.tileHeight);  // standard 32px: yOffset = 0
+  const drawY = screenY - yOffset;
+  ```
+- **BMP pixel analysis:** All 9 platform textures verified via Node.js scripts using project's own `decodeBmp`:
+  - Diamond top vertex: decoded row 30 (constant across all 9 textures)
+  - Diamond left/right vertices: row 46 (= 30 + 16)
+  - Diamond bottom vertex: row 62 (= 30 + 32)
+  - Edge textures (N/E/W): wall content in rows 24-29 above diamond
+  - Foundation content: extends below row 62 to row 73-79
+- **Files modified:**
+  - `src/client/renderer/isometric-map-renderer.ts` - `drawConcrete()` positioning logic
+- **Key insight:** `PLATFORM_SHIFT = 12` remains correct for roads, buildings, and vehicles on water platforms. Only concrete textures use `PLATFORM_DIAMOND_TOP = 30` because they have a different internal structure.
+
+#### Zone Request Management
+- **Status:** ✅ COMPLETED (February 2026)
+- **Goal:** Intelligent zone loading with movement-aware delays, prioritization, and auto-refresh
+- **Implementation:**
+  - **Class:** `ZoneRequestManager` in [src/client/renderer/isometric-map-renderer.ts](src/client/renderer/isometric-map-renderer.ts)
+  - **Movement-aware delays:** Requests delayed during camera movement, dispatched when camera stops
+  - **Zoom-based delays:** Z3: 0ms (instant), Z2: 100ms, Z1: 300ms, Z0: 500ms
+  - **Distance-based prioritization:** Zones closer to camera center loaded first
+  - **Concurrency control:** Max 3 concurrent zone requests, 15s timeout
+  - **Auto-expiry:** Zone data expires after 5 minutes, triggers re-fetch when revisited
+  - **Manual invalidation API:** For forcing zone reload after game events
+- **Files modified:**
+  - `src/client/renderer/isometric-map-renderer.ts` - ZoneRequestManager class + integration
+
+#### Vehicle Animation System
+- **Status:** ✅ COMPLETED (February 2026)
+- **Goal:** Animate vehicles on roads at higher zoom levels (Z2/Z3)
+- **Implementation:**
+  - **CarClassManager** ([src/client/renderer/car-class-system.ts](src/client/renderer/car-class-system.ts))
+    - Parses `cache/CarClasses/*.ini` files (11 vehicle types)
+    - Maps vehicle type to sprite sheet indices
+  - **VehicleAnimationSystem** ([src/client/renderer/vehicle-animation-system.ts](src/client/renderer/vehicle-animation-system.ts))
+    - Tile-by-tile animation using CarPaths from road block INI files
+    - CarPaths key format: `N.GW` (direction.gateway)
+    - Max 40 active vehicles at once
+    - Active only at Z2/Z3, paused during camera pan
+    - Vehicles cleared on rotation change and zoom < Z2
+  - **Car Atlas:** 88 sprites (11 types × 8 directions), cell 64×32
+    - Server: `GET /api/object-atlas/car` (PNG) + `/api/object-atlas/car/manifest` (JSON)
+    - Server: `GET /api/car-classes` returns INI content array
+- **Files created:**
+  - `src/client/renderer/car-class-system.ts` + test
+  - `src/client/renderer/vehicle-animation-system.ts` + test
+- **Files modified:**
+  - `src/client/renderer/isometric-map-renderer.ts` - Vehicle rendering integration
+  - `src/server/server.ts` - Car classes API endpoint
+  - `src/server/atlas-generator.ts` - Car atlas generation
+
