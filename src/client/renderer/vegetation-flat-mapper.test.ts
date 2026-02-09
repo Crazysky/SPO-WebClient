@@ -14,7 +14,7 @@ function makeLandId(landClass: LandClass, landType: LandType, landVar: number = 
 
 /** Helper: create a MapBuilding */
 function makeBuilding(x: number, y: number, visualClass: string = 'vc1'): MapBuilding {
-  return { visualClass, tycoonId: 1, options: 0, x, y };
+  return { visualClass, tycoonId: 1, options: 0, x, y, level: 0, alert: false, attack: 0 };
 }
 
 /** Helper: create a MapSegment (road) */

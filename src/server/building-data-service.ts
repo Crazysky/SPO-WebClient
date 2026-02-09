@@ -1,18 +1,22 @@
 /**
- * Building Data Service - Manages building metadata from buildings.json
- * Replaces FacilityCSVParser with a more complete data format that includes texture filenames
+ * Building Data Service - Manages building metadata from CLASSES.BIN
+ *
+ * Source: cache/BuildingClasses/CLASSES.BIN (863 entries with correct texture paths)
+ *
+ * CLASSES.BIN is the SOLE AUTHORITATIVE source for VisualClass → texture mapping.
+ * It contains 100% of building classes (construction + complete + all variants).
  *
  * Key features:
- * - Loads building data from BuildingClasses/buildings.json
- * - Provides lookups by visualClass (runtime), baseVisualClass, and emptyVisualClass
- * - Caches data for efficient access
- * - Compatible with existing FacilityDimensions interface for backward compatibility
+ * - Loads ALL building classes from CLASSES.BIN (covers every VisualClass ID)
+ * - Backward-walk fallback for status-variant IDs (spec Section 7.4)
+ * - Compatible with existing FacilityDimensions interface
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { createLogger } from '../shared/logger';
-import { BuildingData, BuildingDatabase } from '../shared/types/building-data';
+import { BuildingData, getConstructionTexture } from '../shared/types/building-data';
+import { parseClassesBin } from './classes-bin-parser';
 import type { Service } from './service-registry';
 
 const logger = createLogger('BuildingDataService');
@@ -43,19 +47,13 @@ export class BuildingDataService implements Service {
   /** Main cache: visualClass -> BuildingData */
   private cacheByVisualClass: Map<string, BuildingData> = new Map();
 
-  /** Reverse lookup: baseVisualClass -> visualClass (complete) */
-  private baseToComplete: Map<string, string> = new Map();
-
-  /** Reverse lookup: emptyVisualClass -> visualClass (complete) */
-  private emptyToComplete: Map<string, string> = new Map();
-
   /** Lookup by name */
   private cacheByName: Map<string, BuildingData> = new Map();
 
   private initialized: boolean = false;
 
   /**
-   * Initialize the service by loading buildings.json
+   * Initialize the service by loading CLASSES.BIN
    */
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -66,8 +64,13 @@ export class BuildingDataService implements Service {
     try {
       logger.info('[BuildingDataService] Initializing...');
 
-      const jsonPath = path.join(__dirname, '../../BuildingClasses/buildings.json');
-      await this.loadFromJson(jsonPath);
+      // Load CLASSES.BIN (sole authoritative source — all 863 building classes)
+      const classesBinPath = path.join(__dirname, '../../cache/BuildingClasses/CLASSES.BIN');
+      if (fs.existsSync(classesBinPath)) {
+        this.loadFromClassesBin(classesBinPath);
+      } else {
+        logger.warn('[BuildingDataService] CLASSES.BIN not found — no building data available');
+      }
 
       this.initialized = true;
       logger.info('[BuildingDataService] Initialization complete');
@@ -79,59 +82,81 @@ export class BuildingDataService implements Service {
   }
 
   /**
-   * Load building data from JSON file
+   * Load building data from CLASSES.BIN (spec Section 6.2)
+   * This is the sole source for all VisualClass → texture filename mappings.
    */
-  private async loadFromJson(filePath: string): Promise<void> {
-    logger.info(`[BuildingDataService] Loading ${filePath}...`);
+  private loadFromClassesBin(filePath: string): void {
+    const result = parseClassesBin(filePath);
 
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const database: BuildingDatabase = JSON.parse(content);
+    for (const cls of result.classes) {
+      if (!cls.imagePath) continue; // Skip entries without textures
 
-    logger.info(`[BuildingDataService] Loaded database version ${database.version}`);
+      const visualClass = String(cls.id);
 
-    // Populate caches
-    for (const [visualClass, building] of Object.entries(database.buildings)) {
-      // Main cache
+      const building: BuildingData = {
+        visualClass,
+        name: cls.name || `Class${cls.id}`,
+        xsize: cls.size,
+        ysize: cls.size,
+        textureFilename: cls.imagePath,
+        baseVisualClass: visualClass, // CLASSES.BIN entries are self-contained
+        visualStages: 0,
+        constructionTextureFilename: cls.imagePath.startsWith('Construction')
+          ? cls.imagePath
+          : getConstructionTexture(cls.size, cls.size),
+      };
+
       this.cacheByVisualClass.set(visualClass, building);
-
-      // Name lookup
       this.cacheByName.set(building.name, building);
-
-      // Base -> Complete lookup
-      this.baseToComplete.set(building.baseVisualClass, visualClass);
-
-      // Empty -> Complete lookup (for residential buildings)
-      if (building.emptyVisualClass) {
-        this.emptyToComplete.set(building.emptyVisualClass, visualClass);
-      }
     }
 
-    logger.info(`[BuildingDataService] Loaded ${this.cacheByVisualClass.size} buildings`);
+    logger.info(`[BuildingDataService] Loaded ${this.cacheByVisualClass.size} classes from CLASSES.BIN`);
   }
+
+  /** Maximum backward search distance for VisualClass fallback (spec Section 7.6) */
+  private static readonly MAX_FALLBACK_SEARCH = 7;
+
+  /** Fallback resolution cache: visualClass -> resolved visualClass (or '' for no match) */
+  private fallbackCache: Map<string, string> = new Map();
 
   /**
    * Get building data by visualClass (the runtime VisualClass from ObjectsInArea)
-   * Also checks if the visualClass is a construction or empty state
+   *
+   * Implements the VisualClass matching algorithm (spec Section 7.7):
+   * 1. Direct lookup by exact ID
+   * 2. Fallback: walk backwards up to MAX_FALLBACK_SEARCH=7 steps
    */
   getBuilding(visualClass: string): BuildingData | undefined {
-    // Try direct lookup first (complete building)
-    let building = this.cacheByVisualClass.get(visualClass);
+    // Step 1: Direct lookup
+    const building = this.cacheByVisualClass.get(visualClass);
     if (building) {
       return building;
     }
 
-    // Check if this is a base/construction visualClass
-    const completeFromBase = this.baseToComplete.get(visualClass);
-    if (completeFromBase) {
-      return this.cacheByVisualClass.get(completeFromBase);
+    // Step 2: Check fallback cache
+    const cached = this.fallbackCache.get(visualClass);
+    if (cached !== undefined) {
+      return cached === '' ? undefined : this.cacheByVisualClass.get(cached);
     }
 
-    // Check if this is an empty visualClass
-    const completeFromEmpty = this.emptyToComplete.get(visualClass);
-    if (completeFromEmpty) {
-      return this.cacheByVisualClass.get(completeFromEmpty);
+    // Step 3: Backward walk fallback (spec Section 7.4)
+    const id = parseInt(visualClass, 10);
+    if (!isNaN(id)) {
+      for (let offset = 1; offset <= BuildingDataService.MAX_FALLBACK_SEARCH; offset++) {
+        const candidateId = id - offset;
+        if (candidateId < 0) break;
+
+        const candidateKey = String(candidateId);
+        const candidate = this.cacheByVisualClass.get(candidateKey);
+        if (candidate && candidate.textureFilename) {
+          this.fallbackCache.set(visualClass, candidate.visualClass);
+          return candidate;
+        }
+      }
     }
 
+    // No match — cache sentinel
+    this.fallbackCache.set(visualClass, '');
     return undefined;
   }
 
@@ -144,48 +169,29 @@ export class BuildingDataService implements Service {
 
   /**
    * Get texture filename for a visualClass
-   * Handles construction, empty, and complete states
+   * Since CLASSES.BIN has all entries (construction + complete), just return the texture directly.
    */
   getTextureFilename(visualClass: string): string | undefined {
-    // Direct lookup
-    const building = this.cacheByVisualClass.get(visualClass);
-    if (building) {
-      return building.textureFilename;
-    }
-
-    // Check if this is a construction state (base visualClass)
-    const completeFromBase = this.baseToComplete.get(visualClass);
-    if (completeFromBase) {
-      const completeBuilding = this.cacheByVisualClass.get(completeFromBase);
-      if (completeBuilding) {
-        return completeBuilding.constructionTextureFilename;
-      }
-    }
-
-    // Check if this is an empty state
-    const completeFromEmpty = this.emptyToComplete.get(visualClass);
-    if (completeFromEmpty) {
-      const completeBuilding = this.cacheByVisualClass.get(completeFromEmpty);
-      if (completeBuilding?.emptyTextureFilename) {
-        return completeBuilding.emptyTextureFilename;
-      }
-    }
-
-    return undefined;
+    const building = this.getBuilding(visualClass);
+    return building?.textureFilename;
   }
 
   /**
    * Check if a visualClass represents a construction state
+   * In CLASSES.BIN, construction entries have imagePath starting with "Construction"
    */
   isConstructionState(visualClass: string): boolean {
-    return this.baseToComplete.has(visualClass) && !this.cacheByVisualClass.has(visualClass);
+    const building = this.cacheByVisualClass.get(visualClass);
+    if (!building) return false;
+    return building.textureFilename.startsWith('Construction');
   }
 
   /**
    * Check if a visualClass represents an empty residential state
+   * CLASSES.BIN does not distinguish empty states — always returns false
    */
-  isEmptyState(visualClass: string): boolean {
-    return this.emptyToComplete.has(visualClass) && !this.cacheByVisualClass.has(visualClass);
+  isEmptyState(_visualClass: string): boolean {
+    return false;
   }
 
   /**
@@ -273,8 +279,6 @@ export class BuildingDataService implements Service {
   private logStats(): void {
     const stats = this.getStats();
     logger.info(`[BuildingDataService] Total buildings: ${stats.total}`);
-    logger.info(`[BuildingDataService] By cluster: ${JSON.stringify(stats.clusters)}`);
-    logger.info(`[BuildingDataService] By category: ${JSON.stringify(stats.categories)}`);
   }
 
   /**

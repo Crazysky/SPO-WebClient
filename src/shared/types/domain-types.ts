@@ -45,18 +45,31 @@ export interface MapObject {
  * Parsed building object from ObjectsInArea
  *
  * ObjectsInArea response format (5 lines per building):
- * Line 1: VisualClass - Building visual class ID (matches facilities.csv)
- * Line 2: TycoonId - Owner player ID (0 if no owner)
- * Line 3: Options - Encoded byte (bits 4-7: upgrade level, bit 0: profit state)
- * Line 4: xPos - X coordinate
- * Line 5: yPos - Y coordinate
+ * Line 1: VisualClass - Building visual class ID (uint16)
+ * Line 2: TycoonId - Owner player/company ID (uint16, 0 = no owner)
+ * Line 3: OptionsByte - Encoded byte (see below)
+ * Line 4: xPos - X coordinate (uint16)
+ * Line 5: yPos - Y coordinate (uint16)
+ *
+ * OptionsByte encoding (spec Section 4.3):
+ *   Bits 4-7: Level (encoded upgrade level: 1 + UpgradeLevel/10)
+ *   Bits 1-3: Attack indicator (even values 0-14)
+ *   Bit 0:    Alert flag (1 = facility losing money)
+ *
+ * Client-side decoding:
+ *   level  = optionsByte >> 4          (unsigned shift right)
+ *   alert  = (optionsByte & 0x0F) != 0 (any low nibble bit set)
+ *   attack = optionsByte & 0x0E        (bits 1-3 of low nibble)
  */
 export interface MapBuilding {
   visualClass: string; // Building visual class ID (from ObjectsInArea line 1)
-  tycoonId: number;    // Owner player ID (from ObjectsInArea line 2)
-  options: number;     // Encoded options byte (from ObjectsInArea line 3)
+  tycoonId: number;    // Owner player/company ID (from ObjectsInArea line 2)
+  options: number;     // Raw encoded options byte (from ObjectsInArea line 3)
   x: number;           // X coordinate (from ObjectsInArea line 4)
   y: number;           // Y coordinate (from ObjectsInArea line 5)
+  level: number;       // Decoded upgrade level indicator (options >> 4)
+  alert: boolean;      // True if facility is losing money ((options & 0x0F) != 0)
+  attack: number;      // Attack indicator (options & 0x0E, even values 0-14)
 }
 
 /**

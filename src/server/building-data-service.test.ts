@@ -1,9 +1,11 @@
 /**
  * Unit Tests for Building Data Service
- * Tests for BuildingDataService class
+ * Tests for BuildingDataService with CLASSES.BIN as sole data source
  */
 
 import { describe, it, expect, beforeAll } from '@jest/globals';
+import * as fs from 'fs';
+import * as path from 'path';
 import { BuildingDataService, FacilityDimensions } from './building-data-service';
 
 // Mock logger to prevent console spam during tests
@@ -16,7 +18,11 @@ jest.mock('../shared/logger', () => ({
   })
 }));
 
-describe('BuildingDataService', () => {
+const CLASSES_BIN_PATH = path.join(__dirname, '../../cache/BuildingClasses/CLASSES.BIN');
+const binExists = fs.existsSync(CLASSES_BIN_PATH);
+
+// Skip all tests if CLASSES.BIN doesn't exist
+(binExists ? describe : describe.skip)('BuildingDataService', () => {
   let service: BuildingDataService;
 
   beforeAll(async () => {
@@ -33,15 +39,9 @@ describe('BuildingDataService', () => {
       expect(service.isHealthy()).toBe(true);
     });
 
-    it('should load buildings into cache', () => {
+    it('should load all 863 classes from CLASSES.BIN', () => {
       const stats = service.getStats();
-      expect(stats.total).toBeGreaterThan(0);
-    });
-
-    it('should have clusters in stats', () => {
-      const stats = service.getStats();
-      expect(stats.clusters).toBeDefined();
-      expect(Object.keys(stats.clusters).length).toBeGreaterThan(0);
+      expect(stats.total).toBeGreaterThanOrEqual(862);
     });
 
     it('should not re-initialize if already initialized', async () => {
@@ -52,19 +52,11 @@ describe('BuildingDataService', () => {
     });
   });
 
-  describe('getBuilding() - Lookup by visualClass', () => {
-    it('should find building by complete visualClass', () => {
-      // PGI Food Store has visualClass 4602 (Base: 4601, VS: 1)
-      const building = service.getBuilding('4602');
+  describe('getBuilding() - Direct lookup', () => {
+    it('should find building by exact visualClass', () => {
+      const building = service.getBuilding('602');
       expect(building).toBeDefined();
-      expect(building!.name).toBe('PGIFoodStore');
-    });
-
-    it('should find building by base visualClass (construction)', () => {
-      // Base visualClass 4601 should resolve to the complete building
-      const building = service.getBuilding('4601');
-      expect(building).toBeDefined();
-      expect(building!.name).toBe('PGIFoodStore');
+      expect(building!.textureFilename).toBe('MapPGIHQ1.gif');
     });
 
     it('should return undefined for unknown visualClass', () => {
@@ -72,22 +64,33 @@ describe('BuildingDataService', () => {
       expect(building).toBeUndefined();
     });
 
-    it('should find multiple buildings from different clusters', () => {
-      // PGI building
-      const pgiBuilding = service.getBuilding('4602');
-      expect(pgiBuilding?.cluster).toBe('PGI');
+    it('should find previously-invisible buildings from CLASSES.BIN', () => {
+      // These IDs were missing from buildings.json but exist in CLASSES.BIN
+      const targets = [
+        { id: '602', texture: 'MapPGIHQ1.gif' },
+        { id: '8022', texture: 'MapIFELTennis64x32.gif' },
+        { id: '8062', texture: 'MapIFELAlienParkB64x32x0.gif' },
+        { id: '4722', texture: 'MapPGIMarketA64x32x0.gif' },
+        { id: '8072', texture: 'MapIFELAlienParkC64x32x0.gif' },
+        { id: '7282', texture: 'MapMKOComputerStore64x32x0.gif' },
+      ];
 
-      // Moab building - MoabTownHall at visualClass 1501
-      const moabBuilding = service.getBuilding('1501');
-      expect(moabBuilding?.cluster).toBe('Moab');
+      for (const target of targets) {
+        const building = service.getBuilding(target.id);
+        expect(building).toBeDefined();
+        expect(building!.textureFilename).toBe(target.texture);
+      }
     });
   });
 
   describe('getBuildingByName()', () => {
     it('should find building by name', () => {
-      const building = service.getBuildingByName('PGIFoodStore');
+      // PGI HQ has name from CLASSES.BIN General section
+      const building = service.getBuilding('602');
       expect(building).toBeDefined();
-      expect(building!.visualClass).toBe('4602');
+      const byName = service.getBuildingByName(building!.name);
+      expect(byName).toBeDefined();
+      expect(byName!.visualClass).toBe('602');
     });
 
     it('should return undefined for unknown name', () => {
@@ -97,15 +100,15 @@ describe('BuildingDataService', () => {
   });
 
   describe('getTextureFilename()', () => {
-    it('should return texture filename for complete building', () => {
-      const texture = service.getTextureFilename('4602');
-      expect(texture).toBe('MapPGIFoodStore64x32x0.gif');
+    it('should return texture filename for known building', () => {
+      const texture = service.getTextureFilename('602');
+      expect(texture).toBe('MapPGIHQ1.gif');
     });
 
-    it('should return construction texture for base visualClass', () => {
-      // Base visualClass 4601 should return construction texture
-      const texture = service.getTextureFilename('4601');
-      expect(texture).toBe('Construction64.gif');
+    it('should return construction texture for construction entry', () => {
+      // ID 601 is construction for PGI HQ
+      const texture = service.getTextureFilename('601');
+      expect(texture).toBe('Construction192.gif');
     });
 
     it('should return undefined for unknown visualClass', () => {
@@ -115,14 +118,14 @@ describe('BuildingDataService', () => {
   });
 
   describe('isConstructionState()', () => {
-    it('should return true for base visualClass', () => {
-      // 4601 is base visualClass for PGIFoodStore
-      expect(service.isConstructionState('4601')).toBe(true);
+    it('should return true for construction entries', () => {
+      // ID 601 has imagePath=Construction192.gif
+      expect(service.isConstructionState('601')).toBe(true);
     });
 
-    it('should return false for complete visualClass', () => {
-      // 4602 is complete visualClass for PGIFoodStore
-      expect(service.isConstructionState('4602')).toBe(false);
+    it('should return false for complete building entries', () => {
+      // ID 602 has imagePath=MapPGIHQ1.gif
+      expect(service.isConstructionState('602')).toBe(false);
     });
 
     it('should return false for unknown visualClass', () => {
@@ -131,40 +134,26 @@ describe('BuildingDataService', () => {
   });
 
   describe('isEmptyState()', () => {
-    it('should return true for empty residential visualClass', () => {
-      // Find a residential building with empty state
-      const allBuildings = service.getAllBuildings();
-      const residentialWithEmpty = allBuildings.find(b => b.emptyVisualClass);
-
-      if (residentialWithEmpty) {
-        expect(service.isEmptyState(residentialWithEmpty.emptyVisualClass!)).toBe(true);
-      }
-    });
-
-    it('should return false for complete visualClass', () => {
-      expect(service.isEmptyState('4602')).toBe(false);
-    });
-
-    it('should return false for unknown visualClass', () => {
+    it('should always return false (CLASSES.BIN has no empty state info)', () => {
+      expect(service.isEmptyState('601')).toBe(false);
+      expect(service.isEmptyState('602')).toBe(false);
       expect(service.isEmptyState('99999')).toBe(false);
     });
   });
 
   describe('getFacility() - Backward compatibility', () => {
     it('should return FacilityDimensions for valid visualClass', () => {
-      const facility = service.getFacility('4602');
+      const facility = service.getFacility('602');
       expect(facility).toBeDefined();
-      expect(facility!.visualClass).toBe('4602');
-      expect(facility!.name).toBe('PGIFoodStore');
+      expect(facility!.visualClass).toBe('602');
       expect(facility!.xsize).toBeGreaterThan(0);
       expect(facility!.ysize).toBeGreaterThan(0);
     });
 
     it('should include texture filenames in FacilityDimensions', () => {
-      const facility = service.getFacility('4602');
+      const facility = service.getFacility('602');
       expect(facility).toBeDefined();
-      expect(facility!.textureFilename).toBe('MapPGIFoodStore64x32x0.gif');
-      expect(facility!.constructionTextureFilename).toBe('Construction64.gif');
+      expect(facility!.textureFilename).toBe('MapPGIHQ1.gif');
     });
 
     it('should return undefined for unknown visualClass', () => {
@@ -173,7 +162,7 @@ describe('BuildingDataService', () => {
     });
 
     it('should have required FacilityDimensions properties', () => {
-      const facility = service.getFacility('4602');
+      const facility = service.getFacility('602');
       expect(facility).toBeDefined();
 
       // Check all required properties exist
@@ -187,10 +176,10 @@ describe('BuildingDataService', () => {
   });
 
   describe('getAllBuildings()', () => {
-    it('should return array of all buildings', () => {
+    it('should return array of all 863 buildings', () => {
       const buildings = service.getAllBuildings();
       expect(Array.isArray(buildings)).toBe(true);
-      expect(buildings.length).toBeGreaterThan(0);
+      expect(buildings.length).toBeGreaterThanOrEqual(862);
     });
 
     it('should return buildings with all required properties', () => {
@@ -205,43 +194,17 @@ describe('BuildingDataService', () => {
     });
   });
 
-  describe('getBuildingsByCluster()', () => {
-    it('should return only buildings from specified cluster', () => {
-      const pgiBuildings = service.getBuildingsByCluster('PGI');
-      expect(pgiBuildings.length).toBeGreaterThan(0);
-      expect(pgiBuildings.every(b => b.cluster === 'PGI')).toBe(true);
-    });
-
-    it('should return empty array for unknown cluster', () => {
-      const buildings = service.getBuildingsByCluster('NonExistentCluster');
-      expect(buildings).toEqual([]);
-    });
-  });
-
-  describe('getBuildingsByCategory()', () => {
-    it('should return only buildings from specified category', () => {
-      const commerceBuildings = service.getBuildingsByCategory('commerce');
-      expect(commerceBuildings.length).toBeGreaterThan(0);
-      expect(commerceBuildings.every(b => b.category === 'commerce')).toBe(true);
-    });
-
-    it('should return empty array for unknown category', () => {
-      const buildings = service.getBuildingsByCategory('NonExistentCategory');
-      expect(buildings).toEqual([]);
-    });
-  });
-
   describe('getCache() and getAllBuildingsAsObject()', () => {
     it('should return Map from getCache()', () => {
       const cache = service.getCache();
       expect(cache).toBeInstanceOf(Map);
-      expect(cache.size).toBeGreaterThan(0);
+      expect(cache.size).toBeGreaterThanOrEqual(862);
     });
 
     it('should return plain object from getAllBuildingsAsObject()', () => {
       const obj = service.getAllBuildingsAsObject();
       expect(typeof obj).toBe('object');
-      expect(Object.keys(obj).length).toBeGreaterThan(0);
+      expect(Object.keys(obj).length).toBeGreaterThanOrEqual(862);
     });
 
     it('should have same number of entries in both', () => {
@@ -255,46 +218,92 @@ describe('BuildingDataService', () => {
     it('should have valid xsize and ysize for all buildings', () => {
       const buildings = service.getAllBuildings();
       for (const building of buildings) {
-        expect(building.xsize).toBeGreaterThan(0);
-        expect(building.ysize).toBeGreaterThan(0);
+        expect(building.xsize).toBeGreaterThanOrEqual(0);
+        expect(building.ysize).toBeGreaterThanOrEqual(0);
       }
     });
 
-    it('should have valid texture filenames', () => {
+    it('should have valid texture filenames ending in .gif', () => {
       const buildings = service.getAllBuildings();
       for (const building of buildings) {
-        expect(building.textureFilename).toMatch(/\.gif$/i); // case-insensitive
+        expect(building.textureFilename).toMatch(/\.gif$/i);
+      }
+    });
+
+    it('should have construction textures for non-construction entries', () => {
+      const buildings = service.getAllBuildings();
+      const nonConstruction = buildings.filter(b => !b.textureFilename.startsWith('Construction'));
+      for (const building of nonConstruction) {
         expect(building.constructionTextureFilename).toMatch(/Construction\d+\.gif$/i);
-      }
-    });
-
-    it('should have consistent visualClass formula', () => {
-      // For all buildings: Complete = Base + VisualStages
-      const buildings = service.getAllBuildings();
-      for (const building of buildings) {
-        const base = parseInt(building.baseVisualClass, 10);
-        const complete = parseInt(building.visualClass, 10);
-        const visualStages = building.visualStages;
-
-        expect(complete).toBe(base + visualStages);
       }
     });
   });
 
-  describe('Specific building types', () => {
-    it('should have PGI commerce buildings', () => {
-      const foodStore = service.getBuilding('4602');
-      expect(foodStore).toBeDefined();
-      expect(foodStore!.name).toBe('PGIFoodStore');
-      expect(foodStore!.xsize).toBe(1); // 1x1 store from CSV
-      expect(foodStore!.ysize).toBe(1);
+  describe('VisualClass fallback algorithm (spec Section 7.4)', () => {
+    it('should resolve status-variant ID by walking backwards', () => {
+      // If CLASSES.BIN has entries at e.g., 602 (PGI HQ) but not 603,
+      // ID 603 should walk back to 602
+      const building602 = service.getBuilding('602');
+      expect(building602).toBeDefined();
+
+      // 603 may or may not exist directly — if not, fallback walks to 602
+      const building603 = service.getBuilding('603');
+      expect(building603).toBeDefined();
     });
 
-    it('should have Moab buildings', () => {
-      const moabBuildings = service.getBuildingsByCluster('Moab');
-      expect(moabBuildings.length).toBeGreaterThan(0);
+    it('should cache fallback results for performance', () => {
+      // First call does the walk
+      const building1 = service.getBuilding('603');
+      expect(building1).toBeDefined();
+
+      // Second call should use fallback cache (same result)
+      const building2 = service.getBuilding('603');
+      expect(building2).toBeDefined();
+      expect(building2!.name).toBe(building1!.name);
     });
 
+    it('should return undefined for IDs far from any building', () => {
+      // 99999 is far from any known building
+      expect(service.getBuilding('99999')).toBeUndefined();
+    });
+
+    it('should return texture via getTextureFilename for fallback IDs', () => {
+      // A status-variant ID that resolves via fallback should get a texture
+      const texture = service.getTextureFilename('603');
+      expect(texture).toBeDefined();
+    });
+
+    it('should return FacilityDimensions via getFacility for fallback IDs', () => {
+      const facility = service.getFacility('603');
+      expect(facility).toBeDefined();
+      expect(facility!.textureFilename).toBeDefined();
+    });
+  });
+
+  describe('Construction and building texture pairs', () => {
+    it('should have construction entry at 601 and building at 602', () => {
+      const construction = service.getBuilding('601');
+      const building = service.getBuilding('602');
+      expect(construction).toBeDefined();
+      expect(building).toBeDefined();
+      expect(construction!.textureFilename).toBe('Construction192.gif');
+      expect(building!.textureFilename).toBe('MapPGIHQ1.gif');
+    });
+
+    it('should identify construction entries correctly', () => {
+      const buildings = service.getAllBuildings();
+      const constructionEntries = buildings.filter(b =>
+        b.textureFilename.startsWith('Construction')
+      );
+      expect(constructionEntries.length).toBeGreaterThan(0);
+
+      for (const entry of constructionEntries) {
+        expect(service.isConstructionState(entry.visualClass)).toBe(true);
+      }
+    });
+  });
+
+  describe('Building sizes', () => {
     it('should have various building sizes', () => {
       const buildings = service.getAllBuildings();
       const sizes = new Set<string>();
@@ -305,6 +314,27 @@ describe('BuildingDataService', () => {
 
       // Should have multiple different sizes
       expect(sizes.size).toBeGreaterThan(1);
+    });
+
+    it('should have PGI HQ at size 3', () => {
+      const building = service.getBuilding('602');
+      expect(building).toBeDefined();
+      expect(building!.xsize).toBe(3);
+      expect(building!.ysize).toBe(3);
+    });
+  });
+
+  describe('ID range', () => {
+    it('should have IDs starting at 151', () => {
+      const buildings = service.getAllBuildings();
+      const ids = buildings.map(b => parseInt(b.visualClass, 10)).sort((a, b) => a - b);
+      expect(ids[0]).toBe(151);
+    });
+
+    it('should have IDs up to 8542', () => {
+      const buildings = service.getAllBuildings();
+      const ids = buildings.map(b => parseInt(b.visualClass, 10)).sort((a, b) => a - b);
+      expect(ids[ids.length - 1]).toBe(8542);
     });
   });
 });

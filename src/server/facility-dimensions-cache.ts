@@ -1,5 +1,5 @@
 /**
- * Facility Dimensions Cache Manager - Manages building dimensions from buildings.json
+ * Facility Dimensions Cache Manager - Manages building dimensions from CLASSES.BIN
  * Provides backward compatibility while using new BuildingDataService
  */
 
@@ -25,7 +25,7 @@ export class FacilityDimensionsCache implements Service {
   }
 
   /**
-   * Initialize the cache - load buildings.json
+   * Initialize the cache - load CLASSES.BIN
    */
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -126,6 +126,9 @@ export class FacilityDimensionsCache implements Service {
    * Keyed by BOTH visualClass and building NAME to support:
    * - Existing buildings on map: lookup by visualClass (from ObjectsInArea)
    * - Building placement preview: lookup by name (facilityClass from BuildingInfo)
+   *
+   * CLASSES.BIN has entries for ALL VisualClass IDs (construction + complete + variants),
+   * so no intermediate pre-population is needed.
    */
   getAllFacilitiesAsObject(): Record<string, FacilityDimensions> {
     const result: Record<string, FacilityDimensions> = {};

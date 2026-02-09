@@ -59,12 +59,23 @@ export function parseBuildings(rawLines: string[]): MapBuilding[] {
         y >= 0 &&
         y < 2000
       ) {
+        // Decode OptionsByte (spec Section 4.3)
+        // Level  = options >> 4           (unsigned shift right, bits 4-7)
+        // Alert  = (options & 0x0F) != 0  (any low nibble bit set)
+        // Attack = options & 0x0E         (bits 1-3 of low nibble)
+        const level = (options >>> 4) & 0x0F;
+        const alert = (options & 0x0F) !== 0;
+        const attack = options & 0x0E;
+
         buildings.push({
           visualClass,
           tycoonId,
           options,
           x,
           y,
+          level,
+          alert,
+          attack,
         });
       } else {
         console.warn(
