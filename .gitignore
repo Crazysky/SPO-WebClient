@@ -37,5 +37,8 @@ cache/
 # Separate from update server structure
 webclient-cache/
 
+# E2E session screenshots
+screenshots/
+
 # Claude AI context (optional - remove if you want to track this)
 .claude/

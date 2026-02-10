@@ -13,8 +13,8 @@
 **Screenshot analysis (mandatory for debug/E2E sessions):**
 Never read screenshot images in the main conversation context — each costs ~3-5MB and saturates the 20MB limit. Instead:
 1. Enable debug overlay first: `browser_press_key("d")` + toggle keys (`3`=concrete, `4`=water grid, `5`=roads) — labels all visible tiles with coordinates, IDs, and color-coded diamonds. See [doc/E2E-TESTING.md](doc/E2E-TESTING.md) for key sequences per scenario.
-2. Save to disk: `browser_take_screenshot(filename: "descriptive-name.png")`
-3. Delegate to sub-agent: `Task(subagent_type: "general-purpose", prompt: "Read <path>.png. Debug overlay active: [describe toggles]. Check: 1. <criterion>... Reply PASS/FAIL per criterion.")` — include the color legend in the prompt so the sub-agent knows Green=building, Blue=junction, Orange=road.
+2. Save to `screenshots/` directory (git-ignored): `browser_take_screenshot(filename: "screenshots/descriptive-name.png")`
+3. Delegate to sub-agent: `Task(subagent_type: "general-purpose", prompt: "Read screenshots/<name>.png. Debug overlay active: [describe toggles]. Check: 1. <criterion>... Reply PASS/FAIL per criterion.")` — include the color legend in the prompt so the sub-agent knows Green=building, Blue=junction, Orange=road.
 4. Only the text verdict returns (~100 bytes vs ~3-5MB per image)
 
 **Critical patterns & gotchas:**
