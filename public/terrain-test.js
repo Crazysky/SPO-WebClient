@@ -1372,7 +1372,9 @@
       this.isProcessingQueue = true;
       const queueStart = performance.now();
       let processed = 0;
+      const FRAME_BUDGET_MS = 8;
       while (this.renderQueue.length > 0) {
+        const batchStart = performance.now();
         const currentZoom = this.renderQueue[0].zoomLevel;
         const concurrency = this.getConcurrency(currentZoom);
         const batch = this.renderQueue.splice(0, concurrency);
@@ -1387,7 +1389,10 @@
         await Promise.all(promises);
         processed += batch.length;
         this.scheduleChunkReadyNotification();
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (performance.now() - batchStart > FRAME_BUDGET_MS && this.renderQueue.length > 0) {
+          const raf = typeof requestAnimationFrame !== "undefined" ? requestAnimationFrame : (cb) => setTimeout(cb, 0);
+          await new Promise((resolve) => raf(() => resolve()));
+        }
       }
       this.scheduleChunkReadyNotification();
       const totalDt = performance.now() - queueStart;
@@ -1585,6 +1590,31 @@
         origin
       );
       ctx.drawImage(chunk, Math.round(screenPos.x), Math.round(screenPos.y));
+      return true;
+    }
+    /**
+     * Draw a chunk if it's already cached (no async render trigger).
+     * Used by the ground layer cache to avoid re-queuing evicted chunks.
+     */
+    drawChunkIfReady(ctx, chunkI, chunkJ, zoomLevel, origin) {
+      if (!isOffscreenCanvasSupported) return false;
+      const cache = this.caches.get(zoomLevel);
+      if (!cache) return false;
+      const key = this.getKey(chunkI, chunkJ);
+      const entry = cache.get(key);
+      if (!entry || !entry.ready) return false;
+      entry.lastAccess = ++this.accessCounter;
+      const config = ZOOM_LEVELS[zoomLevel];
+      const screenPos = getChunkScreenPosition(
+        chunkI,
+        chunkJ,
+        CHUNK_SIZE,
+        config,
+        this.mapHeight,
+        this.mapWidth,
+        origin
+      );
+      ctx.drawImage(entry.canvas, Math.round(screenPos.x), Math.round(screenPos.y));
       return true;
     }
     /**
@@ -2381,6 +2411,12 @@
      */
     getAtlasCache() {
       return this.atlasCache;
+    }
+    /**
+     * Get chunk cache for direct chunk rendering (used by ground layer cache)
+     */
+    getChunkCache() {
+      return this.chunkCache;
     }
     /**
      * Invalidate specific chunks (e.g., after dynamic content changes)

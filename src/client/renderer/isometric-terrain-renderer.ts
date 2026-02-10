@@ -917,6 +917,13 @@ export class IsometricTerrainRenderer {
   }
 
   /**
+   * Get chunk cache for direct chunk rendering (used by ground layer cache)
+   */
+  getChunkCache(): ChunkCache | null {
+    return this.chunkCache;
+  }
+
+  /**
    * Invalidate specific chunks (e.g., after dynamic content changes)
    */
   invalidateChunks(chunkI: number, chunkJ: number): void {

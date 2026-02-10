@@ -450,6 +450,17 @@ export class IsometricMapRenderer {
   // Render debouncing (RAF-based, prevents redundant renders per frame)
   private pendingRender: number | null = null;
 
+  // Ground layer cache (OffscreenCanvas bakes terrain+veg+concrete+roads at Z2/Z3)
+  private groundCanvas: OffscreenCanvas | null = null;
+  private groundCtx: OffscreenCanvasRenderingContext2D | null = null;
+  private groundCacheValid: boolean = false;
+  private groundCacheZoom: number = -1;
+  private groundCacheRotation: Rotation = Rotation.NORTH;
+  private groundCacheOriginX: number = 0;
+  private groundCacheOriginY: number = 0;
+  // Extra frustum culling padding during ground cache rebuild (extends viewport clip)
+  private cullingPadding: number = 0;
+
   // Vehicle animation system
   private carClassManager: CarClassManager = new CarClassManager();
   private vehicleSystem: VehicleAnimationSystem | null = null;
@@ -479,9 +490,13 @@ export class IsometricMapRenderer {
     // Disable terrain renderer's debug info - this renderer handles its own overlay at the end
     this.terrainRenderer.setShowDebugInfo(false);
 
-    // Wire up render delegation: when terrain chunks become ready, trigger a full-pipeline render
-    // instead of terrain-only render (prevents blinking where buildings/roads disappear for 1 frame)
-    this.terrainRenderer.setOnRenderNeeded(() => this.requestRender());
+    // Wire up render delegation: when terrain chunks become ready, rebuild ground cache
+    // and trigger a full-pipeline render (prevents blinking where buildings/roads disappear)
+    this.terrainRenderer.setOnRenderNeeded(() => {
+      // Invalidate content (new chunks available) but keep position valid
+      this.groundCacheValid = false;
+      this.requestRender();
+    });
 
     // Create game object texture cache (roads, buildings, etc.)
     this.gameObjectTextureCache = new GameObjectTextureCache();
@@ -655,6 +670,7 @@ export class IsometricMapRenderer {
         const current = this.terrainRenderer.getZoomLevel();
         const newZoom = current + delta;
         this.terrainRenderer.setZoomLevel(newZoom);
+        this.terrainRenderer.clearDistantZoomCaches(newZoom);
 
         // Clear vehicles when zooming out of Z2/Z3
         if (current >= 2 && newZoom < 2 && this.vehicleSystem) {
@@ -928,6 +944,12 @@ export class IsometricMapRenderer {
     const alignedY = Math.floor(y / zoneSize) * zoneSize;
     const key = `${alignedX},${alignedY}`;
 
+    // Check if zone data actually changed (avoid redundant ground cache rebuilds)
+    const existing = this.cachedZones.get(key);
+    const segmentsChanged = !existing ||
+      existing.segments.length !== segments.length ||
+      existing.buildings.length !== buildings.length;
+
     this.cachedZones.set(key, {
       x: alignedX,
       y: alignedY,
@@ -950,6 +972,10 @@ export class IsometricMapRenderer {
     // Fetch dimensions for new buildings
     this.fetchDimensionsForBuildings(buildings);
 
+    // Only invalidate ground cache if zone content actually changed
+    if (segmentsChanged) {
+      this.invalidateGroundCache();
+    }
     this.requestRender();
   }
 
@@ -1512,6 +1538,177 @@ export class IsometricMapRenderer {
   }
 
   // =========================================================================
+  // GROUND LAYER CACHE
+  // =========================================================================
+
+  /**
+   * Get zoom-dependent ground margin (pixels of overscan around viewport).
+   * Larger margins = fewer rebuilds during pan, at the cost of more memory.
+   */
+  private getGroundMargin(): number {
+    const zoom = this.terrainRenderer.getZoomLevel();
+    // Z1: 16×8 tiles, need large margin to avoid frequent rebuilds
+    // Z2: 32×16 tiles, moderate margin
+    // Z3: 64×32 tiles, smaller margin (fewer tiles = less rebuild cost)
+    if (zoom >= 3) return 512;
+    if (zoom >= 2) return 768;
+    return 1024; // Z1
+  }
+
+  /**
+   * Mark the ground cache as needing rebuild on next render.
+   */
+  private invalidateGroundCache(): void {
+    this.groundCacheValid = false;
+  }
+
+  /**
+   * Create or resize the ground cache OffscreenCanvas to match viewport + margins.
+   */
+  private ensureGroundCanvas(): void {
+    const margin = this.getGroundMargin();
+    const w = this.canvas.width + 2 * margin;
+    const h = this.canvas.height + 2 * margin;
+
+    if (!this.groundCanvas || this.groundCanvas.width !== w || this.groundCanvas.height !== h) {
+      this.groundCanvas = new OffscreenCanvas(w, h);
+      this.groundCtx = this.groundCanvas.getContext('2d');
+      this.groundCacheValid = false;
+    }
+  }
+
+  /**
+   * Check if the ground cache can be reused (same zoom/rotation, pan within margin).
+   */
+  private canReuseGroundCache(): boolean {
+    if (!this.groundCacheValid || !this.groundCanvas) return false;
+
+    const zoom = this.terrainRenderer.getZoomLevel();
+    const rotation = this.terrainRenderer.getRotation();
+    if (zoom !== this.groundCacheZoom || rotation !== this.groundCacheRotation) return false;
+
+    const margin = this.getGroundMargin();
+    const origin = this.terrainRenderer.getOrigin();
+    const dx = Math.abs(origin.x - this.groundCacheOriginX);
+    const dy = Math.abs(origin.y - this.groundCacheOriginY);
+
+    return dx < margin && dy < margin;
+  }
+
+  /**
+   * Get extended tile bounds that include the ground cache margin area.
+   * Used during ground cache rebuild to render tiles beyond the viewport.
+   */
+  private getExtendedBounds(margin: number): TileBounds {
+    const origin = this.terrainRenderer.getOrigin();
+    const zoom = this.terrainRenderer.getZoomLevel();
+    const rotation = this.terrainRenderer.getRotation();
+
+    // Viewport extended by margin on all sides
+    const extViewport: Rect = {
+      x: -margin,
+      y: -margin,
+      width: this.canvas.width + 2 * margin,
+      height: this.canvas.height + 2 * margin
+    };
+
+    return this.terrainRenderer.getCoordinateMapper().getVisibleBounds(
+      extViewport, zoom, rotation, origin
+    );
+  }
+
+  /**
+   * Rebuild the ground cache: render terrain + vegetation + concrete + roads
+   * to an OffscreenCanvas sized viewport + 2*margin.
+   * Uses ctx-swap technique so draw methods render to the cache instead of main canvas.
+   */
+  private rebuildGroundCache(): void {
+    this.ensureGroundCanvas();
+    if (!this.groundCtx) return;
+
+    const margin = this.getGroundMargin();
+    const origin = this.terrainRenderer.getOrigin();
+    const zoom = this.terrainRenderer.getZoomLevel();
+    const rotation = this.terrainRenderer.getRotation();
+    const chunkCache = this.terrainRenderer.getChunkCache();
+
+    // Clear ground cache
+    this.groundCtx.clearRect(0, 0, this.groundCanvas!.width, this.groundCanvas!.height);
+
+    // === Render terrain chunks directly to ground cache ===
+    if (chunkCache) {
+      const extBounds = this.getExtendedBounds(margin);
+      const visibleChunks = chunkCache.getVisibleChunksFromBounds(extBounds);
+
+      this.groundCtx.imageSmoothingEnabled = false;
+      this.groundCtx.save();
+      this.groundCtx.translate(margin, margin);
+
+      for (let ci = visibleChunks.minChunkI; ci <= visibleChunks.maxChunkI; ci++) {
+        for (let cj = visibleChunks.minChunkJ; cj <= visibleChunks.maxChunkJ; cj++) {
+          // Draw only already-cached chunks (no async trigger — prevents eviction loops)
+          chunkCache.drawChunkIfReady(
+            this.groundCtx as unknown as CanvasRenderingContext2D,
+            ci, cj, zoom, origin
+          );
+        }
+      }
+
+      this.groundCtx.restore();
+    }
+
+    // === Ctx-swap: render vegetation, concrete, roads to ground cache ===
+    const savedCtx = this.ctx;
+    this.ctx = this.groundCtx as unknown as CanvasRenderingContext2D;
+    this.ctx.save();
+    this.ctx.translate(margin, margin);
+    this.cullingPadding = margin;
+
+    const extBounds = this.getExtendedBounds(margin);
+    const occupiedTiles = this.buildTileOccupationMap();
+
+    this.drawVegetation(extBounds);
+    this.drawConcrete(extBounds);
+    this.drawRoads(extBounds, occupiedTiles);
+
+    this.ctx.restore();
+    this.cullingPadding = 0;
+    this.ctx = savedCtx;
+
+    // Store cache state
+    this.groundCacheValid = true;
+    this.groundCacheZoom = zoom;
+    this.groundCacheRotation = rotation;
+    this.groundCacheOriginX = origin.x;
+    this.groundCacheOriginY = origin.y;
+  }
+
+  /**
+   * Blit the ground cache to the main canvas at the current pan offset.
+   * Fast path: one drawImage call instead of rendering thousands of tiles.
+   */
+  private blitGroundCache(): void {
+    if (!this.groundCanvas || !this.groundCacheValid) return;
+
+    const margin = this.getGroundMargin();
+    const origin = this.terrainRenderer.getOrigin();
+
+    // Pan offset since cache was built
+    const dx = origin.x - this.groundCacheOriginX;
+    const dy = origin.y - this.groundCacheOriginY;
+
+    // Source rectangle: viewport-sized portion offset by margin + pan delta
+    const srcX = margin + dx;
+    const srcY = margin + dy;
+
+    this.ctx.drawImage(
+      this.groundCanvas,
+      srcX, srcY, this.canvas.width, this.canvas.height,
+      0, 0, this.canvas.width, this.canvas.height
+    );
+  }
+
+  // =========================================================================
   // RENDERING
   // =========================================================================
 
@@ -1537,23 +1734,39 @@ export class IsometricMapRenderer {
     const deltaTime = this.lastRenderTime > 0 ? (now - this.lastRenderTime) / 1000 : 0;
     this.lastRenderTime = now;
 
-    // First, render terrain (this clears and draws the base layer)
-    this.terrainRenderer.render();
+    const zoom = this.terrainRenderer.getZoomLevel();
+
+    if (zoom >= 1) {
+      // === Z1/Z2/Z3: Ground cache path ===
+      // Bake terrain+vegetation+concrete+roads into OffscreenCanvas.
+      // Pan within margin = fast blit. Pan beyond margin = rebuild.
+      // Always call terrain renderer to trigger chunk loading + update origin
+      this.terrainRenderer.render();
+
+      const canReuse = this.canReuseGroundCache();
+      if (canReuse) {
+        this.ctx.fillStyle = '#0a0a0f';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.blitGroundCache();
+      } else {
+        this.rebuildGroundCache();
+        this.ctx.fillStyle = '#0a0a0f';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.blitGroundCache();
+      }
+    } else {
+      // === Z0: Direct rendering (no ground cache) ===
+      // Terrain renderer handles its own clear + terrain chunks + preview backdrop
+      // Skip vegetation (too small), concrete (early return), roads (8×4px invisible)
+      this.terrainRenderer.render();
+    }
 
     if (!this.mapLoaded) return;
 
-    // Get visible bounds for culling
+    // === Dynamic layers (always drawn directly) ===
     const bounds = this.getVisibleBounds();
-
-    // Draw vegetation overlay (special terrain tiles) above flat terrain base
-    this.drawVegetation(bounds);
-
-    // Build tile occupation map (buildings have priority over roads)
     const occupiedTiles = this.buildTileOccupationMap();
 
-    // Draw game object layers on top of terrain + vegetation
-    this.drawConcrete(bounds);
-    this.drawRoads(bounds, occupiedTiles);
     this.drawBuildings(bounds);
     this.drawVehicles(bounds, deltaTime, occupiedTiles);
     this.drawZoneOverlay(bounds);
@@ -1930,9 +2143,11 @@ export class IsometricMapRenderer {
       // Convert to isometric coordinates (x = j, y = i)
       const screenPos = this.terrainRenderer.mapToScreen(y, x);
 
-      // Cull if off-screen (extra margin for tall textures)
-      if (screenPos.x < -config.tileWidth || screenPos.x > this.canvas.width + config.tileWidth ||
-          screenPos.y < -config.tileHeight * 2 || screenPos.y > this.canvas.height + config.tileHeight * 2) {
+      // Cull if off-screen (extra margin for tall textures + ground cache padding)
+      if (screenPos.x < -config.tileWidth - this.cullingPadding ||
+          screenPos.x > this.canvas.width + config.tileWidth + this.cullingPadding ||
+          screenPos.y < -config.tileHeight * 2 - this.cullingPadding ||
+          screenPos.y > this.canvas.height + config.tileHeight * 2 + this.cullingPadding) {
         continue;
       }
 
@@ -2111,9 +2326,11 @@ export class IsometricMapRenderer {
 
         const screenPos = this.terrainRenderer.mapToScreen(i, j);
 
-        // Frustum cull with extra margin for tall textures
-        if (screenPos.x < -config.tileWidth * 2 || screenPos.x > this.canvas.width + config.tileWidth * 2 ||
-            screenPos.y < -config.tileHeight * 4 || screenPos.y > this.canvas.height + config.tileHeight * 2) {
+        // Frustum cull with extra margin for tall textures + ground cache padding
+        if (screenPos.x < -config.tileWidth * 2 - this.cullingPadding ||
+            screenPos.x > this.canvas.width + config.tileWidth * 2 + this.cullingPadding ||
+            screenPos.y < -config.tileHeight * 4 - this.cullingPadding ||
+            screenPos.y > this.canvas.height + config.tileHeight * 2 + this.cullingPadding) {
           continue;
         }
 

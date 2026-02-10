@@ -347,8 +347,11 @@ export class ChunkCache {
 
     const queueStart = performance.now();
     let processed = 0;
+    const FRAME_BUDGET_MS = 8; // Yield to browser every 8ms (half a 16ms frame)
 
     while (this.renderQueue.length > 0) {
+      const batchStart = performance.now();
+
       // Determine concurrency from the first item's zoom level
       const currentZoom = this.renderQueue[0].zoomLevel;
       const concurrency = this.getConcurrency(currentZoom);
@@ -372,8 +375,11 @@ export class ChunkCache {
       // Debounced notification — coalesces rapid batch completions
       this.scheduleChunkReadyNotification();
 
-      // Small yield between batches to prevent blocking
-      await new Promise(resolve => setTimeout(resolve, 0));
+      // Frame budget: yield to browser if we've been processing too long
+      if (performance.now() - batchStart > FRAME_BUDGET_MS && this.renderQueue.length > 0) {
+        const raf = typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame : (cb: () => void) => setTimeout(cb, 0);
+        await new Promise<void>(resolve => raf(() => resolve()));
+      }
     }
 
     // Ensure at least one final notification fires after queue is drained
@@ -635,6 +641,43 @@ export class ChunkCache {
     );
 
     ctx.drawImage(chunk, Math.round(screenPos.x), Math.round(screenPos.y));
+    return true;
+  }
+
+  /**
+   * Draw a chunk if it's already cached (no async render trigger).
+   * Used by the ground layer cache to avoid re-queuing evicted chunks.
+   */
+  drawChunkIfReady(
+    ctx: CanvasRenderingContext2D,
+    chunkI: number,
+    chunkJ: number,
+    zoomLevel: number,
+    origin: Point
+  ): boolean {
+    if (!isOffscreenCanvasSupported) return false;
+
+    const cache = this.caches.get(zoomLevel);
+    if (!cache) return false;
+
+    const key = this.getKey(chunkI, chunkJ);
+    const entry = cache.get(key);
+    if (!entry || !entry.ready) return false;
+
+    entry.lastAccess = ++this.accessCounter;
+
+    const config = ZOOM_LEVELS[zoomLevel];
+    const screenPos = getChunkScreenPosition(
+      chunkI,
+      chunkJ,
+      CHUNK_SIZE,
+      config,
+      this.mapHeight,
+      this.mapWidth,
+      origin
+    );
+
+    ctx.drawImage(entry.canvas, Math.round(screenPos.x), Math.round(screenPos.y));
     return true;
   }
 
