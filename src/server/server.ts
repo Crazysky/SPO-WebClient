@@ -97,6 +97,22 @@ import {
   // Logout
   WsReqLogout,
   WsRespLogout,
+  // Mail
+  WsReqMailConnect,
+  WsReqMailGetFolder,
+  WsReqMailReadMessage,
+  WsReqMailCompose,
+  WsReqMailDelete,
+  WsReqMailGetUnreadCount,
+  WsRespMailConnected,
+  WsRespMailFolder,
+  WsRespMailMessage,
+  WsRespMailSent,
+  WsRespMailDeleted,
+  WsRespMailUnreadCount,
+  // Profile
+  WsReqGetProfile,
+  WsRespGetProfile,
 } from '../shared/types';
 import { toErrorMessage } from '../shared/error-utils';
 
@@ -1968,6 +1984,105 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
           };
           ws.send(JSON.stringify(response));
         }
+        break;
+      }
+
+      // =================================================================
+      // MAIL
+      // =================================================================
+
+      case WsMessageType.REQ_MAIL_CONNECT: {
+        console.log('[Gateway] Connecting to Mail Service...');
+        await session.connectMailService();
+        const unreadCount = await session.getMailUnreadCount();
+        const response: WsRespMailConnected = {
+          type: WsMessageType.RESP_MAIL_CONNECTED,
+          wsRequestId: msg.wsRequestId,
+          unreadCount,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_MAIL_GET_FOLDER: {
+        const mailFolderReq = msg as WsReqMailGetFolder;
+        console.log(`[Gateway] Getting mail folder: ${mailFolderReq.folder}`);
+        // TODO: Implement folder listing (depends on chosen approach A/B/C)
+        const response: WsRespMailFolder = {
+          type: WsMessageType.RESP_MAIL_FOLDER,
+          wsRequestId: msg.wsRequestId,
+          folder: mailFolderReq.folder,
+          messages: [],
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_MAIL_READ_MESSAGE: {
+        const readReq = msg as WsReqMailReadMessage;
+        console.log(`[Gateway] Reading mail: ${readReq.folder}/${readReq.messageId}`);
+        const message = await session.readMailMessage(readReq.folder, readReq.messageId);
+        const response: WsRespMailMessage = {
+          type: WsMessageType.RESP_MAIL_MESSAGE,
+          wsRequestId: msg.wsRequestId,
+          message,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_MAIL_COMPOSE: {
+        const composeReq = msg as WsReqMailCompose;
+        console.log(`[Gateway] Composing mail to: ${composeReq.to}`);
+        const success = await session.composeMail(composeReq.to, composeReq.subject, composeReq.body);
+        const response: WsRespMailSent = {
+          type: WsMessageType.RESP_MAIL_SENT,
+          wsRequestId: msg.wsRequestId,
+          success,
+          message: success ? 'Message sent' : 'Failed to send message',
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_MAIL_DELETE: {
+        const deleteReq = msg as WsReqMailDelete;
+        console.log(`[Gateway] Deleting mail: ${deleteReq.folder}/${deleteReq.messageId}`);
+        await session.deleteMailMessage(deleteReq.folder, deleteReq.messageId);
+        const response: WsRespMailDeleted = {
+          type: WsMessageType.RESP_MAIL_DELETED,
+          wsRequestId: msg.wsRequestId,
+          success: true,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_MAIL_GET_UNREAD_COUNT: {
+        console.log('[Gateway] Getting unread mail count');
+        const count = await session.getMailUnreadCount();
+        const response: WsRespMailUnreadCount = {
+          type: WsMessageType.RESP_MAIL_UNREAD_COUNT,
+          wsRequestId: msg.wsRequestId,
+          count,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      // =================================================================
+      // PROFILE
+      // =================================================================
+
+      case WsMessageType.REQ_GET_PROFILE: {
+        console.log('[Gateway] Getting tycoon profile');
+        const profile = await session.fetchTycoonProfile();
+        const response: WsRespGetProfile = {
+          type: WsMessageType.RESP_GET_PROFILE,
+          wsRequestId: msg.wsRequestId,
+          profile,
+        };
+        ws.send(JSON.stringify(response));
         break;
       }
 

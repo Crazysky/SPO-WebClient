@@ -49,7 +49,15 @@ export type {
   RankingCategory,
   RankingEntry,
   RoadDrawingState,
+  // Mail types
+  MailMessageHeader,
+  MailMessageFull,
+  MailAttachment,
+  // Profile types
+  TycoonProfileFull,
 } from './domain-types';
+
+export type { MailFolder } from './domain-types';
 
 // Message types (WebSocket protocol)
 export {
@@ -144,4 +152,21 @@ export type {
   // Logout messages
   WsReqLogout,
   WsRespLogout,
+  // Mail messages
+  WsReqMailConnect,
+  WsReqMailGetFolder,
+  WsReqMailReadMessage,
+  WsReqMailCompose,
+  WsReqMailDelete,
+  WsReqMailGetUnreadCount,
+  WsRespMailConnected,
+  WsRespMailFolder,
+  WsRespMailMessage,
+  WsRespMailSent,
+  WsRespMailDeleted,
+  WsRespMailUnreadCount,
+  WsEventNewMail,
+  // Profile messages
+  WsReqGetProfile,
+  WsRespGetProfile,
 } from './message-types';

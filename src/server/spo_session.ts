@@ -30,6 +30,11 @@ import {
   BuildingPropertyValue,
   BuildingSupplyData,
   BuildingConnectionData,
+  WsEventNewMail,
+  MailMessageHeader,
+  MailMessageFull,
+  MailAttachment,
+  TycoonProfileFull,
 } from '../shared/types';
 import {
   getTemplateForVisualClass,
@@ -116,6 +121,9 @@ export class StarpeaceSession extends EventEmitter {
   // Additional world properties
   private mailAccount: string | null = null;
   private interfaceServerId: string | null = null;
+  private mailAddr: string | null = null;
+  private mailPort: number | null = null;
+  private mailServerId: string | null = null;
 
   // Known Objects Registry for bidirectional communication
   private knownObjects: Map<string, string> = new Map();
@@ -371,8 +379,8 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
     action: RdoAction.GET,
     member: "MailAccount"
   });
-  const mailAccount = parsePropertyResponseHelper(mailPacket.payload!, "MailAccount");
-  console.log(`[Session] MailAccount: ${mailAccount}`);
+  this.mailAccount = parsePropertyResponseHelper(mailPacket.payload!, "MailAccount");
+  console.log(`[Session] MailAccount: ${this.mailAccount}`);
 
   const tycoonPacket = await this.sendRdoRequest("world", {
     verb: RdoVerb.SEL,
@@ -898,6 +906,375 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     }
 
     console.log('[Construction] Service Ready');
+  }
+
+  // =========================================================================
+  // MAIL SERVICE
+  // =========================================================================
+
+  /**
+   * Connect to the Mail Server via RDO.
+   * Uses MailAddr/MailPort obtained from InterfaceServer during login.
+   * Reference: MsgComposerHandler.pas:394-401 (Voyager direct RDO connection)
+   */
+  public async connectMailService(): Promise<void> {
+    if (this.sockets.has('mail')) {
+      console.log('[Mail] Already connected');
+      return;
+    }
+
+    if (!this.mailAddr || !this.mailPort) {
+      throw new Error('Mail server address/port not available - ensure world login completed');
+    }
+
+    console.log(`[Mail] Connecting to Mail Server at ${this.mailAddr}:${this.mailPort}...`);
+    await this.createSocket('mail', this.mailAddr, this.mailPort);
+
+    // Resolve MailServer hook
+    const idPacket = await this.sendRdoRequest('mail', {
+      verb: RdoVerb.IDOF,
+      targetId: 'MailServer'
+    });
+    this.mailServerId = parseIdOfResponseHelper(idPacket.payload);
+    console.log(`[Mail] Mail Server Ready. ServerId: ${this.mailServerId}`);
+  }
+
+  /**
+   * Compose and send a mail message.
+   * Reference: MsgComposerHandler.pas:316-329
+   * Flow: NewMail → AddLine (per line) → Post
+   */
+  public async composeMail(to: string, subject: string, bodyLines: string[]): Promise<boolean> {
+    if (!this.mailServerId || !this.mailAccount) {
+      throw new Error('Mail service not connected');
+    }
+
+    const worldName = this.currentWorldInfo?.name || '';
+
+    // 1. Create in-memory message
+    const newMailPacket = await this.sendRdoRequest('mail', {
+      verb: RdoVerb.SEL,
+      targetId: this.mailServerId,
+      action: RdoAction.CALL,
+      member: 'NewMail',
+      args: [
+        RdoValue.string(this.mailAccount).toString(),
+        RdoValue.string(to).toString(),
+        RdoValue.string(subject).toString()
+      ]
+    });
+    const msgId = parsePropertyResponseHelper(newMailPacket.payload!, 'NewMail');
+    console.log(`[Mail] Created message, msgId: ${msgId}`);
+
+    if (!msgId || msgId === '0') {
+      console.error('[Mail] Failed to create message');
+      return false;
+    }
+
+    // 2. Add body lines
+    for (const line of bodyLines) {
+      await this.sendRdoRequest('mail', {
+        verb: RdoVerb.SEL,
+        targetId: msgId,
+        action: RdoAction.CALL,
+        member: 'AddLine',
+        args: [RdoValue.string(line).toString()]
+      });
+    }
+
+    // 3. Post (send) the message
+    const postPacket = await this.sendRdoRequest('mail', {
+      verb: RdoVerb.SEL,
+      targetId: this.mailServerId,
+      action: RdoAction.CALL,
+      member: 'Post',
+      args: [RdoValue.string(worldName).toString(), RdoValue.int(parseInt(msgId, 10)).toString()]
+    });
+    const result = postPacket.payload || '';
+    console.log(`[Mail] Post result: ${result}`);
+
+    return !result.includes('error');
+  }
+
+  /**
+   * Open and read a mail message.
+   * Reference: MsgComposerHandler.pas:416-420
+   * Flow: OpenMessage → GetHeaders → GetLines → GetAttachmentCount → GetAttachment → CloseMessage
+   */
+  public async readMailMessage(folder: string, messageId: string): Promise<MailMessageFull> {
+    if (!this.mailServerId || !this.mailAccount) {
+      throw new Error('Mail service not connected');
+    }
+
+    const worldName = this.currentWorldInfo?.name || '';
+
+    // 1. Open message (loads from disk into server memory)
+    const openPacket = await this.sendRdoRequest('mail', {
+      verb: RdoVerb.SEL,
+      targetId: this.mailServerId,
+      action: RdoAction.CALL,
+      member: 'OpenMessage',
+      args: [
+        RdoValue.string(worldName).toString(),
+        RdoValue.string(this.mailAccount).toString(),
+        RdoValue.string(folder).toString(),
+        RdoValue.string(messageId).toString()
+      ]
+    });
+    const msgId = parsePropertyResponseHelper(openPacket.payload!, 'OpenMessage');
+    console.log(`[Mail] Opened message, msgId: ${msgId}`);
+
+    try {
+      // 2. Get headers (ini-style key=value text)
+      const headersPacket = await this.sendRdoRequest('mail', {
+        verb: RdoVerb.SEL,
+        targetId: msgId,
+        action: RdoAction.CALL,
+        member: 'GetHeaders',
+        args: [RdoValue.int(0).toString()]
+      });
+      const headersText = headersPacket.payload || '';
+
+      // 3. Get body lines
+      const linesPacket = await this.sendRdoRequest('mail', {
+        verb: RdoVerb.SEL,
+        targetId: msgId,
+        action: RdoAction.CALL,
+        member: 'GetLines',
+        args: [RdoValue.int(0).toString()]
+      });
+      const bodyText = linesPacket.payload || '';
+
+      // 4. Get attachments
+      const attachCountPacket = await this.sendRdoRequest('mail', {
+        verb: RdoVerb.SEL,
+        targetId: msgId,
+        action: RdoAction.CALL,
+        member: 'GetAttachmentCount',
+        args: [RdoValue.int(0).toString()]
+      });
+      const attachCountStr = parsePropertyResponseHelper(attachCountPacket.payload!, 'GetAttachmentCount');
+      const attachCount = parseInt(attachCountStr, 10) || 0;
+
+      const attachments: MailAttachment[] = [];
+      for (let i = 0; i < attachCount; i++) {
+        const attachPacket = await this.sendRdoRequest('mail', {
+          verb: RdoVerb.SEL,
+          targetId: msgId,
+          action: RdoAction.CALL,
+          member: 'GetAttachment',
+          args: [RdoValue.int(i).toString()]
+        });
+        const attachText = attachPacket.payload || '';
+        attachments.push(this.parseMailAttachment(attachText));
+      }
+
+      // Parse headers and body into structured format
+      const headers = this.parseMailHeaders(headersText);
+
+      return {
+        ...headers,
+        messageId,
+        body: bodyText.split('\n').filter(l => l.length > 0),
+        attachments,
+      };
+    } finally {
+      // 5. Always close message to release server memory
+      try {
+        await this.sendRdoRequest('mail', {
+          verb: RdoVerb.SEL,
+          targetId: this.mailServerId,
+          action: RdoAction.CALL,
+          member: 'CloseMessage',
+          args: [RdoValue.int(parseInt(msgId, 10)).toString()]
+        });
+      } catch (e) {
+        console.warn('[Mail] Failed to close message:', e);
+      }
+    }
+  }
+
+  /**
+   * Delete a mail message from a folder.
+   */
+  public async deleteMailMessage(folder: string, messageId: string): Promise<void> {
+    if (!this.mailServerId || !this.mailAccount) {
+      throw new Error('Mail service not connected');
+    }
+
+    const worldName = this.currentWorldInfo?.name || '';
+
+    await this.sendRdoRequest('mail', {
+      verb: RdoVerb.SEL,
+      targetId: this.mailServerId,
+      action: RdoAction.CALL,
+      member: 'DeleteMessage',
+      args: [
+        RdoValue.string(worldName).toString(),
+        RdoValue.string(this.mailAccount).toString(),
+        RdoValue.string(folder).toString(),
+        RdoValue.string(messageId).toString()
+      ]
+    });
+    console.log(`[Mail] Deleted message ${messageId} from ${folder}`);
+  }
+
+  /**
+   * Get unread mail count for Inbox.
+   * Reference: InterfaceServer.pas:4345 — CountUnreadMessages proxies CheckNewMail
+   * Note: CheckNewMail takes ServerId (from LogServerOn) + Account. Since we're
+   * not an InterfaceServer, we pass 0 as ServerId (the MailServer uses it for
+   * routing notifications, which we don't need for a count query).
+   */
+  public async getMailUnreadCount(): Promise<number> {
+    if (!this.mailServerId || !this.mailAccount) {
+      throw new Error('Mail service not connected');
+    }
+
+    const packet = await this.sendRdoRequest('mail', {
+      verb: RdoVerb.SEL,
+      targetId: this.mailServerId,
+      action: RdoAction.CALL,
+      member: 'CheckNewMail',
+      args: [RdoValue.int(0).toString(), RdoValue.string(this.mailAccount).toString()]
+    });
+    const countStr = parsePropertyResponseHelper(packet.payload!, 'CheckNewMail');
+    return parseInt(countStr, 10) || 0;
+  }
+
+  /**
+   * Get mail account address.
+   */
+  public getMailAccount(): string | null {
+    return this.mailAccount;
+  }
+
+  /**
+   * Parse ini-style mail headers text into MailMessageHeader.
+   * Headers format: key=value per line (from TStringList)
+   */
+  private parseMailHeaders(headersText: string): MailMessageHeader {
+    const headers: Record<string, string> = {};
+    for (const line of headersText.split('\n')) {
+      const eqIdx = line.indexOf('=');
+      if (eqIdx > 0) {
+        const key = line.substring(0, eqIdx).trim();
+        const value = line.substring(eqIdx + 1).trim();
+        headers[key] = value;
+      }
+    }
+
+    return {
+      messageId: headers['MessageId'] || '',
+      fromAddr: headers['FromAddr'] || '',
+      toAddr: headers['ToAddr'] || '',
+      from: headers['From'] || '',
+      to: headers['To'] || '',
+      subject: headers['Subject'] || '',
+      date: headers['Date'] || '',
+      dateFmt: headers['DateFmt'] || '',
+      read: headers['Read'] === '1',
+      stamp: parseInt(headers['Stamp'] || '0', 10),
+      noReply: headers['NoReply'] === '1',
+    };
+  }
+
+  /**
+   * Parse attachment properties text into MailAttachment.
+   * Format: key=value per line (from TAttachment properties TStringList)
+   */
+  private parseMailAttachment(attachText: string): MailAttachment {
+    const props: Record<string, string> = {};
+    for (const line of attachText.split('\n')) {
+      const eqIdx = line.indexOf('=');
+      if (eqIdx > 0) {
+        const key = line.substring(0, eqIdx).trim();
+        const value = line.substring(eqIdx + 1).trim();
+        props[key] = value;
+      }
+    }
+
+    const cls = props['Class'] || '';
+    const executed = props['Executed'] === 'Yes';
+    delete props['Class'];
+    delete props['Executed'];
+
+    return { class: cls, properties: props, executed };
+  }
+
+  // =========================================================================
+  // TYCOON PROFILE
+  // =========================================================================
+
+  /**
+   * Fetch extended tycoon profile data via RDO properties on fTycoonProxyId.
+   * Properties sourced from TTycoon class (Kernel.pas ~line 2357).
+   * Not all properties may be RDO-published — unsupported ones return defaults.
+   */
+  public async fetchTycoonProfile(): Promise<TycoonProfileFull> {
+    if (!this.fTycoonProxyId) {
+      throw new Error('Tycoon proxy not available - ensure login completed');
+    }
+
+    const proxyId = String(this.fTycoonProxyId);
+    const profile: TycoonProfileFull = {
+      name: '',
+      realName: '',
+      ranking: 0,
+      budget: '0',
+      prestige: 0,
+      facPrestige: 0,
+      researchPrestige: 0,
+      facCount: 0,
+      facMax: 0,
+      area: 0,
+      nobPoints: 0,
+      licenceLevel: 0,
+      failureLevel: this.failureLevel || 0,
+      levelName: '',
+      levelTier: 0,
+    };
+
+    const propsToFetch: Array<{ name: string; key: keyof TycoonProfileFull }> = [
+      { name: 'Name', key: 'name' },
+      { name: 'RealName', key: 'realName' },
+      { name: 'Ranking', key: 'ranking' },
+      { name: 'Budget', key: 'budget' },
+      { name: 'Prestige', key: 'prestige' },
+      { name: 'FacPrestige', key: 'facPrestige' },
+      { name: 'ResearchPrest', key: 'researchPrestige' },
+      { name: 'FacCount', key: 'facCount' },
+      { name: 'FacMax', key: 'facMax' },
+      { name: 'Area', key: 'area' },
+      { name: 'NobPoints', key: 'nobPoints' },
+      { name: 'LicenceLevel', key: 'licenceLevel' },
+    ];
+
+    for (const prop of propsToFetch) {
+      try {
+        const packet = await this.sendRdoRequest('world', {
+          verb: RdoVerb.SEL,
+          targetId: proxyId,
+          action: RdoAction.GET,
+          member: prop.name
+        });
+        const value = parsePropertyResponseHelper(packet.payload!, prop.name);
+        if (value) {
+          const key = prop.key;
+          const record = profile as unknown as Record<string, unknown>;
+          if (key === 'name' || key === 'realName' || key === 'budget' || key === 'levelName') {
+            record[key] = value;
+          } else {
+            record[key] = parseFloat(value) || 0;
+          }
+        }
+      } catch (e) {
+        console.warn(`[Profile] Failed to fetch ${prop.name}:`, e);
+      }
+    }
+
+    console.log(`[Profile] Fetched tycoon profile: ${profile.name} (Ranking #${profile.ranking})`);
+    return profile;
   }
 
 public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64): Promise<MapData> {
@@ -1661,6 +2038,12 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       if (prop === "DAAddr") {
         this.daAddr = value;
       }
+      if (prop === "MailAddr") {
+        this.mailAddr = value;
+      }
+      if (prop === "MailPort") {
+        this.mailPort = parseInt(value, 10);
+      }
     }
   }
 
@@ -1982,9 +2365,15 @@ private handlePush(socketName: string, packet: RdoPacket) {
     return;
   }
 
-  // NewMail notification
+  // NewMail notification — push from InterfaceServer via fClientEventsProxy.NewMail(MsgCount)
   if (packet.member === "NewMail") {
-    console.log(`[Session] Server sent NewMail notification: ${packet.raw}`);
+    const count = packet.args?.[0] ? parseInt(packet.args[0].replace(/^#/, ''), 10) : 0;
+    console.log(`[Session] NewMail notification: ${count} unread message(s)`);
+    const event: WsEventNewMail = {
+      type: WsMessageType.EVENT_NEW_MAIL,
+      unreadCount: count,
+    };
+    this.emit('ws_event', event);
     return;
   }
 

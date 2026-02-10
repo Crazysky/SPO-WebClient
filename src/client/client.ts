@@ -63,6 +63,25 @@ import {
   // Logout
   WsReqLogout,
   WsRespLogout,
+  // Mail
+  WsReqMailConnect,
+  WsReqMailGetFolder,
+  WsReqMailReadMessage,
+  WsReqMailCompose,
+  WsReqMailDelete,
+  WsReqMailGetUnreadCount,
+  WsRespMailConnected,
+  WsRespMailFolder,
+  WsRespMailMessage,
+  WsRespMailSent,
+  WsRespMailDeleted,
+  WsRespMailUnreadCount,
+  WsEventNewMail,
+  MailFolder,
+  // Profile
+  WsReqGetProfile,
+  WsRespGetProfile,
+  TycoonProfileFull,
 } from '../shared/types';
 import { getErrorMessage } from '../shared/error-codes';
 import { toErrorMessage } from '../shared/error-utils';
@@ -197,7 +216,7 @@ export class StarpeaceClient {
       });
 
       this.ui.toolbarUI.setOnMail(() => {
-        this.ui.log('Info', 'Mail feature not yet implemented');
+        this.ui.showMailPanel();
       });
 
       this.ui.toolbarUI.setOnLogout(() => {
@@ -379,6 +398,37 @@ export class StarpeaceClient {
         this.ui.log('Push', `Received: ${JSON.stringify(pushData).substring(0, 100)}...`);
         break;
 
+      // Mail Events
+      case WsMessageType.EVENT_NEW_MAIL: {
+        const newMail = msg as WsEventNewMail;
+        this.ui.log('Mail', `New mail! ${newMail.unreadCount} unread message(s)`);
+        if (this.ui.toolbarUI) {
+          this.ui.toolbarUI.setMailBadge(newMail.unreadCount);
+        }
+        if (this.ui.mailPanel) {
+          this.ui.mailPanel.setUnreadCount(newMail.unreadCount);
+        }
+        break;
+      }
+
+      // Mail Responses (delegated to mail panel)
+      case WsMessageType.RESP_MAIL_CONNECTED: {
+        const mailConn = msg as WsRespMailConnected;
+        this.ui.log('Mail', `Mail service connected. ${mailConn.unreadCount} unread.`);
+        if (this.ui.toolbarUI) {
+          this.ui.toolbarUI.setMailBadge(mailConn.unreadCount);
+        }
+        break;
+      }
+
+      case WsMessageType.RESP_MAIL_FOLDER:
+      case WsMessageType.RESP_MAIL_MESSAGE:
+      case WsMessageType.RESP_MAIL_SENT:
+      case WsMessageType.RESP_MAIL_DELETED:
+      case WsMessageType.RESP_MAIL_UNREAD_COUNT:
+        this.ui.handleMailResponse(msg);
+        break;
+
       // Search Menu Responses
       case WsMessageType.RESP_SEARCH_MENU_HOME:
       case WsMessageType.RESP_SEARCH_MENU_TOWNS:
@@ -390,6 +440,28 @@ export class StarpeaceClient {
       case WsMessageType.RESP_SEARCH_MENU_BANKS:
         this.ui.handleSearchMenuResponse(msg);
         break;
+
+      // Profile Response
+      case WsMessageType.RESP_GET_PROFILE: {
+        const profile = (msg as WsRespGetProfile).profile;
+        this.ui.log('Profile', `Profile loaded: ${profile.name} (${profile.levelName})`);
+        const baseStats = this.currentTycoonData ?? {
+          cash: profile.budget,
+          incomePerHour: '0',
+          ranking: profile.ranking,
+          buildingCount: profile.facCount,
+          maxBuildings: profile.facMax,
+        };
+        this.ui.updateTycoonStats({
+          username: this.storedUsername,
+          ...baseStats,
+          prestige: profile.prestige,
+          levelName: profile.levelName,
+          levelTier: profile.levelTier,
+          area: profile.area,
+        });
+        break;
+      }
 
       // Error responses without wsRequestId (from fire-and-forget messages like search menu)
       case WsMessageType.RESP_ERROR: {
@@ -522,6 +594,16 @@ export class StarpeaceClient {
 
       // Switch to game view
       this.switchToGameView();
+
+      // Connect to mail service (non-blocking, fire-and-forget)
+      this.connectMailService().catch(err => {
+        this.ui.log('Mail', `Mail service connection failed: ${toErrorMessage(err)}`);
+      });
+
+      // Fetch extended tycoon profile (non-blocking)
+      this.getProfile().catch(err => {
+        this.ui.log('Profile', `Profile fetch failed: ${toErrorMessage(err)}`);
+      });
 
       // NOTE: Initial map area is loaded by the zone system via triggerZoneCheck()
       // Do NOT call loadMapArea() here to avoid duplicate requests
@@ -1449,6 +1531,49 @@ export class StarpeaceClient {
    * Logout from the game - sends Logoff to server
    * Called when user clicks logout button
    */
+  // =========================================================================
+  // MAIL SERVICE
+  // =========================================================================
+
+  public async connectMailService(): Promise<void> {
+    const req: WsReqMailConnect = { type: WsMessageType.REQ_MAIL_CONNECT };
+    this.sendMessage(req);
+  }
+
+  public async getMailFolder(folder: MailFolder): Promise<void> {
+    const req: WsReqMailGetFolder = { type: WsMessageType.REQ_MAIL_GET_FOLDER, folder };
+    this.sendMessage(req);
+  }
+
+  public async readMailMessage(folder: MailFolder, messageId: string): Promise<void> {
+    const req: WsReqMailReadMessage = { type: WsMessageType.REQ_MAIL_READ_MESSAGE, folder, messageId };
+    this.sendMessage(req);
+  }
+
+  public async composeMail(to: string, subject: string, body: string[]): Promise<void> {
+    const req: WsReqMailCompose = { type: WsMessageType.REQ_MAIL_COMPOSE, to, subject, body };
+    this.sendMessage(req);
+  }
+
+  public async deleteMailMessage(folder: MailFolder, messageId: string): Promise<void> {
+    const req: WsReqMailDelete = { type: WsMessageType.REQ_MAIL_DELETE, folder, messageId };
+    this.sendMessage(req);
+  }
+
+  public async getMailUnreadCount(): Promise<void> {
+    const req: WsReqMailGetUnreadCount = { type: WsMessageType.REQ_MAIL_GET_UNREAD_COUNT };
+    this.sendMessage(req);
+  }
+
+  // =========================================================================
+  // PROFILE
+  // =========================================================================
+
+  public async getProfile(): Promise<void> {
+    const req: WsReqGetProfile = { type: WsMessageType.REQ_GET_PROFILE };
+    this.sendMessage(req);
+  }
+
   public async logout(): Promise<void> {
     if (this.isLoggingOut) {
       return;

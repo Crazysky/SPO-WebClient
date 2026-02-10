@@ -362,6 +362,74 @@ export interface RankingEntry {
 }
 
 // =============================================================================
+// MAIL SYSTEM
+// =============================================================================
+
+/**
+ * Standard mail folder names (matching original MailConsts.pas)
+ */
+export type MailFolder = 'Inbox' | 'Sent' | 'Draft';
+
+/**
+ * Mail message header (from msg.header ini-style key=value pairs)
+ */
+export interface MailMessageHeader {
+  messageId: string;
+  fromAddr: string;      // Sender's mail address (e.g., alice@starworld.net)
+  toAddr: string;        // Recipient address(es), semicolon-separated
+  from: string;          // Sender display name
+  to: string;            // Recipient display name(s)
+  subject: string;
+  date: string;          // In-game date as float string
+  dateFmt: string;       // Human-readable date string
+  read: boolean;         // false=unread, true=read
+  stamp: number;         // 0-99 random value for visual variety
+  noReply: boolean;      // true=system message, no reply allowed
+}
+
+/**
+ * Full mail message with body and attachments
+ */
+export interface MailMessageFull extends MailMessageHeader {
+  body: string[];               // Message body lines
+  attachments: MailAttachment[];
+}
+
+/**
+ * Mail attachment (from attach*.ini files)
+ */
+export interface MailAttachment {
+  class: string;                       // Attachment type (e.g., "MoneyTransfer")
+  properties: Record<string, string>;  // Key=value pairs from [Properties] section
+  executed: boolean;
+}
+
+// =============================================================================
+// TYCOON PROFILE (EXTENDED)
+// =============================================================================
+
+/**
+ * Extended tycoon profile data from TTycoon RDO properties
+ */
+export interface TycoonProfileFull {
+  name: string;
+  realName: string;
+  ranking: number;
+  budget: string;            // Large number as string (TMoney)
+  prestige: number;
+  facPrestige: number;
+  researchPrestige: number;
+  facCount: number;
+  facMax: number;
+  area: number;
+  nobPoints: number;
+  licenceLevel: number;
+  failureLevel: number;
+  levelName: string;
+  levelTier: number;
+}
+
+// =============================================================================
 // ROAD BUILDING
 // =============================================================================
 

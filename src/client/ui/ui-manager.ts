@@ -11,6 +11,7 @@ import { BuildMenuUI } from './build-menu-ui';
 import { ZoneOverlayUI } from './zone-overlay-ui';
 import { BuildingDetailsPanel } from './building-details';
 import { SearchMenuPanel } from './search-menu';
+import { MailPanel } from './mail-panel';
 import {
   BuildingDetailsResponse,
   WsMessage,
@@ -22,8 +23,14 @@ import {
   WsRespSearchMenuRankings,
   WsRespSearchMenuRankingDetail,
   WsRespSearchMenuBanks,
+  WsRespMailFolder,
+  WsRespMailMessage,
+  WsRespMailSent,
+  WsRespMailDeleted,
+  WsRespMailUnreadCount,
   MapBuilding,
   MapSegment,
+  MailFolder,
 } from '../../shared/types';
 
 export class UIManager {
@@ -37,6 +44,7 @@ export class UIManager {
   public zoneOverlayUI: ZoneOverlayUI | null = null;
   public buildingDetailsPanel: BuildingDetailsPanel | null = null;
   public searchMenuPanel: SearchMenuPanel | null = null;
+  public mailPanel: MailPanel | null = null;
 
   // Console
   private uiConsole: HTMLElement;
@@ -79,6 +87,24 @@ export class UIManager {
     // Search Menu Panel
     if (sendMessage) {
       this.searchMenuPanel = new SearchMenuPanel(sendMessage);
+    }
+
+    // Mail Panel
+    if (sendMessage) {
+      this.mailPanel = new MailPanel({
+        getMailFolder: (folder: MailFolder) => {
+          sendMessage({ type: WsMessageType.REQ_MAIL_GET_FOLDER, folder });
+        },
+        readMailMessage: (folder: MailFolder, messageId: string) => {
+          sendMessage({ type: WsMessageType.REQ_MAIL_READ_MESSAGE, folder, messageId });
+        },
+        composeMail: (to: string, subject: string, body: string[]) => {
+          sendMessage({ type: WsMessageType.REQ_MAIL_COMPOSE, to, subject, body });
+        },
+        deleteMailMessage: (folder: MailFolder, messageId: string) => {
+          sendMessage({ type: WsMessageType.REQ_MAIL_DELETE, folder, messageId });
+        },
+      });
     }
   }
 
@@ -187,6 +213,30 @@ export class UIManager {
    */
   public isBuildingDetailsPanelVisible(): boolean {
     return this.buildingDetailsPanel?.isVisible() ?? false;
+  }
+
+  // ===========================================================================
+  // MAIL PANEL METHODS
+  // ===========================================================================
+
+  /**
+   * Show the mail panel
+   */
+  public showMailPanel() {
+    if (this.mailPanel) {
+      this.mailPanel.show();
+    }
+  }
+
+  /**
+   * Handle mail responses and route to mail panel
+   */
+  public handleMailResponse(msg: WsMessage) {
+    if (!this.mailPanel) {
+      console.error('[UIManager] mailPanel is null!');
+      return;
+    }
+    this.mailPanel.handleResponse(msg);
   }
 
   // ===========================================================================

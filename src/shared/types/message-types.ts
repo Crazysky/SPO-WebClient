@@ -17,9 +17,13 @@ import type {
   SearchMenuCategory,
   TownInfo,
   TycoonProfile,
+  TycoonProfileFull,
   RankingCategory,
   RankingEntry,
   SurfaceType,
+  MailFolder,
+  MailMessageHeader,
+  MailMessageFull,
 } from './domain-types';
 
 import type { RdoVerb, RdoAction } from './protocol-types';
@@ -133,6 +137,27 @@ export enum WsMessageType {
   // Logout
   REQ_LOGOUT = 'REQ_LOGOUT',
   RESP_LOGOUT = 'RESP_LOGOUT',
+
+  // Mail
+  REQ_MAIL_CONNECT = 'REQ_MAIL_CONNECT',
+  REQ_MAIL_GET_FOLDER = 'REQ_MAIL_GET_FOLDER',
+  REQ_MAIL_READ_MESSAGE = 'REQ_MAIL_READ_MESSAGE',
+  REQ_MAIL_COMPOSE = 'REQ_MAIL_COMPOSE',
+  REQ_MAIL_DELETE = 'REQ_MAIL_DELETE',
+  REQ_MAIL_GET_UNREAD_COUNT = 'REQ_MAIL_GET_UNREAD_COUNT',
+
+  RESP_MAIL_CONNECTED = 'RESP_MAIL_CONNECTED',
+  RESP_MAIL_FOLDER = 'RESP_MAIL_FOLDER',
+  RESP_MAIL_MESSAGE = 'RESP_MAIL_MESSAGE',
+  RESP_MAIL_SENT = 'RESP_MAIL_SENT',
+  RESP_MAIL_DELETED = 'RESP_MAIL_DELETED',
+  RESP_MAIL_UNREAD_COUNT = 'RESP_MAIL_UNREAD_COUNT',
+
+  EVENT_NEW_MAIL = 'EVENT_NEW_MAIL',
+
+  // Profile
+  REQ_GET_PROFILE = 'REQ_GET_PROFILE',
+  RESP_GET_PROFILE = 'RESP_GET_PROFILE',
 }
 
 // =============================================================================
@@ -620,6 +645,92 @@ export interface WsRespLogout extends WsMessage {
   type: WsMessageType.RESP_LOGOUT;
   success: boolean;
   message?: string;
+}
+
+// =============================================================================
+// MAIL MESSAGES
+// =============================================================================
+
+export interface WsReqMailConnect extends WsMessage {
+  type: WsMessageType.REQ_MAIL_CONNECT;
+}
+
+export interface WsReqMailGetFolder extends WsMessage {
+  type: WsMessageType.REQ_MAIL_GET_FOLDER;
+  folder: MailFolder;
+}
+
+export interface WsReqMailReadMessage extends WsMessage {
+  type: WsMessageType.REQ_MAIL_READ_MESSAGE;
+  folder: MailFolder;
+  messageId: string;
+}
+
+export interface WsReqMailCompose extends WsMessage {
+  type: WsMessageType.REQ_MAIL_COMPOSE;
+  to: string;         // Recipient address(es), semicolon-separated
+  subject: string;
+  body: string[];      // Lines of text
+}
+
+export interface WsReqMailDelete extends WsMessage {
+  type: WsMessageType.REQ_MAIL_DELETE;
+  folder: MailFolder;
+  messageId: string;
+}
+
+export interface WsReqMailGetUnreadCount extends WsMessage {
+  type: WsMessageType.REQ_MAIL_GET_UNREAD_COUNT;
+}
+
+export interface WsRespMailConnected extends WsMessage {
+  type: WsMessageType.RESP_MAIL_CONNECTED;
+  unreadCount: number;
+}
+
+export interface WsRespMailFolder extends WsMessage {
+  type: WsMessageType.RESP_MAIL_FOLDER;
+  folder: MailFolder;
+  messages: MailMessageHeader[];
+}
+
+export interface WsRespMailMessage extends WsMessage {
+  type: WsMessageType.RESP_MAIL_MESSAGE;
+  message: MailMessageFull;
+}
+
+export interface WsRespMailSent extends WsMessage {
+  type: WsMessageType.RESP_MAIL_SENT;
+  success: boolean;
+  message?: string;
+}
+
+export interface WsRespMailDeleted extends WsMessage {
+  type: WsMessageType.RESP_MAIL_DELETED;
+  success: boolean;
+}
+
+export interface WsRespMailUnreadCount extends WsMessage {
+  type: WsMessageType.RESP_MAIL_UNREAD_COUNT;
+  count: number;
+}
+
+export interface WsEventNewMail extends WsMessage {
+  type: WsMessageType.EVENT_NEW_MAIL;
+  unreadCount: number;
+}
+
+// =============================================================================
+// PROFILE MESSAGES
+// =============================================================================
+
+export interface WsReqGetProfile extends WsMessage {
+  type: WsMessageType.REQ_GET_PROFILE;
+}
+
+export interface WsRespGetProfile extends WsMessage {
+  type: WsMessageType.RESP_GET_PROFILE;
+  profile: TycoonProfileFull;
 }
 
 // =============================================================================

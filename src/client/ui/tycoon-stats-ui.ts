@@ -9,6 +9,11 @@ export interface TycoonStats {
   ranking: number;
   buildingCount: number;
   maxBuildings: number;
+  // Extended profile fields (optional, populated from RESP_GET_PROFILE)
+  prestige?: number;
+  levelName?: string;
+  levelTier?: number;
+  area?: number;
 }
 
 export class TycoonStatsUI {
@@ -93,10 +98,22 @@ export class TycoonStatsUI {
     const incomeEl = this.createStatElement('📈', '$0/h', 'Income per Hour');
     incomeEl.dataset.type = 'income';
 
+    // Prestige (hidden until profile data arrives)
+    const prestigeEl = this.createStatElement('✨', '0', 'Prestige');
+    prestigeEl.dataset.type = 'prestige';
+    prestigeEl.style.display = 'none';
+
+    // Area (hidden until profile data arrives)
+    const areaEl = this.createStatElement('📐', '0', 'Land Area');
+    areaEl.dataset.type = 'area';
+    areaEl.style.display = 'none';
+
     this.statsPanel.appendChild(rankingEl);
     this.statsPanel.appendChild(buildingsEl);
     this.statsPanel.appendChild(cashEl);
     this.statsPanel.appendChild(incomeEl);
+    this.statsPanel.appendChild(prestigeEl);
+    this.statsPanel.appendChild(areaEl);
 
     this.container.appendChild(this.statsPanel);
   }
@@ -205,6 +222,34 @@ export class TycoonStatsUI {
     const incomeEl = this.statsPanel.querySelector('[data-type="income"] .stat-value');
     if (incomeEl) {
       incomeEl.textContent = `${this.formatCurrency(stats.incomePerHour)}/h`;
+    }
+
+    // Update prestige (show element when data arrives)
+    if (stats.prestige !== undefined) {
+      const prestigeContainer = this.statsPanel.querySelector('[data-type="prestige"]') as HTMLElement | null;
+      const prestigeVal = prestigeContainer?.querySelector('.stat-value');
+      if (prestigeContainer && prestigeVal) {
+        prestigeContainer.style.display = 'flex';
+        prestigeVal.textContent = String(Math.round(stats.prestige));
+      }
+    }
+
+    // Update area (show element when data arrives)
+    if (stats.area !== undefined) {
+      const areaContainer = this.statsPanel.querySelector('[data-type="area"]') as HTMLElement | null;
+      const areaVal = areaContainer?.querySelector('.stat-value');
+      if (areaContainer && areaVal) {
+        areaContainer.style.display = 'flex';
+        areaVal.textContent = String(stats.area);
+      }
+    }
+
+    // Update ranking with level name if available
+    if (stats.levelName) {
+      const rankingVal = this.statsPanel.querySelector('[data-type="ranking"] .stat-value');
+      if (rankingVal) {
+        rankingVal.textContent = `#${stats.ranking} ${stats.username} (${stats.levelName})`;
+      }
     }
   }
 

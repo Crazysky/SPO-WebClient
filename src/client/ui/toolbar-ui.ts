@@ -17,8 +17,10 @@ export class ToolbarUI {
   private onRefresh: (() => void) | null = null;
   private onLogout: (() => void) | null = null;
 
-  // Button reference for road building state
+  // Button references for state updates
   private roadBuildingBtn: HTMLElement | null = null;
+  private mailBtn: HTMLElement | null = null;
+  private mailBadge: HTMLElement | null = null;
 
   constructor() {
     // Check if toolbar container exists in header
@@ -138,7 +140,8 @@ export class ToolbarUI {
         icon: '✉️',
         label: 'Mail',
         tooltip: 'Messages',
-        callback: () => this.onMail?.()
+        callback: () => this.onMail?.(),
+        isMailButton: true
       },
       {
         icon: '⚙️',
@@ -166,6 +169,10 @@ export class ToolbarUI {
       // Store reference to road button for state updates
       if ('isRoadButton' in btnConfig && btnConfig.isRoadButton) {
         this.roadBuildingBtn = btn;
+      }
+      // Store reference to mail button for badge updates
+      if ('isMailButton' in btnConfig && btnConfig.isMailButton) {
+        this.mailBtn = btn;
       }
       // Add logout button styling class
       if ('isLogoutButton' in btnConfig && btnConfig.isLogoutButton) {
@@ -365,6 +372,43 @@ export class ToolbarUI {
       this.toolbar.parentElement.removeChild(this.toolbar);
       this.toolbar = null;
     }
+  }
+
+  /**
+   * Set unread mail badge count on the mail button
+   */
+  public setMailBadge(count: number) {
+    if (!this.mailBtn) return;
+
+    // Remove existing badge
+    if (this.mailBadge) {
+      this.mailBadge.remove();
+      this.mailBadge = null;
+    }
+
+    if (count <= 0) return;
+
+    // Create badge
+    this.mailBadge = document.createElement('span');
+    this.mailBadge.textContent = count > 99 ? '99+' : String(count);
+    this.mailBadge.style.cssText = `
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      min-width: 18px;
+      height: 18px;
+      background: #ef4444;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 18px;
+      text-align: center;
+      border-radius: 9px;
+      padding: 0 4px;
+      pointer-events: none;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+    `;
+    this.mailBtn.appendChild(this.mailBadge);
   }
 
   /**
