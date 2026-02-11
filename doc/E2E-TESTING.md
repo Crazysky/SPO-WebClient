@@ -9,8 +9,8 @@
 
 | Field | Value |
 |-------|-------|
-| **Username** | `Crazz` |
-| **Password** | `Simcity99` |
+| **Username** | `SPO_test3` |
+| **Password** | `test3` |
 | **Server zone** | `BETA` |
 | **World** | `Shamba` |
 | **Company** | `President of Shamba` |
@@ -41,8 +41,8 @@ browser_navigate → http://localhost:8080
 **2b. Fill login form and connect**
 ```
 browser_snapshot → identify #inp-username, #inp-password, #btn-connect
-browser_type → ref for #inp-username, text: "Crazz"
-browser_type → ref for #inp-password, text: "Simcity99"
+browser_type → ref for #inp-username, text: "SPO_test3"
+browser_type → ref for #inp-password, text: "test3"
 browser_click → ref for #btn-connect ("Connect to Starpeace")
 ```
 
@@ -65,11 +65,11 @@ browser_click → ref for "President of Shamba" company card
 **2e. Verify map loaded**
 ```
 browser_wait_for → textGone: "Select Company" (login panel disappears)
-browser_snapshot → verify #game-panel is visible, toolbar shows "Crazz"
+browser_snapshot → verify #game-panel is visible, toolbar shows "SPO_test3"
 ```
 
 **Validation criteria:**
-- The toolbar in the header should display the player name "Crazz"
+- The toolbar in the header should display the player name "SPO_test3"
 - The isometric map canvas should be visible in `#game-panel`
 - The `#login-panel` should be hidden
 - Take a screenshot (`browser_take_screenshot`) for visual confirmation

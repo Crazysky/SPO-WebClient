@@ -1,7 +1,7 @@
 C 141 sel 6803460 call SetObject "^" "#459","#389";
 A141 res="#-1";
 C 142 sel 6803460 call GetPropertyList "^" "%Creator	Years	Name	SecurityId	Trouble	CurrBlock	ServiceCount	Cost	ROI	";
-A142 res="%Crazz	3	Drug Store 9	-117360084-	0	114551764	1	140001.2714	-1	";
+A142 res="%SPO_test3	3	Drug Store 9	-117360084-	0	114551764	1	140001.2714	-1	";
 
 C 143 sel 6803460 call GetPropertyList "^" "%srvSupplies0	srvDemands0	srvMarketPrices0	srvPrices0	srvAvgPrices0	srvNames0.0	";
 A143 res="%100	1	40	300	300	Pharmaceutics	";

@@ -1,0 +1,189 @@
+{
+  "name": "login-select-company",
+  "description": "Complete login flow: directory connect, world login, company select",
+  "capturedAt": "2026-02-11",
+  "serverInfo": {
+    "world": "Shamba",
+    "zone": "BETA",
+    "date": "2026-02-11"
+  },
+  "exchanges": [
+    {
+      "id": "ex-001",
+      "timestamp": "2026-02-11T10:00:00.000Z",
+      "request": {
+        "type": "REQ_CONNECT_DIRECTORY",
+        "wsRequestId": "cap-001",
+        "username": "SPO_test3",
+        "password": "***",
+        "zonePath": "Root/Areas/Asia/Worlds"
+      },
+      "responses": [
+        {
+          "type": "RESP_CONNECT_SUCCESS",
+          "wsRequestId": "cap-001",
+          "worlds": [
+            {
+              "name": "Shamba",
+              "url": "http://starpeace.net",
+              "ip": "192.168.1.1",
+              "port": 6000,
+              "players": 5,
+              "population": 150000,
+              "investors": 3,
+              "online": 5,
+              "date": "2026-01-15",
+              "running3": true
+            }
+          ]
+        }
+      ],
+      "tags": ["auth"]
+    },
+    {
+      "id": "ex-002",
+      "timestamp": "2026-02-11T10:00:00.500Z",
+      "request": {
+        "type": "REQ_LOGIN_WORLD",
+        "wsRequestId": "cap-002",
+        "username": "SPO_test3",
+        "password": "***",
+        "worldName": "Shamba"
+      },
+      "responses": [
+        {
+          "type": "RESP_LOGIN_SUCCESS",
+          "wsRequestId": "cap-002",
+          "tycoonId": "12345",
+          "contextId": "67890",
+          "companyCount": 1,
+          "companies": [
+            {
+              "id": "99",
+              "name": "Shamba Industries",
+              "value": 1500000,
+              "ownerRole": "President"
+            }
+          ]
+        }
+      ],
+      "delayMs": 200,
+      "tags": ["auth"]
+    },
+    {
+      "id": "ex-003",
+      "timestamp": "2026-02-11T10:00:01.000Z",
+      "request": {
+        "type": "REQ_SELECT_COMPANY",
+        "wsRequestId": "cap-003",
+        "companyId": "99"
+      },
+      "responses": [
+        {
+          "type": "RESP_RDO_RESULT",
+          "wsRequestId": "cap-003",
+          "result": "OK"
+        }
+      ],
+      "tags": ["auth"]
+    },
+    {
+      "id": "ex-004",
+      "timestamp": "2026-02-11T10:00:01.200Z",
+      "request": {
+        "type": "REQ_GET_ALL_FACILITY_DIMENSIONS",
+        "wsRequestId": "cap-004"
+      },
+      "responses": [
+        {
+          "type": "RESP_ALL_FACILITY_DIMENSIONS",
+          "wsRequestId": "cap-004",
+          "dimensions": {
+            "100": {
+              "visualClass": "100",
+              "name": "Small Farm",
+              "facid": "farm1",
+              "xsize": 4,
+              "ysize": 4,
+              "level": 1
+            },
+            "200": {
+              "visualClass": "200",
+              "name": "Factory",
+              "facid": "factory1",
+              "xsize": 6,
+              "ysize": 6,
+              "level": 1
+            }
+          }
+        }
+      ],
+      "tags": ["init"]
+    },
+    {
+      "id": "ex-005",
+      "timestamp": "2026-02-11T10:00:01.500Z",
+      "request": {
+        "type": "REQ_MAIL_CONNECT",
+        "wsRequestId": "cap-005"
+      },
+      "responses": [
+        {
+          "type": "RESP_MAIL_CONNECTED",
+          "wsRequestId": "cap-005",
+          "unreadCount": 3
+        }
+      ],
+      "tags": ["init"]
+    },
+    {
+      "id": "ex-006",
+      "timestamp": "2026-02-11T10:00:01.600Z",
+      "request": {
+        "type": "REQ_GET_PROFILE",
+        "wsRequestId": "cap-006"
+      },
+      "responses": [
+        {
+          "type": "RESP_GET_PROFILE",
+          "wsRequestId": "cap-006",
+          "profile": {
+            "name": "SPO_test3",
+            "realName": "",
+            "ranking": 3,
+            "budget": "1500000",
+            "prestige": 250,
+            "facPrestige": 100,
+            "researchPrestige": 50,
+            "facCount": 12,
+            "facMax": 50,
+            "area": 48,
+            "nobPoints": 0,
+            "licenceLevel": 3,
+            "failureLevel": 0,
+            "levelName": "Entrepreneur",
+            "levelTier": 3
+          }
+        }
+      ],
+      "tags": ["init"]
+    }
+  ],
+  "scheduledEvents": [
+    {
+      "afterMs": 2000,
+      "event": {
+        "type": "EVENT_TYCOON_UPDATE",
+        "cash": "1500000",
+        "incomePerHour": "25000",
+        "ranking": 3,
+        "buildingCount": 12,
+        "maxBuildings": 50
+      },
+      "repeat": {
+        "intervalMs": 10000,
+        "count": 5
+      }
+    }
+  ]
+}

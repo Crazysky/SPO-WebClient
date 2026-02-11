@@ -148,7 +148,7 @@ npm test -- --testNamePattern="X"  # Specific suite
 
 Full procedure, credentials, and selectors: **[doc/E2E-TESTING.md](doc/E2E-TESTING.md)**
 
-Credentials: `Crazz` / `Simcity99` / BETA zone / Shamba world / President of Shamba company
+Credentials: `SPO_test3` / `test3` / BETA zone / Shamba world / President of Shamba company
 **These credentials are LOCKED — never change without explicit developer approval.**
 
 ## Documentation Index
