@@ -1,0 +1,103 @@
+{
+  "version": "1.0.0",
+  "installedAt": "2026-02-16T13:59:54.202Z",
+  "source": "skillsmp.com",
+  "skills": [
+    {
+      "name": "typescript",
+      "skillName": "typescript",
+      "author": "prowler-cloud",
+      "stars": 12990,
+      "path": "C:\\Users\\RobinALEMAN\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\typescript\\SKILL.md",
+      "githubUrl": "https://github.com/prowler-cloud/prowler/tree/master/skills/typescript"
+    },
+    {
+      "name": "nodejs-backend",
+      "skillName": "nodejs-backend-patterns",
+      "author": "wshobson",
+      "stars": 28683,
+      "path": "C:\\Users\\RobinALEMAN\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\nodejs-backend\\SKILL.md",
+      "githubUrl": "https://github.com/wshobson/agents/tree/main/plugins/javascript-typescript/skills/nodejs-backend-patterns"
+    },
+    {
+      "name": "jest-testing",
+      "skillName": "vitest",
+      "author": "supabase",
+      "stars": 97659,
+      "path": "C:\\Users\\RobinALEMAN\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\jest-testing\\SKILL.md",
+      "githubUrl": "https://github.com/supabase/supabase/tree/master/.agents/skills/vitest"
+    },
+    {
+      "name": "security-auditor",
+      "skillName": "checking-owasp-compliance",
+      "author": "jeremylongshore",
+      "stars": 1367,
+      "path": "C:\\Users\\RobinALEMAN\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\security-auditor\\SKILL.md",
+      "githubUrl": "https://github.com/jeremylongshore/claude-code-plugins-plus-skills/tree/main/plugins/security/owasp-compliance-checker/skills/checking-owasp-compliance"
+    },
+    {
+      "name": "memory-optimization",
+      "skillName": "profiling-application-performance",
+      "author": "jeremylongshore",
+      "stars": 1367,
+      "path": "C:\\Users\\RobinALEMAN\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\memory-optimization\\SKILL.md",
+      "githubUrl": "https://github.com/jeremylongshore/claude-code-plugins-plus-skills/tree/main/backups/plugin-enhancements/plugin-backups/application-profiler_20251020_075450/skills/skill-adapter"
+    },
+    {
+      "name": "protocol-reverse-engineering",
+      "skillName": "protocol-reverse-engineering",
+      "author": "wshobson",
+      "stars": 28683,
+      "path": "C:\\Users\\RobinALEMAN\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\protocol-reverse-engineering\\SKILL.md",
+      "githubUrl": "https://github.com/wshobson/agents/tree/main/plugins/reverse-engineering/skills/protocol-reverse-engineering"
+    },
+    {
+      "name": "web-performance",
+      "skillName": "web-performance-optimization",
+      "author": "davila7",
+      "stars": 20474,
+      "path": "C:\\Users\\RobinALEMAN\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\web-performance\\SKILL.md",
+      "githubUrl": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/web-development/web-performance-optimization"
+    },
+    {
+      "name": "git-workflow",
+      "skillName": "git",
+      "author": "openclaw",
+      "stars": 1036,
+      "path": "C:\\Users\\RobinALEMAN\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\git-workflow\\SKILL.md",
+      "githubUrl": "https://github.com/openclaw/skills/tree/main/skills/ivangdavila/git"
+    },
+    {
+      "name": "debugging",
+      "skillName": "debugger",
+      "author": "Shubhamsaboo",
+      "stars": 95384,
+      "path": "C:\\Users\\RobinALEMAN\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\debugging\\SKILL.md",
+      "githubUrl": "https://github.com/Shubhamsaboo/awesome-llm-apps/tree/main/awesome_agent_skills/debugger"
+    },
+    {
+      "name": "e2e-testing",
+      "skillName": "e2e-testing",
+      "author": "affaan-m",
+      "stars": 46711,
+      "path": "C:\\Users\\RobinALEMAN\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\e2e-testing\\SKILL.md",
+      "githubUrl": "https://github.com/affaan-m/everything-claude-code/tree/main/skills/e2e-testing"
+    },
+    {
+      "name": "refactoring",
+      "skillName": "codebase-cleanup-refactor-clean",
+      "author": "sickn33",
+      "stars": 9848,
+      "path": "C:\\Users\\RobinALEMAN\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\refactoring\\SKILL.md",
+      "githubUrl": "https://github.com/sickn33/antigravity-awesome-skills/tree/main/skills/codebase-cleanup-refactor-clean"
+    },
+    {
+      "name": "claude-md-improver",
+      "skillName": "claude-md-improver",
+      "author": "anthropics",
+      "stars": 7492,
+      "path": "C:\\Users\\RobinALEMAN\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\claude-md-improver\\SKILL.md",
+      "githubUrl": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-md-management/skills/claude-md-improver"
+    }
+  ]
+}
