@@ -1,0 +1,119 @@
+{
+  "hooks": {
+    "postToolUse": [
+      {
+        "tool": "Edit",
+        "command": "npx tsc --noEmit",
+        "description": "Type-check TypeScript after editing files",
+        "continueOnError": true
+      },
+      {
+        "tool": "Write",
+        "command": "npx tsc --noEmit",
+        "description": "Type-check TypeScript after creating files",
+        "continueOnError": true
+      }
+    ],
+    "preToolUse": [
+      {
+        "tool": "Edit",
+        "filter": {
+          "file_path": [
+            "**/rdo-types.ts",
+            "**/rdo.ts",
+            "**/facility_db.csv",
+            "**/__fixtures__/**"
+          ]
+        },
+        "command": "echo '⚠️  WARNING: This file is protected per CLAUDE.md. Confirm before editing: rdo-types.ts, rdo.ts, facility_db.csv, or __fixtures__/*'",
+        "requireConfirmation": true,
+        "description": "Protect critical files from accidental modification"
+      },
+      {
+        "tool": "Write",
+        "filter": {
+          "file_path": [
+            "**/rdo-types.ts",
+            "**/rdo.ts",
+            "**/facility_db.csv",
+            "**/__fixtures__/**"
+          ]
+        },
+        "command": "echo '⚠️  WARNING: Attempting to overwrite a protected file. Confirm before proceeding.'",
+        "requireConfirmation": true,
+        "description": "Protect critical files from being overwritten"
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Grep",
+      "Glob",
+      "Bash(npm *)",
+      "Bash(node *)",
+      "Bash(npx *)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git show*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(git pull*)",
+      "Bash(git fetch*)",
+      "Bash(git merge*)",
+      "Bash(git rebase*)",
+      "Bash(git branch*)",
+      "Bash(git checkout*)",
+      "Bash(git switch*)",
+      "Bash(git restore*)",
+      "Bash(git stash*)",
+      "Bash(git tag*)",
+      "Bash(git remote*)",
+      "Bash(git config*)",
+      "Bash(git blame*)",
+      "Bash(git grep*)",
+      "Bash(git ls-files*)",
+      "Bash(git ls-tree*)",
+      "Bash(git rev-parse*)",
+      "Bash(git describe*)",
+      "Bash(git cherry-pick*)",
+      "Bash(git apply*)",
+      "Bash(git format-patch*)",
+      "Bash(git am*)",
+      "Bash(git bisect*)",
+      "Bash(git submodule*)",
+      "Bash(git worktree*)",
+      "Bash(git reflog*)",
+      "Bash(git reset*)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(pwd *)",
+      "Bash(cd *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(tree *)",
+      "Bash(which *)",
+      "Bash(echo *)"
+    ],
+    "deny": [
+      "Bash(git clean*)",
+      "Bash(git rm -rf*)",
+      "Bash(git filter-branch*)",
+      "Bash(git filter-repo*)",
+      "Bash(git gc --prune*)",
+      "Bash(git prune*)",
+      "Bash(git reflog expire*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git branch -D*)"
+    ]
+  }
+}
