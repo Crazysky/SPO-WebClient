@@ -25,7 +25,18 @@ const REQUIRED_SKILLS = [
   { query: 'debugging systematic', name: 'debugging' },
   { query: 'e2e testing playwright', name: 'e2e-testing' },
   { query: 'refactoring SOLID patterns', name: 'refactoring' },
-  { query: 'claude md improver', name: 'claude-md-improver' }
+  { query: 'claude md improver', name: 'claude-md-improver' },
+  // New skills - Added 2026-02-16
+  { query: 'claude-code-workflow ilude', name: 'claude-code-workflow' },
+  { query: 'context-master josiahsiegel', name: 'context-master' },
+  { query: 'agentic-jumpstart-testing webdevcody', name: 'agentic-jumpstart-testing' },
+  { query: 'mobile-design davila7', name: 'mobile-design' },
+  { query: 'mobile-ux-optimizer erichowens', name: 'mobile-ux-optimizer' },
+  { query: 'docs-codebase vasilyu1983', name: 'docs-codebase' },
+  // Game rendering & performance - Added 2026-02-16
+  { query: 'r3f-performance bbeierle12', name: 'r3f-performance' },
+  { query: 'web-games kjibba', name: 'web-games' },
+  { query: 'webgl-expert ronnycoding', name: 'webgl-expert' }
 ];
 
 /**

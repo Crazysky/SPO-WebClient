@@ -186,19 +186,84 @@ Read the relevant doc when working on a specific system:
 
 ## Installed Skills
 
-| Skill | Category | Purpose |
-|-------|----------|---------|
-| `typescript` | Language | Strict mode, generics, utility types |
-| `nodejs-backend` | Backend | Async/await, layered architecture, DI |
-| `jest-testing` | Testing | Mocking, coverage, snapshot testing |
-| `security-auditor` | Security | OWASP Top 10, XSS/SQLi/CSRF detection |
-| `memory-optimization` | Performance | Memory profiling, leak detection |
-| `protocol-reverse-engineering` | Protocol | Network protocol analysis (for RDO) |
-| `web-performance` | Performance | Core Web Vitals, caching, runtime |
-| `git-workflow` | Git | Conventional commits, PR workflows |
-| `debugging` | Debugging | Systematic diagnosis, root cause analysis |
-| `e2e-testing` | Testing | Playwright patterns, visual regression |
-| `refactoring` | Quality | Extract/inline patterns, SOLID |
+**Total: 21 skills** | Updated: 2026-02-16 | See [SKILLS_SECURITY_REPORT.md](.claude/SKILLS_SECURITY_REPORT.md) for details
+
+| Skill | Category | Purpose | Stars |
+|-------|----------|---------|-------|
+| `typescript` | Language | Strict mode, generics, utility types | 12,990 |
+| `nodejs-backend` | Backend | Async/await, layered architecture, DI | 28,683 |
+| `jest-testing` | Testing | Vitest + Jest patterns, mocking, coverage | 97,659 |
+| `security-auditor` | Security | OWASP Top 10, XSS/SQLi/CSRF detection | 1,367 |
+| `memory-optimization` | Performance | Memory profiling, leak detection | 1,367 |
+| `protocol-reverse-engineering` | Protocol | Network protocol analysis (for RDO) | 28,683 |
+| `web-performance` | Performance | Core Web Vitals, caching, runtime | 20,474 |
+| `git-workflow` | Git | Conventional commits, PR workflows | 1,036 |
+| `debugging` | Debugging | Systematic diagnosis, root cause analysis | 95,384 |
+| `e2e-testing` | Testing | Playwright patterns, visual regression | 46,711 |
+| `refactoring` | Quality | Extract/inline patterns, SOLID | 9,848 |
+| `claude-md-improver` | Claude | CLAUDE.md audit & improvement (Official Anthropic) | 7,492 |
+| `claude-code-workflow` | Claude | AI-assisted dev workflow, prompting strategies | 7 |
+| `context-master` | Context | Universal context mgmt, saves 62% context | 13 |
+| `agentic-jumpstart-testing` | Testing | Playwright E2E + Vitest unit test patterns | 21 |
+| `mobile-design` | Mobile | Mobile-first design thinking for iOS/Android | 20,474 |
+| `mobile-ux-optimizer` | Mobile | Touch interfaces, responsive layouts, PWA | 34 |
+| `docs-codebase` | Docs | README, API docs, ADRs, changelogs, technical writing | 30 |
+| `r3f-performance` | Rendering | LOD, frustum culling, instancing, draw call reduction | 6 |
+| `web-games` | Game Dev | Browser game development, WebGPU, PWA patterns | 0 |
+| `webgl-expert` | Rendering | WebGL API, shaders (GLSL), canvas rendering, GPU | 8 |
+
+## SkillsMP API
+
+**All Claude skill searches must use the SkillsMP.com API.**
+
+API Key: `sk_live_skillsmp_Y-DcREuip4XIpakL7dMNRMVZvQSO81aqE6JI-8LODBg` (not confidential, safe to commit)
+
+### Endpoints
+
+**Keyword Search:**
+```bash
+GET https://skillsmp.com/api/v1/skills/search?q=<query>&page=1&limit=20&sortBy=stars
+```
+
+**AI Semantic Search:**
+```bash
+GET https://skillsmp.com/api/v1/skills/ai-search?q=<query>
+```
+
+### Example Usage
+
+```bash
+# Keyword search
+curl -X GET "https://skillsmp.com/api/v1/skills/search?q=typescript" \
+  -H "Authorization: Bearer sk_live_skillsmp_Y-DcREuip4XIpakL7dMNRMVZvQSO81aqE6JI-8LODBg"
+
+# AI semantic search
+curl -X GET "https://skillsmp.com/api/v1/skills/ai-search?q=How+to+optimize+isometric+rendering" \
+  -H "Authorization: Bearer sk_live_skillsmp_Y-DcREuip4XIpakL7dMNRMVZvQSO81aqE6JI-8LODBg"
+```
+
+### Response Format
+
+```json
+{
+  "success": true,
+  "data": {
+    "skills": [...],
+    "total": 42,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+### Error Codes
+
+| Code | HTTP | Description |
+|------|------|-------------|
+| `MISSING_API_KEY` | 401 | API key not provided |
+| `INVALID_API_KEY` | 401 | Invalid API key |
+| `MISSING_QUERY` | 400 | Missing required query parameter |
+| `INTERNAL_ERROR` | 500 | Internal server error |
 
 ## Troubleshooting
 
