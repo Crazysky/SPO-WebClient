@@ -672,6 +672,17 @@ export class TextureExtractor implements Service {
   }
 
   /**
+   * Graceful shutdown: clear in-memory caches.
+   */
+  async shutdown(): Promise<void> {
+    console.log('[TextureExtractor] Shutting down...');
+    this.textureIndex.clear();
+    this.landClassMappings.clear();
+    this.initialized = false;
+    console.log('[TextureExtractor] Shutdown complete');
+  }
+
+  /**
    * Get terrain info including available seasons
    * Used by client to auto-select an available season
    */

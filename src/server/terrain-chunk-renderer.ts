@@ -177,6 +177,9 @@ export class TerrainChunkRenderer implements Service {
   /** Background pre-generation state */
   private preGenerating: boolean = false;
 
+  /** Set to true to stop the background pre-generation loop */
+  private stopRequested: boolean = false;
+
   /** Set to true before initialize() to skip background pre-generation (for tests) */
   public skipPreGeneration: boolean = false;
 
@@ -599,6 +602,12 @@ export class TerrainChunkRenderer implements Service {
     // Process work items one at a time via setImmediate
     let itemIdx = 0;
     const processNextItem = () => {
+      if (this.stopRequested) {
+        console.log('[TerrainChunkRenderer] Pre-generation stopped (shutdown requested)');
+        this.preGenerating = false;
+        return;
+      }
+
       if (itemIdx >= workItems.length) {
         console.log(`[TerrainChunkRenderer] Pre-generation complete for all ${workItems.length} map/season combos`);
         this.preGenerating = false;
@@ -642,6 +651,11 @@ export class TerrainChunkRenderer implements Service {
       let chunkIdx = 0;
 
       const processNextChunk = () => {
+        if (this.stopRequested) {
+          this.preGenerating = false;
+          return;
+        }
+
         // Process a batch of chunks per tick to avoid starving the event loop
         const batchSize = 4;
         for (let b = 0; b < batchSize && chunkIdx < totalChunks; b++, chunkIdx++) {
@@ -854,6 +868,28 @@ export class TerrainChunkRenderer implements Service {
    */
   getPreviewCachePath(mapName: string, terrainType: string, season: number): string {
     return path.join(this.cacheDir, 'chunks', mapName, terrainType, String(season), 'preview.png');
+  }
+
+  /**
+   * Graceful shutdown: stop background pre-generation and release memory.
+   */
+  async shutdown(): Promise<void> {
+    console.log('[TerrainChunkRenderer] Shutting down...');
+    this.stopRequested = true;
+
+    // Wait for pre-generation to stop (it checks stopRequested each tick)
+    let waitMs = 0;
+    while (this.preGenerating && waitMs < 3000) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      waitMs += 50;
+    }
+
+    // Clear in-memory data
+    this.atlasData.clear();
+    this.mapData.clear();
+    this.generating.clear();
+
+    console.log('[TerrainChunkRenderer] Shutdown complete');
   }
 
   /**

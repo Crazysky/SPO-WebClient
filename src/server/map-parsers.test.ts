@@ -133,19 +133,63 @@ describe('parseBuildings', () => {
   });
 
   describe('VisualClass cleaning', () => {
-    it('should extract numeric visualClass from RDO-prefixed strings', () => {
-      const lines = ['res="%4602', '0', '16', '100', '100'];
+    it('should handle already-clean numeric strings', () => {
+      const lines = ['4602', '0', '16', '100', '100'];
       const buildings = parseBuildings(lines);
 
       expect(buildings).toHaveLength(1);
       expect(buildings[0].visualClass).toBe('4602');
     });
+  });
 
-    it('should handle already-clean numeric strings', () => {
-      const lines = ['4602', '0', '16', '100', '100'];
+  describe('Context/header line skipping', () => {
+    it('should skip non-numeric context lines at the beginning', () => {
+      // ObjectsInArea may return localized context text before building data
+      const lines = [
+        'IdentidadeCom sinalizador',
+        'Status: Active',
+        '142', '3017', '33', '450', '820',
+      ];
       const buildings = parseBuildings(lines);
 
-      expect(buildings[0].visualClass).toBe('4602');
+      expect(buildings).toHaveLength(1);
+      expect(buildings[0].visualClass).toBe('142');
+      expect(buildings[0].tycoonId).toBe(3017);
+      expect(buildings[0].x).toBe(450);
+      expect(buildings[0].y).toBe(820);
+    });
+
+    it('should skip a single context header line', () => {
+      const lines = [
+        'Área de Construção',
+        '98', '0', '16', '455', '825',
+      ];
+      const buildings = parseBuildings(lines);
+
+      expect(buildings).toHaveLength(1);
+      expect(buildings[0].visualClass).toBe('98');
+    });
+
+    it('should parse correctly with no context header', () => {
+      const lines = ['142', '3017', '33', '450', '820'];
+      const buildings = parseBuildings(lines);
+
+      expect(buildings).toHaveLength(1);
+      expect(buildings[0].visualClass).toBe('142');
+    });
+
+    it('should parse multiple buildings after context header', () => {
+      const lines = [
+        'Some context text',
+        'More context',
+        '142', '3017', '33', '450', '820',
+        '98', '0', '16', '455', '825',
+      ];
+      const buildings = parseBuildings(lines);
+
+      expect(buildings).toHaveLength(2);
+      expect(buildings[0].visualClass).toBe('142');
+      expect(buildings[1].visualClass).toBe('98');
     });
   });
 
@@ -180,5 +224,17 @@ describe('parseSegments', () => {
 
   it('should return empty array for empty input', () => {
     expect(parseSegments([])).toHaveLength(0);
+  });
+
+  it('should skip non-numeric context lines at the beginning', () => {
+    const lines = [
+      'Road Network Data',
+      '10', '20', '30', '40', '1', '2', '3', '4', '5', '6',
+    ];
+    const segments = parseSegments(lines);
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0].x1).toBe(10);
+    expect(segments[0].y1).toBe(20);
   });
 });

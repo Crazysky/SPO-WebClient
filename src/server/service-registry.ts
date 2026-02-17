@@ -235,6 +235,21 @@ export class ServiceRegistry extends EventEmitter {
   }
 
   /**
+   * Reset the registry to its initial state.
+   * Intended for tests: shuts down all services, then clears registrations
+   * so the registry can be reused.
+   */
+  async reset(): Promise<void> {
+    if (this.initialized && !this.shuttingDown) {
+      await this.shutdown();
+    }
+    this.services.clear();
+    this.initialized = false;
+    this.shuttingDown = false;
+    this.startTime = 0;
+  }
+
+  /**
    * Resolve initialization order based on dependencies (topological sort)
    */
   private resolveInitializationOrder(): string[] {

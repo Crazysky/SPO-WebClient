@@ -74,6 +74,15 @@ export class MapDataService implements Service {
   }
 
   /**
+   * Graceful shutdown: clear in-memory state.
+   */
+  async shutdown(): Promise<void> {
+    console.log('[MapDataService] Shutting down...');
+    this.extracted.clear();
+    console.log('[MapDataService] Shutdown complete');
+  }
+
+  /**
    * Parse INI file content
    */
   private parseINI(content: string, mapName: string): MapMetadata {

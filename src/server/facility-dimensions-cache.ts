@@ -165,6 +165,16 @@ export class FacilityDimensionsCache implements Service {
   }
 
   /**
+   * Graceful shutdown: delegate to BuildingDataService.
+   */
+  async shutdown(): Promise<void> {
+    logger.info('[FacilityDimensionsCache] Shutting down...');
+    await this.buildingService.shutdown();
+    this.initialized = false;
+    logger.info('[FacilityDimensionsCache] Shutdown complete');
+  }
+
+  /**
    * Service interface: Check if service is healthy
    */
   isHealthy(): boolean {

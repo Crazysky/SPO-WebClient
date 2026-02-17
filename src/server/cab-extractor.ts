@@ -133,8 +133,13 @@ export async function extractCabArchive(
   }
 
   try {
-    // Extract using 7zip-min (with async/await)
-    await _7z.unpack(cabPath, targetDir);
+    // Extract using 7zip-min (callback-based API, must be promisified)
+    await new Promise<void>((resolve, reject) => {
+      _7z.unpack(cabPath, targetDir, (err: Error | null) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
 
     // Get list of extracted files
     const extractedFiles = getExtractedFiles(targetDir);
@@ -166,8 +171,13 @@ export async function listCabContents(cabPath: string): Promise<CabFileInfo[] | 
   }
 
   try {
-    // 7zip-min list() returns an array of file objects
-    const output = await _7z.list(cabPath);
+    // 7zip-min list() is callback-based, must be promisified
+    const output = await new Promise<Array<{ name: string; size: string }>>((resolve, reject) => {
+      _7z.list(cabPath, (err: Error | null, result: Array<{ name: string; size: string }>) => {
+        if (err) reject(err);
+        else resolve(result || []);
+      });
+    });
     return parse7zList(output);
   } catch (error) {
     return null;

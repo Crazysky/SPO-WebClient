@@ -22,18 +22,40 @@ import { cleanPayload, extractRevenue } from './rdo-helpers';
 export function parseBuildings(rawLines: string[]): MapBuilding[] {
   const buildings: MapBuilding[] = [];
 
+  // Skip non-numeric context/header lines at the beginning of the response.
+  // ObjectsInArea responses may include localized context text (building names,
+  // area descriptions, status messages) before the actual building data.
+  // Building data is purely numeric (visualClass, tycoonId, options, x, y).
+  let startIndex = 0;
+  while (startIndex < rawLines.length && !/^-?\d+$/.test(rawLines[startIndex].trim())) {
+    console.log(`[MapParser] Skipping context line[${startIndex}]: "${rawLines[startIndex].substring(0, 80)}"`);
+    startIndex++;
+  }
+
+  if (startIndex > 0) {
+    console.log(`[MapParser] Skipped ${startIndex} context/header line(s), building data starts at index ${startIndex}`);
+  }
+
   // Buildings come in groups of 5 lines
-  for (let i = 0; i + 4 < rawLines.length; i += 5) {
+  for (let i = startIndex; i + 4 < rawLines.length; i += 5) {
     try {
       const rawVisualClass = rawLines[i].trim();
       let visualClass = rawVisualClass;
 
       // Clean visualClass: remove RDO metadata prefixes like 'res="%'
       // The visualClass should be a numeric string (e.g., "2951", "3801")
-      const match = visualClass.match(/\d+/);
-      if (match) {
-        visualClass = match[0];
+      const match = visualClass.match(/^\d+$/);
+      if (!match) {
+        // Not a pure number — likely mid-stream context data, skip this group
+        console.warn(`[MapParser] Non-numeric line at index ${i}, re-aligning: "${rawVisualClass.substring(0, 60)}"`);
+        // Try to find the next numeric line to re-align
+        while (i < rawLines.length && !/^-?\d+$/.test(rawLines[i].trim())) {
+          i++;
+        }
+        i -= 5; // will be incremented by 5 by the for-loop
+        continue;
       }
+      visualClass = match[0];
 
       // Debug log for first 5 buildings
       if (buildings.length < 5) {
@@ -100,8 +122,19 @@ export function parseBuildings(rawLines: string[]): MapBuilding[] {
 export function parseSegments(rawLines: string[]): MapSegment[] {
   const segments: MapSegment[] = [];
 
+  // Skip non-numeric context/header lines (same as parseBuildings)
+  let startIndex = 0;
+  while (startIndex < rawLines.length && !/^-?\d+$/.test(rawLines[startIndex].trim())) {
+    console.log(`[MapParser:Segments] Skipping context line[${startIndex}]: "${rawLines[startIndex].substring(0, 80)}"`);
+    startIndex++;
+  }
+
+  if (startIndex > 0) {
+    console.log(`[MapParser:Segments] Skipped ${startIndex} context/header line(s)`);
+  }
+
   // Segments come in groups of 10 numbers
-  for (let i = 0; i + 9 < rawLines.length; i += 10) {
+  for (let i = startIndex; i + 9 < rawLines.length; i += 10) {
     try {
       const x1 = parseInt(rawLines[i], 10);
       const y1 = parseInt(rawLines[i + 1], 10);

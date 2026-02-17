@@ -293,6 +293,18 @@ export class BuildingDataService implements Service {
   }
 
   /**
+   * Graceful shutdown: clear in-memory caches.
+   */
+  async shutdown(): Promise<void> {
+    logger.info('[BuildingDataService] Shutting down...');
+    this.cacheByVisualClass.clear();
+    this.cacheByName.clear();
+    this.fallbackCache.clear();
+    this.initialized = false;
+    logger.info('[BuildingDataService] Shutdown complete');
+  }
+
+  /**
    * Get the main cache
    */
   getCache(): Map<string, BuildingData> {

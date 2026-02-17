@@ -630,6 +630,16 @@ export class UpdateService implements Service {
   }
 
   /**
+   * Graceful shutdown: clear in-memory state.
+   */
+  async shutdown(): Promise<void> {
+    logger.info('[UpdateService] Shutting down...');
+    this.cabMetadata = {};
+    this.initialized = false;
+    logger.info('[UpdateService] Shutdown complete');
+  }
+
+  /**
    * Get statistics about the last sync operation
    */
   getStats(): SyncStats {

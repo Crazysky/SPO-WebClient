@@ -1339,7 +1339,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
         const segmentsRaw = splitMultilinePayloadHelper(segmentsPacket.payload!);
         const segments = parseSegmentsHelper(segmentsRaw);
 
-        console.log(`[Session] Parsed ${buildings.length} buildings, ${segments.length} segments`);
+        console.log(`[Session] Parsed ${buildings.length} buildings (from ${buildingsRaw.length} lines), ${segments.length} segments (from ${segmentsRaw.length} lines)`);
 
         return { x: targetX, y: targetY, w, h, buildings, segments };
 
@@ -2065,7 +2065,6 @@ private createSocket(name: string, host: string, port: number): Promise<net.Sock
 
     socket.on('data', (chunk) => {
       const messages = framer.ingest(chunk);
-      // FIXED: Call processSingleCommand instead of handleIncomingMessage
       messages.forEach(msg => this.processSingleCommand(name, msg));
     });
 
