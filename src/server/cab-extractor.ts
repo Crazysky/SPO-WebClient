@@ -14,8 +14,28 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { toErrorMessage } from '../shared/error-utils';
 
-// 7zip-min is a CommonJS module
+// 7zip-min is a CommonJS module with callback-based API
 const _7z = require('7zip-min');
+
+/** Promisify _7z.unpack (callback-based API) */
+function unpackAsync(cabPath: string, targetDir: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    _7z.unpack(cabPath, targetDir, (err: Error | null) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+/** Promisify _7z.list (callback-based API) */
+function listAsync(cabPath: string): Promise<unknown[]> {
+  return new Promise((resolve, reject) => {
+    _7z.list(cabPath, (err: Error | null, result: unknown[]) => {
+      if (err) reject(err);
+      else resolve(result ?? []);
+    });
+  });
+}
 
 /**
  * Information about a file within a CAB archive
@@ -133,13 +153,8 @@ export async function extractCabArchive(
   }
 
   try {
-    // Extract using 7zip-min (callback-based API, must be promisified)
-    await new Promise<void>((resolve, reject) => {
-      _7z.unpack(cabPath, targetDir, (err: Error | null) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    // Extract using 7zip-min (promisified callback API)
+    await unpackAsync(cabPath, targetDir);
 
     // Get list of extracted files
     const extractedFiles = getExtractedFiles(targetDir);
@@ -171,14 +186,9 @@ export async function listCabContents(cabPath: string): Promise<CabFileInfo[] | 
   }
 
   try {
-    // 7zip-min list() is callback-based, must be promisified
-    const output = await new Promise<Array<{ name: string; size: string }>>((resolve, reject) => {
-      _7z.list(cabPath, (err: Error | null, result: Array<{ name: string; size: string }>) => {
-        if (err) reject(err);
-        else resolve(result || []);
-      });
-    });
-    return parse7zList(output);
+    // 7zip-min list() returns an array of file objects (promisified callback API)
+    const output = await listAsync(cabPath);
+    return parse7zList(output as Array<{ name: string; size: string }>);
   } catch (error) {
     return null;
   }

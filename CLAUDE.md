@@ -35,6 +35,12 @@ TypeScript + Node.js + WebSocket + Canvas 2D Isometric | RDO protocol | Alpha 0.
 Browser Client ──WebSocket──> Node.js Gateway ──RDO Protocol──> Game Servers
 ```
 
+## Environment
+
+**Node.js path:** `C:\Program Files\nodejs\` (v24.13.1, npm 11.8.0)
+
+For bash/git-bash shells, add to PATH: `export PATH="/c/Program Files/nodejs:$PATH"`
+
 ## Commands
 
 ```bash
@@ -168,6 +174,7 @@ Read the relevant doc when working on a specific system:
 | E2E testing procedure | [doc/E2E-TESTING.md](doc/E2E-TESTING.md) |
 | Project history & backlog | [doc/BACKLOG.md](doc/BACKLOG.md) |
 | Raw RDO packet captures | [doc/building_details_rdo.txt](doc/building_details_rdo.txt) |
+| Mock server / adding scenarios | [doc/mock-server-guide.md](doc/mock-server-guide.md) |
 
 ## Git Conventions
 

@@ -110,8 +110,8 @@ export class RdoProtocol {
 		let rid: number | undefined;
 		let type: 'REQUEST' | 'PUSH' = 'PUSH';
 
-		// Check request ID
-		const ridMatch = content.match(/^(\d+)\s+(.*)$/);
+		// Check request ID ([\s\S]* to match across newlines in multi-line args)
+		const ridMatch = content.match(/^(\d+)\s+([\s\S]*)$/);
 		if (ridMatch) {
 			rid = parseInt(ridMatch[1], 10);
 			content = ridMatch[2];

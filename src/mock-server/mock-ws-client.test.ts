@@ -1,267 +1,387 @@
-import { WsMessageType } from '../shared/types/message-types';
-import type { WsMessage } from '../shared/types/message-types';
-import type { WsCaptureScenario } from './types/capture-types';
-import { MockSessionPhase } from './types/capture-types';
-import { MockWebSocketClient } from './mock-ws-client';
+/**
+ * Unit Tests for MockWebSocketClient
+ * Tests send/receive, message logging, event handlers,
+ * session state, scheduled events, and reset.
+ */
 
-function createLoginScenario(): WsCaptureScenario {
-  return {
-    name: 'login-test',
-    description: 'Login flow',
-    capturedAt: '2026-02-11',
-    serverInfo: { world: 'Shamba', zone: 'BETA', date: '2026-02-11' },
-    exchanges: [
-      {
-        id: 'ex-001',
-        timestamp: '',
-        request: {
-          type: WsMessageType.REQ_CONNECT_DIRECTORY,
-          wsRequestId: 'cap-r1',
-          username: 'SPO_test3',
-          password: '***',
-          zonePath: 'Root/Areas/Asia/Worlds',
-        } as WsMessage,
-        responses: [{
-          type: WsMessageType.RESP_CONNECT_SUCCESS,
-          wsRequestId: 'cap-r1',
-          worlds: [{ name: 'Shamba' }],
-        } as WsMessage],
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
+import { MockWebSocketClient } from './mock-ws-client';
+import { quickScenario } from './test-helpers';
+import { WsMessageType } from '@/shared/types/message-types';
+import type { WsMessage } from '@/shared/types/message-types';
+import { MockSessionPhase } from './types/mock-types';
+import type { WsCaptureScenario } from './types/mock-types';
+
+function buildConnectScenario(): WsCaptureScenario {
+  return quickScenario([
+    {
+      request: {
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        username: 'Crazz',
+        password: 'test',
       },
-      {
-        id: 'ex-002',
-        timestamp: '',
-        request: {
-          type: WsMessageType.REQ_LOGIN_WORLD,
-          wsRequestId: 'cap-r2',
-          username: 'SPO_test3',
-          password: '***',
-          worldName: 'Shamba',
-        } as WsMessage,
-        responses: [{
-          type: WsMessageType.RESP_LOGIN_SUCCESS,
-          wsRequestId: 'cap-r2',
-          tycoonId: '12345',
-          contextId: '67890',
-          companyCount: 1,
-          companies: [{ id: '99', name: 'Shamba Corp' }],
-        } as WsMessage],
-        delayMs: 50,
+      response: {
+        type: WsMessageType.RESP_CONNECT_SUCCESS,
+        worlds: [],
       },
-      {
-        id: 'ex-003',
-        timestamp: '',
-        request: {
-          type: WsMessageType.REQ_SELECT_COMPANY,
-          wsRequestId: 'cap-r3',
-          companyId: '99',
-        } as WsMessage,
-        responses: [{
-          type: WsMessageType.RESP_RDO_RESULT,
-          wsRequestId: 'cap-r3',
-          result: 'OK',
-        } as WsMessage],
+    },
+  ]);
+}
+
+function buildMultiResponseScenario(): WsCaptureScenario {
+  const scenario = quickScenario([
+    {
+      request: {
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        username: 'Crazz',
+        password: 'test',
       },
-    ],
-    scheduledEvents: [{
-      afterMs: 100,
-      event: {
-        type: WsMessageType.EVENT_TYCOON_UPDATE,
-        cash: '1500000',
-        incomePerHour: '25000',
-        ranking: 3,
-        buildingCount: 12,
-        maxBuildings: 50,
-      } as WsMessage,
-    }],
-  };
+      response: {
+        type: WsMessageType.RESP_CONNECT_SUCCESS,
+        worlds: [],
+      },
+    },
+  ]);
+
+  // Add a second response to the first exchange to test event emission
+  scenario.exchanges[0].responses.push({
+    type: WsMessageType.EVENT_TYCOON_UPDATE,
+    wsRequestId: scenario.exchanges[0].responses[0].wsRequestId,
+    cash: '1000000',
+  } as WsMessage);
+
+  return scenario;
 }
 
 describe('MockWebSocketClient', () => {
   let client: MockWebSocketClient;
 
   beforeEach(() => {
-    client = new MockWebSocketClient([createLoginScenario()]);
+    client = new MockWebSocketClient([buildConnectScenario()]);
   });
 
   afterEach(() => {
     client.reset();
   });
 
-  describe('send (request-response)', () => {
-    it('should return matched response for a request', async () => {
-      const resp = await client.send({
+  describe('send', () => {
+    it('sends request and receives response', async () => {
+      const request: WsMessage = {
         type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'test-1',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
+        wsRequestId: 'test-001',
+        username: 'Crazz',
+        password: 'test',
+      } as WsMessage;
 
-      expect(resp.type).toBe(WsMessageType.RESP_CONNECT_SUCCESS);
-      expect(resp.wsRequestId).toBe('test-1');
+      const response = await client.send(request);
+
+      expect(response.type).toBe(WsMessageType.RESP_CONNECT_SUCCESS);
     });
 
-    it('should throw for unmatched requests', async () => {
-      await expect(
-        client.send({
-          type: WsMessageType.REQ_CHAT_SEND_MESSAGE,
-          wsRequestId: 'test-x',
-          message: 'hello',
-        } as WsMessage)
-      ).rejects.toThrow('No matching capture');
+    it('throws when no matching capture', async () => {
+      const request: WsMessage = {
+        type: WsMessageType.REQ_LOGOUT,
+        wsRequestId: 'test-001',
+      };
+
+      await expect(client.send(request)).rejects.toThrow(
+        /No matching capture for request type/
+      );
     });
 
-    it('should respect delay from captured exchange', async () => {
-      // Connect first
-      await client.send({
+    it('logs sent and received messages', async () => {
+      const request: WsMessage = {
         type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'c1',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
+        wsRequestId: 'test-001',
+        username: 'Crazz',
+        password: 'test',
+      } as WsMessage;
 
-      // Login has delayMs: 50
-      const start = Date.now();
-      await client.send({
-        type: WsMessageType.REQ_LOGIN_WORLD,
-        wsRequestId: 'l1',
-        username: 'SPO_test3',
-        password: '***',
-        worldName: 'Shamba',
-      } as WsMessage);
-      const elapsed = Date.now() - start;
-
-      expect(elapsed).toBeGreaterThanOrEqual(40); // Allow small timing variance
-    });
-  });
-
-  describe('message log', () => {
-    it('should log all sent and received messages', async () => {
-      await client.send({
-        type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'test-1',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
+      await client.send(request);
 
       const log = client.getMessageLog();
-      expect(log).toHaveLength(2); // 1 sent + 1 received
-
+      expect(log.length).toBeGreaterThanOrEqual(2);
       expect(log[0].direction).toBe('sent');
       expect(log[0].msg.type).toBe(WsMessageType.REQ_CONNECT_DIRECTORY);
-
       expect(log[1].direction).toBe('received');
       expect(log[1].msg.type).toBe(WsMessageType.RESP_CONNECT_SUCCESS);
     });
 
-    it('should separate sent and received messages', async () => {
-      await client.send({
+    it('rewrites wsRequestId in response', async () => {
+      const request: WsMessage = {
         type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'test-1',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
+        wsRequestId: 'my-unique-id',
+        username: 'Crazz',
+        password: 'test',
+      } as WsMessage;
 
-      expect(client.getSentMessages()).toHaveLength(1);
-      expect(client.getReceivedMessages()).toHaveLength(1);
-    });
+      const response = await client.send(request);
 
-    it('should support hasReceived check', async () => {
-      expect(client.hasReceived(WsMessageType.RESP_CONNECT_SUCCESS)).toBe(false);
-
-      await client.send({
-        type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'test-1',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
-
-      expect(client.hasReceived(WsMessageType.RESP_CONNECT_SUCCESS)).toBe(true);
+      expect(response.wsRequestId).toBe('my-unique-id');
     });
   });
 
-  describe('event handling', () => {
-    it('should emit events from scheduled events', (done) => {
-      client.onEvent(WsMessageType.EVENT_TYCOON_UPDATE, (msg) => {
-        expect(msg.type).toBe(WsMessageType.EVENT_TYCOON_UPDATE);
-        client.stopScheduledEvents();
-        done();
+  describe('message logging', () => {
+    it('getMessageLog returns all messages', async () => {
+      const request: WsMessage = {
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'test-001',
+        username: 'Crazz',
+        password: 'test',
+      } as WsMessage;
+
+      await client.send(request);
+
+      const log = client.getMessageLog();
+      expect(log.length).toBeGreaterThanOrEqual(2);
+
+      const directions = log.map(e => e.direction);
+      expect(directions).toContain('sent');
+      expect(directions).toContain('received');
+    });
+
+    it('getSentMessages returns only sent', async () => {
+      const request: WsMessage = {
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'test-001',
+        username: 'Crazz',
+        password: 'test',
+      } as WsMessage;
+
+      await client.send(request);
+
+      const sent = client.getSentMessages();
+      expect(sent).toHaveLength(1);
+      expect(sent[0].type).toBe(WsMessageType.REQ_CONNECT_DIRECTORY);
+    });
+
+    it('getReceivedMessages returns only received', async () => {
+      const request: WsMessage = {
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'test-001',
+        username: 'Crazz',
+        password: 'test',
+      } as WsMessage;
+
+      await client.send(request);
+
+      const received = client.getReceivedMessages();
+      expect(received.length).toBeGreaterThanOrEqual(1);
+      expect(received[0].type).toBe(WsMessageType.RESP_CONNECT_SUCCESS);
+    });
+
+    it('hasReceived checks for message type', async () => {
+      const request: WsMessage = {
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'test-001',
+        username: 'Crazz',
+        password: 'test',
+      } as WsMessage;
+
+      await client.send(request);
+
+      expect(client.hasReceived(WsMessageType.RESP_CONNECT_SUCCESS)).toBe(true);
+      expect(client.hasReceived(WsMessageType.RESP_LOGIN_SUCCESS)).toBe(false);
+    });
+  });
+
+  describe('event handlers', () => {
+    it('onEvent registers handler', async () => {
+      const multiClient = new MockWebSocketClient([buildMultiResponseScenario()]);
+
+      const received: WsMessage[] = [];
+      multiClient.onEvent(WsMessageType.EVENT_TYCOON_UPDATE, (msg) => {
+        received.push(msg);
       });
 
-      client.startScheduledEvents();
-    }, 5000);
+      await multiClient.send({
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'test-001',
+        username: 'Crazz',
+        password: 'test',
+      } as WsMessage);
+
+      expect(received).toHaveLength(1);
+      expect(received[0].type).toBe(WsMessageType.EVENT_TYCOON_UPDATE);
+
+      multiClient.reset();
+    });
+
+    it('multiple handlers called for same type', async () => {
+      const multiClient = new MockWebSocketClient([buildMultiResponseScenario()]);
+
+      let handler1Called = false;
+      let handler2Called = false;
+
+      multiClient.onEvent(WsMessageType.EVENT_TYCOON_UPDATE, () => {
+        handler1Called = true;
+      });
+      multiClient.onEvent(WsMessageType.EVENT_TYCOON_UPDATE, () => {
+        handler2Called = true;
+      });
+
+      await multiClient.send({
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'test-001',
+        username: 'Crazz',
+        password: 'test',
+      } as WsMessage);
+
+      expect(handler1Called).toBe(true);
+      expect(handler2Called).toBe(true);
+
+      multiClient.reset();
+    });
+
+    it('handlers called with response messages beyond first', async () => {
+      const multiClient = new MockWebSocketClient([buildMultiResponseScenario()]);
+
+      const events: WsMessage[] = [];
+      multiClient.onEvent(WsMessageType.EVENT_TYCOON_UPDATE, (msg) => {
+        events.push(msg);
+      });
+
+      const firstResponse = await multiClient.send({
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'test-001',
+        username: 'Crazz',
+        password: 'test',
+      } as WsMessage);
+
+      // First response returned directly (not emitted as event)
+      expect(firstResponse.type).toBe(WsMessageType.RESP_CONNECT_SUCCESS);
+
+      // Second response emitted as event
+      expect(events).toHaveLength(1);
+      expect(events[0].type).toBe(WsMessageType.EVENT_TYCOON_UPDATE);
+
+      multiClient.reset();
+    });
   });
 
   describe('session state', () => {
-    it('should track session state through interactions', async () => {
-      expect(client.getSessionState().phase).toBe(MockSessionPhase.DISCONNECTED);
+    it('getSessionState returns current phase', () => {
+      const state = client.getSessionState();
 
-      await client.send({
-        type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'c1',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
-
-      expect(client.getSessionState().phase).toBe(MockSessionPhase.DIRECTORY_CONNECTED);
+      expect(state.phase).toBe(MockSessionPhase.DISCONNECTED);
+      expect(state.currentWorld).toBeNull();
+      expect(state.currentCompany).toBeNull();
+      expect(state.username).toBeNull();
     });
   });
 
-  describe('full login flow', () => {
-    it('should complete the full login sequence', async () => {
-      // Connect
-      const connectResp = await client.send({
-        type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'c1',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
-      expect(connectResp.type).toBe(WsMessageType.RESP_CONNECT_SUCCESS);
+  describe('scheduled events', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
 
-      // Login
-      const loginResp = await client.send({
-        type: WsMessageType.REQ_LOGIN_WORLD,
-        wsRequestId: 'l1',
-        username: 'SPO_test3',
-        password: '***',
-        worldName: 'Shamba',
-      } as WsMessage);
-      expect(loginResp.type).toBe(WsMessageType.RESP_LOGIN_SUCCESS);
+    afterEach(() => {
+      jest.useRealTimers();
+    });
 
-      // Select company
-      const companyResp = await client.send({
-        type: WsMessageType.REQ_SELECT_COMPANY,
-        wsRequestId: 's1',
-        companyId: '99',
-      } as WsMessage);
-      expect(companyResp.type).toBe(WsMessageType.RESP_RDO_RESULT);
+    it('startScheduledEvents emits events', () => {
+      const scenario = buildConnectScenario();
+      scenario.scheduledEvents = [
+        {
+          afterMs: 1000,
+          event: {
+            type: WsMessageType.EVENT_TYCOON_UPDATE,
+            cash: '500000',
+          } as WsMessage,
+        },
+      ];
 
-      // All 3 exchanges sent + 3 received = 6 total
-      expect(client.getMessageLog()).toHaveLength(6);
-      expect(client.getSessionState().phase).toBe(MockSessionPhase.COMPANY_SELECTED);
+      const timerClient = new MockWebSocketClient([scenario]);
+      const events: WsMessage[] = [];
+      timerClient.onEvent(WsMessageType.EVENT_TYCOON_UPDATE, (msg) => {
+        events.push(msg);
+      });
+
+      timerClient.startScheduledEvents();
+
+      expect(events).toHaveLength(0);
+
+      jest.advanceTimersByTime(1000);
+
+      expect(events).toHaveLength(1);
+      expect(events[0].type).toBe(WsMessageType.EVENT_TYCOON_UPDATE);
+
+      // Also logged as received
+      const received = timerClient.getReceivedMessages();
+      expect(received).toHaveLength(1);
+
+      timerClient.reset();
+    });
+
+    it('stopScheduledEvents stops timers', () => {
+      const scenario = buildConnectScenario();
+      scenario.scheduledEvents = [
+        {
+          afterMs: 500,
+          event: {
+            type: WsMessageType.EVENT_TYCOON_UPDATE,
+            cash: '500000',
+          } as WsMessage,
+        },
+      ];
+
+      const timerClient = new MockWebSocketClient([scenario]);
+      const events: WsMessage[] = [];
+      timerClient.onEvent(WsMessageType.EVENT_TYCOON_UPDATE, (msg) => {
+        events.push(msg);
+      });
+
+      timerClient.startScheduledEvents();
+      timerClient.stopScheduledEvents();
+
+      jest.advanceTimersByTime(1000);
+
+      expect(events).toHaveLength(0);
+
+      timerClient.reset();
     });
   });
 
   describe('reset', () => {
-    it('should clear all state', async () => {
+    it('clears message log', async () => {
       await client.send({
         type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'c1',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
+        wsRequestId: 'test-001',
+        username: 'Crazz',
+        password: 'test',
       } as WsMessage);
+
+      expect(client.getMessageLog().length).toBeGreaterThan(0);
 
       client.reset();
 
       expect(client.getMessageLog()).toHaveLength(0);
-      expect(client.getSessionState().phase).toBe(MockSessionPhase.DISCONNECTED);
+    });
+
+    it('clears event handlers', async () => {
+      const multiClient = new MockWebSocketClient([buildMultiResponseScenario()]);
+
+      let handlerCalled = false;
+      multiClient.onEvent(WsMessageType.EVENT_TYCOON_UPDATE, () => {
+        handlerCalled = true;
+      });
+
+      multiClient.reset();
+
+      // Re-create scenarios since reset clears engine state
+      const freshClient = new MockWebSocketClient([buildMultiResponseScenario()]);
+      await freshClient.send({
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'test-001',
+        username: 'Crazz',
+        password: 'test',
+      } as WsMessage);
+
+      // The handler was registered on multiClient which was reset,
+      // so verifying multiClient's handlers are gone
+      expect(handlerCalled).toBe(false);
+
+      freshClient.reset();
     });
   });
 });

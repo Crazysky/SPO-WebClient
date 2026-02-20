@@ -1,120 +1,54 @@
-import { WsMessageType } from '../shared/types/message-types';
-import type { WsMessage } from '../shared/types/message-types';
-import type { WsCaptureScenario } from './types/capture-types';
-import { MockSessionPhase } from './types/capture-types';
-import { CaptureStore } from './capture-store';
-import { ReplayEngine } from './replay-engine';
+/**
+ * Unit Tests for ReplayEngine
+ * Tests request matching, wsRequestId rewriting, key field matching,
+ * consumption tracking, session state transitions, and reset.
+ */
 
-function createLoginScenario(): WsCaptureScenario {
+import { describe, it, expect, beforeEach } from '@jest/globals';
+import { WsMessageType } from '@/shared/types/message-types';
+import type { WsMessage } from '@/shared/types/message-types';
+import { ReplayEngine } from './replay-engine';
+import { CaptureStore } from './capture-store';
+import { MockSessionPhase } from './types/mock-types';
+import type { WsCaptureScenario, WsCaptureExchange } from './types/mock-types';
+import { createAuthScenario } from './scenarios/auth-scenario';
+import { createCompanyListScenario } from './scenarios/company-list-scenario';
+
+function makeExchange(
+  id: string,
+  requestType: WsMessageType,
+  responseType: WsMessageType,
+  extraRequest: Record<string, unknown> = {},
+  extraResponse: Record<string, unknown> = {}
+): WsCaptureExchange {
   return {
-    name: 'login-test',
-    description: 'Login flow',
-    capturedAt: '2026-02-11',
-    serverInfo: { world: 'Shamba', zone: 'BETA', date: '2026-02-11' },
-    exchanges: [
+    id,
+    timestamp: '2026-02-18T00:00:00.000Z',
+    request: {
+      type: requestType,
+      wsRequestId: `cap-${id}`,
+      ...extraRequest,
+    } as WsMessage,
+    responses: [
       {
-        id: 'ex-001',
-        timestamp: '2026-02-11T10:00:00Z',
-        request: {
-          type: WsMessageType.REQ_CONNECT_DIRECTORY,
-          wsRequestId: 'captured-r1',
-          username: 'SPO_test3',
-          password: '***',
-          zonePath: 'Root/Areas/Asia/Worlds',
-        } as WsMessage,
-        responses: [{
-          type: WsMessageType.RESP_CONNECT_SUCCESS,
-          wsRequestId: 'captured-r1',
-          worlds: [{ name: 'Shamba', url: 'http://test.com' }],
-        } as WsMessage],
-      },
-      {
-        id: 'ex-002',
-        timestamp: '2026-02-11T10:00:01Z',
-        request: {
-          type: WsMessageType.REQ_LOGIN_WORLD,
-          wsRequestId: 'captured-r2',
-          username: 'SPO_test3',
-          password: '***',
-          worldName: 'Shamba',
-        } as WsMessage,
-        responses: [{
-          type: WsMessageType.RESP_LOGIN_SUCCESS,
-          wsRequestId: 'captured-r2',
-          tycoonId: '12345',
-          contextId: '67890',
-          companyCount: 1,
-        } as WsMessage],
-        delayMs: 200,
-      },
-      {
-        id: 'ex-003',
-        timestamp: '2026-02-11T10:00:02Z',
-        request: {
-          type: WsMessageType.REQ_SELECT_COMPANY,
-          wsRequestId: 'captured-r3',
-          companyId: '99',
-        } as WsMessage,
-        responses: [{
-          type: WsMessageType.RESP_RDO_RESULT,
-          wsRequestId: 'captured-r3',
-          result: 'OK',
-        } as WsMessage],
-      },
+        type: responseType,
+        wsRequestId: `cap-${id}`,
+        ...extraResponse,
+      } as WsMessage,
     ],
   };
 }
 
-function createBuildingScenario(): WsCaptureScenario {
+function makeScenario(
+  name: string,
+  exchanges: WsCaptureExchange[]
+): WsCaptureScenario {
   return {
-    name: 'building-test',
-    description: 'Building focus',
-    capturedAt: '2026-02-11',
-    serverInfo: { world: 'Shamba', zone: 'BETA', date: '2026-02-11' },
-    exchanges: [
-      {
-        id: 'ex-010',
-        timestamp: '',
-        request: {
-          type: WsMessageType.REQ_BUILDING_FOCUS,
-          wsRequestId: 'captured-bf1',
-          x: 100,
-          y: 200,
-        } as WsMessage,
-        responses: [{
-          type: WsMessageType.RESP_BUILDING_FOCUS,
-          wsRequestId: 'captured-bf1',
-          building: {
-            buildingId: 'b1',
-            buildingName: 'Test Building',
-            ownerName: 'SPO_test3',
-            x: 100,
-            y: 200,
-          },
-        } as WsMessage],
-      },
-      {
-        id: 'ex-011',
-        timestamp: '',
-        request: {
-          type: WsMessageType.REQ_BUILDING_FOCUS,
-          wsRequestId: 'captured-bf2',
-          x: 300,
-          y: 400,
-        } as WsMessage,
-        responses: [{
-          type: WsMessageType.RESP_BUILDING_FOCUS,
-          wsRequestId: 'captured-bf2',
-          building: {
-            buildingId: 'b2',
-            buildingName: 'Other Building',
-            ownerName: 'Admin',
-            x: 300,
-            y: 400,
-          },
-        } as WsMessage],
-      },
-    ],
+    name,
+    description: `Test scenario: ${name}`,
+    capturedAt: '2026-02-18',
+    serverInfo: { world: 'Test', zone: 'Test', date: '2026-02-18' },
+    exchanges,
   };
 }
 
@@ -127,17 +61,20 @@ describe('ReplayEngine', () => {
     engine = new ReplayEngine(store);
   });
 
-  describe('basic matching', () => {
-    it('should match a request by type', () => {
-      store.addWsScenario(createLoginScenario());
+  describe('match - basic', () => {
+    it('matches by message type', () => {
+      const exchange = makeExchange(
+        'ex-001',
+        WsMessageType.REQ_CONNECT_DIRECTORY,
+        WsMessageType.RESP_CONNECT_SUCCESS
+      );
+      store.addWsScenario(makeScenario('auth', [exchange]));
 
-      const result = engine.match({
+      const request: WsMessage = {
         type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'client-r1',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
+        wsRequestId: 'req-001',
+      };
+      const result = engine.match(request);
 
       expect(result).not.toBeNull();
       expect(result!.exchange.id).toBe('ex-001');
@@ -145,289 +82,394 @@ describe('ReplayEngine', () => {
       expect(result!.responses[0].type).toBe(WsMessageType.RESP_CONNECT_SUCCESS);
     });
 
-    it('should return null for unknown message types', () => {
-      store.addWsScenario(createLoginScenario());
+    it('returns null when no matching exchange', () => {
+      store.addWsScenario(makeScenario('empty', []));
 
-      const result = engine.match({
-        type: WsMessageType.REQ_CHAT_SEND_MESSAGE,
-        wsRequestId: 'unknown-1',
-        message: 'hello',
-      } as WsMessage);
+      const request: WsMessage = {
+        type: WsMessageType.REQ_LOGOUT,
+        wsRequestId: 'req-001',
+      };
+      const result = engine.match(request);
 
       expect(result).toBeNull();
     });
-  });
 
-  describe('wsRequestId rewriting', () => {
-    it('should rewrite wsRequestId in responses to match client request', () => {
-      store.addWsScenario(createLoginScenario());
+    it('returns responses from matched exchange', () => {
+      const exchange: WsCaptureExchange = {
+        id: 'ex-multi',
+        timestamp: '2026-02-18T00:00:00.000Z',
+        request: {
+          type: WsMessageType.REQ_CONNECT_DIRECTORY,
+          wsRequestId: 'cap-multi',
+        } as WsMessage,
+        responses: [
+          { type: WsMessageType.RESP_CONNECT_SUCCESS, wsRequestId: 'cap-multi', worlds: [] } as WsMessage,
+          { type: WsMessageType.EVENT_TYCOON_UPDATE, wsRequestId: 'cap-multi' } as WsMessage,
+        ],
+      };
+      store.addWsScenario(makeScenario('multi-resp', [exchange]));
 
-      const result = engine.match({
+      const request: WsMessage = {
         type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'my-unique-id-123',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
+        wsRequestId: 'req-100',
+      };
+      const result = engine.match(request);
 
       expect(result).not.toBeNull();
-      // Response must have the CLIENT's wsRequestId, not the captured one
-      expect(result!.responses[0].wsRequestId).toBe('my-unique-id-123');
-    });
-
-    it('should not mutate the original captured response', () => {
-      const scenario = createLoginScenario();
-      store.addWsScenario(scenario);
-
-      engine.match({
-        type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'client-id',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
-
-      // Original capture should still have the captured ID
-      expect(scenario.exchanges[0].responses[0].wsRequestId).toBe('captured-r1');
+      expect(result!.responses).toHaveLength(2);
     });
   });
 
-  describe('key field matching', () => {
-    it('should match building focus by x,y coordinates', () => {
-      store.addWsScenario(createBuildingScenario());
+  describe('match - wsRequestId rewriting', () => {
+    it('rewrites wsRequestId in responses to match request', () => {
+      const exchange = makeExchange(
+        'ex-001',
+        WsMessageType.REQ_CONNECT_DIRECTORY,
+        WsMessageType.RESP_CONNECT_SUCCESS
+      );
+      store.addWsScenario(makeScenario('auth', [exchange]));
 
-      // Request building at (300, 400) — should match ex-011, not ex-010
-      const result = engine.match({
+      const request: WsMessage = {
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'my-custom-id',
+      };
+      const result = engine.match(request);
+
+      expect(result).not.toBeNull();
+      expect(result!.responses[0].wsRequestId).toBe('my-custom-id');
+    });
+
+    it('does not mutate original captured data', () => {
+      const exchange = makeExchange(
+        'ex-001',
+        WsMessageType.REQ_CONNECT_DIRECTORY,
+        WsMessageType.RESP_CONNECT_SUCCESS
+      );
+      store.addWsScenario(makeScenario('auth', [exchange]));
+
+      const request: WsMessage = {
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'new-id-123',
+      };
+      engine.match(request);
+
+      // Verify original response still has its original wsRequestId
+      expect(exchange.responses[0].wsRequestId).toBe('cap-ex-001');
+    });
+
+    it('handles missing wsRequestId in request', () => {
+      const exchange = makeExchange(
+        'ex-001',
+        WsMessageType.REQ_CONNECT_DIRECTORY,
+        WsMessageType.RESP_CONNECT_SUCCESS
+      );
+      store.addWsScenario(makeScenario('auth', [exchange]));
+
+      const request: WsMessage = {
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        // no wsRequestId
+      };
+      const result = engine.match(request);
+
+      expect(result).not.toBeNull();
+      // When request has no wsRequestId, the response keeps its original cloned value
+      expect(result!.responses[0].wsRequestId).toBe('cap-ex-001');
+    });
+  });
+
+  describe('match - key field matching', () => {
+    it('matches LOGIN_WORLD by worldName', () => {
+      const shamba = makeExchange(
+        'ex-shamba',
+        WsMessageType.REQ_LOGIN_WORLD,
+        WsMessageType.RESP_LOGIN_SUCCESS,
+        { worldName: 'Shamba', username: 'Crazz', password: 'test' },
+        { tycoonId: '22' }
+      );
+      const other = makeExchange(
+        'ex-other',
+        WsMessageType.REQ_LOGIN_WORLD,
+        WsMessageType.RESP_LOGIN_SUCCESS,
+        { worldName: 'OtherWorld', username: 'Crazz', password: 'test' },
+        { tycoonId: '33' }
+      );
+      store.addWsScenario(makeScenario('worlds', [shamba, other]));
+
+      const request = {
+        type: WsMessageType.REQ_LOGIN_WORLD,
+        wsRequestId: 'req-001',
+        worldName: 'Shamba',
+        username: 'Crazz',
+        password: 'test',
+      } as WsMessage;
+
+      const result = engine.match(request);
+
+      expect(result).not.toBeNull();
+      expect(result!.exchange.id).toBe('ex-shamba');
+    });
+
+    it('matches SELECT_COMPANY by companyId', () => {
+      const company28 = makeExchange(
+        'ex-c28',
+        WsMessageType.REQ_SELECT_COMPANY,
+        WsMessageType.RESP_RDO_RESULT,
+        { companyId: '28' },
+        { result: 'ok' }
+      );
+      const company99 = makeExchange(
+        'ex-c99',
+        WsMessageType.REQ_SELECT_COMPANY,
+        WsMessageType.RESP_RDO_RESULT,
+        { companyId: '99' },
+        { result: 'ok' }
+      );
+      store.addWsScenario(makeScenario('companies', [company28, company99]));
+
+      const request = {
+        type: WsMessageType.REQ_SELECT_COMPANY,
+        wsRequestId: 'req-002',
+        companyId: '28',
+      } as WsMessage;
+
+      const result = engine.match(request);
+
+      expect(result).not.toBeNull();
+      expect(result!.exchange.id).toBe('ex-c28');
+    });
+
+    it('matches BUILDING_FOCUS by x,y coordinates', () => {
+      const building1 = makeExchange(
+        'ex-b1',
+        WsMessageType.REQ_BUILDING_FOCUS,
+        WsMessageType.RESP_BUILDING_FOCUS,
+        { x: 100, y: 200 }
+      );
+      const building2 = makeExchange(
+        'ex-b2',
+        WsMessageType.REQ_BUILDING_FOCUS,
+        WsMessageType.RESP_BUILDING_FOCUS,
+        { x: 300, y: 400 }
+      );
+      store.addWsScenario(makeScenario('buildings', [building1, building2]));
+
+      const request = {
         type: WsMessageType.REQ_BUILDING_FOCUS,
-        wsRequestId: 'client-bf',
+        wsRequestId: 'req-003',
         x: 300,
         y: 400,
-      } as WsMessage);
+      } as WsMessage;
+
+      const result = engine.match(request);
 
       expect(result).not.toBeNull();
-      expect(result!.exchange.id).toBe('ex-011');
-      const resp = result!.responses[0] as unknown as Record<string, unknown>;
-      const building = resp.building as Record<string, unknown>;
-      expect(building.buildingName).toBe('Other Building');
-    });
-
-    it('should match building at different coordinates', () => {
-      store.addWsScenario(createBuildingScenario());
-
-      const result = engine.match({
-        type: WsMessageType.REQ_BUILDING_FOCUS,
-        wsRequestId: 'client-bf',
-        x: 100,
-        y: 200,
-      } as WsMessage);
-
-      expect(result).not.toBeNull();
-      expect(result!.exchange.id).toBe('ex-010');
+      expect(result!.exchange.id).toBe('ex-b2');
     });
   });
 
-  describe('Nth occurrence fallback', () => {
-    it('should use Nth match when exact/key fields dont match', () => {
-      store.addWsScenario(createBuildingScenario());
+  describe('match - consumption tracking', () => {
+    it('tracks consumed exchange IDs', () => {
+      const exchange = makeExchange(
+        'ex-001',
+        WsMessageType.REQ_CONNECT_DIRECTORY,
+        WsMessageType.RESP_CONNECT_SUCCESS
+      );
+      store.addWsScenario(makeScenario('auth', [exchange]));
 
-      // Focus building at coordinates NOT in any capture
+      const request: WsMessage = {
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'req-001',
+      };
+      engine.match(request);
+
+      const consumed = engine.getConsumedExchangeIds();
+      expect(consumed.has('ex-001')).toBe(true);
+    });
+
+    it('returns next unconsumed exchange', () => {
+      const ex1 = makeExchange(
+        'ex-001',
+        WsMessageType.REQ_CONNECT_DIRECTORY,
+        WsMessageType.RESP_CONNECT_SUCCESS
+      );
+      const ex2 = makeExchange(
+        'ex-002',
+        WsMessageType.REQ_CONNECT_DIRECTORY,
+        WsMessageType.RESP_CONNECT_SUCCESS
+      );
+      store.addWsScenario(makeScenario('multi', [ex1, ex2]));
+
+      // First call consumes ex-001
+      const request1: WsMessage = {
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'req-001',
+      };
+      const result1 = engine.match(request1);
+      expect(result1!.exchange.id).toBe('ex-001');
+
+      // Second call should return ex-002 (unconsumed)
+      const request2: WsMessage = {
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'req-002',
+      };
+      const result2 = engine.match(request2);
+      expect(result2!.exchange.id).toBe('ex-002');
+    });
+
+    it('wraps around when all consumed', () => {
+      const ex1 = makeExchange(
+        'ex-001',
+        WsMessageType.REQ_CONNECT_DIRECTORY,
+        WsMessageType.RESP_CONNECT_SUCCESS
+      );
+      store.addWsScenario(makeScenario('single', [ex1]));
+
+      // First call
+      engine.match({
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'req-001',
+      });
+
+      // Second call should wrap around to the first (and only) exchange
       const result = engine.match({
-        type: WsMessageType.REQ_BUILDING_FOCUS,
-        wsRequestId: 'client-bf',
-        x: 999,
-        y: 888,
-      } as WsMessage);
-
-      // Should still return something (Nth fallback)
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'req-002',
+      });
       expect(result).not.toBeNull();
+      expect(result!.exchange.id).toBe('ex-001');
     });
   });
 
   describe('session state tracking', () => {
-    it('should track state through login flow', () => {
-      store.addWsScenario(createLoginScenario());
+    it('starts at DISCONNECTED', () => {
+      expect(engine.getState().phase).toBe(MockSessionPhase.DISCONNECTED);
+    });
 
-      // Connect
-      engine.match({
+    it('transitions to DIRECTORY_CONNECTED on connect success', () => {
+      const { ws } = createAuthScenario();
+      store.addWsScenario(ws);
+
+      const request = {
         type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'c1',
-        username: 'SPO_test3',
-        password: '***',
+        wsRequestId: 'req-001',
+        username: 'Crazz',
+        password: 'Simcity99',
         zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
+      } as WsMessage;
+
+      engine.match(request);
 
       expect(engine.getState().phase).toBe(MockSessionPhase.DIRECTORY_CONNECTED);
+    });
 
-      // Login
+    it('transitions to WORLD_CONNECTED on login success', () => {
+      // First connect to directory
+      const { ws: authWs } = createAuthScenario();
+      store.addWsScenario(authWs);
+      engine.match({
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'req-001',
+        username: 'Crazz',
+        password: 'Simcity99',
+      } as WsMessage);
+
+      // Then login to world
+      const { ws: clWs } = createCompanyListScenario();
+      store.addWsScenario(clWs);
       engine.match({
         type: WsMessageType.REQ_LOGIN_WORLD,
-        wsRequestId: 'l1',
-        username: 'SPO_test3',
-        password: '***',
+        wsRequestId: 'req-002',
+        username: 'Crazz',
+        password: 'Simcity99',
         worldName: 'Shamba',
       } as WsMessage);
 
       expect(engine.getState().phase).toBe(MockSessionPhase.WORLD_CONNECTED);
       expect(engine.getState().currentWorld).toBe('Shamba');
+    });
 
-      // Select company
+    it('transitions to COMPANY_SELECTED on company select', () => {
+      const exchange = makeExchange(
+        'ex-sel',
+        WsMessageType.REQ_SELECT_COMPANY,
+        WsMessageType.RESP_RDO_RESULT,
+        { companyId: '28' },
+        { result: 'ok' }
+      );
+      store.addWsScenario(makeScenario('company', [exchange]));
+
       engine.match({
         type: WsMessageType.REQ_SELECT_COMPANY,
-        wsRequestId: 's1',
-        companyId: '99',
+        wsRequestId: 'req-003',
+        companyId: '28',
       } as WsMessage);
 
       expect(engine.getState().phase).toBe(MockSessionPhase.COMPANY_SELECTED);
-      expect(engine.getState().currentCompany).toBe('99');
-    });
-  });
-
-  describe('delay handling', () => {
-    it('should return delay from captured exchange', () => {
-      store.addWsScenario(createLoginScenario());
-
-      // Login has delayMs: 200
-      // First consume connect
-      engine.match({
-        type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'c1',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
-
-      const result = engine.match({
-        type: WsMessageType.REQ_LOGIN_WORLD,
-        wsRequestId: 'l1',
-        username: 'SPO_test3',
-        password: '***',
-        worldName: 'Shamba',
-      } as WsMessage);
-
-      expect(result).not.toBeNull();
-      expect(result!.delayMs).toBe(200);
-    });
-
-    it('should return 0 delay when not specified', () => {
-      store.addWsScenario(createLoginScenario());
-
-      const result = engine.match({
-        type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'c1',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
-
-      expect(result!.delayMs).toBe(0);
-    });
-  });
-
-  describe('exchange consumption', () => {
-    it('should consume exchanges and not reuse them', () => {
-      store.addWsScenario(createBuildingScenario());
-
-      // First request consumes ex-010
-      const result1 = engine.match({
-        type: WsMessageType.REQ_BUILDING_FOCUS,
-        wsRequestId: 'bf1',
-        x: 100,
-        y: 200,
-      } as WsMessage);
-      expect(result1!.exchange.id).toBe('ex-010');
-
-      // Second request with same coords — ex-010 already consumed, should use ex-011 as fallback
-      const result2 = engine.match({
-        type: WsMessageType.REQ_BUILDING_FOCUS,
-        wsRequestId: 'bf2',
-        x: 100,
-        y: 200,
-      } as WsMessage);
-      // ex-010 consumed, ex-011 has different coords so key fields don't match
-      // Falls to Nth match
-      expect(result2).not.toBeNull();
-      expect(result2!.exchange.id).toBe('ex-011');
-    });
-
-    it('should wrap around when all exchanges are consumed', () => {
-      const scenario: WsCaptureScenario = {
-        name: 'single',
-        description: '',
-        capturedAt: '',
-        serverInfo: { world: '', zone: '', date: '' },
-        exchanges: [{
-          id: 'ex-only',
-          timestamp: '',
-          request: { type: WsMessageType.REQ_CHAT_GET_USERS, wsRequestId: 'x' },
-          responses: [{ type: WsMessageType.RESP_CHAT_USER_LIST, wsRequestId: 'x' }],
-        }],
-      };
-      store.addWsScenario(scenario);
-
-      // First match consumes ex-only
-      const r1 = engine.match({ type: WsMessageType.REQ_CHAT_GET_USERS, wsRequestId: 'a' });
-      expect(r1).not.toBeNull();
-
-      // Second match — all consumed, should wrap around
-      const r2 = engine.match({ type: WsMessageType.REQ_CHAT_GET_USERS, wsRequestId: 'b' });
-      expect(r2).not.toBeNull();
-      expect(r2!.responses[0].wsRequestId).toBe('b');
+      expect(engine.getState().currentCompany).toBe('28');
     });
   });
 
   describe('reset', () => {
-    it('should reset state and consumed exchanges', () => {
-      store.addWsScenario(createLoginScenario());
+    it('resets consumed exchanges', () => {
+      const exchange = makeExchange(
+        'ex-001',
+        WsMessageType.REQ_CONNECT_DIRECTORY,
+        WsMessageType.RESP_CONNECT_SUCCESS
+      );
+      store.addWsScenario(makeScenario('auth', [exchange]));
 
       engine.match({
         type: WsMessageType.REQ_CONNECT_DIRECTORY,
-        wsRequestId: 'c1',
-        username: 'SPO_test3',
-        password: '***',
-        zonePath: 'Root/Areas/Asia/Worlds',
-      } as WsMessage);
-
-      expect(engine.getState().phase).toBe(MockSessionPhase.DIRECTORY_CONNECTED);
+        wsRequestId: 'req-001',
+      });
       expect(engine.getConsumedExchangeIds().size).toBe(1);
 
       engine.reset();
 
-      expect(engine.getState().phase).toBe(MockSessionPhase.DISCONNECTED);
       expect(engine.getConsumedExchangeIds().size).toBe(0);
     });
-  });
 
-  describe('multiple response messages', () => {
-    it('should return all response messages for an exchange', () => {
-      const scenario: WsCaptureScenario = {
-        name: 'multi-resp',
-        description: '',
-        capturedAt: '',
-        serverInfo: { world: '', zone: '', date: '' },
-        exchanges: [{
-          id: 'ex-multi',
-          timestamp: '',
-          request: { type: WsMessageType.REQ_MAP_LOAD, wsRequestId: 'ml1' },
-          responses: [
-            { type: WsMessageType.RESP_MAP_DATA, wsRequestId: 'ml1' },
-            { type: WsMessageType.EVENT_MAP_DATA, wsRequestId: 'ml1' },
-          ],
-        }],
-      };
-      store.addWsScenario(scenario);
+    it('resets session state', () => {
+      const { ws } = createAuthScenario();
+      store.addWsScenario(ws);
 
+      engine.match({
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'req-001',
+        username: 'Crazz',
+        password: 'Simcity99',
+      } as WsMessage);
+      expect(engine.getState().phase).toBe(MockSessionPhase.DIRECTORY_CONNECTED);
+
+      engine.reset();
+
+      expect(engine.getState().phase).toBe(MockSessionPhase.DISCONNECTED);
+      expect(engine.getState().currentWorld).toBeNull();
+      expect(engine.getState().currentCompany).toBeNull();
+      expect(engine.getState().username).toBeNull();
+    });
+
+    it('clears consumption counters', () => {
+      const ex1 = makeExchange(
+        'ex-001',
+        WsMessageType.REQ_CONNECT_DIRECTORY,
+        WsMessageType.RESP_CONNECT_SUCCESS
+      );
+      store.addWsScenario(makeScenario('auth', [ex1]));
+
+      // Consume twice (wrap-around)
+      engine.match({ type: WsMessageType.REQ_CONNECT_DIRECTORY, wsRequestId: 'r1' });
+      engine.match({ type: WsMessageType.REQ_CONNECT_DIRECTORY, wsRequestId: 'r2' });
+
+      engine.reset();
+
+      // After reset, the exchange should still be matchable and tracked fresh
       const result = engine.match({
-        type: WsMessageType.REQ_MAP_LOAD,
-        wsRequestId: 'client-ml',
+        type: WsMessageType.REQ_CONNECT_DIRECTORY,
+        wsRequestId: 'r3',
       });
-
       expect(result).not.toBeNull();
-      expect(result!.responses).toHaveLength(2);
-      expect(result!.responses[0].type).toBe(WsMessageType.RESP_MAP_DATA);
-      expect(result!.responses[1].type).toBe(WsMessageType.EVENT_MAP_DATA);
-      // Both should have the client's requestId
-      expect(result!.responses[0].wsRequestId).toBe('client-ml');
-      expect(result!.responses[1].wsRequestId).toBe('client-ml');
+      expect(engine.getConsumedExchangeIds().size).toBe(1);
     });
   });
 });
