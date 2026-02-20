@@ -176,7 +176,9 @@ export class TextureCache {
     const entry = this.cache.get(key);
 
     if (entry && entry.texture) {
-      entry.lastAccess = ++this.accessCounter;
+      // Move to end of Map (most recently used) for O(1) LRU eviction
+      this.cache.delete(key);
+      this.cache.set(key, entry);
       this.hits++;
       return entry.texture;
     }
@@ -204,9 +206,10 @@ export class TextureCache {
     const entry = this.cache.get(key);
 
     if (entry) {
-      entry.lastAccess = ++this.accessCounter;
-
       if (entry.texture) {
+        // Move to end of Map for LRU
+        this.cache.delete(key);
+        this.cache.set(key, entry);
         this.hits++;
         return entry.texture;
       }
@@ -310,31 +313,21 @@ export class TextureCache {
   }
 
   /**
-   * Evict least recently used entries if cache is over capacity
+   * Evict least recently used entries if cache is over capacity.
+   * Uses Map insertion order for O(1) eviction — oldest entries are first.
    */
   private evictIfNeeded(): void {
-    while (this.cache.size > this.maxSize) {
-      let oldestKey: string | null = null;
-      let oldestAccess = Infinity;
+    if (this.cache.size <= this.maxSize) return;
 
-      // Find least recently used entry (skip loading entries)
-      for (const [key, entry] of this.cache) {
-        if (!entry.loading && entry.lastAccess < oldestAccess) {
-          oldestAccess = entry.lastAccess;
-          oldestKey = key;
-        }
-      }
+    for (const [key, entry] of this.cache) {
+      if (this.cache.size <= this.maxSize) break;
+      if (entry.loading) continue; // Skip entries still loading
 
-      if (oldestKey) {
-        const entry = this.cache.get(oldestKey);
-        if (entry?.texture) {
-          entry.texture.close(); // Release ImageBitmap resources
-        }
-        this.cache.delete(oldestKey);
-        this.evictions++;
-      } else {
-        break; // No evictable entries
+      if (entry.texture) {
+        entry.texture.close(); // Release ImageBitmap resources
       }
+      this.cache.delete(key);
+      this.evictions++;
     }
   }
 

@@ -368,6 +368,9 @@ export class IsometricMapRenderer {
   // Pre-computed concrete adjacency tiles (tiles within 1 tile of any building)
   private concreteTilesSet: Set<string> = new Set();
 
+  // Pre-computed building occupation map — invalidated on zone change, reused across frame
+  private cachedOccupiedTiles: Set<string> | null = null;
+
   // Road texture system
   private roadBlockClassManager: RoadBlockClassManager;
   private roadsRendering: RoadsRendering | null = null;
@@ -509,10 +512,12 @@ export class IsometricMapRenderer {
       }
     });
 
-    // Load road, concrete, and car atlases (non-blocking, fallback to individual textures)
-    this.gameObjectTextureCache.loadObjectAtlas('road').then(() => this.requestRender());
-    this.gameObjectTextureCache.loadObjectAtlas('concrete').then(() => this.requestRender());
-    this.gameObjectTextureCache.loadObjectAtlas('car').then(() => this.requestRender());
+    // Load road, concrete, and car atlases in parallel (single render when all done)
+    Promise.all([
+      this.gameObjectTextureCache.loadObjectAtlas('road'),
+      this.gameObjectTextureCache.loadObjectAtlas('concrete'),
+      this.gameObjectTextureCache.loadObjectAtlas('car'),
+    ]).then(() => this.requestRender());
 
     // Initialize road block class manager
     this.roadBlockClassManager = new RoadBlockClassManager();
@@ -986,6 +991,7 @@ export class IsometricMapRenderer {
     this.allBuildings = [];
     this.allSegments = [];
     this.roadTilesMap.clear();
+    this.cachedOccupiedTiles = null; // Invalidate occupation cache
 
     this.cachedZones.forEach(zone => {
       this.allBuildings.push(...zone.buildings);
@@ -1172,7 +1178,8 @@ export class IsometricMapRenderer {
       }
     }
 
-    // Rebuild concrete set now that we have accurate dimensions
+    // Rebuild concrete set and invalidate occupation cache with accurate dimensions
+    this.cachedOccupiedTiles = null;
     this.rebuildConcreteSet();
 
     // Preload building textures for all unique visual classes
@@ -1805,12 +1812,15 @@ export class IsometricMapRenderer {
   }
 
   /**
-   * Build occupied tiles map (buildings have priority over roads)
+   * Build occupied tiles map (buildings have priority over roads).
+   * Cached and reused across frame — invalidated when zones change.
    */
   private buildTileOccupationMap(): Set<string> {
+    if (this.cachedOccupiedTiles) return this.cachedOccupiedTiles;
+
     const occupied = new Set<string>();
 
-    this.allBuildings.forEach(building => {
+    for (const building of this.allBuildings) {
       const dims = this.facilityDimensionsCache.get(building.visualClass);
       const xsize = dims?.xsize || 1;
       const ysize = dims?.ysize || 1;
@@ -1820,8 +1830,9 @@ export class IsometricMapRenderer {
           occupied.add(`${building.x + dx},${building.y + dy}`);
         }
       }
-    });
+    }
 
+    this.cachedOccupiedTiles = occupied;
     return occupied;
   }
 
@@ -1845,20 +1856,11 @@ export class IsometricMapRenderer {
   }
 
   /**
-   * Check if a building occupies a specific tile
+   * Check if a building occupies a specific tile.
+   * Uses pre-computed occupation map for O(1) lookup.
    */
   private isTileOccupiedByBuilding(x: number, y: number): boolean {
-    for (const building of this.allBuildings) {
-      const dims = this.facilityDimensionsCache.get(building.visualClass);
-      const bw = dims?.xsize || 1;
-      const bh = dims?.ysize || 1;
-
-      if (x >= building.x && x < building.x + bw &&
-          y >= building.y && y < building.y + bh) {
-        return true;
-      }
-    }
-    return false;
+    return this.buildTileOccupationMap().has(`${x},${y}`);
   }
 
   /**

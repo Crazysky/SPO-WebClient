@@ -1,5 +1,6 @@
 import * as http from 'http';
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { StarpeaceSession } from './spo_session';
@@ -170,6 +171,89 @@ if (!fs.existsSync(WEBCLIENT_CACHE_DIR)) {
   fs.mkdirSync(WEBCLIENT_CACHE_DIR, { recursive: true });
 }
 
+// =============================================================================
+// In-memory file index for proxy-image (avoids readdirSync on every request)
+// =============================================================================
+// Maps lowercase filename → full path on disk
+const imageFileIndex = new Map<string, string>();
+
+/**
+ * Build in-memory index of all image files in cache directories.
+ * Called once at startup and after downloading new files.
+ */
+function buildImageFileIndex(): void {
+  imageFileIndex.clear();
+  const CACHE_ROOT = path.join(__dirname, '../../cache');
+
+  // Index files in update server cache subdirectories
+  if (fs.existsSync(CACHE_ROOT)) {
+    const entries = fs.readdirSync(CACHE_ROOT, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const dirPath = path.join(CACHE_ROOT, entry.name);
+        const files = fs.readdirSync(dirPath);
+        for (const file of files) {
+          imageFileIndex.set(file.toLowerCase(), path.join(dirPath, file));
+        }
+      }
+    }
+  }
+
+  // Index files in webclient-cache
+  if (fs.existsSync(WEBCLIENT_CACHE_DIR)) {
+    const files = fs.readdirSync(WEBCLIENT_CACHE_DIR);
+    for (const file of files) {
+      // Don't overwrite update server entries (they have priority)
+      const key = file.toLowerCase();
+      if (!imageFileIndex.has(key)) {
+        imageFileIndex.set(key, path.join(WEBCLIENT_CACHE_DIR, file));
+      }
+    }
+  }
+
+  logger.info(`Image file index built: ${imageFileIndex.size} files`);
+}
+
+// Build index at startup (synchronous, runs once)
+buildImageFileIndex();
+
+// =============================================================================
+// In-memory INI cache (road, concrete, car block classes)
+// =============================================================================
+interface IniFileCache {
+  files: Array<{ filename: string; content: string }>;
+}
+
+const iniCache: Record<string, IniFileCache> = {};
+
+function buildIniCache(): void {
+  const dirs: Record<string, string> = {
+    roadBlockClasses: path.join(CACHE_DIR, 'RoadBlockClasses'),
+    concreteBlockClasses: path.join(CACHE_DIR, 'ConcreteClasses'),
+    carClasses: path.join(CACHE_DIR, 'CarClasses'),
+  };
+
+  for (const [key, dirPath] of Object.entries(dirs)) {
+    if (!fs.existsSync(dirPath)) {
+      iniCache[key] = { files: [] };
+      continue;
+    }
+    const files = fs.readdirSync(dirPath).filter(f => f.toLowerCase().endsWith('.ini'));
+    const iniContents: Array<{ filename: string; content: string }> = [];
+    for (const file of files) {
+      const filePath = path.join(dirPath, file);
+      const content = fs.readFileSync(filePath, 'utf-8');
+      iniContents.push({ filename: file, content });
+    }
+    iniCache[key] = { files: iniContents };
+  }
+
+  logger.info(`INI cache built: road=${iniCache.roadBlockClasses.files.length}, concrete=${iniCache.concreteBlockClasses.files.length}, car=${iniCache.carClasses.files.length}`);
+}
+
+// Build INI cache at startup
+buildIniCache();
+
 /**
  * Generate a placeholder image (1x1 transparent PNG)
  */
@@ -179,92 +263,64 @@ function getPlaceholderImage(): Buffer {
   return Buffer.from(base64, 'base64');
 }
 
+function getImageContentType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  switch (ext) {
+    case '.png': return 'image/png';
+    case '.jpg': case '.jpeg': return 'image/jpeg';
+    case '.gif': return 'image/gif';
+    case '.bmp': return 'application/octet-stream';
+    default: return 'image/gif';
+  }
+}
+
 /**
- * Proxy image from remote server to avoid CORS/Referer blocking
- * Checks update cache first, then falls back to downloading from game server
+ * Proxy image from remote server to avoid CORS/Referer blocking.
+ * Uses in-memory file index for O(1) cache lookup instead of scanning directories.
  */
 async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<void> {
   // Handle local file:// URLs
   if (imageUrl.startsWith('file://')) {
     const localPath = imageUrl.substring('file://'.length);
     try {
-      if (fs.existsSync(localPath)) {
-        const content = fs.readFileSync(localPath);
-        const ext = path.extname(localPath).toLowerCase();
-        const contentType = ext === '.bmp' ? 'application/octet-stream' :
-                          ext === '.gif' ? 'image/gif' :
-                          ext === '.png' ? 'image/png' :
-                          ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
-                          'application/octet-stream';
-
-        res.writeHead(200, { 'Content-Type': contentType });
-        res.end(content);
-        return;
-      } else {
-        throw new Error(`Local file not found: ${localPath}`);
-      }
-    } catch (error) {
-      console.error(`[ImageProxy] Failed to serve local file ${localPath}:`, error);
+      const content = await fsp.readFile(localPath);
+      res.writeHead(200, { 'Content-Type': getImageContentType(localPath) });
+      res.end(content);
+      return;
+    } catch {
       res.writeHead(404);
       res.end('File not found');
       return;
     }
   }
 
-  // Extract filename from URL (keep original name for debugging)
+  // Extract filename from URL
   const urlParts = imageUrl.split('/');
   const filename = urlParts[urlParts.length - 1] || 'unknown.gif';
 
   try {
-
-    // Try to find image in update cache (scans all subdirectories dynamically)
-    const CACHE_ROOT = path.join(__dirname, '../../cache');
-
-    // Dynamically discover all subdirectories in cache
-    const imageDirs: string[] = [];
-    if (fs.existsSync(CACHE_ROOT)) {
-      const entries = fs.readdirSync(CACHE_ROOT, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          imageDirs.push(entry.name);
-        }
-      }
-    }
-
-    // Search in cache directories (case-insensitive)
-    // Cache follows exact update server structure
-    for (const dir of imageDirs) {
-      const dirPath = path.join(CACHE_ROOT, dir);
-      if (fs.existsSync(dirPath)) {
-        const files = fs.readdirSync(dirPath);
-        const matchingFile = files.find(f => f.toLowerCase() === filename.toLowerCase());
-        if (matchingFile) {
-          const cachedPath = path.join(dirPath, matchingFile);
-          const content = fs.readFileSync(cachedPath);
-          const ext = path.extname(matchingFile).toLowerCase();
-          const contentType = ext === '.gif' ? 'image/gif' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/gif';
-
-          res.writeHead(200, { 'Content-Type': contentType });
-          res.end(content);
-          return;
-        }
-      }
-    }
-
-    // Check webclient-cache for game server fallback images
-    const webclientCachePath = path.join(WEBCLIENT_CACHE_DIR, filename);
-    if (fs.existsSync(webclientCachePath)) {
-      const content = fs.readFileSync(webclientCachePath);
-      const ext = path.extname(filename).toLowerCase();
-      const contentType = ext === '.gif' ? 'image/gif' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/gif';
-
-      res.writeHead(200, { 'Content-Type': contentType });
+    // O(1) lookup in pre-built file index (replaces readdirSync scans)
+    const cachedPath = imageFileIndex.get(filename.toLowerCase());
+    if (cachedPath) {
+      const content = await fsp.readFile(cachedPath);
+      res.writeHead(200, {
+        'Content-Type': getImageContentType(cachedPath),
+        'Cache-Control': 'public, max-age=31536000'
+      });
       res.end(content);
-      console.log(`[ImageProxy] Served from webclient-cache: ${filename}`);
       return;
     }
 
-    // Not in cache, try to download from update server (try all known directories)
+    // Not in index — try downloading from update server
+    const CACHE_ROOT = path.join(__dirname, '../../cache');
+    const imageDirs: string[] = [];
+    for (const [, filePath] of imageFileIndex) {
+      const dir = path.basename(path.dirname(filePath));
+      if (!imageDirs.includes(dir) && path.dirname(path.dirname(filePath)) === CACHE_ROOT) {
+        imageDirs.push(dir);
+      }
+    }
+
     let downloaded = false;
     for (const dir of imageDirs) {
       try {
@@ -274,33 +330,32 @@ async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<v
           const arrayBuffer = await response.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
 
-          // Cache in proper directory structure
+          // Cache in proper directory structure (async)
           const targetDir = path.join(CACHE_ROOT, dir);
-          if (!fs.existsSync(targetDir)) {
-            fs.mkdirSync(targetDir, { recursive: true });
-          }
+          await fsp.mkdir(targetDir, { recursive: true });
           const targetPath = path.join(targetDir, filename);
-          fs.writeFileSync(targetPath, buffer);
+          await fsp.writeFile(targetPath, buffer);
 
-          const ext = path.extname(filename).toLowerCase();
-          const contentType = ext === '.gif' ? 'image/gif' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/gif';
+          // Update index
+          imageFileIndex.set(filename.toLowerCase(), targetPath);
 
-          res.writeHead(200, { 'Content-Type': contentType });
+          res.writeHead(200, {
+            'Content-Type': getImageContentType(filename),
+            'Cache-Control': 'public, max-age=31536000'
+          });
           res.end(buffer);
           downloaded = true;
-          console.log(`[ImageProxy] Downloaded from update server: ${dir}/${filename}`);
+          logger.debug(`Downloaded from update server: ${dir}/${filename}`);
           break;
         }
-      } catch (err) {
+      } catch {
         // Continue to next directory
       }
     }
 
-    if (downloaded) {
-      return;
-    }
+    if (downloaded) return;
 
-    // Not on update server, try game server (fallback for custom/legacy content)
+    // Not on update server, try game server (fallback)
     const response = await fetch(imageUrl);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
@@ -309,24 +364,25 @@ async function proxyImage(imageUrl: string, res: http.ServerResponse): Promise<v
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Cache game server images in webclient-cache (separate from update server mirror)
+    // Cache in webclient-cache (async)
     const webclientImagePath = path.join(WEBCLIENT_CACHE_DIR, filename);
-    fs.writeFileSync(webclientImagePath, buffer);
-    console.log(`[ImageProxy] Downloaded from game server (cached in webclient-cache): ${filename}`);
+    await fsp.writeFile(webclientImagePath, buffer);
+    imageFileIndex.set(filename.toLowerCase(), webclientImagePath);
+    logger.debug(`Downloaded from game server: ${filename}`);
 
-    const ext = path.extname(filename).toLowerCase();
-    const contentType = ext === '.gif' ? 'image/gif' : ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/gif';
-
-    res.writeHead(200, { 'Content-Type': contentType });
+    res.writeHead(200, {
+      'Content-Type': getImageContentType(filename),
+      'Cache-Control': 'public, max-age=31536000'
+    });
     res.end(buffer);
   } catch (error) {
-    console.error(`[ImageProxy] Failed to fetch ${imageUrl}:`, error);
+    logger.warn(`Failed to fetch image ${filename}: ${toErrorMessage(error)}`);
 
     // Cache the placeholder to avoid repeated failed downloads
     const placeholder = getPlaceholderImage();
     const webclientImagePath = path.join(WEBCLIENT_CACHE_DIR, filename);
-    fs.writeFileSync(webclientImagePath, placeholder);
-    console.log(`[ImageProxy] Cached placeholder for missing image: ${filename}`);
+    await fsp.writeFile(webclientImagePath, placeholder).catch(() => {});
+    imageFileIndex.set(filename.toLowerCase(), webclientImagePath);
 
     // Return placeholder image instead of 404
     res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -372,110 +428,33 @@ const server = http.createServer(async (req, res) => {
   // Terrain info endpoint: /api/terrain-info/:terrainType
   // Returns available seasons and default season for a terrain type
   // Example: /api/terrain-info/Alien%20Swamp
-  // Road block classes endpoint: /api/road-block-classes
-  // Returns a list of all road block class INI files with their content
+  // Road block classes endpoint — served from in-memory cache
   if (safePath === '/api/road-block-classes') {
-    const roadBlockClassesDir = path.join(CACHE_DIR, 'RoadBlockClasses');
-
-    try {
-      if (!fs.existsSync(roadBlockClassesDir)) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ files: [] }));
-        return;
-      }
-
-      const files = fs.readdirSync(roadBlockClassesDir)
-        .filter(f => f.toLowerCase().endsWith('.ini'));
-
-      // Read content of each INI file
-      const iniContents: Array<{ filename: string; content: string }> = [];
-      for (const file of files) {
-        const filePath = path.join(roadBlockClassesDir, file);
-        const content = fs.readFileSync(filePath, 'utf-8');
-        iniContents.push({ filename: file, content });
-      }
-
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=3600' // Cache for 1 hour
-      });
-      res.end(JSON.stringify({ files: iniContents }));
-    } catch (error: unknown) {
-      console.error('[RoadBlockClasses] Failed to read INI files:', error);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Failed to read road block classes' }));
-    }
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=3600'
+    });
+    res.end(JSON.stringify(iniCache.roadBlockClasses));
     return;
   }
 
-  // Concrete block classes endpoint: /api/concrete-block-classes
-  // Returns a list of all concrete block class INI files with their content
+  // Concrete block classes endpoint — served from in-memory cache
   if (safePath === '/api/concrete-block-classes') {
-    const concreteBlockClassesDir = path.join(CACHE_DIR, 'ConcreteClasses');
-
-    try {
-      if (!fs.existsSync(concreteBlockClassesDir)) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ files: [] }));
-        return;
-      }
-
-      const files = fs.readdirSync(concreteBlockClassesDir)
-        .filter(f => f.toLowerCase().endsWith('.ini'));
-
-      // Read content of each INI file
-      const iniContents: Array<{ filename: string; content: string }> = [];
-      for (const file of files) {
-        const filePath = path.join(concreteBlockClassesDir, file);
-        const content = fs.readFileSync(filePath, 'utf-8');
-        iniContents.push({ filename: file, content });
-      }
-
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=3600' // Cache for 1 hour
-      });
-      res.end(JSON.stringify({ files: iniContents }));
-    } catch (error: unknown) {
-      console.error('[ConcreteBlockClasses] Failed to read INI files:', error);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Failed to read concrete block classes' }));
-    }
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=3600'
+    });
+    res.end(JSON.stringify(iniCache.concreteBlockClasses));
     return;
   }
 
-  // Car classes endpoint: /api/car-classes
-  // Returns a list of all car class INI files with their content
+  // Car classes endpoint — served from in-memory cache
   if (safePath === '/api/car-classes') {
-    const carClassesDir = path.join(CACHE_DIR, 'CarClasses');
-
-    try {
-      if (!fs.existsSync(carClassesDir)) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ files: [] }));
-        return;
-      }
-
-      const files = fs.readdirSync(carClassesDir)
-        .filter(f => f.toLowerCase().endsWith('.ini'));
-
-      const iniContents: Array<{ filename: string; content: string }> = [];
-      for (const file of files) {
-        const filePath = path.join(carClassesDir, file);
-        const content = fs.readFileSync(filePath, 'utf-8');
-        iniContents.push({ filename: file, content });
-      }
-
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=3600'
-      });
-      res.end(JSON.stringify({ files: iniContents }));
-    } catch (error: unknown) {
-      console.error('[CarClasses] Failed to read INI files:', error);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Failed to read car classes' }));
-    }
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=3600'
+    });
+    res.end(JSON.stringify(iniCache.carClasses));
     return;
   }
 
@@ -490,7 +469,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    console.log(`[TerrainInfo] ${terrainType}: availableSeasons=[${terrainInfo.availableSeasons.join(',')}], defaultSeason=${terrainInfo.defaultSeason}`);
+    logger.debug(`TerrainInfo ${terrainType}: seasons=[${terrainInfo.availableSeasons.join(',')}], default=${terrainInfo.defaultSeason}`);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(terrainInfo));
@@ -520,28 +499,21 @@ const server = http.createServer(async (req, res) => {
 
     const atlasPath = path.join(WEBCLIENT_CACHE_DIR, 'textures', terrainType, String(season), 'atlas.png');
 
-    if (!fs.existsSync(atlasPath)) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Atlas not found' }));
-      return;
-    }
-
     try {
-      const content = fs.readFileSync(atlasPath);
+      const content = await fsp.readFile(atlasPath);
       res.writeHead(200, {
         'Content-Type': 'image/png',
         'Cache-Control': 'public, max-age=31536000'
       });
       res.end(content);
-    } catch (error: unknown) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Failed to read atlas file' }));
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Atlas not found' }));
     }
     return;
   }
 
   // Terrain atlas manifest: /api/terrain-atlas/:terrainType/:season/manifest
-  // Returns the JSON manifest describing tile positions within the atlas
   if (safePath.startsWith('/api/terrain-atlas/') && safePath.endsWith('/manifest')) {
     const parts = safePath.substring('/api/terrain-atlas/'.length).replace('/manifest', '').split('/');
 
@@ -562,50 +534,35 @@ const server = http.createServer(async (req, res) => {
 
     const manifestPath = path.join(WEBCLIENT_CACHE_DIR, 'textures', terrainType, String(season), 'atlas.json');
 
-    if (!fs.existsSync(manifestPath)) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Atlas manifest not found' }));
-      return;
-    }
-
     try {
-      const content = fs.readFileSync(manifestPath, 'utf-8');
+      const content = await fsp.readFile(manifestPath, 'utf-8');
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Cache-Control': 'public, max-age=31536000'
       });
       res.end(content);
-    } catch (error: unknown) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Failed to read manifest file' }));
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Atlas manifest not found' }));
     }
     return;
   }
 
   // Object atlas endpoint: /api/object-atlas/:category
-  // Returns the pre-generated atlas PNG for roads or concrete
-  // Example: /api/object-atlas/roads, /api/object-atlas/concrete
   if (safePath.startsWith('/api/object-atlas/') && !safePath.endsWith('/manifest')) {
     const category = safePath.substring('/api/object-atlas/'.length).split('?')[0];
-
     const atlasPath = path.join(WEBCLIENT_CACHE_DIR, 'objects', `${category}-atlas.png`);
 
-    if (!fs.existsSync(atlasPath)) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: `Atlas not found for category: ${category}` }));
-      return;
-    }
-
     try {
-      const content = fs.readFileSync(atlasPath);
+      const content = await fsp.readFile(atlasPath);
       res.writeHead(200, {
         'Content-Type': 'image/png',
         'Cache-Control': 'public, max-age=31536000'
       });
       res.end(content);
-    } catch (error: unknown) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Failed to read atlas file' }));
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Atlas not found for category: ${category}` }));
     }
     return;
   }
@@ -613,25 +570,18 @@ const server = http.createServer(async (req, res) => {
   // Object atlas manifest: /api/object-atlas/:category/manifest
   if (safePath.startsWith('/api/object-atlas/') && safePath.endsWith('/manifest')) {
     const category = safePath.substring('/api/object-atlas/'.length).replace('/manifest', '').split('?')[0];
-
     const manifestPath = path.join(WEBCLIENT_CACHE_DIR, 'objects', `${category}-atlas.json`);
 
-    if (!fs.existsSync(manifestPath)) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: `Atlas manifest not found for category: ${category}` }));
-      return;
-    }
-
     try {
-      const content = fs.readFileSync(manifestPath, 'utf-8');
+      const content = await fsp.readFile(manifestPath, 'utf-8');
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Cache-Control': 'public, max-age=31536000'
       });
       res.end(content);
-    } catch (error: unknown) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Failed to read manifest file' }));
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Atlas manifest not found for category: ${category}` }));
     }
     return;
   }
@@ -770,7 +720,7 @@ const server = http.createServer(async (req, res) => {
       });
       res.end(previewPng);
     } catch (error: unknown) {
-      console.error(`[TerrainPreview] Error generating preview:`, error);
+      logger.error(`TerrainPreview error: ${toErrorMessage(error)}`);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Internal server error' }));
     }
@@ -809,20 +759,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
-      const content = fs.readFileSync(texturePath);
-      const ext = path.extname(texturePath).toLowerCase();
-      const contentType = ext === '.bmp' ? 'image/bmp' :
-                        ext === '.gif' ? 'image/gif' :
-                        ext === '.png' ? 'image/png' :
-                        'application/octet-stream';
-
+      const content = await fsp.readFile(texturePath);
       res.writeHead(200, {
-        'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=31536000' // Cache for 1 year (textures don't change)
+        'Content-Type': getImageContentType(texturePath),
+        'Cache-Control': 'public, max-age=31536000'
       });
       res.end(content);
     } catch (error: unknown) {
-      console.error(`[TextureExtractor] Failed to serve texture ${texturePath}:`, error);
+      logger.warn(`Failed to serve texture ${texturePath}: ${toErrorMessage(error)}`);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Failed to read texture file' }));
     }
@@ -872,26 +816,35 @@ const server = http.createServer(async (req, res) => {
     const ext = path.extname(filePath).toLowerCase();
     const pngPath = ext === '.bmp' ? filePath.replace(/\.bmp$/i, '.png') : null;
 
-    const servePath = (pngPath && fs.existsSync(pngPath)) ? pngPath : filePath;
+    // Try PNG first (async), fall back to original path
+    let servePath = filePath;
+    if (pngPath) {
+      try {
+        await fsp.access(pngPath);
+        servePath = pngPath;
+      } catch {
+        // PNG doesn't exist, use original BMP path
+      }
+    }
     const serveExt = path.extname(servePath).toLowerCase();
 
-    fs.readFile(servePath, (err, content) => {
-      if (err) {
-        if (err.code === 'ENOENT') {
-          res.writeHead(404);
-          res.end(`File not found: ${relativePath}`);
-        } else {
-          res.writeHead(500);
-          res.end('Server Error: ' + err.code);
-        }
+    try {
+      const content = await fsp.readFile(servePath);
+      res.writeHead(200, {
+        'Content-Type': contentTypes[serveExt] || 'application/octet-stream',
+        'Cache-Control': 'public, max-age=31536000'
+      });
+      res.end(content);
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        res.writeHead(404);
+        res.end(`File not found: ${relativePath}`);
       } else {
-        res.writeHead(200, {
-          'Content-Type': contentTypes[serveExt] || 'application/octet-stream',
-          'Cache-Control': 'public, max-age=31536000' // Cache for 1 year
-        });
-        res.end(content);
+        res.writeHead(500);
+        res.end('Server Error: ' + code);
       }
-    });
+    }
     return;
   }
 

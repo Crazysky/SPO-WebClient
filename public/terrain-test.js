@@ -766,7 +766,8 @@
       const key = this.getCacheKey(paletteIndex);
       const entry = this.cache.get(key);
       if (entry && entry.texture) {
-        entry.lastAccess = ++this.accessCounter;
+        this.cache.delete(key);
+        this.cache.set(key, entry);
         this.hits++;
         return entry.texture;
       }
@@ -787,8 +788,9 @@
       const key = this.getCacheKey(paletteIndex);
       const entry = this.cache.get(key);
       if (entry) {
-        entry.lastAccess = ++this.accessCounter;
         if (entry.texture) {
+          this.cache.delete(key);
+          this.cache.set(key, entry);
           this.hits++;
           return entry.texture;
         }
@@ -867,28 +869,19 @@
       }
     }
     /**
-     * Evict least recently used entries if cache is over capacity
+     * Evict least recently used entries if cache is over capacity.
+     * Uses Map insertion order for O(1) eviction — oldest entries are first.
      */
     evictIfNeeded() {
-      while (this.cache.size > this.maxSize) {
-        let oldestKey = null;
-        let oldestAccess = Infinity;
-        for (const [key, entry] of this.cache) {
-          if (!entry.loading && entry.lastAccess < oldestAccess) {
-            oldestAccess = entry.lastAccess;
-            oldestKey = key;
-          }
+      if (this.cache.size <= this.maxSize) return;
+      for (const [key, entry] of this.cache) {
+        if (this.cache.size <= this.maxSize) break;
+        if (entry.loading) continue;
+        if (entry.texture) {
+          entry.texture.close();
         }
-        if (oldestKey) {
-          const entry = this.cache.get(oldestKey);
-          if (entry?.texture) {
-            entry.texture.close();
-          }
-          this.cache.delete(oldestKey);
-          this.evictions++;
-        } else {
-          break;
-        }
+        this.cache.delete(key);
+        this.evictions++;
       }
     }
     /**

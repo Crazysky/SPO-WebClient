@@ -48,6 +48,7 @@ import {
   rdoArgs
 } from '../shared/rdo-types';
 import { config } from '../shared/config';
+import { createLogger } from '../shared/logger';
 import { toProxyUrl, isProxyUrl } from '../shared/proxy-utils';
 import { toErrorMessage } from '../shared/error-utils';
 import {
@@ -63,6 +64,7 @@ import {
 } from './map-parsers';
 
 export class StarpeaceSession extends EventEmitter {
+  private readonly log = createLogger('Session');
   private sockets: Map<string, net.Socket> = new Map();
   private framers: Map<string, RdoFramer> = new Map();
   private phase: SessionPhase = SessionPhase.DISCONNECTED;
@@ -150,7 +152,7 @@ export class StarpeaceSession extends EventEmitter {
   private readonly MAX_BUFFER_SIZE = 5; // Maximum 5 buffered requests
   private isServerBusy: boolean = false;
   private serverBusyCheckInterval: NodeJS.Timeout | null = null;
-  private readonly SERVER_BUSY_CHECK_INTERVAL_MS = 2000; // Check every 2 seconds
+  private readonly SERVER_BUSY_CHECK_INTERVAL_MS = 10000; // Check every 10 seconds
 
   // Map-specific throttling
   private activeMapRequests: number = 0;
@@ -221,12 +223,12 @@ export class StarpeaceSession extends EventEmitter {
     this.cachedPassword = pass;
 
     // Run auth and world query in parallel (independent sockets & sessions)
-    console.log('[Session] Directory: Starting auth + world query in parallel...');
+    this.log.info('Directory: connecting...');
     const [, worlds] = await Promise.all([
       this.performDirectoryAuth(username, pass),
       this.performDirectoryQuery(zonePath)
     ]);
-    console.log('[Session] Directory: Auth + query complete');
+    this.log.info('Directory: auth + query complete');
     return worlds;
   }
 
@@ -261,7 +263,7 @@ export class StarpeaceSession extends EventEmitter {
         verb: RdoVerb.SEL, targetId: sessionId, action: RdoAction.CALL, member: 'RDOEndSession',
         args: [], separator: '"*"'
       });
-      console.log('[Session] Directory Authentication Success');
+      this.log.debug('[Session] Directory Authentication Success');
     } finally {
       socket.end();
       this.sockets.delete('directory_auth');
@@ -319,7 +321,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
   this.phase = SessionPhase.WORLD_CONNECTING;
   this.currentWorldInfo = world;
 
-  console.log(`[Session] Connecting to World ${world.name} (${world.ip}:${world.port})`);
+  this.log.info(`Connecting to world ${world.name} (${world.ip}:${world.port})`);
 
   // Connect to World Server
   await this.createSocket("world", world.ip, world.port);
@@ -327,7 +329,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
   // Generate Virtual Client ID for InterfaceEvents BEFORE any requests
   const virtualEventId = (Math.floor(Math.random() * 6000000) + 38000000).toString();
   this.knownObjects.set("InterfaceEvents", virtualEventId);
-  console.log(`[Session] Virtual InterfaceEvents ID: ${virtualEventId}`);
+  this.log.debug(`[Session] Virtual InterfaceEvents ID: ${virtualEventId}`);
 
   // 1. Resolve InterfaceServer
   const idPacket = await this.sendRdoRequest("world", {
@@ -335,7 +337,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
     targetId: "InterfaceServer"
   });
   this.interfaceServerId = parseIdOfResponseHelper(idPacket.payload);
-  console.log(`[Session] InterfaceServer ID: ${this.interfaceServerId}`);
+  this.log.debug(`[Session] InterfaceServer ID: ${this.interfaceServerId}`);
 
   // 2. Retrieve World Properties (10 properties)
   await this.fetchWorldProperties(this.interfaceServerId);
@@ -349,7 +351,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
     args: [username, pass]
   });
   const statusPayload = parsePropertyResponseHelper(statusPacket.payload!, "res");
-  console.log(`[Session] AccountStatus: ${statusPayload}`);
+  this.log.debug(`[Session] AccountStatus: ${statusPayload}`);
 
   // 4. Authenticate (call Logon)
   const logonPacket = await this.sendRdoRequest("world", {
@@ -370,7 +372,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
   }
 
   this.worldContextId = contextId;
-  console.log(`[Session] Authenticated. Context RDO: ${this.worldContextId}`);
+  this.log.debug(`[Session] Authenticated. Context RDO: ${this.worldContextId}`);
 
   // 5. Retrieve User Properties (parallel - independent GETs)
   const [mailPacket, tycoonPacket, cnntPacket] = await Promise.all([
@@ -388,7 +390,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
     })
   ]);
   this.mailAccount = parsePropertyResponseHelper(mailPacket.payload!, "MailAccount");
-  console.log(`[Session] MailAccount: ${this.mailAccount}`);
+  this.log.debug(`[Session] MailAccount: ${this.mailAccount}`);
   this.tycoonId = parsePropertyResponseHelper(tycoonPacket.payload!, "TycoonId");
   this.rdoCnntId = parsePropertyResponseHelper(cnntPacket.payload!, "RDOCnntId");
 
@@ -410,16 +412,16 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
   }).catch(err => {
     // RegisterEventsById may timeout because server responds after InitClient push
     // This is expected behavior, ignore the timeout
-    console.log(`[Session] RegisterEventsById completed (or timed out, which is normal)`);
+    this.log.debug(`[Session] RegisterEventsById completed (or timed out, which is normal)`);
   });
 
   // CRITICAL: Wait for server to send InitClient push command (with timeout)
-  console.log(`[Session] Waiting for server InitClient push...`);
+  this.log.debug(`[Session] Waiting for server InitClient push...`);
   const initClientTimeout = new Promise<never>((_, reject) =>
     setTimeout(() => reject(new Error('InitClient push timeout after 15s')), 15000)
   );
   await Promise.race([this.initClientReceived, initClientTimeout]);
-  console.log(`[Session] InitClient received, continuing...`);
+  this.log.debug(`[Session] InitClient received, continuing...`);
 
   // 8. SetLanguage - CLIENT sends this as PUSH command (no RID)
   const socket = this.sockets.get('world');
@@ -430,7 +432,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
       .args(RdoValue.int(0))
       .build();
     socket.write(setLangCmd);
-    console.log(`[Session] Sent SetLanguage push command`);
+    this.log.debug(`[Session] Sent SetLanguage push command`);
   }
 
   // 9. GetCompanyCount
@@ -442,12 +444,12 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
   });
   const companyCountStr = parsePropertyResponseHelper(companyCountPacket.payload!, "GetCompanyCount");
   const companyCount = parseInt(companyCountStr, 10) || 0;
-  console.log(`[Session] Company Count: ${companyCount}`);
+  this.log.debug(`[Session] Company Count: ${companyCount}`);
 
   // 10. Fetch companies via HTTP for UI
   const { companies } = await this.fetchCompaniesViaHttp(world.ip, username);
 
-  console.log(`[Session] Login phase complete. Waiting for company selection...`);
+  this.log.info('Login phase complete. Waiting for company selection...');
 
   // NOTE: Phase remains WORLD_CONNECTING until selectCompany() is called
   return { contextId: this.worldContextId, tycoonId: this.tycoonId, companies };
@@ -458,7 +460,7 @@ public async selectCompany(companyId: string): Promise<void> {
     throw new Error('Not logged into world');
   }
 
-  console.log(`[Session] Selecting company ID: ${companyId}`);
+  this.log.debug(`[Session] Selecting company ID: ${companyId}`);
 
   // 1. EnableEvents (set to -1 to activate)
   await this.sendRdoRequest('world', {
@@ -468,7 +470,7 @@ public async selectCompany(companyId: string): Promise<void> {
     member: 'EnableEvents',
     args: ['-1']
   });
-  console.log(`[Session] EnableEvents activated`);
+  this.log.debug(`[Session] EnableEvents activated`);
 
   // 2. First PickEvent - Subscribe to Tycoon updates
   await this.sendRdoRequest('world', {
@@ -478,7 +480,7 @@ public async selectCompany(companyId: string): Promise<void> {
     member: 'PickEvent',
     args: [this.tycoonId!]
   });
-  console.log(`[Session] PickEvent #1 sent`);
+  this.log.debug(`[Session] PickEvent #1 sent`);
 
   // 3. Get Tycoon Cookies in parallel (independent reads)
   const [lastYPacket, lastXPacket, allCookiesPacket] = await Promise.all([
@@ -500,12 +502,12 @@ public async selectCompany(companyId: string): Promise<void> {
   ]);
   const lastY = parsePropertyResponseHelper(lastYPacket.payload!, "res");
   this.lastPlayerY = parseInt(lastY, 10) || 0;
-  console.log(`[Session] Cookie LastY.0: ${this.lastPlayerY}`);
+  this.log.debug(`[Session] Cookie LastY.0: ${this.lastPlayerY}`);
   const lastX = parsePropertyResponseHelper(lastXPacket.payload!, "res");
   this.lastPlayerX = parseInt(lastX, 10) || 0;
-  console.log(`[Session] Cookie LastX.0: ${this.lastPlayerX}`);
+  this.log.debug(`[Session] Cookie LastX.0: ${this.lastPlayerX}`);
   const allCookies = parsePropertyResponseHelper(allCookiesPacket.payload!, "res");
-  console.log(`[Session] All Cookies:\n${allCookies}`);
+  this.log.debug(`[Session] All Cookies:\n${allCookies}`);
 
   // 4. ClientAware - Notify ready (first call)
   const socket = this.sockets.get('world');
@@ -515,7 +517,7 @@ public async selectCompany(companyId: string): Promise<void> {
       .push()
       .build();
     socket.write(clientAwareCmd);
-    console.log(`[Session] Sent ClientAware #1`);
+    this.log.debug(`[Session] Sent ClientAware #1`);
   }
 
   // 5. Second PickEvent
@@ -526,7 +528,7 @@ public async selectCompany(companyId: string): Promise<void> {
     member: 'PickEvent',
     args: [this.tycoonId!]
   });
-  console.log(`[Session] PickEvent #2 sent`);
+  this.log.debug(`[Session] PickEvent #2 sent`);
 
   // 6. Second ClientAware
   if (socket) {
@@ -535,7 +537,7 @@ public async selectCompany(companyId: string): Promise<void> {
       .push()
       .build();
     socket.write(clientAwareCmd2);
-    console.log(`[Session] Sent ClientAware #2`);
+    this.log.debug(`[Session] Sent ClientAware #2`);
   }
 
   // NOW the session is fully ready for game
@@ -544,8 +546,8 @@ public async selectCompany(companyId: string): Promise<void> {
   // Start ServerBusy polling now that we're fully connected
   this.startServerBusyPolling();
 
-  console.log(`[Session] Company ${companyId} selected - Ready for game!`);
-  console.log(`[Session] Player spawn position: (${this.lastPlayerX}, ${this.lastPlayerY})`);
+  this.log.info(`Company ${companyId} selected - Ready for game!`);
+  this.log.info(`Player spawn: (${this.lastPlayerX}, ${this.lastPlayerY})`);
 }
 
 /**
@@ -557,7 +559,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     throw new Error('Cannot switch company: world or credentials not available');
   }
 
-  console.log(`[Session] Switching to company: ${company.name} (ownerRole: ${company.ownerRole})`);
+  this.log.debug(`[Session] Switching to company: ${company.name} (ownerRole: ${company.ownerRole})`);
 
   // Store the company we're switching to
   this.currentCompany = company;
@@ -567,11 +569,11 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 
   // If ownerRole is different from original username, we need to do a "role switch"
   if (company.ownerRole && company.ownerRole !== this.cachedUsername) {
-    console.log(`[Session] Role-based login detected: switching from "${this.cachedUsername}" to role "${company.ownerRole}"`);
+    this.log.debug(`[Session] Role-based login detected: switching from "${this.cachedUsername}" to role "${company.ownerRole}"`);
   }
 
   // Close existing sockets except directory
-  console.log('[Session] Closing existing world connections for company switch...');
+  this.log.debug('[Session] Closing existing world connections for company switch...');
   const socketsToClose = Array.from(this.sockets.keys()).filter(name => name !== 'directory_auth' && name !== 'directory_query');
 
   for (const socketName of socketsToClose) {
@@ -599,8 +601,8 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
   // Re-login to world with the role username
   const result = await this.loginWorld(loginUsername, this.cachedPassword, this.currentWorldInfo);
 
-  console.log(`[Session] Re-logged in as "${loginUsername}", contextId: ${result.contextId}`);
-  console.log(`[Session] After switchCompany - interfaceServerId: ${this.interfaceServerId}, worldId: ${this.worldId}`);
+  this.log.debug(`[Session] Re-logged in as "${loginUsername}", contextId: ${result.contextId}`);
+  this.log.debug(`[Session] After switchCompany - interfaceServerId: ${this.interfaceServerId}, worldId: ${this.worldId}`);
 
   // Small delay to ensure socket is fully ready before selecting company
   await new Promise(resolve => setTimeout(resolve, 200));
@@ -608,7 +610,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
   // Select the specific company
   await this.selectCompany(company.id);
 
-  console.log(`[Session] Company switch complete - now playing as ${company.name}`);
+  this.log.debug(`[Session] Company switch complete - now playing as ${company.name}`);
 }
 
 	/**
@@ -620,7 +622,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 		throw new Error('Not logged into world');
 	  }
 
-	  console.log(`[Session] Focusing building at (${x}, ${y})`);
+	  this.log.debug(`[Session] Focusing building at (${x}, ${y})`);
 	  
 	  // Get previous building ID (stored WITHOUT any prefix)
 	  const previousBuildingId = this.currentFocusedBuildingId || '0';
@@ -643,7 +645,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 	  this.currentFocusedBuildingId = buildingInfo.buildingId;
 	  this.currentFocusedCoords = { x, y };
 	  
-	  console.log(`[Session] Focused on building ${buildingInfo.buildingId}: ${buildingInfo.buildingName}`);
+	  this.log.debug(`[Session] Focused on building ${buildingInfo.buildingId}: ${buildingInfo.buildingName}`);
 	  
 	  return buildingInfo;
 	}
@@ -656,11 +658,11 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    */
 	public async unfocusBuilding(): Promise<void> {
 	  if (!this.worldContextId || !this.currentFocusedBuildingId) {
-		console.log('[Session] No building focused, skipping unfocus');
+		this.log.debug('[Session] No building focused, skipping unfocus');
 		return;
 	  }
 
-	  console.log(`[Session] Unfocusing building ${this.currentFocusedBuildingId}`);
+	  this.log.debug(`[Session] Unfocusing building ${this.currentFocusedBuildingId}`);
 
 	  const socket = this.sockets.get('world');
 	  if (socket) {
@@ -670,7 +672,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 		  .args(RdoValue.int(parseInt(this.currentFocusedBuildingId)))
 		  .build();
 		socket.write(unfocusCmd);
-		console.log('[Session] Sent UnfocusObject push command');
+		this.log.debug('[Session] Sent UnfocusObject push command');
 	  }
 
 	  // Reset tracking
@@ -701,7 +703,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 	  try {
 		// Args format: [buildingId, "0", fullData]
 		if (!packet.args || packet.args.length < 3) {
-		  console.warn(`[Session] RefreshObject missing args`);
+		  this.log.warn(`[Session] RefreshObject missing args`);
 		  return null;
 		}
 
@@ -729,7 +731,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 		  this.currentFocusedCoords.y
 		);
 	  } catch (e: unknown) {
-		console.warn(`[Session] Failed to parse RefreshObject:`, toErrorMessage(e));
+		this.log.warn(`[Session] Failed to parse RefreshObject:`, toErrorMessage(e));
 		return null;
 	  }
 	}
@@ -764,7 +766,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     });
 
     const url = `http://${worldIp}/Five/0/Visual/Voyager/NewLogon/logonComplete.asp?${params.toString()}`;
-    console.log(`[HTTP] Fetching companies from ${url}`);
+    this.log.debug(`[HTTP] Fetching companies from ${url}`);
 
     try {
       const response = await fetch(url, { redirect: 'follow' });
@@ -801,7 +803,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
         const roleMatch = /companyOwnerRole="([^"]*)"/i.exec(tdElement);
         const ownerRole = roleMatch ? roleMatch[1] : username;
 
-        console.log(`[HTTP] Company parsed - ID: ${companyId}, Name: ${companyName}, ownerRole: ${ownerRole} ${roleMatch ? '(from HTML)' : '(defaulted to username)'}`);
+        this.log.debug(`[HTTP] Company parsed - ID: ${companyId}, Name: ${companyName}, ownerRole: ${ownerRole} ${roleMatch ? '(from HTML)' : '(defaulted to username)'}`);
 
         companies.push({
           id: companyId,
@@ -810,23 +812,23 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
         });
       }
 
-      console.log(`[HTTP] Found ${companies.length} companies, realContextId: ${realId}`);
+      this.log.debug(`[HTTP] Found ${companies.length} companies, realContextId: ${realId}`);
       return { companies, realContextId: realId };
     } catch (e) {
-      console.error('[HTTP] Failed to fetch companies:', e);
+      this.log.error('[HTTP] Failed to fetch companies:', e);
       return { companies: [], realContextId: null };
     }
   }
   public async connectMapService(): Promise<void> {
     if (this.sockets.has('map')) return;
-    console.log('[Session] Connecting to Map Service...');
+    this.log.debug('[Session] Connecting to Map Service...');
     await this.createSocket('map', this.currentWorldInfo?.ip || '127.0.0.1', RDO_PORTS.MAP_SERVICE);
     const idPacket = await this.sendRdoRequest('map', {
       verb: RdoVerb.IDOF,
       targetId: 'WSObjectCacher'
     });
     this.cacherId = parseIdOfResponseHelper(idPacket.payload);
-    console.log(`[Session] Map Service Ready. CacherID: ${this.cacherId}`);
+    this.log.debug(`[Session] Map Service Ready. CacherID: ${this.cacherId}`);
   }
 
   /**
@@ -835,7 +837,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    */
   public async connectConstructionService(): Promise<void> {
     if (this.sockets.has('construction')) {
-      console.log('[Construction] Already connected');
+      this.log.debug('[Construction] Already connected');
       return;
     }
 
@@ -843,7 +845,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       throw new Error('Credentials not cached - cannot connect to construction service');
     }
 
-    console.log('[Construction] Connecting to Construction Service (port 7001)...');
+    this.log.debug('[Construction] Connecting to Construction Service (port 7001)...');
     await this.createSocket(
       'construction',
       this.currentWorldInfo?.ip || '127.0.0.1',
@@ -856,7 +858,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       targetId: 'World'
     });
     this.worldId = parseIdOfResponseHelper(idPacket.payload);
-    console.log(`[Construction] World ID: ${this.worldId}`);
+    this.log.debug(`[Construction] World ID: ${this.worldId}`);
 
     // Logon to World (no request ID - push command with separator "*")
     const socket = this.sockets.get('construction');
@@ -870,12 +872,12 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
         )
         .build();
       socket.write(logonCmd);
-      console.log(`[Construction] Sent RDOLogonClient`);
+      this.log.debug(`[Construction] Sent RDOLogonClient`);
       // Small delay to let server process logon
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    console.log('[Construction] Service Ready');
+    this.log.debug('[Construction] Service Ready');
   }
 
   // =========================================================================
@@ -889,7 +891,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    */
   public async connectMailService(): Promise<void> {
     if (this.sockets.has('mail')) {
-      console.log('[Mail] Already connected');
+      this.log.debug('[Mail] Already connected');
       return;
     }
 
@@ -897,7 +899,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       throw new Error('Mail server address/port not available - ensure world login completed');
     }
 
-    console.log(`[Mail] Connecting to Mail Server at ${this.mailAddr}:${this.mailPort}...`);
+    this.log.debug(`[Mail] Connecting to Mail Server at ${this.mailAddr}:${this.mailPort}...`);
     await this.createSocket('mail', this.mailAddr, this.mailPort);
 
     // Resolve MailServer hook
@@ -906,7 +908,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       targetId: 'MailServer'
     });
     this.mailServerId = parseIdOfResponseHelper(idPacket.payload);
-    console.log(`[Mail] Mail Server Ready. ServerId: ${this.mailServerId}`);
+    this.log.debug(`[Mail] Mail Server Ready. ServerId: ${this.mailServerId}`);
   }
 
   /**
@@ -934,10 +936,10 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       ]
     });
     const msgId = parsePropertyResponseHelper(newMailPacket.payload!, 'NewMail');
-    console.log(`[Mail] Created message, msgId: ${msgId}`);
+    this.log.debug(`[Mail] Created message, msgId: ${msgId}`);
 
     if (!msgId || msgId === '0') {
-      console.error('[Mail] Failed to create message');
+      this.log.error('[Mail] Failed to create message');
       return false;
     }
 
@@ -961,7 +963,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       args: [RdoValue.string(worldName).toString(), RdoValue.int(parseInt(msgId, 10)).toString()]
     });
     const result = postPacket.payload || '';
-    console.log(`[Mail] Post result: ${result}`);
+    this.log.debug(`[Mail] Post result: ${result}`);
 
     return !result.includes('error');
   }
@@ -992,7 +994,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       ]
     });
     const msgId = parsePropertyResponseHelper(openPacket.payload!, 'OpenMessage');
-    console.log(`[Mail] Opened message, msgId: ${msgId}`);
+    this.log.debug(`[Mail] Opened message, msgId: ${msgId}`);
 
     try {
       // 2. Get headers (ini-style key=value text)
@@ -1059,7 +1061,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
           args: [RdoValue.int(parseInt(msgId, 10)).toString()]
         });
       } catch (e) {
-        console.warn('[Mail] Failed to close message:', e);
+        this.log.warn('[Mail] Failed to close message:', e);
       }
     }
   }
@@ -1086,7 +1088,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
         RdoValue.string(messageId).toString()
       ]
     });
-    console.log(`[Mail] Deleted message ${messageId} from ${folder}`);
+    this.log.debug(`[Mail] Deleted message ${messageId} from ${folder}`);
   }
 
   /**
@@ -1239,11 +1241,11 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
           }
         }
       } catch (e) {
-        console.warn(`[Profile] Failed to fetch ${prop.name}:`, e);
+        this.log.warn(`[Profile] Failed to fetch ${prop.name}:`, e);
       }
     }
 
-    console.log(`[Profile] Fetched tycoon profile: ${profile.name} (Ranking #${profile.ranking})`);
+    this.log.debug(`[Profile] Fetched tycoon profile: ${profile.name} (Ranking #${profile.ranking})`);
     return profile;
   }
 
@@ -1256,13 +1258,13 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
     // --- DEDUPLICATION: Check if already pending ---
     const requestKey = `${targetX},${targetY}`;
     if (this.pendingMapRequests.has(requestKey)) {
-        console.log(`[Session] Skipping duplicate map request for ${requestKey}`);
+        this.log.debug(`[Session] Skipping duplicate map request for ${requestKey}`);
         throw new Error(`Map area ${requestKey} already loading`);
     }
 
     // --- MAP CONCURRENCY LIMIT: Check if at max concurrent map requests ---
     if (this.activeMapRequests >= this.MAX_CONCURRENT_MAP_REQUESTS) {
-        console.log(`[Session] Too many concurrent map requests (${this.activeMapRequests}/${this.MAX_CONCURRENT_MAP_REQUESTS})`);
+        this.log.debug(`[Session] Too many concurrent map requests (${this.activeMapRequests}/${this.MAX_CONCURRENT_MAP_REQUESTS})`);
         throw new Error(`Maximum concurrent map requests reached (${this.MAX_CONCURRENT_MAP_REQUESTS})`);
     }
 
@@ -1271,7 +1273,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
     this.activeMapRequests++;
 
     try {
-        console.log(`[Session] Loading map area at ${targetX}, ${targetY} (size ${w}x${h}) [${this.activeMapRequests}/${this.MAX_CONCURRENT_MAP_REQUESTS}]`);
+        this.log.debug(`[Session] Loading map area at ${targetX}, ${targetY} (size ${w}x${h}) [${this.activeMapRequests}/${this.MAX_CONCURRENT_MAP_REQUESTS}]`);
 
         // --- FIXED: ObjectsInArea with correct separator (consistant avec SwitchFocusEx) ---
         const objectsPacket = await this.sendRdoRequest('world', {
@@ -1309,7 +1311,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
         const segmentsRaw = splitMultilinePayloadHelper(segmentsPacket.payload!);
         const segments = parseSegmentsHelper(segmentsRaw);
 
-        console.log(`[Session] Parsed ${buildings.length} buildings (from ${buildingsRaw.length} lines), ${segments.length} segments (from ${segmentsRaw.length} lines)`);
+        this.log.debug(`[Session] Parsed ${buildings.length} buildings (from ${buildingsRaw.length} lines), ${segments.length} segments (from ${segmentsRaw.length} lines)`);
 
         return { x: targetX, y: targetY, w, h, buildings, segments };
 
@@ -1355,15 +1357,15 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
    * This is the "real" object ID used for construction operations
    */
   public async getObjectRdoId(x: number, y: number): Promise<string> {
-    console.log(`[MapService] Getting RDO ObjectId at (${x}, ${y})`);
+    this.log.debug(`[MapService] Getting RDO ObjectId at (${x}, ${y})`);
     const props = await this.getCacherPropertyListAt(x, y, ['ObjectId']);
     if (props.length === 0 || !props[0]) {
-      console.warn(`[MapService] No ObjectId found at (${x}, ${y})`);
+      this.log.warn(`[MapService] No ObjectId found at (${x}, ${y})`);
       return '';
     }
 
     const objectId = props[0];
-    console.log(`[MapService] Found ObjectId: ${objectId} at (${x}, ${y})`);
+    this.log.debug(`[MapService] Found ObjectId: ${objectId} at (${x}, ${y})`);
     return objectId;
   }
 
@@ -1392,9 +1394,8 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       member: 'SetObject',
       args: [x.toString(), y.toString()]
     });
-    // CRITICAL [HIGH-02]: Delay for server to populate cache
-    // Without this, GetPropertyList returns empty values
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Brief delay for server to populate cache (reduced from 100ms)
+    await new Promise(resolve => setTimeout(resolve, 30));
   }
 
   private async cacherGetPropertyList(tempObjectId: string, propertyNames: string[]): Promise<string[]> {
@@ -1442,13 +1443,13 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
     action: 'START' | 'STOP' | 'DOWN',
     count: number = 1
   ): Promise<{ status: string, error?: string }> {
-    console.log(`[Construction] Request: ${action} at (${x}, ${y}) count=${count}`);
+    this.log.debug(`[Construction] Request: ${action} at (${x}, ${y}) count=${count}`);
     try {
       // Step 0: Connect to construction service if needed
       await this.connectConstructionService();
 
       // Step 1: Get building info from Map Service
-      console.log(`[Construction] Fetching building info at (${x}, ${y})...`);
+      this.log.debug(`[Construction] Fetching building info at (${x}, ${y})...`);
       await this.connectMapService();
       const props = await this.getCacherPropertyListAt(x, y, ['CurrBlock', 'ObjectId']);
 
@@ -1461,7 +1462,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
 
       const currBlock = props[0]; // CurrBlock (zone ID)
       const targetId = props[1]; // ObjectId (RDO ID for the building)
-      console.log(`[Construction] Building found: Block=${currBlock}, ObjectId=${targetId}`);
+      this.log.debug(`[Construction] Building found: Block=${currBlock}, ObjectId=${targetId}`);
 
       // Step 2: Check RDOAcceptCloning (must be available: 1=existing building, 255=empty zone)
       const initialCloning = await this.sendRdoRequest('construction', {
@@ -1472,7 +1473,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       });
       const cloningValue = parsePropertyResponseHelper(initialCloning.payload || '', 'RDOAcceptCloning');
       const cloningInt = parseInt(cloningValue, 10);
-      console.log(`[Construction] RDOAcceptCloning initial value: ${cloningInt}`);
+      this.log.debug(`[Construction] RDOAcceptCloning initial value: ${cloningInt}`);
 
       // Valid values: 1 (existing building), 255 (empty zone)
       // Invalid: -1 (locked/busy)
@@ -1484,7 +1485,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       }
 
       // Step 3: Lock the block (set RDOAcceptCloning = -1)
-      console.log(`[Construction] Locking block ${currBlock}...`);
+      this.log.debug(`[Construction] Locking block ${currBlock}...`);
       await this.sendRdoRequest('construction', {
         verb: RdoVerb.SEL,
         targetId: currBlock,
@@ -1507,28 +1508,28 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
             .push()
             .args(RdoValue.int(count))
             .build();
-          console.log(`[Construction] Starting ${count} upgrade(s)...`);
+          this.log.debug(`[Construction] Starting ${count} upgrade(s)...`);
           break;
         case 'STOP':
           actionCmd = RdoCommand.sel(targetId)
             .call('RDOStopUpgrade')
             .push()
             .build();
-          console.log(`[Construction] Stopping upgrade...`);
+          this.log.debug(`[Construction] Stopping upgrade...`);
           break;
         case 'DOWN':
           actionCmd = RdoCommand.sel(targetId)
             .call('RDODowngrade')
             .push()
             .build();
-          console.log(`[Construction] Downgrading building...`);
+          this.log.debug(`[Construction] Downgrading building...`);
           break;
         default:
           return { status: 'ERROR', error: `Unknown action: ${action}` };
       }
 
       socket.write(actionCmd);
-      console.log(`[Construction] Command sent: ${actionCmd.substring(0, 50)}...`);
+      this.log.debug(`[Construction] Command sent: ${actionCmd.substring(0, 50)}...`);
 
       // Step 5: Wait for server to process
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -1541,13 +1542,13 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
         member: 'RDOAcceptCloning'
       });
       const finalValue = parsePropertyResponseHelper(finalCloning.payload || '', 'RDOAcceptCloning');
-      console.log(`[Construction] RDOAcceptCloning final value: ${finalValue}`);
+      this.log.debug(`[Construction] RDOAcceptCloning final value: ${finalValue}`);
 
       return {
         status: 'OK'
       };
     } catch (e: unknown) {
-      console.error(`[Construction] Error:`, e);
+      this.log.error(`[Construction] Error:`, e);
       return {
         status: 'ERROR',
         error: toErrorMessage(e)
@@ -1607,21 +1608,21 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
           !this.currentFocusedCoords ||
           this.currentFocusedCoords.x !== x ||
           this.currentFocusedCoords.y !== y) {
-        console.log(`[Session] Building not focused, focusing at (${x}, ${y})`);
+        this.log.debug(`[Session] Building not focused, focusing at (${x}, ${y})`);
         const focusInfo = await this.focusBuilding(x, y);
         if (!focusInfo.buildingId) {
           return { success: false, message: 'Could not find building at specified coordinates' };
         }
         buildingId = focusInfo.buildingId;
       } else {
-        console.log(`[Session] Using already focused building ID: ${buildingId}`);
+        this.log.debug(`[Session] Using already focused building ID: ${buildingId}`);
       }
 
-      console.log(`[Session] Renaming building ${buildingId} to "${newName}"`);
+      this.log.debug(`[Session] Renaming building ${buildingId} to "${newName}"`);
 
       // Ensure construction service is connected (handles building operations on port 7001)
       if (!this.sockets.has('construction')) {
-        console.log('[Session] Construction service not connected, connecting now...');
+        this.log.debug('[Session] Construction service not connected, connecting now...');
         await this.connectConstructionService();
       }
 
@@ -1635,10 +1636,10 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
         args: [`%${newName}`]  // Pass as string with % prefix for OLEString
       });
 
-      console.log(`[Session] Building renamed successfully`);
+      this.log.debug(`[Session] Building renamed successfully`);
       return { success: true, message: 'Building renamed successfully' };
     } catch (e: unknown) {
-      console.error(`[Session] Failed to rename building:`, e);
+      this.log.error(`[Session] Failed to rename building:`, e);
       return { success: false, message: toErrorMessage(e) };
     }
   }
@@ -1650,11 +1651,11 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
    */
   public async deleteFacility(x: number, y: number): Promise<{ success: boolean, message?: string }> {
     try {
-      console.log(`[Session] Deleting building at (${x}, ${y})`);
+      this.log.debug(`[Session] Deleting building at (${x}, ${y})`);
 
       // Ensure construction service is connected (handles building operations on port 7001)
       if (!this.sockets.has('construction')) {
-        console.log('[Session] Construction service not connected, connecting now...');
+        this.log.debug('[Session] Construction service not connected, connecting now...');
         await this.connectConstructionService();
       }
 
@@ -1675,7 +1676,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
         args: [`#${x}`, `#${y}`]  // Coordinates as integers
       });
 
-      console.log(`[Session] Building deleted successfully, result: ${result}`);
+      this.log.debug(`[Session] Building deleted successfully, result: ${result}`);
 
       // Clear focused building since it no longer exists
       this.currentFocusedBuildingId = null;
@@ -1683,7 +1684,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
 
       return { success: true, message: 'Building deleted successfully' };
     } catch (e: unknown) {
-      console.error(`[Session] Failed to delete building:`, e);
+      this.log.error(`[Session] Failed to delete building:`, e);
       return { success: false, message: toErrorMessage(e) };
     }
   }
@@ -1790,11 +1791,11 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
     y2: number
   ): Promise<{ success: boolean; cost: number; tileCount: number; message?: string; errorCode?: number }> {
     try {
-      console.log(`[RoadBuilding] Building road from (${x1}, ${y1}) to (${x2}, ${y2})`);
+      this.log.debug(`[RoadBuilding] Building road from (${x1}, ${y1}) to (${x2}, ${y2})`);
 
       // Validate points are different
       if (x1 === x2 && y1 === y2) {
-        console.warn(`[RoadBuilding] Invalid: start and end points are the same`);
+        this.log.warn(`[RoadBuilding] Invalid: start and end points are the same`);
         return {
           success: false,
           cost: 0,
@@ -1806,7 +1807,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
 
       // Verify world socket is connected
       if (!this.sockets.has('world')) {
-        console.error('[RoadBuilding] Interface server not connected');
+        this.log.error('[RoadBuilding] Interface server not connected');
         return {
           success: false,
           cost: 0,
@@ -1818,7 +1819,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
 
       // Verify worldContextId is available
       if (!this.worldContextId) {
-        console.error('[RoadBuilding] World context not initialized');
+        this.log.error('[RoadBuilding] World context not initialized');
         return {
           success: false,
           cost: 0,
@@ -1830,7 +1831,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
 
       // Generate segments (single for H/V, multiple for diagonal)
       const segments = this.generateRoadSegments(x1, y1, x2, y2);
-      console.log(`[RoadBuilding] Generated ${segments.length} segment(s)`);
+      this.log.debug(`[RoadBuilding] Generated ${segments.length} segment(s)`);
 
       // Get owner and circuit IDs
       const ownerId = this.fTycoonProxyId || 0;
@@ -1850,7 +1851,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
         const segTiles = Math.max(segDx, segDy);
         const segCost = segTiles * this.ROAD_COST_PER_TILE;
 
-        console.log(`[RoadBuilding] Segment ${i + 1}/${segments.length}: (${seg.sx},${seg.sy}) to (${seg.ex},${seg.ey}), tiles=${segTiles}, cost=${segCost}`);
+        this.log.debug(`[RoadBuilding] Segment ${i + 1}/${segments.length}: (${seg.sx},${seg.sy}) to (${seg.ex},${seg.ey}), tiles=${segTiles}, cost=${segCost}`);
 
         const args = [
           `#${circuitId}`,
@@ -1894,7 +1895,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
             message: errorMessages[resultCode] || `Failed with code ${resultCode}`,
             errorCode: resultCode
           };
-          console.warn(`[RoadBuilding] Segment ${i + 1} failed: ${failedSegment.message}`);
+          this.log.warn(`[RoadBuilding] Segment ${i + 1} failed: ${failedSegment.message}`);
           // Continue with other segments (partial road is better than nothing)
         }
       }
@@ -1905,7 +1906,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
           ? `Road partially built (${totalTiles} tiles). Some segments failed: ${failedSegment.message}`
           : `Road built successfully: ${totalTiles} tiles`;
 
-        console.log(`[RoadBuilding] ${message}`);
+        this.log.debug(`[RoadBuilding] ${message}`);
         return {
           success: true,
           cost: totalCost,
@@ -1922,7 +1923,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
         };
       }
     } catch (e: unknown) {
-      console.error(`[RoadBuilding] Failed to build road:`, e);
+      this.log.error(`[RoadBuilding] Failed to build road:`, e);
       return {
         success: false,
         cost: 0,
@@ -2008,7 +2009,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
     for (let i = 0; i < props.length; i++) {
       const prop = props[i];
       const value = parsePropertyResponseHelper(packets[i].payload!, prop);
-      console.log(`[Session] ${prop}: ${value}`);
+      this.log.debug(`[Session] ${prop}: ${value}`);
 
       if (prop === "DAAddr") {
         this.daAddr = value;
@@ -2034,7 +2035,7 @@ private createSocket(name: string, host: string, port: number): Promise<net.Sock
     this.framers.set(name, framer);
 
     socket.connect(port, host, () => {
-      console.log(`[Session] Connected to ${name} (${host}:${port})`);
+      this.log.debug(`[Session] Connected to ${name} (${host}:${port})`);
       resolve(socket);
     });
 
@@ -2044,11 +2045,11 @@ private createSocket(name: string, host: string, port: number): Promise<net.Sock
     });
 
     socket.on('error', (err) => {
-      console.error(`[Session] Socket error on ${name}:`, err);
+      this.log.error(`[Session] Socket error on ${name}:`, err);
     });
 
     socket.on('close', () => {
-      console.log(`[Session] Socket closed: ${name}`);
+      this.log.debug(`[Session] Socket closed: ${name}`);
       this.sockets.delete(name);
       this.framers.delete(name);
     });
@@ -2062,7 +2063,7 @@ private createSocket(name: string, host: string, port: number): Promise<net.Sock
   private startServerBusyPolling(): void {
     if (this.serverBusyCheckInterval) return; // Already running
 
-    console.log('[ServerBusy] Starting 2-second polling...');
+    this.log.debug('[ServerBusy] Starting 2-second polling...');
 
     this.serverBusyCheckInterval = setInterval(async () => {
       if (!this.worldContextId || this.phase === SessionPhase.WORLD_CONNECTING) {
@@ -2103,13 +2104,13 @@ private createSocket(name: string, host: string, port: number): Promise<net.Sock
         this.isServerBusy = busyValue == '1';
 
         if (wasBusy && !this.isServerBusy) {
-          console.log('[ServerBusy] Server now available - resuming requests');
+          this.log.debug('[ServerBusy] Server now available - resuming requests');
           this.processBufferedRequests();
         } else if (!wasBusy && this.isServerBusy) {
-          console.log('[ServerBusy] Server now busy - pausing new requests');
+          this.log.debug('[ServerBusy] Server now busy - pausing new requests');
         }
       } catch (e) {
-        console.warn('[ServerBusy] Poll failed:', (e as Error).message);
+        this.log.warn('[ServerBusy] Poll failed:', (e as Error).message);
       }
     }, this.SERVER_BUSY_CHECK_INTERVAL_MS);
   }
@@ -2161,14 +2162,14 @@ private sendRdoRequest(socketName: string, packetData: Partial<RdoPacket>): Prom
     if (this.isServerBusy) {
       if (this.requestBuffer.length >= this.MAX_BUFFER_SIZE) {
         // Buffer is full, drop the request
-        console.warn('[Buffer] Buffer full, dropping request:', packetData.member);
+        this.log.warn('[Buffer] Buffer full, dropping request:', packetData.member);
         reject(new Error('Request buffer full - server busy'));
         return;
       }
 
       // Add to buffer
       this.requestBuffer.push({ socketName, packetData, resolve, reject });
-      console.log(`[Buffer] Request buffered (${this.requestBuffer.length}/${this.MAX_BUFFER_SIZE}):`, packetData.member);
+      this.log.debug(`[Buffer] Request buffered (${this.requestBuffer.length}/${this.MAX_BUFFER_SIZE}):`, packetData.member);
       return;
     }
 
@@ -2222,7 +2223,7 @@ private handleIncomingMessage(socketName: string, raw: string) {
   
   // If multiple commands detected, process each separately
   if (commands.length > 1) {
-    console.log(`[Session] Multiple commands detected in message: ${commands.length}`);
+    this.log.debug(`[Session] Multiple commands detected in message: ${commands.length}`);
     commands.forEach(cmdRaw => {
       const fullCmd = cmdRaw.trim() + ';';
       this.processSingleCommand(socketName, fullCmd);
@@ -2241,7 +2242,7 @@ private handleIncomingMessage(socketName: string, raw: string) {
 	  if (this.isRefreshObjectPush(packet)) {
 		const buildingInfo = this.parseRefreshObjectPush(packet);
 		if (buildingInfo) {
-		  console.log(`[Session] RefreshObject for building ${buildingInfo.buildingId}`);
+		  this.log.debug(`[Session] RefreshObject for building ${buildingInfo.buildingId}`);
 		  this.emit('ws_event', {
 			type: WsMessageType.EVENT_BUILDING_REFRESH,
 			building: buildingInfo
@@ -2264,7 +2265,7 @@ private handleIncomingMessage(socketName: string, raw: string) {
 		  this.pendingRequests.delete(packet.rid);
 		  callbacks.resolve(packet);
 		} else {
-		  console.warn(`[Session] Unmatched response RID ${packet.rid}: ${raw}`);
+		  this.log.warn(`[Session] Unmatched response RID ${packet.rid}: ${raw}`);
 		}
 	  } else {
 		// Push command
@@ -2274,7 +2275,7 @@ private handleIncomingMessage(socketName: string, raw: string) {
 
 
   private handleServerRequest(socketName: string, packet: RdoPacket) {
-    console.log(`[Session] Server Request: ${packet.raw}`);
+    this.log.debug(`[Session] Server Request: ${packet.raw}`);
     if (packet.verb === RdoVerb.IDOF && packet.targetId) {
       const objectId = this.knownObjects.get(packet.targetId);
       if (objectId) {
@@ -2282,10 +2283,10 @@ private handleIncomingMessage(socketName: string, raw: string) {
         const socket = this.sockets.get(socketName);
         if (socket) {
           socket.write(response);
-          console.log(`[Session] Auto-replied to server: ${response}`);
+          this.log.debug(`[Session] Auto-replied to server: ${response}`);
         }
       } else {
-        console.warn(`[Session] Server requested unknown object: ${packet.targetId}`);
+        this.log.warn(`[Session] Server requested unknown object: ${packet.targetId}`);
       }
     }
   }
@@ -2296,7 +2297,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     const hasInitClient = packet.member === "InitClient" ||
       (packet.raw && packet.raw.includes("InitClient"));
     if (hasInitClient) {
-      console.log(`[Session] Server sent InitClient push (detected in ${packet.member ? 'member' : 'raw'})`);
+      this.log.debug(`[Session] Server sent InitClient push (detected in ${packet.member ? 'member' : 'raw'})`);
 
       // Parse InitClient data
       // Example: C sel 44917624 call InitClient "*" "@78006","%419278163478","#0","#223892356";
@@ -2315,13 +2316,13 @@ private handlePush(socketName: string, packet: RdoPacket) {
           // Parse fTycoonProxyId (Integer: #value)
           this.fTycoonProxyId = RdoParser.asInt(packet.args[3]);
 
-          console.log(`[Session] InitClient parsed - Date: ${this.virtualDate}, Money: ${this.accountMoney}, FailureLevel: ${this.failureLevel}, fTycoonProxyId: ${this.fTycoonProxyId}`);
+          this.log.debug(`[Session] InitClient parsed - Date: ${this.virtualDate}, Money: ${this.accountMoney}, FailureLevel: ${this.failureLevel}, fTycoonProxyId: ${this.fTycoonProxyId}`);
         } catch (error) {
-          console.error(`[Session] Failed to parse InitClient data:`, error);
-          console.log(`[Session] Raw args:`, packet.args);
+          this.log.error(`[Session] Failed to parse InitClient data:`, error);
+          this.log.debug(`[Session] Raw args:`, packet.args);
         }
       } else {
-        console.warn(`[Session] InitClient packet has insufficient args (expected 4, got ${packet.args?.length || 0})`);
+        this.log.warn(`[Session] InitClient packet has insufficient args (expected 4, got ${packet.args?.length || 0})`);
       }
 
       this.waitingForInitClient = false;
@@ -2335,14 +2336,14 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
   // Server-initiated SetLanguage (just log it, no action needed)
   if (packet.member === "SetLanguage") {
-    console.log(`[Session] Server sent SetLanguage push (ignored)`);
+    this.log.debug(`[Session] Server sent SetLanguage push (ignored)`);
     return;
   }
 
   // NewMail notification — push from InterfaceServer via fClientEventsProxy.NewMail(MsgCount)
   if (packet.member === "NewMail") {
     const count = packet.args?.[0] ? parseInt(packet.args[0].replace(/^#/, ''), 10) : 0;
-    console.log(`[Session] NewMail notification: ${count} unread message(s)`);
+    this.log.debug(`[Session] NewMail notification: ${count} unread message(s)`);
     const event: WsEventNewMail = {
       type: WsMessageType.EVENT_NEW_MAIL,
       unreadCount: count,
@@ -2353,9 +2354,9 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
 	// 1. ChatMsg parsing 
     if (packet.member === 'ChatMsg') {
-      console.log(`[Chat] Raw ChatMsg packet:`, packet);
-      console.log(`[Chat] Args:`, packet.args);
-      console.log(`[Chat] Args length:`, packet.args?.length);
+      this.log.debug(`[Chat] Raw ChatMsg packet:`, packet);
+      this.log.debug(`[Chat] Args:`, packet.args);
+      this.log.debug(`[Chat] Args length:`, packet.args?.length);
       
       if (packet.args && packet.args.length >= 2) {
         // Parse from field (format: "name/id/status" or just "name")
@@ -2367,7 +2368,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
           from = from.split('/')[0];
         }
         
-        console.log(`[Chat] Parsed - from: "${from}", message: "${message}"`);
+        this.log.debug(`[Chat] Parsed - from: "${from}", message: "${message}"`);
         
         const event: WsEventChatMsg = {
           type: WsMessageType.EVENT_CHAT_MSG,
@@ -2376,11 +2377,11 @@ private handlePush(socketName: string, packet: RdoPacket) {
           message: message
         };
         
-        console.log(`[Chat] Emitting event:`, event);
+        this.log.debug(`[Chat] Emitting event:`, event);
         this.emit('ws_event', event);
         return;
       } else {
-        console.warn(`[Chat] ChatMsg packet has insufficient args:`, packet);
+        this.log.warn(`[Chat] ChatMsg packet has insufficient args:`, packet);
       }
     }
 
@@ -2390,7 +2391,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     const statusStr = packet.args[1].replace(/^[%#@$]/, '');
     const isTyping = statusStr === '1';
 
-    console.log(`[Chat] ${username} is ${isTyping ? 'typing' : 'idle'}`);
+    this.log.debug(`[Chat] ${username} is ${isTyping ? 'typing' : 'idle'}`);
 
     const event: WsEventChatUserTyping = {
       type: WsMessageType.EVENT_CHAT_USER_TYPING,
@@ -2407,7 +2408,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     const channelName = packet.args[0].replace(/^[%#@$]/, '');
     this.currentChannel = channelName;
 
-    console.log(`[Chat] Channel changed to: ${channelName || 'Lobby'}`);
+    this.log.debug(`[Chat] Channel changed to: ${channelName || 'Lobby'}`);
 
     const event: WsEventChatChannelChange = {
       type: WsMessageType.EVENT_CHAT_CHANNEL_CHANGE,
@@ -2432,7 +2433,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       };
 
       const action = actionCode === '0' ? 'JOIN' : 'LEAVE';
-      console.log(`[Chat] User ${user.name} ${action === 'JOIN' ? 'joined' : 'left'}`);
+      this.log.debug(`[Chat] User ${user.name} ${action === 'JOIN' ? 'joined' : 'left'}`);
 
       const event: WsEventChatUserListChange = {
         type: WsMessageType.EVENT_CHAT_USER_LIST_CHANGE,
@@ -2460,11 +2461,11 @@ private handlePush(socketName: string, packet: RdoPacket) {
         maxBuildings: parseInt(cleanArgs[4], 10) || 0
       };
 
-      console.log(`[Push] Tycoon Update: Cash=${tycoonUpdate.cash}, Income/h=${tycoonUpdate.incomePerHour}, Rank=${tycoonUpdate.ranking}, Buildings=${tycoonUpdate.buildingCount}/${tycoonUpdate.maxBuildings}`);
+      this.log.debug(`[Push] Tycoon Update: Cash=${tycoonUpdate.cash}, Income/h=${tycoonUpdate.incomePerHour}, Rank=${tycoonUpdate.ranking}, Buildings=${tycoonUpdate.buildingCount}/${tycoonUpdate.maxBuildings}`);
       this.emit('ws_event', tycoonUpdate);
       return;
     } catch (e) {
-      console.error('[Push] Error parsing RefreshTycoon:', e);
+      this.log.error('[Push] Error parsing RefreshTycoon:', e);
       // Fallback to generic push
     }
   }
@@ -2499,8 +2500,8 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
     const countStr = data.get('count');
     if (!countStr) {
-      console.warn('[Session] Directory Parse Error: "count" key not found in response.');
-      console.warn('[Session] First 5 keys:', Array.from(data.keys()).slice(0, 5));
+      this.log.warn('[Session] Directory Parse Error: "count" key not found in response.');
+      this.log.warn('[Session] First 5 keys:', Array.from(data.keys()).slice(0, 5));
       return [];
     }
 
@@ -2544,7 +2545,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
   public async getChatUserList(): Promise<ChatUser[]> {
     if (!this.worldContextId) throw new Error('Not logged into world');
     
-    console.log('[Chat] Getting user list...');
+    this.log.debug('[Chat] Getting user list...');
     
     const packet = await this.sendRdoRequest('world', {
       verb: RdoVerb.SEL,
@@ -2563,7 +2564,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
   public async getChatChannelList(): Promise<string[]> {
     if (!this.worldContextId) throw new Error('Not logged into world');
     
-    console.log('[Chat] Getting channel list...');
+    this.log.debug('[Chat] Getting channel list...');
     
     const packet = await this.sendRdoRequest('world', {
       verb: RdoVerb.SEL,
@@ -2584,7 +2585,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
   public async getChatChannelInfo(channelName: string): Promise<string> {
     if (!this.worldContextId) throw new Error('Not logged into world');
     
-    console.log(`[Chat] Getting info for channel: ${channelName}`);
+    this.log.debug(`[Chat] Getting info for channel: ${channelName}`);
     
     const packet = await this.sendRdoRequest('world', {
       verb: RdoVerb.SEL,
@@ -2606,7 +2607,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     if (!this.worldContextId) throw new Error('Not logged into world');
     
     const displayName = channelName || 'Lobby';
-    console.log(`[Chat] Joining channel: ${displayName}`);
+    this.log.debug(`[Chat] Joining channel: ${displayName}`);
     
     const packet = await this.sendRdoRequest('world', {
       verb: RdoVerb.SEL,
@@ -2623,7 +2624,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     }
     
     this.currentChannel = channelName;
-    console.log(`[Chat] Successfully joined: ${displayName}`);
+    this.log.debug(`[Chat] Successfully joined: ${displayName}`);
   }
 
   /**
@@ -2633,7 +2634,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     if (!this.worldContextId) throw new Error('Not logged into world');
     if (!message.trim()) return;
     
-    console.log(`[Chat] Sending message: ${message}`);
+    this.log.debug(`[Chat] Sending message: ${message}`);
     
     await this.sendRdoRequest('world', {
       verb: RdoVerb.SEL,
@@ -2684,11 +2685,11 @@ private handlePush(socketName: string, packet: RdoPacket) {
    */
   public async endSession(): Promise<void> {
     if (!this.interfaceServerId) {
-      console.log('[Session] No active world session to end (no interfaceServerId)');
+      this.log.debug('[Session] No active world session to end (no interfaceServerId)');
       return;
     }
 
-    console.log(`[Session] Ending session for interfaceServerId: ${this.interfaceServerId}`);
+    this.log.debug(`[Session] Ending session for interfaceServerId: ${this.interfaceServerId}`);
 
     // Build RDOEndSession command (same target as Logon)
     const endSessionCmd = RdoCommand.sel(this.interfaceServerId)
@@ -2701,19 +2702,19 @@ private handlePush(socketName: string, packet: RdoPacket) {
     if (socket && !socket.destroyed) {
       try {
         socket.write(endSessionCmd);
-        console.log('[Session] Sent RDOEndSession to world socket');
+        this.log.debug('[Session] Sent RDOEndSession to world socket');
 
         // Schedule socket closure 2 seconds after RDOEndSession
         this.scheduleSocketClosure('world', socket, 2000);
       } catch (err) {
-        console.error('[Session] Error sending RDOEndSession:', err);
+        this.log.error('[Session] Error sending RDOEndSession:', err);
       }
     }
 
     // Small delay to allow the command to be sent before cleanup
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    console.log('[Session] Session ended successfully (sockets will close in 2 seconds)');
+    this.log.debug('[Session] Session ended successfully (sockets will close in 2 seconds)');
   }
 
   /**
@@ -2725,18 +2726,18 @@ private handlePush(socketName: string, packet: RdoPacket) {
   private scheduleSocketClosure(socketName: string, socket: net.Socket, delayMs: number): void {
     setTimeout(() => {
       if (!socket.destroyed) {
-        console.log(`[Session] Closing ${socketName} socket after ${delayMs}ms delay`);
+        this.log.debug(`[Session] Closing ${socketName} socket after ${delayMs}ms delay`);
         try {
           socket.end(); // Graceful close
           // Force destroy after another second if still open
           setTimeout(() => {
             if (!socket.destroyed) {
-              console.log(`[Session] Force destroying ${socketName} socket`);
+              this.log.debug(`[Session] Force destroying ${socketName} socket`);
               socket.destroy();
             }
           }, 1000);
         } catch (err) {
-          console.error(`[Session] Error closing ${socketName} socket:`, err);
+          this.log.error(`[Session] Error closing ${socketName} socket:`, err);
           socket.destroy();
         }
       }
@@ -2748,18 +2749,18 @@ private handlePush(socketName: string, packet: RdoPacket) {
    * Should be called when the WebSocket client disconnects
    */
   public destroy(): void {
-    console.log('[Session] Destroying session and cleaning up resources...');
+    this.log.debug('[Session] Destroying session and cleaning up resources...');
 
     // Stop ServerBusy polling
     this.stopServerBusyPolling();
 
     // Close all TCP sockets
     for (const [name, socket] of this.sockets.entries()) {
-      console.log(`[Session] Closing socket: ${name}`);
+      this.log.debug(`[Session] Closing socket: ${name}`);
       try {
         socket.destroy();
       } catch (err) {
-        console.error(`[Session] Error closing socket ${name}:`, err);
+        this.log.error(`[Session] Error closing socket ${name}:`, err);
       }
     }
 
@@ -2788,7 +2789,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     this.isServerBusy = false;
     this.activeMapRequests = 0;
 
-    console.log('[Session] Session destroyed successfully');
+    this.log.debug('[Session] Session destroyed successfully');
   }
 
   // =========================================================================
@@ -2813,7 +2814,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       }
     }
     
-    console.log(`[Chat] Parsed ${users.length} users`);
+    this.log.debug(`[Chat] Parsed ${users.length} users`);
     return users;
   }
 
@@ -2826,7 +2827,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       .map(l => l.trim())
       .filter(l => l.length > 0);
 
-    console.log(`[Chat] Parsed ${channels.length} channels`);
+    this.log.debug(`[Chat] Parsed ${channels.length} channels`);
     return channels;
   }
 
@@ -2849,7 +2850,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       throw new Error('Not logged into world - cannot get surface data');
     }
 
-    console.log(`[Surface] Requesting ${surfaceType} data for area (${x1},${y1}) to (${x2},${y2})`);
+    this.log.debug(`[Surface] Requesting ${surfaceType} data for area (${x1},${y1}) to (${x2},${y2})`);
 
     const packet = await this.sendRdoRequest('world', {
       verb: RdoVerb.SEL,
@@ -2883,7 +2884,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     const parts = data.split(':');
 
     if (parts.length < 3) {
-      console.warn('[Surface] Invalid RLE response format');
+      this.log.warn('[Surface] Invalid RLE response format');
       return { width: 0, height: 0, rows: [] };
     }
 
@@ -2900,7 +2901,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       }
     }
 
-    console.log(`[Surface] Parsed surface data: ${width}x${height}, ${rows.length} rows`);
+    this.log.debug(`[Surface] Parsed surface data: ${width}x${height}, ${rows.length} rows`);
     return { width, height, rows };
   }
 
@@ -2949,7 +2950,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     });
 
     const url = `http://${this.currentWorldInfo.ip}/five/0/visual/voyager/Build/KindList.asp?${params.toString().replace(/\+/g, '%20')}`;
-    console.log(`[BuildConstruction] Fetching categories from ${url}`);
+    this.log.debug(`[BuildConstruction] Fetching categories from ${url}`);
 
     try {
       const response = await fetch(url, { redirect: 'follow' });
@@ -2957,7 +2958,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
       return this.parseBuildingCategories(html);
     } catch (e) {
-      console.error('[BuildConstruction] Failed to fetch categories:', e);
+      this.log.error('[BuildConstruction] Failed to fetch categories:', e);
       return [];
     }
   }
@@ -2978,7 +2979,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       const ref = match[2];  // Second capture group contains the ref URL
       const content = match[3];  // Third capture group contains the content
 
-      console.log(`[BuildConstruction] Found category ref: ${ref.substring(0, 100)}`);
+      this.log.debug(`[BuildConstruction] Found category ref: ${ref.substring(0, 100)}`);
 
       // Parse query parameters from ref
       const urlParams = new URLSearchParams(ref.split('?')[1] || '');
@@ -3017,14 +3018,14 @@ private handlePush(socketName: string, packet: RdoPacket) {
           iconPath: this.convertToProxyUrl(iconPath)
         };
 
-        console.log(`[BuildConstruction] Parsed category: ${category.kindName} (${category.kind})`);
+        this.log.debug(`[BuildConstruction] Parsed category: ${category.kindName} (${category.kind})`);
         categories.push(category);
       } else {
-        console.warn(`[BuildConstruction] Skipped category - kindName: "${kindName}", Kind: "${urlParams.get('Kind')}"`);
+        this.log.warn(`[BuildConstruction] Skipped category - kindName: "${kindName}", Kind: "${urlParams.get('Kind')}"`);
       }
     }
 
-    console.log(`[BuildConstruction] Parsed ${categories.length} categories total`);
+    this.log.debug(`[BuildConstruction] Parsed ${categories.length} categories total`);
     return categories;
   }
 
@@ -3054,7 +3055,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     });
 
     const url = `http://${this.currentWorldInfo.ip}/five/0/visual/voyager/Build/FacilityList.asp?${params.toString()}`;
-    console.log(`[BuildConstruction] Fetching facilities from ${url}`);
+    this.log.debug(`[BuildConstruction] Fetching facilities from ${url}`);
 
     try {
       const response = await fetch(url, { redirect: 'follow' });
@@ -3062,7 +3063,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
       return this.parseBuildingFacilities(html);
     } catch (e) {
-      console.error('[BuildConstruction] Failed to fetch facilities:', e);
+      this.log.error('[BuildConstruction] Failed to fetch facilities:', e);
       return [];
     }
   }
@@ -3090,7 +3091,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       const linkMatch = linkTextRegex.exec(html);
 
       if (!linkMatch) {
-        console.warn(`[BuildConstruction] No LinkText found for Cell_${cellIndex}`);
+        this.log.warn(`[BuildConstruction] No LinkText found for Cell_${cellIndex}`);
         continue;
       }
 
@@ -3111,7 +3112,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
         const iconFilenameMatch = /Map([A-Z][a-zA-Z0-9]+?)(?:\d+x\d+x\d+)?\.gif/i.exec(iconPath);
         if (iconFilenameMatch) {
           facilityClass = iconFilenameMatch[1]; // e.g., "PGIFoodStore"
-          console.log(`[BuildConstruction] Extracted facilityClass "${facilityClass}" from icon: ${iconPath}`);
+          this.log.debug(`[BuildConstruction] Extracted facilityClass "${facilityClass}" from icon: ${iconPath}`);
         }
       }
 
@@ -3159,14 +3160,14 @@ private handlePush(socketName: string, packet: RdoPacket) {
           available
         };
 
-        console.log(`[BuildConstruction] Parsed facility: ${facility.name} (${facility.facilityClass}) - $${facility.cost}, ${facility.area}m², available: ${facility.available}`);
+        this.log.debug(`[BuildConstruction] Parsed facility: ${facility.name} (${facility.facilityClass}) - $${facility.cost}, ${facility.area}m², available: ${facility.available}`);
         facilities.push(facility);
       } else {
-        console.warn(`[BuildConstruction] Skipped facility - name: "${name}", facilityClass: "${facilityClass}"`);
+        this.log.warn(`[BuildConstruction] Skipped facility - name: "${name}", facilityClass: "${facilityClass}"`);
       }
     }
 
-    console.log(`[BuildConstruction] Parsed ${facilities.length} facilities total`);
+    this.log.debug(`[BuildConstruction] Parsed ${facilities.length} facilities total`);
     return facilities;
   }
 
@@ -3182,7 +3183,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       throw new Error('Not logged into world - cannot place building');
     }
 
-    console.log(`[BuildConstruction] Placing ${facilityClass} at (${x}, ${y})`);
+    this.log.debug(`[BuildConstruction] Placing ${facilityClass} at (${x}, ${y})`);
 
     try {
       const packet = await this.sendRdoRequest('world', {
@@ -3203,14 +3204,14 @@ private handlePush(socketName: string, packet: RdoPacket) {
         const buildingIdMatch = /sel (\d+)/.exec(packet.payload || '');
         const buildingId = buildingIdMatch?.[1] || null;
 
-        console.log(`[BuildConstruction] Building placed successfully. ID: ${buildingId}`);
+        this.log.debug(`[BuildConstruction] Building placed successfully. ID: ${buildingId}`);
         return { success: true, buildingId };
       } else {
-        console.warn(`[BuildConstruction] Building placement failed. Result code: ${resultCode}`);
+        this.log.warn(`[BuildConstruction] Building placement failed. Result code: ${resultCode}`);
         return { success: false, buildingId: null };
       }
     } catch (e) {
-      console.error('[BuildConstruction] Failed to place building:', e);
+      this.log.error('[BuildConstruction] Failed to place building:', e);
       return { success: false, buildingId: null };
     }
   }
@@ -3228,11 +3229,11 @@ private handlePush(socketName: string, packet: RdoPacket) {
     y: number,
     visualClass: string
   ): Promise<BuildingDetailsResponse> {
-    console.log(`[BuildingDetails] Fetching details for building at (${x}, ${y}), visualClass: ${visualClass}`);
+    this.log.debug(`[BuildingDetails] Fetching details for building at (${x}, ${y}), visualClass: ${visualClass}`);
 
     // Get template for this building type
     const template = getTemplateForVisualClass(visualClass);
-    console.log(`[BuildingDetails] Using template: ${template.name}`);
+    this.log.debug(`[BuildingDetails] Using template: ${template.name}`);
 
     // First, get basic building info via focusBuilding (this always works)
     let buildingName = '';
@@ -3243,9 +3244,9 @@ private handlePush(socketName: string, packet: RdoPacket) {
       buildingName = focusInfo.buildingName;
       ownerName = focusInfo.ownerName;
       buildingId = focusInfo.buildingId;
-      console.log(`[BuildingDetails] Focus info: name="${buildingName}", owner="${ownerName}"`);
+      this.log.debug(`[BuildingDetails] Focus info: name="${buildingName}", owner="${ownerName}"`);
     } catch (e) {
-      console.warn(`[BuildingDetails] Could not focus building:`, e);
+      this.log.warn(`[BuildingDetails] Could not focus building:`, e);
     }
 
     // Connect to map service
@@ -3289,7 +3290,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
 		  const countStr = allValues.get(countProp);
 		  const count = countStr ? parseInt(countStr, 10) : 0;
 		  countValues.set(countProp, count);
-		  console.log(`[BuildingDetails] Count: ${countProp} = "${countStr}" (parsed: ${count})`);
+		  this.log.debug(`[BuildingDetails] Count: ${countProp} = "${countStr}" (parsed: ${count})`);
 
 		  // Build indexed property names based on actual count
 		  const indexedDefs = collected.indexedByCount.get(countProp) || [];
@@ -3315,14 +3316,14 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
       // Fetch indexed properties
       if (indexedProps.length > 0) {
-        //console.log(`[BuildingDetails] Fetching indexed properties: ${indexedProps.join(', ')}`);
+        //this.log.debug(`[BuildingDetails] Fetching indexed properties: ${indexedProps.join(', ')}`);
         for (let i = 0; i < indexedProps.length; i += BATCH_SIZE) {
           const batch = indexedProps.slice(i, i + BATCH_SIZE);
           const values = await this.cacherGetPropertyList(tempObjectId, batch);
 
           for (let j = 0; j < batch.length; j++) {
             const value = j < values.length ? values[j] : '';
-            //console.log(`[BuildingDetails] ${batch[j]} = "${value}"`);
+            //this.log.debug(`[BuildingDetails] ${batch[j]} = "${value}"`);
             if (value && value.trim() && value !== 'error') {
               allValues.set(batch[j], value);
             }
@@ -3618,7 +3619,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
         }
       }
     } catch (e) {
-      console.warn('[BuildingDetails] Error fetching supplies:', e);
+      this.log.warn('[BuildingDetails] Error fetching supplies:', e);
     }
 
     return supplies;
@@ -3648,7 +3649,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       }
       return raw.split(/\s+/).map(v => v.trim()).filter(v => v.length > 0);
     } catch (e) {
-      console.warn(`[BuildingDetails] Error fetching sub-object ${subIndex}:`, e);
+      this.log.warn(`[BuildingDetails] Error fetching sub-object ${subIndex}:`, e);
       return [];
     }
   }
@@ -3673,7 +3674,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     value: string,
     additionalParams?: Record<string, string>
   ): Promise<{ success: boolean; newValue: string }> {
-    console.log(`[BuildingDetails] Setting ${propertyName}=${value} at (${x}, ${y})`);
+    this.log.debug(`[BuildingDetails] Setting ${propertyName}=${value} at (${x}, ${y})`);
 
     try {
       // Connect to construction service (establishes worldId and RDOLogonClient)
@@ -3696,7 +3697,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
           throw new Error(`No CurrBlock found for building at (${x}, ${y})`);
         }
 
-        console.log(`[BuildingDetails] Found CurrBlock: ${currBlock} for building at (${x}, ${y})`);
+        this.log.debug(`[BuildingDetails] Found CurrBlock: ${currBlock} for building at (${x}, ${y})`);
       } finally {
         await this.cacherCloseObject(tempObjectId);
       }
@@ -3714,7 +3715,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       // The sel on CurrBlock is persistent (no closure needed)
       const setCmd = `C sel ${currBlock} call ${propertyName} "*" ${rdoArgs};`;
       socket.write(setCmd);
-      console.log(`[BuildingDetails] Sent: ${setCmd}`);
+      this.log.debug(`[BuildingDetails] Sent: ${setCmd}`);
 
       // Wait for server to process the command
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -3729,14 +3730,14 @@ private handlePush(socketName: string, packet: RdoPacket) {
         const readValues = await this.cacherGetPropertyList(verifyObjectId, [propertyToRead]);
         const newValue = readValues[0] || value;
 
-        console.log(`[BuildingDetails] Property ${propertyName} updated successfully to ${newValue}`);
+        this.log.debug(`[BuildingDetails] Property ${propertyName} updated successfully to ${newValue}`);
         return { success: true, newValue };
       } finally {
         await this.cacherCloseObject(verifyObjectId);
       }
 
     } catch (e) {
-      console.error(`[BuildingDetails] Failed to set property:`, e);
+      this.log.error(`[BuildingDetails] Failed to set property:`, e);
       return { success: false, newValue: '' };
     }
   }
