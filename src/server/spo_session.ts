@@ -220,13 +220,13 @@ export class StarpeaceSession extends EventEmitter {
     this.cachedUsername = username;
     this.cachedPassword = pass;
 
-    // PHASE 1: Ephemeral authentication (Logon Check)
-    console.log('[Session] Directory Phase 1: Authentication...');
-    await this.performDirectoryAuth(username, pass);
-
-    // PHASE 2: Ephemeral world retrieval
-    console.log(`[Session] Directory Phase 2: Fetching Worlds from ${zonePath || 'Root/Areas/Asia/Worlds'}...`);
-    const worlds = await this.performDirectoryQuery(zonePath);
+    // Run auth and world query in parallel (independent sockets & sessions)
+    console.log('[Session] Directory: Starting auth + world query in parallel...');
+    const [, worlds] = await Promise.all([
+      this.performDirectoryAuth(username, pass),
+      this.performDirectoryQuery(zonePath)
+    ]);
+    console.log('[Session] Directory: Auth + query complete');
     return worlds;
   }
 
@@ -372,30 +372,24 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
   this.worldContextId = contextId;
   console.log(`[Session] Authenticated. Context RDO: ${this.worldContextId}`);
 
-  // 5. Retrieve User Properties
-  const mailPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL,
-    targetId: this.worldContextId,
-    action: RdoAction.GET,
-    member: "MailAccount"
-  });
+  // 5. Retrieve User Properties (parallel - independent GETs)
+  const [mailPacket, tycoonPacket, cnntPacket] = await Promise.all([
+    this.sendRdoRequest("world", {
+      verb: RdoVerb.SEL, targetId: this.worldContextId,
+      action: RdoAction.GET, member: "MailAccount"
+    }),
+    this.sendRdoRequest("world", {
+      verb: RdoVerb.SEL, targetId: this.worldContextId,
+      action: RdoAction.GET, member: "TycoonId"
+    }),
+    this.sendRdoRequest("world", {
+      verb: RdoVerb.SEL, targetId: this.worldContextId,
+      action: RdoAction.GET, member: "RDOCnntId"
+    })
+  ]);
   this.mailAccount = parsePropertyResponseHelper(mailPacket.payload!, "MailAccount");
   console.log(`[Session] MailAccount: ${this.mailAccount}`);
-
-  const tycoonPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL,
-    targetId: this.worldContextId,
-    action: RdoAction.GET,
-    member: "TycoonId"
-  });
   this.tycoonId = parsePropertyResponseHelper(tycoonPacket.payload!, "TycoonId");
-
-  const cnntPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL,
-    targetId: this.worldContextId,
-    action: RdoAction.GET,
-    member: "RDOCnntId"
-  });
   this.rdoCnntId = parsePropertyResponseHelper(cnntPacket.payload!, "RDOCnntId");
 
   // 6. Setup InitClient waiter BEFORE RegisterEventsById
@@ -419,9 +413,12 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
     console.log(`[Session] RegisterEventsById completed (or timed out, which is normal)`);
   });
 
-  // CRITICAL: Wait for server to send InitClient push command
+  // CRITICAL: Wait for server to send InitClient push command (with timeout)
   console.log(`[Session] Waiting for server InitClient push...`);
-  await this.initClientReceived;
+  const initClientTimeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('InitClient push timeout after 15s')), 15000)
+  );
+  await Promise.race([this.initClientReceived, initClientTimeout]);
   console.log(`[Session] InitClient received, continuing...`);
 
   // 8. SetLanguage - CLIENT sends this as PUSH command (no RID)
@@ -434,8 +431,6 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
       .build();
     socket.write(setLangCmd);
     console.log(`[Session] Sent SetLanguage push command`);
-    // Small delay for server to process
-    await new Promise(resolve => setTimeout(resolve, 50));
   }
 
   // 9. GetCompanyCount
@@ -485,41 +480,32 @@ public async selectCompany(companyId: string): Promise<void> {
   });
   console.log(`[Session] PickEvent #1 sent`);
 
-  // 3. Get Tycoon Cookies (position) - CRITICAL: Store coordinates
-  // LastY.0
-  const lastYPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL,
-    targetId: this.worldContextId,
-    action: RdoAction.CALL,
-    member: "GetTycoonCookie",
-    args: [this.tycoonId!, "LastY.0"]
-  });
+  // 3. Get Tycoon Cookies in parallel (independent reads)
+  const [lastYPacket, lastXPacket, allCookiesPacket] = await Promise.all([
+    this.sendRdoRequest("world", {
+      verb: RdoVerb.SEL, targetId: this.worldContextId,
+      action: RdoAction.CALL, member: "GetTycoonCookie",
+      args: [this.tycoonId!, "LastY.0"]
+    }),
+    this.sendRdoRequest("world", {
+      verb: RdoVerb.SEL, targetId: this.worldContextId,
+      action: RdoAction.CALL, member: "GetTycoonCookie",
+      args: [this.tycoonId!, "LastX.0"]
+    }),
+    this.sendRdoRequest("world", {
+      verb: RdoVerb.SEL, targetId: this.worldContextId,
+      action: RdoAction.CALL, member: "GetTycoonCookie",
+      args: [this.tycoonId!, ""]
+    })
+  ]);
   const lastY = parsePropertyResponseHelper(lastYPacket.payload!, "res");
   this.lastPlayerY = parseInt(lastY, 10) || 0;
   console.log(`[Session] Cookie LastY.0: ${this.lastPlayerY}`);
-
-  // LastX.0
-  const lastXPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL,
-    targetId: this.worldContextId,
-    action: RdoAction.CALL,
-    member: "GetTycoonCookie",
-    args: [this.tycoonId!, "LastX.0"]
-  });
   const lastX = parsePropertyResponseHelper(lastXPacket.payload!, "res");
   this.lastPlayerX = parseInt(lastX, 10) || 0;
   console.log(`[Session] Cookie LastX.0: ${this.lastPlayerX}`);
-
-  // All cookies
-  const allCookiesPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL,
-    targetId: this.worldContextId,
-    action: RdoAction.CALL,
-    member: "GetTycoonCookie",
-    args: [this.tycoonId!, ""]
-  });
   const allCookies = parsePropertyResponseHelper(allCookiesPacket.payload!, "res");
-  console.log(`[Session] All Cookies (1st fetch):\n${allCookies}`);
+  console.log(`[Session] All Cookies:\n${allCookies}`);
 
   // 4. ClientAware - Notify ready (first call)
   const socket = this.sockets.get('world');
@@ -530,11 +516,7 @@ public async selectCompany(companyId: string): Promise<void> {
       .build();
     socket.write(clientAwareCmd);
     console.log(`[Session] Sent ClientAware #1`);
-    await new Promise(resolve => setTimeout(resolve, 50));
   }
-
-  // Wait for server events
-  await new Promise(resolve => setTimeout(resolve, 100));
 
   // 5. Second PickEvent
   await this.sendRdoRequest('world', {
@@ -546,18 +528,7 @@ public async selectCompany(companyId: string): Promise<void> {
   });
   console.log(`[Session] PickEvent #2 sent`);
 
-  // 6. Get all cookies again
-  const allCookiesPacket2 = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL,
-    targetId: this.worldContextId,
-    action: RdoAction.CALL,
-    member: "GetTycoonCookie",
-    args: [this.tycoonId!, ""]
-  });
-  const allCookies2 = parsePropertyResponseHelper(allCookiesPacket2.payload!, "res");
-  console.log(`[Session] All Cookies (2nd fetch):\n${allCookies2}`);
-
-  // 7. Second ClientAware
+  // 6. Second ClientAware
   if (socket) {
     const clientAwareCmd2 = RdoCommand.sel(this.worldContextId!)
       .call('ClientAware')
@@ -565,7 +536,6 @@ public async selectCompany(companyId: string): Promise<void> {
       .build();
     socket.write(clientAwareCmd2);
     console.log(`[Session] Sent ClientAware #2`);
-    await new Promise(resolve => setTimeout(resolve, 50));
   }
 
   // NOW the session is fully ready for game
@@ -2022,19 +1992,24 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
     const props = [
       "WorldName", "DSArea", "WorldURL", "DAAddr", "DALockPort",
       "MailAddr", "MailPort", "WorldXSize", "WorldYSize", "WorldSeason"
-    ];
+    ] as const;
 
-    for (const prop of props) {
-      const packet = await this.sendRdoRequest("world", {
+    // Fetch all 10 properties in parallel (RDO supports concurrent RID-based requests)
+    const packets = await Promise.all(
+      props.map(prop => this.sendRdoRequest("world", {
         verb: RdoVerb.SEL,
         targetId: interfaceServerId,
         action: RdoAction.GET,
         member: prop
-      });
-      const value = parsePropertyResponseHelper(packet.payload!, prop);
+      }))
+    );
+
+    // Process results
+    for (let i = 0; i < props.length; i++) {
+      const prop = props[i];
+      const value = parsePropertyResponseHelper(packets[i].payload!, prop);
       console.log(`[Session] ${prop}: ${value}`);
 
-      // Store DAAddr for later use (HTTP requests always use port 80)
       if (prop === "DAAddr") {
         this.daAddr = value;
       }
