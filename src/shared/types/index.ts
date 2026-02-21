@@ -166,6 +166,8 @@ export type {
   WsRespMailDeleted,
   WsRespMailUnreadCount,
   WsEventNewMail,
+  WsReqMailSaveDraft,
+  WsRespMailDraftSaved,
   // Profile messages
   WsReqGetProfile,
   WsRespGetProfile,

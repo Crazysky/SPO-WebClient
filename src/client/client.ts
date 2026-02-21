@@ -77,6 +77,8 @@ import {
   WsRespMailDeleted,
   WsRespMailUnreadCount,
   WsEventNewMail,
+  WsReqMailSaveDraft,
+  WsRespMailDraftSaved,
   MailFolder,
   // Profile
   WsReqGetProfile,
@@ -426,6 +428,7 @@ export class StarpeaceClient {
       case WsMessageType.RESP_MAIL_SENT:
       case WsMessageType.RESP_MAIL_DELETED:
       case WsMessageType.RESP_MAIL_UNREAD_COUNT:
+      case WsMessageType.RESP_MAIL_DRAFT_SAVED:
         this.ui.handleMailResponse(msg);
         break;
 
@@ -1278,11 +1281,12 @@ export class StarpeaceClient {
     this.currentBuildingToPlace = building;
     this.ui.log('Build', `Placing ${building.name}. Click on map to build.`);
 
-    // Fetch facility dimensions using facilityClass (building name like "DissBar")
+    // Fetch facility dimensions using VisualClassId (numeric ID from CLASSES.BIN)
+    // Per Voyager original: VisualClassId is the lookup key, facilityClass is only for the RDO call
     let xsize = 1;
     let ysize = 1;
     try {
-      const dimensions = await this.getFacilityDimensions(building.facilityClass);
+      const dimensions = await this.getFacilityDimensions(building.visualClassId);
       if (dimensions) {
         xsize = dimensions.xsize;
         ysize = dimensions.ysize;
@@ -1550,8 +1554,13 @@ export class StarpeaceClient {
     this.sendMessage(req);
   }
 
-  public async composeMail(to: string, subject: string, body: string[]): Promise<void> {
-    const req: WsReqMailCompose = { type: WsMessageType.REQ_MAIL_COMPOSE, to, subject, body };
+  public async composeMail(to: string, subject: string, body: string[], headers?: string): Promise<void> {
+    const req: WsReqMailCompose = { type: WsMessageType.REQ_MAIL_COMPOSE, to, subject, body, headers };
+    this.sendMessage(req);
+  }
+
+  public async saveDraft(to: string, subject: string, body: string[], headers?: string, existingDraftId?: string): Promise<void> {
+    const req: WsReqMailSaveDraft = { type: WsMessageType.REQ_MAIL_SAVE_DRAFT, to, subject, body, headers, existingDraftId };
     this.sendMessage(req);
   }
 

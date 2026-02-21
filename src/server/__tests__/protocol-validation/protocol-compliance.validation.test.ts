@@ -87,9 +87,9 @@ describe('Protocol Compliance: All scenarios reachable', () => {
     expect(matched).toBe(total);
   });
 
-  it('mail-scenario: all 6 exchanges are matchable', () => {
+  it('mail-scenario: all 14 exchanges are matchable', () => {
     const bundle = createMailScenario();
-    expect(bundle.rdo.exchanges).toHaveLength(6);
+    expect(bundle.rdo.exchanges).toHaveLength(14);
     const { matched, total } = countMatchableExchanges(bundle.rdo);
     expect(matched).toBe(total);
   });
@@ -110,17 +110,17 @@ describe('Protocol Compliance: All scenarios reachable', () => {
 });
 
 describe('Protocol Compliance: Total exchange count', () => {
-  it('should have 26 total RDO exchanges across all 7 scenarios', () => {
+  it('should have 34 total RDO exchanges across all 7 scenarios', () => {
     const totalExchanges = [
       createAuthScenario().rdo.exchanges.length,           // 5
       createWorldListScenario().rdo.exchanges.length,      // 5
       createSelectCompanyScenario().rdo.exchanges.length,  // 5
       createSwitchFocusScenario().rdo.exchanges.length,    // 2
-      createMailScenario().rdo.exchanges.length,            // 6
+      createMailScenario().rdo.exchanges.length,            // 14
       createBuildRoadsScenario().rdo.exchanges.length,      // 1
       createBuildMenuScenario().rdo.exchanges.length,       // 2
     ].reduce((sum, n) => sum + n, 0);
 
-    expect(totalExchanges).toBe(26);
+    expect(totalExchanges).toBe(34);
   });
 });

@@ -111,6 +111,8 @@ import {
   WsRespMailSent,
   WsRespMailDeleted,
   WsRespMailUnreadCount,
+  WsReqMailSaveDraft,
+  WsRespMailDraftSaved,
   // Profile
   WsReqGetProfile,
   WsRespGetProfile,
@@ -1960,12 +1962,12 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
       case WsMessageType.REQ_MAIL_GET_FOLDER: {
         const mailFolderReq = msg as WsReqMailGetFolder;
         console.log(`[Gateway] Getting mail folder: ${mailFolderReq.folder}`);
-        // TODO: Implement folder listing (depends on chosen approach A/B/C)
+        const messages = await session.getMailFolder(mailFolderReq.folder);
         const response: WsRespMailFolder = {
           type: WsMessageType.RESP_MAIL_FOLDER,
           wsRequestId: msg.wsRequestId,
           folder: mailFolderReq.folder,
-          messages: [],
+          messages,
         };
         ws.send(JSON.stringify(response));
         break;
@@ -1987,12 +1989,32 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
       case WsMessageType.REQ_MAIL_COMPOSE: {
         const composeReq = msg as WsReqMailCompose;
         console.log(`[Gateway] Composing mail to: ${composeReq.to}`);
-        const success = await session.composeMail(composeReq.to, composeReq.subject, composeReq.body);
+        const success = await session.composeMail(composeReq.to, composeReq.subject, composeReq.body, composeReq.headers);
         const response: WsRespMailSent = {
           type: WsMessageType.RESP_MAIL_SENT,
           wsRequestId: msg.wsRequestId,
           success,
           message: success ? 'Message sent' : 'Failed to send message',
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_MAIL_SAVE_DRAFT: {
+        const saveDraftReq = msg as WsReqMailSaveDraft;
+        console.log(`[Gateway] Saving mail draft to: ${saveDraftReq.to}`);
+        const success = await session.saveDraft(
+          saveDraftReq.to,
+          saveDraftReq.subject,
+          saveDraftReq.body,
+          saveDraftReq.headers,
+          saveDraftReq.existingDraftId
+        );
+        const response: WsRespMailDraftSaved = {
+          type: WsMessageType.RESP_MAIL_DRAFT_SAVED,
+          wsRequestId: msg.wsRequestId,
+          success,
+          message: success ? 'Draft saved' : 'Failed to save draft',
         };
         ws.send(JSON.stringify(response));
         break;

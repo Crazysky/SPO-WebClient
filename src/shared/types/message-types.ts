@@ -145,6 +145,7 @@ export enum WsMessageType {
   REQ_MAIL_COMPOSE = 'REQ_MAIL_COMPOSE',
   REQ_MAIL_DELETE = 'REQ_MAIL_DELETE',
   REQ_MAIL_GET_UNREAD_COUNT = 'REQ_MAIL_GET_UNREAD_COUNT',
+  REQ_MAIL_SAVE_DRAFT = 'REQ_MAIL_SAVE_DRAFT',
 
   RESP_MAIL_CONNECTED = 'RESP_MAIL_CONNECTED',
   RESP_MAIL_FOLDER = 'RESP_MAIL_FOLDER',
@@ -152,6 +153,7 @@ export enum WsMessageType {
   RESP_MAIL_SENT = 'RESP_MAIL_SENT',
   RESP_MAIL_DELETED = 'RESP_MAIL_DELETED',
   RESP_MAIL_UNREAD_COUNT = 'RESP_MAIL_UNREAD_COUNT',
+  RESP_MAIL_DRAFT_SAVED = 'RESP_MAIL_DRAFT_SAVED',
 
   EVENT_NEW_MAIL = 'EVENT_NEW_MAIL',
 
@@ -671,6 +673,7 @@ export interface WsReqMailCompose extends WsMessage {
   to: string;         // Recipient address(es), semicolon-separated
   subject: string;
   body: string[];      // Lines of text
+  headers?: string;    // Original message headers for reply/forward threading (AddHeaders)
 }
 
 export interface WsReqMailDelete extends WsMessage {
@@ -718,6 +721,21 @@ export interface WsRespMailUnreadCount extends WsMessage {
 export interface WsEventNewMail extends WsMessage {
   type: WsMessageType.EVENT_NEW_MAIL;
   unreadCount: number;
+}
+
+export interface WsReqMailSaveDraft extends WsMessage {
+  type: WsMessageType.REQ_MAIL_SAVE_DRAFT;
+  to: string;
+  subject: string;
+  body: string[];
+  headers?: string;           // Original headers for reply/forward threading
+  existingDraftId?: string;   // If editing existing draft, delete old one first
+}
+
+export interface WsRespMailDraftSaved extends WsMessage {
+  type: WsMessageType.RESP_MAIL_DRAFT_SAVED;
+  success: boolean;
+  message?: string;
 }
 
 // =============================================================================

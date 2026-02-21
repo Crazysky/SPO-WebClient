@@ -10,6 +10,7 @@ import type {
   WsRespMailSent,
   WsRespMailDeleted,
   WsRespMailUnreadCount,
+  WsRespMailDraftSaved,
   MailFolder,
   MailMessageHeader,
   MailMessageFull,
@@ -17,11 +18,13 @@ import type {
 import { WsMessageType } from '../../shared/types';
 
 type MailPanelState = 'folder-list' | 'message-view' | 'compose';
+type ComposeMode = 'new' | 'reply' | 'forward';
 
 interface MailPanelCallbacks {
   getMailFolder: (folder: MailFolder) => void;
   readMailMessage: (folder: MailFolder, messageId: string) => void;
-  composeMail: (to: string, subject: string, body: string[]) => void;
+  composeMail: (to: string, subject: string, body: string[], headers?: string) => void;
+  saveDraft: (to: string, subject: string, body: string[], headers?: string, existingDraftId?: string) => void;
   deleteMailMessage: (folder: MailFolder, messageId: string) => void;
 }
 
@@ -36,6 +39,8 @@ export class MailPanel {
   private currentMessages: MailMessageHeader[] = [];
   private currentMessage: MailMessageFull | null = null;
   private unreadCount: number = 0;
+  private composeMode: ComposeMode = 'new';
+  private composeOriginalMessage: MailMessageFull | null = null;
 
   // Drag state
   private isDragging = false;
@@ -291,6 +296,22 @@ export class MailPanel {
         this.renderLoading();
         break;
       }
+      case WsMessageType.RESP_MAIL_DRAFT_SAVED: {
+        const resp = msg as WsRespMailDraftSaved;
+        if (resp.success) {
+          // Navigate to Draft folder after saving
+          this.currentFolder = 'Draft';
+          this.state = 'folder-list';
+          this.updateTitle();
+          this.updateBackButton();
+          this.renderTabs(this.panel.querySelector('.mail-tabs')!);
+          this.callbacks.getMailFolder('Draft');
+          this.renderLoading();
+        } else {
+          this.renderError(resp.message || 'Failed to save draft');
+        }
+        break;
+      }
       case WsMessageType.RESP_MAIL_UNREAD_COUNT: {
         const resp = msg as WsRespMailUnreadCount;
         this.setUnreadCount(resp.count);
@@ -428,6 +449,15 @@ export class MailPanel {
             cursor: pointer;
             font-size: 13px;
           ">Reply</button>` : ''}
+          <button class="mail-forward-btn" style="
+            padding: 8px 16px;
+            background: rgba(37, 99, 235, 0.2);
+            border: 1px solid rgba(37, 99, 235, 0.4);
+            color: #93c5fd;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+          ">Forward</button>
           <button class="mail-delete-btn" style="
             padding: 8px 16px;
             background: rgba(239, 68, 68, 0.2);
@@ -445,7 +475,15 @@ export class MailPanel {
     const replyBtn = this.contentElement.querySelector('.mail-reply-btn');
     if (replyBtn) {
       replyBtn.addEventListener('click', () => {
-        this.showCompose(msg.fromAddr, `Re: ${msg.subject}`);
+        this.showCompose('reply', msg);
+      });
+    }
+
+    // Wire forward
+    const forwardBtn = this.contentElement.querySelector('.mail-forward-btn');
+    if (forwardBtn) {
+      forwardBtn.addEventListener('click', () => {
+        this.showCompose('forward', msg);
       });
     }
 
@@ -460,16 +498,41 @@ export class MailPanel {
     }
   }
 
-  private showCompose(replyTo?: string, replySubject?: string): void {
+  private showCompose(mode: ComposeMode = 'new', originalMessage?: MailMessageFull): void {
     this.state = 'compose';
+    this.composeMode = mode;
+    this.composeOriginalMessage = originalMessage || null;
     this.updateTitle();
     this.updateBackButton();
+
+    // Build pre-filled fields based on compose mode
+    let toValue = '';
+    let subjectValue = '';
+    let bodyValue = '';
+
+    if (originalMessage) {
+      if (mode === 'reply') {
+        toValue = originalMessage.fromAddr;
+        subjectValue = originalMessage.subject.startsWith('RE: ')
+          ? originalMessage.subject
+          : `RE: ${originalMessage.subject}`;
+        const quotedLines = originalMessage.body.map(line => `> ${line}`);
+        bodyValue = `\n\n--- Original Message ---\n${quotedLines.join('\n')}`;
+      } else if (mode === 'forward') {
+        toValue = '';
+        subjectValue = originalMessage.subject.startsWith('FW: ')
+          ? originalMessage.subject
+          : `FW: ${originalMessage.subject}`;
+        const quotedLines = originalMessage.body.map(line => `> ${line}`);
+        bodyValue = `\n\n--- Forwarded Message ---\nFrom: ${originalMessage.from}\nSubject: ${originalMessage.subject}\n\n${quotedLines.join('\n')}`;
+      }
+    }
 
     this.contentElement.innerHTML = `
       <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
         <div>
           <label style="display: block; color: #94a3b8; font-size: 11px; margin-bottom: 4px;">To</label>
-          <input class="mail-compose-to" type="text" value="${this.escapeHtml(replyTo || '')}" style="
+          <input class="mail-compose-to" type="text" value="${this.escapeHtml(toValue)}" style="
             width: 100%;
             padding: 8px 12px;
             background: rgba(15, 23, 42, 0.6);
@@ -483,7 +546,7 @@ export class MailPanel {
         </div>
         <div>
           <label style="display: block; color: #94a3b8; font-size: 11px; margin-bottom: 4px;">Subject</label>
-          <input class="mail-compose-subject" type="text" value="${this.escapeHtml(replySubject || '')}" style="
+          <input class="mail-compose-subject" type="text" value="${this.escapeHtml(subjectValue)}" style="
             width: 100%;
             padding: 8px 12px;
             background: rgba(15, 23, 42, 0.6);
@@ -509,7 +572,7 @@ export class MailPanel {
             resize: vertical;
             font-family: inherit;
             box-sizing: border-box;
-          " placeholder="Write your message..."></textarea>
+          " placeholder="Write your message...">${this.escapeHtml(bodyValue)}</textarea>
         </div>
         <div style="display: flex; gap: 8px; justify-content: flex-end;">
           <button class="mail-compose-cancel" style="
@@ -521,6 +584,15 @@ export class MailPanel {
             cursor: pointer;
             font-size: 13px;
           ">Cancel</button>
+          <button class="mail-compose-save-draft" style="
+            padding: 8px 16px;
+            background: rgba(148, 163, 184, 0.2);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            color: #e2e8f0;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+          ">Save Draft</button>
           <button class="mail-compose-send" style="
             padding: 8px 24px;
             background: #2563eb;
@@ -538,6 +610,16 @@ export class MailPanel {
     // Wire cancel
     this.contentElement.querySelector('.mail-compose-cancel')!.addEventListener('click', () => {
       this.goBack();
+    });
+
+    // Wire save draft
+    this.contentElement.querySelector('.mail-compose-save-draft')!.addEventListener('click', () => {
+      const to = (this.contentElement.querySelector('.mail-compose-to') as HTMLInputElement).value.trim();
+      const subject = (this.contentElement.querySelector('.mail-compose-subject') as HTMLInputElement).value.trim();
+      const body = (this.contentElement.querySelector('.mail-compose-body') as HTMLTextAreaElement).value;
+      const bodyLines = body.split('\n');
+      this.callbacks.saveDraft(to, subject, bodyLines);
+      this.renderLoading();
     });
 
     // Wire send
@@ -560,9 +642,15 @@ export class MailPanel {
       this.renderLoading();
     });
 
-    // Focus the first empty field
+    // Focus the appropriate field
     const toInput = this.contentElement.querySelector('.mail-compose-to') as HTMLInputElement;
-    if (toInput.value) {
+    if (mode === 'reply') {
+      // Reply: to is filled, focus body to type reply
+      (this.contentElement.querySelector('.mail-compose-body') as HTMLTextAreaElement).focus();
+    } else if (mode === 'forward') {
+      // Forward: to is empty, focus To field
+      toInput.focus();
+    } else if (toInput.value) {
       (this.contentElement.querySelector('.mail-compose-body') as HTMLTextAreaElement).focus();
     } else {
       toInput.focus();
@@ -590,7 +678,13 @@ export class MailPanel {
         this.headerTitle.textContent = this.currentMessage?.subject || 'Message';
         break;
       case 'compose':
-        this.headerTitle.textContent = 'New Message';
+        if (this.composeMode === 'reply') {
+          this.headerTitle.textContent = 'Reply';
+        } else if (this.composeMode === 'forward') {
+          this.headerTitle.textContent = 'Forward';
+        } else {
+          this.headerTitle.textContent = 'New Message';
+        }
         break;
     }
   }

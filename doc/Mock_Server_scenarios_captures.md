@@ -3880,3 +3880,274 @@ Content-Length: 451
 	<frame name="Main" src="MessageList.asp?Folder=SENT&WorldName=Shamba&Account=Crazz@Shamba.net&MsgId=&Action=" noresize frameborder = "No"  marginwidth="0" marginheight="0">
 </frameset>
 
+
+
+GET /five/0/visual/voyager/mail/MessageBody.asp?WorldName=Shamba&Account=Crazz@Shamba.net&Folder=SENT&MsgId=2691B06053334348R
+
+HTTP/1.1 200 OK
+Cache-Control: private
+Content-Type: text/html
+Server: Microsoft-IIS/8.5
+X-Powered-By: ASP.NET
+Date: Sat, 21 Feb 2026 18:08:18 GMT
+Content-Length: 356
+
+<html>
+
+<!-- Headers -->
+
+
+
+<head>
+<title>Mail Message</title>
+<link rel="STYLESHEET" href="mail.css" type="text/css">
+<link rel="STYLESHEET" href="mailmessage.css" type="text/css">
+</head>
+
+<!-- Scripts -->
+
+<script language="JScript">
+</script>
+
+<!-- Body -->
+
+<body style="background-color: white">
+
+test<br>
+
+</body>
+
+</html>
+
+GET /five/0/visual/voyager/mail/mailmessage.css
+
+HTTP/1.1 200 OK
+Content-Type: text/css
+Last-Modified: Sat, 01 Mar 2003 20:00:26 GMT
+Accept-Ranges: bytes
+ETag: "0e961332de0c21:0"
+Server: Microsoft-IIS/8.5
+X-Powered-By: ASP.NET
+Date: Sat, 21 Feb 2026 18:08:18 GMT
+Content-Length: 271
+
+
+body
+{
+	margin-left		: 20px;
+	margin-top		: 10px;
+	margin-right		: 10px;
+	font-family		: Tahoma, Verdana;
+	font-size		: 10pt;
+	font-weight		: normal;
+	font-style		: normal;
+	color			: black;
+}
+
+a
+{
+	color				: #777722;
+	text-decoration 	: underline;
+}
+
+
+GET /five/0/visual/voyager/mail/MessageList.asp?Folder=SENT&WorldName=Shamba&Account=Crazz@Shamba.net&MsgId=&Action=
+
+HTTP/1.1 200 OK
+Cache-Control: private
+Content-Type: text/html
+Server: Microsoft-IIS/8.5
+X-Powered-By: ASP.NET
+Date: Sat, 21 Feb 2026 18:08:15 GMT
+Content-Length: 5221
+
+
+
+
+<html>
+
+<!-- Headers -->
+
+<head>
+	<title>FIVE Logon</title>
+	<link rel="STYLESHEET" href="mail.css" type="text/css">
+	<link rel="STYLESHEET" href="../voyager.css" type="text/css">
+</head>
+
+<!-- Scripts -->
+
+<script language="JScript">
+
+	var selectedRow = null;
+
+	function updateToolbar()
+	{
+		/*
+		if (selectedRow != null)
+		{
+			window.parent.frames.item("top").document.all.deleteBtn.src="images/deleteBtn.jpg";
+			window.parent.frames.item("top").document.all.deleteBtn.state = "";
+			
+			window.parent.frames.item("top").document.all.replyBtn.src="images/replyBtn.jpg";
+			window.parent.frames.item("top").document.all.replyBtn.state = "";
+			window.parent.frames.item("top").document.all.forwardBtn.src="images/forwardBtn.jpg";
+			window.parent.frames.item("top").document.all.forwardBtn.state = "";
+			
+		}
+		else
+		{
+			window.parent.frames.item("top").document.all.deleteBtn.src="images/deleteBtnDisabled.jpg"
+			window.parent.frames.item("top").document.all.deleteBtn.state = "disabled";
+			
+			window.parent.frames.item("top").document.all.replyBtn.src="images/replyBtnDisabled.jpg"
+			window.parent.frames.item("top").document.all.replyBtn.state = "disabled";
+			window.parent.frames.item("top").document.all.forwardBtn.src="images/forwardBtnDisabled.jpg"
+			window.parent.frames.item("top").document.all.forwardBtn.state = "disabled";
+			
+		}
+		*/
+	}
+
+	function selectRow( row )
+	{
+		if (selectedRow != null)
+			selectedRow.style.backgroundColor = "";
+		if (row != selectedRow)
+		{
+			selectedRow = row;
+			if (selectedRow != null)
+			{
+				selectedRow.style.backgroundColor = 0x193930;
+				window.parent.frames.item("top").document.all.toolbar.currMsgId = row.msgId;
+			}
+		}
+		else
+		{
+			selectedRow = null;
+			window.parent.frames.item("top").document.all.toolbar.currMsgId = "";
+		}
+		updateToolbar();
+	}
+
+	function getRow( element )
+	{
+		if (element.parentElement == null || element.parentElement.tagName == "TR")
+			return (element.parentElement)
+		else
+			return (getRow( element.parentElement ))
+	}
+
+	function onRowClick()
+	{
+		row = getRow( event.srcElement );
+		if (row != null)
+		{
+			selectRow( row );
+			
+			window.parent.navigate( "MailMessage.asp?WorldName=Shamba&Account=Crazz@Shamba.net&Folder=SENT&MsgId=" + row.msgId + "&frame_Id=MsgView&frame_Class=HTMLView&frame_Align=client&frame_Height=40%&frame_NoBorder=True&frame_NoScrollBars=False" );
+			
+		}
+		event.cancelBubble = true;
+	}
+
+	function onRowDblClick()
+	{
+		var row = getRow( event.srcElement );
+		if (row != null)
+			window.parent.navigate( "MailMessage.asp?WorldName=Shamba&Account=Crazz@Shamba.net&Folder=SENT&MsgId=" + row.msgId + "&frame_Id=MsgView&frame_Class=HTMLView&frame_Align=client&frame_Height=40%&frame_NoBorder=True&frame_NoScrollBars=False" );
+
+	}
+
+	function onPageClick()
+	{
+		selectRow( null );
+	}
+
+	function onLoad()
+	{
+		document.all.everything.style.display = "inline";
+		window.navigate( "MailSplash.asp?frame_Id=MsgView&frame_Class=HTMLView&frame_Align=client&frame_Height=50%&frame_NoBorder=True&frame_NoScrollBars=False" );
+		var rowCnt = document.all.MsgCount;
+		//alert(rowCnt.value);
+		for (var i = 0; i < rowCnt.value; i++)
+		{
+			var Item = document.all["dateRow" + i];
+			if (Item != null)
+			{
+				var strDate = new String(document.all["msgDate" + i].value);
+				try
+				{
+					if (strDate.length > 0)
+					{
+						var p1 = strDate.indexOf("/", 0);
+						var mth = strDate.substring(0, p1);
+						var p2 = strDate.indexOf("/", p1+1);
+						var day = strDate.substring(p1+1, p2);
+						var year = strDate.substring(p2+1, strDate.length);
+						var d = new Date(year, mth-1, day);
+						Item.innerText = d.toDateString();
+					}
+					else
+						Item.innerText = "?";
+				}
+				catch(e)
+				{
+					Item.innerText = strDate;
+				}
+			}
+		}
+	}
+
+</script>
+
+<!-- Body -->
+
+<body style="background-color: #395950; margin: 0px; padding: 0px" onClick="onPageClick()" onLoad="onLoad()">
+<div id=everything style="display: none">
+</div>
+
+<table id="MsgTable" width="100%" style="margin: 0px; padding: -10px" cellpadding="0" cellspacing="0">
+	<tr style="background-image: url(images/listtopback.gif)">
+		<td width=10% height=20>
+		</td>
+		<td class=mailFolderHeader width="20%">
+			To
+		</td>
+		<td class=mailFolderHeader qwidth="50%">
+			Subject
+		</td>
+		<td class=mailFolderHeader qwidth="20%">
+			Date
+		</td>
+	</tr>
+
+	<tr id="row_0" onClick="onRowClick()" onDblClick="onRowDblClick()" msgId=2691B06053334348R>
+		<td align="right" valign="top" style="padding-left: 40px; padding-right: 20px">
+			
+			<input id="msgReply0" name="msgReply0" type=hidden value="">
+		</td>
+		<td valign="top">
+			<span class=mailFolderItem>
+			Mayor of Olympus
+			</span>
+		</td>
+		<td valign="top" nowrap=true>
+			<span class=mailFolderItem>
+			test
+			</span>
+		</td>
+		<td valign="top">
+			<span class=mailFolderItem id="dateRow0" name="dateRow0">
+				<input id="msgDate0" name="msgDate0" type=hidden value="3/9/2244">
+			</span>
+		</td>
+	</tr>
+
+</table>
+
+<input id="MsgCount" name="MsgCount" type=hidden value="1">
+
+</body>
+
+</html>
+

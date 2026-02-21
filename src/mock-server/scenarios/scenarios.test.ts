@@ -469,13 +469,14 @@ describe('mail scenario', () => {
     expect(CAPTURED_MAIL_SEND.subject).toBe('test subjct');
   });
 
-  it('RDO has 6 exchanges for mail send sequence', () => {
+  it('RDO has 14 exchanges covering all mail operations', () => {
     const { rdo } = createMailScenario();
-    expect(rdo.exchanges).toHaveLength(6);
+    expect(rdo.exchanges).toHaveLength(14);
     const members = rdo.exchanges.map(
       e => e.matchKeys?.member ?? e.matchKeys?.targetId
     );
-    expect(members).toEqual([
+    // First 6: original compose/save flow
+    expect(members.slice(0, 6)).toEqual([
       'MailServer',
       'NewMail',
       'AddLine',
@@ -483,13 +484,26 @@ describe('mail scenario', () => {
       'Save',
       'CloseMessage',
     ]);
+    // Additional 8: Post, DeleteMessage, OpenMessage, GetHeaders, GetLines, GetAttachmentCount, CheckNewMail, AddHeaders
+    expect(members.slice(6)).toEqual([
+      'Post',
+      'DeleteMessage',
+      'OpenMessage',
+      'GetHeaders',
+      'GetLines',
+      'GetAttachmentCount',
+      'CheckNewMail',
+      'AddHeaders',
+    ]);
   });
 
-  it('HTTP has MailFolder and MailFolderTop pages', () => {
+  it('HTTP has MailFolder, MailFolderTop, and MessageList pages', () => {
     const { http } = createMailScenario();
-    expect(http.exchanges).toHaveLength(2);
+    expect(http.exchanges).toHaveLength(4);
     expect(http.exchanges[0].urlPattern).toContain('MailFolder.asp');
     expect(http.exchanges[1].urlPattern).toContain('MailFolderTop.asp');
+    expect(http.exchanges[2].urlPattern).toContain('MessageList.asp');
+    expect(http.exchanges[3].urlPattern).toContain('MessageList.asp');
   });
 
   it('MailFolderTop HTML contains Inbox/Sent/Draft tabs', () => {

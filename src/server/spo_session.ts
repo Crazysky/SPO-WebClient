@@ -57,6 +57,7 @@ import {
   parsePropertyResponse as parsePropertyResponseHelper,
   parseIdOfResponse as parseIdOfResponseHelper,
 } from './rdo-helpers';
+import { parseMessageListHtml } from './mail-list-parser';
 import {
   parseBuildings as parseBuildingsHelper,
   parseSegments as parseSegmentsHelper,
@@ -916,7 +917,12 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    * Reference: MsgComposerHandler.pas:316-329
    * Flow: NewMail → AddLine (per line) → Post
    */
-  public async composeMail(to: string, subject: string, bodyLines: string[]): Promise<boolean> {
+  /**
+   * Compose and send a mail message.
+   * Reference: MsgComposerHandler.pas:302-344 (SendEvent)
+   * Flow: NewMail → AddHeaders? → AddLine (per line) → Post → CloseMessage
+   */
+  public async composeMail(to: string, subject: string, bodyLines: string[], headers?: string): Promise<boolean> {
     if (!this.mailServerId || !this.mailAccount) {
       throw new Error('Mail service not connected');
     }
@@ -943,14 +949,27 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       return false;
     }
 
-    // 2. Add body lines
+    // 2a. Add original headers for reply/forward threading
+    if (headers) {
+      await this.sendRdoRequest('mail', {
+        verb: RdoVerb.SEL,
+        targetId: msgId,
+        action: RdoAction.CALL,
+        member: 'AddHeaders',
+        args: [RdoValue.string(headers).toString()],
+        separator: '*'  // void procedure (Delphi: procedure AddHeaders)
+      });
+    }
+
+    // 2b. Add body lines
     for (const line of bodyLines) {
       await this.sendRdoRequest('mail', {
         verb: RdoVerb.SEL,
         targetId: msgId,
         action: RdoAction.CALL,
         member: 'AddLine',
-        args: [RdoValue.string(line).toString()]
+        args: [RdoValue.string(line).toString()],
+        separator: '*'  // void procedure (Delphi: procedure AddLine)
       });
     }
 
@@ -962,10 +981,122 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       member: 'Post',
       args: [RdoValue.string(worldName).toString(), RdoValue.int(parseInt(msgId, 10)).toString()]
     });
-    const result = postPacket.payload || '';
-    this.log.debug(`[Mail] Post result: ${result}`);
+    // Post returns wordbool: #-1 = true (success), #0 = false (failure)
+    const resultStr = parsePropertyResponseHelper(postPacket.payload!, 'Post');
+    const success = resultStr === '-1';
+    this.log.debug(`[Mail] Post result: ${resultStr} (success=${success})`);
 
-    return !result.includes('error');
+    // 4. Close message to release server memory (MsgComposerHandler.pas:331)
+    try {
+      await this.sendRdoRequest('mail', {
+        verb: RdoVerb.SEL,
+        targetId: this.mailServerId,
+        action: RdoAction.CALL,
+        member: 'CloseMessage',
+        args: [RdoValue.int(parseInt(msgId, 10)).toString()],
+        separator: '*'  // void procedure (Delphi: procedure CloseMessage)
+      });
+    } catch (e) {
+      this.log.warn('[Mail] Failed to close message after post:', e);
+    }
+
+    return success;
+  }
+
+  /**
+   * Save a mail message as draft (not sent).
+   * Reference: MsgComposerHandler.pas:346-387
+   * Flow: [DeleteMessage old draft?] → NewMail → AddHeaders? → AddLine (per line) → Save → CloseMessage
+   */
+  public async saveDraft(
+    to: string,
+    subject: string,
+    bodyLines: string[],
+    headers?: string,
+    existingDraftId?: string
+  ): Promise<boolean> {
+    if (!this.mailServerId || !this.mailAccount) {
+      throw new Error('Mail service not connected');
+    }
+
+    const worldName = this.currentWorldInfo?.name || '';
+
+    // If editing existing draft, delete old one first
+    if (existingDraftId) {
+      await this.deleteMailMessage('Draft', existingDraftId);
+    }
+
+    // 1. Create in-memory message
+    const newMailPacket = await this.sendRdoRequest('mail', {
+      verb: RdoVerb.SEL,
+      targetId: this.mailServerId,
+      action: RdoAction.CALL,
+      member: 'NewMail',
+      args: [
+        RdoValue.string(this.mailAccount).toString(),
+        RdoValue.string(to).toString(),
+        RdoValue.string(subject).toString()
+      ]
+    });
+    const msgId = parsePropertyResponseHelper(newMailPacket.payload!, 'NewMail');
+
+    if (!msgId || msgId === '0') {
+      this.log.error('[Mail] Failed to create draft message');
+      return false;
+    }
+
+    // 2. Add original headers for reply/forward threading
+    if (headers) {
+      await this.sendRdoRequest('mail', {
+        verb: RdoVerb.SEL,
+        targetId: msgId,
+        action: RdoAction.CALL,
+        member: 'AddHeaders',
+        args: [RdoValue.string(headers).toString()],
+        separator: '*'  // void procedure (Delphi: procedure AddHeaders)
+      });
+    }
+
+    // 3. Add body lines
+    for (const line of bodyLines) {
+      await this.sendRdoRequest('mail', {
+        verb: RdoVerb.SEL,
+        targetId: msgId,
+        action: RdoAction.CALL,
+        member: 'AddLine',
+        args: [RdoValue.string(line).toString()],
+        separator: '*'  // void procedure (Delphi: procedure AddLine)
+      });
+    }
+
+    // 4. Save to Draft folder (not Post/send)
+    const savePacket = await this.sendRdoRequest('mail', {
+      verb: RdoVerb.SEL,
+      targetId: this.mailServerId,
+      action: RdoAction.CALL,
+      member: 'Save',
+      args: [RdoValue.string(worldName).toString(), RdoValue.int(parseInt(msgId, 10)).toString()]
+    });
+    // Save returns wordbool: #-1 = true (success), #0 = false (failure)
+    const resultStr = parsePropertyResponseHelper(savePacket.payload!, 'Save');
+    const success = resultStr === '-1';
+    this.log.debug(`[Mail] Save draft result: ${resultStr} (success=${success})`);
+
+    // 5. Close message to release server memory
+    try {
+      await this.sendRdoRequest('mail', {
+        verb: RdoVerb.SEL,
+        targetId: this.mailServerId,
+        action: RdoAction.CALL,
+        member: 'CloseMessage',
+        args: [RdoValue.int(parseInt(msgId, 10)).toString()],
+        separator: '*'  // void procedure (Delphi: procedure CloseMessage)
+      });
+    } catch (e) {
+      this.log.warn('[Mail] Failed to close message after save:', e);
+    }
+
+    return success;
   }
 
   /**
@@ -1058,7 +1189,8 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
           targetId: this.mailServerId,
           action: RdoAction.CALL,
           member: 'CloseMessage',
-          args: [RdoValue.int(parseInt(msgId, 10)).toString()]
+          args: [RdoValue.int(parseInt(msgId, 10)).toString()],
+          separator: '*'  // void procedure (Delphi: procedure CloseMessage)
         });
       } catch (e) {
         this.log.warn('[Mail] Failed to close message:', e);
@@ -1086,7 +1218,8 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
         RdoValue.string(this.mailAccount).toString(),
         RdoValue.string(folder).toString(),
         RdoValue.string(messageId).toString()
-      ]
+      ],
+      separator: '*'  // void procedure (Delphi: procedure DeleteMessage)
     });
     this.log.debug(`[Mail] Deleted message ${messageId} from ${folder}`);
   }
@@ -1119,6 +1252,43 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    */
   public getMailAccount(): string | null {
     return this.mailAccount;
+  }
+
+  /**
+   * Fetch mail folder listing via HTTP (MessageList.asp on World Web Server).
+   * The original Voyager used ASP pages backed by a COM MailBrowser DLL
+   * to enumerate mail directories — there is no RDO method for folder listing.
+   */
+  public async getMailFolder(folder: string): Promise<MailMessageHeader[]> {
+    if (!this.currentWorldInfo || !this.mailAccount) {
+      this.log.warn('[Mail] Cannot fetch folder: not logged into world or no mail account');
+      return [];
+    }
+
+    const params = new URLSearchParams({
+      Folder: folder,
+      WorldName: this.currentWorldInfo.name,
+      Account: this.mailAccount,
+      MsgId: '',
+      Action: '',
+    });
+
+    const url = `http://${this.currentWorldInfo.ip}/five/0/visual/voyager/mail/MessageList.asp?${params.toString()}`;
+    this.log.debug(`[Mail] Fetching folder listing from ${url}`);
+
+    try {
+      const response = await fetch(url, { redirect: 'follow' });
+      if (!response.ok) {
+        this.log.warn(`[Mail] MessageList.asp returned ${response.status}`);
+        return [];
+      }
+      const html = await response.text();
+      const folderType = folder as import('../shared/types/domain-types').MailFolder;
+      return parseMessageListHtml(html, folderType);
+    } catch (e) {
+      this.log.error('[Mail] Failed to fetch folder listing:', toErrorMessage(e));
+      return [];
+    }
   }
 
   /**
@@ -3116,14 +3286,12 @@ private handlePush(socketName: string, packet: RdoPacket) {
         }
       }
 
-      // Try to extract VisualClassId from various sources
-      // 1. Try to find it in a URL parameter
+      // Extract VisualClassId from URL parameter (required — sole key for CLASSES.BIN lookup)
       const visualIdMatch = /VisualClassId[=:](\d+)/i.exec(cellContent);
       if (visualIdMatch) {
         visualClassId = visualIdMatch[1];
       } else {
-        // 2. Fallback: use facilityClass as visualClassId
-        visualClassId = facilityClass;
+        this.log.warn(`[BuildConstruction] No VisualClassId found for "${facilityClass}" — building dimensions will be unavailable`);
       }
 
       // Extract cost (e.g., "$140K") - handle both quoted and unquoted class

@@ -28,6 +28,7 @@ import {
   WsRespMailSent,
   WsRespMailDeleted,
   WsRespMailUnreadCount,
+  WsRespMailDraftSaved,
   MapBuilding,
   MapSegment,
   MailFolder,
@@ -98,8 +99,11 @@ export class UIManager {
         readMailMessage: (folder: MailFolder, messageId: string) => {
           sendMessage({ type: WsMessageType.REQ_MAIL_READ_MESSAGE, folder, messageId });
         },
-        composeMail: (to: string, subject: string, body: string[]) => {
-          sendMessage({ type: WsMessageType.REQ_MAIL_COMPOSE, to, subject, body });
+        composeMail: (to: string, subject: string, body: string[], headers?: string) => {
+          sendMessage({ type: WsMessageType.REQ_MAIL_COMPOSE, to, subject, body, headers });
+        },
+        saveDraft: (to: string, subject: string, body: string[], headers?: string, existingDraftId?: string) => {
+          sendMessage({ type: WsMessageType.REQ_MAIL_SAVE_DRAFT, to, subject, body, headers, existingDraftId });
         },
         deleteMailMessage: (folder: MailFolder, messageId: string) => {
           sendMessage({ type: WsMessageType.REQ_MAIL_DELETE, folder, messageId });
