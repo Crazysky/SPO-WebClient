@@ -26,6 +26,20 @@ Never read screenshot images in the main conversation context — each costs ~3-
 - `worldContextId` = world operations (map focus, queries); `interfaceServerId` = building operations
 - WebSocket: Client→Server = `WsReq*` types, Server→Client = `WsResp*` types; use `sendResponse()`/`sendError()`
 
+**RDO conformity check (mandatory for new RDO implementations):**
+When adding/modifying RDO requests in `spo_session.ts`, mock scenarios, or protocol tests, follow this checklist. Full reference: [doc/spo-original-reference.md](doc/spo-original-reference.md)
+
+1. **Look up method** in `doc/spo-original-reference.md` server object tables
+   - If not indexed: search SPO-Original Delphi source (see Quick-Find Paths in reference doc), then add the entry
+2. **Verify verb**: `published property` → `get`/`set` | `published function/procedure` → `call`
+   - TRAP: `get` on a function works (fallthrough in RDOObjectServer.pas) but is semantically WRONG
+3. **Verify param types**: Match Delphi types → RDO prefixes (`widestring`→`%`, `integer`→`#`, `double`→`@`, `wordbool`→`#`)
+4. **Verify param order & count**: Match the Delphi declaration exactly
+5. **Verify separator**: `^` for call-with-return, `*` for void procedures
+6. **Verify return type**: function → olevariant (check actual content prefix), procedure → void (`*`)
+7. **Check push behavior**: Does the method trigger server pushes? (e.g., `RegisterEventsById` fires InitClient)
+8. **Update reference**: Add any new discoveries to `doc/spo-original-reference.md`
+
 ## Project
 
 **Starpeace Online WebClient** — Browser-based multiplayer tycoon game client
@@ -175,6 +189,7 @@ Read the relevant doc when working on a specific system:
 | Project history & backlog | [doc/BACKLOG.md](doc/BACKLOG.md) |
 | Raw RDO packet captures | [doc/building_details_rdo.txt](doc/building_details_rdo.txt) |
 | Mock server / adding scenarios | [doc/mock-server-guide.md](doc/mock-server-guide.md) |
+| RDO conformity / Delphi source index | [doc/spo-original-reference.md](doc/spo-original-reference.md) |
 
 ## Git Conventions
 
