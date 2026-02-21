@@ -37,6 +37,7 @@ import {
   TycoonProfileFull,
   CurriculumData,
   BankAccountData,
+  LoanInfo,
   BankActionResult,
   ProfitLossData,
   ProfitLossNode,
@@ -124,7 +125,12 @@ export class StarpeaceSession extends EventEmitter {
   private virtualDate: number | null = null; // Server virtual date (Double)
   private accountMoney: string | null = null; // Account money (can be very large)
   private failureLevel: number | null = null; // Company status (0 = nominal, >0 = in debt)
-  private fTycoonProxyId: number | null = null; // Tycoon proxy ID (different from TycoonId)
+  private fTycoonProxyId: number | null = null; // Tycoon proxy ID (IS-local handle, NOT valid on World server)
+
+  // RefreshTycoon push data (updated periodically by server)
+  private lastRanking: number = 0;
+  private lastBuildingCount: number = 0;
+  private lastMaxBuildings: number = 0;
 
   // Credentials cache
   private cachedUsername: string | null = null;
@@ -753,6 +759,58 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 
 
 
+  // ===========================================================================
+  // ASP HTTP HELPERS
+  // ===========================================================================
+
+  /**
+   * Build common query parameters for IS ASP page requests.
+   * All profile ASP pages require these base params to identify the session.
+   */
+  private buildAspBaseParams(): URLSearchParams {
+    return new URLSearchParams({
+      Tycoon: this.cachedUsername || '',
+      Password: this.cachedPassword || '',
+      Company: this.currentCompany?.name || '',
+      WorldName: this.currentWorldInfo?.name || '',
+      DAAddr: this.daAddr || config.rdo.directoryHost,
+      DAPort: String(config.rdo.ports.directory),
+      ISAddr: this.currentWorldInfo?.ip || '',
+      ISPort: '8000',
+      ClientViewId: String(this.interfaceServerId || '0'),
+    });
+  }
+
+  /**
+   * Build full URL for an IS ASP page.
+   * @param aspPath - Relative path under /Five/0/Visual/Voyager/ (e.g., 'NewTycoon/TycoonBankAccount.asp')
+   * @param extraParams - Additional query parameters to append
+   */
+  private buildAspUrl(aspPath: string, extraParams?: Record<string, string>): string {
+    const worldIp = this.currentWorldInfo?.ip;
+    if (!worldIp) throw new Error('World IP not available');
+    const params = this.buildAspBaseParams();
+    if (extraParams) {
+      for (const [k, v] of Object.entries(extraParams)) {
+        params.set(k, v);
+      }
+    }
+    return `http://${worldIp}/Five/0/Visual/Voyager/${aspPath}?${params.toString()}`;
+  }
+
+  /**
+   * Fetch an ASP page and return the HTML text.
+   */
+  private async fetchAspPage(aspPath: string, extraParams?: Record<string, string>): Promise<string> {
+    const url = this.buildAspUrl(aspPath, extraParams);
+    this.log.debug(`[ASP] Fetching ${aspPath}`);
+    const response = await fetch(url, { redirect: 'follow' });
+    if (!response.ok) {
+      throw new Error(`ASP request failed: ${response.status} ${response.statusText}`);
+    }
+    return response.text();
+  }
+
   /**
    * Fetch companies via HTTP (ASP endpoint) [CRIT-02]
    */
@@ -1361,26 +1419,44 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
   // =========================================================================
 
   /**
-   * Fetch extended tycoon profile data via RDO properties on fTycoonProxyId.
-   * Properties sourced from TTycoon class (Kernel.pas ~line 2357).
-   * Not all properties may be RDO-published — unsupported ones return defaults.
+   * Fetch extended tycoon profile data.
+   *
+   * Uses session-cached data from InitClient/RefreshTycoon pushes (budget, ranking,
+   * building count) plus TClientView.GetUserName via IS proxy for the name.
+   * fTycoonProxyId is an IS-local handle and CANNOT be used for World server RDO queries.
+   *
+   * For detailed curriculum data (prestige, licenceLevel, etc.), fetchCurriculumData()
+   * fetches TycoonCurriculum.asp from the IS HTTP server.
    */
   public async fetchTycoonProfile(): Promise<TycoonProfileFull> {
-    if (!this.fTycoonProxyId) {
-      throw new Error('Tycoon proxy not available - ensure login completed');
+    // Get name via IS proxy (TClientView.GetUserName is published)
+    let name = this.cachedUsername || '';
+    if (this.interfaceServerId) {
+      try {
+        const namePacket = await this.sendRdoRequest('world', {
+          verb: RdoVerb.SEL,
+          targetId: String(this.interfaceServerId),
+          action: RdoAction.CALL,
+          member: 'GetUserName',
+          args: [],
+        });
+        const parsed = parsePropertyResponseHelper(namePacket.payload!, 'res');
+        if (parsed && !parsed.startsWith('error')) name = parsed;
+      } catch (e) {
+        this.log.warn('[Profile] GetUserName failed, using cached username:', e);
+      }
     }
 
-    const proxyId = String(this.fTycoonProxyId);
     const profile: TycoonProfileFull = {
-      name: '',
+      name,
       realName: '',
-      ranking: 0,
-      budget: '0',
+      ranking: this.lastRanking,
+      budget: this.accountMoney || '0',
       prestige: 0,
       facPrestige: 0,
       researchPrestige: 0,
-      facCount: 0,
-      facMax: 0,
+      facCount: this.lastBuildingCount,
+      facMax: this.lastMaxBuildings,
       area: 0,
       nobPoints: 0,
       licenceLevel: 0,
@@ -1389,46 +1465,65 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       levelTier: 0,
     };
 
-    const propsToFetch: Array<{ name: string; key: keyof TycoonProfileFull }> = [
-      { name: 'Name', key: 'name' },
-      { name: 'RealName', key: 'realName' },
-      { name: 'Ranking', key: 'ranking' },
-      { name: 'Budget', key: 'budget' },
-      { name: 'Prestige', key: 'prestige' },
-      { name: 'FacPrestige', key: 'facPrestige' },
-      { name: 'ResearchPrest', key: 'researchPrestige' },
-      { name: 'FacCount', key: 'facCount' },
-      { name: 'FacMax', key: 'facMax' },
-      { name: 'Area', key: 'area' },
-      { name: 'NobPoints', key: 'nobPoints' },
-      { name: 'LicenceLevel', key: 'licenceLevel' },
-    ];
-
-    for (const prop of propsToFetch) {
-      try {
-        const packet = await this.sendRdoRequest('world', {
-          verb: RdoVerb.SEL,
-          targetId: proxyId,
-          action: RdoAction.GET,
-          member: prop.name
-        });
-        const value = parsePropertyResponseHelper(packet.payload!, prop.name);
-        if (value) {
-          const key = prop.key;
-          const record = profile as unknown as Record<string, unknown>;
-          if (key === 'name' || key === 'realName' || key === 'budget' || key === 'levelName') {
-            record[key] = value;
-          } else {
-            record[key] = parseFloat(value) || 0;
-          }
-        }
-      } catch (e) {
-        this.log.warn(`[Profile] Failed to fetch ${prop.name}:`, e);
-      }
+    // Try to enrich with curriculum ASP page data
+    try {
+      const html = await this.fetchAspPage('NewTycoon/TycoonCurriculum.asp', { RIWS: '' });
+      this.parseCurriculumHtml(html, profile);
+    } catch (e) {
+      this.log.warn('[Profile] TycoonCurriculum.asp fetch failed, using push data only:', e);
     }
 
     this.log.debug(`[Profile] Fetched tycoon profile: ${profile.name} (Ranking #${profile.ranking})`);
     return profile;
+  }
+
+  /**
+   * Parse TycoonCurriculum.asp HTML to extract level/prestige data into a profile.
+   * The ASP page renders level images (e.g., levelParadigm.gif) and prestige values.
+   */
+  private parseCurriculumHtml(html: string, profile: TycoonProfileFull): void {
+    // Level image: src="images/level<Name>.gif" — extract level name
+    const levelMatch = /images\/level(\w+)\.gif/i.exec(html);
+    if (levelMatch) {
+      profile.levelName = levelMatch[1]; // e.g., "Paradigm"
+    }
+
+    // Parse key-value pairs from HTML (format: <span class=label>Key:</span> ... <span class=value>Value</span>)
+    const kvPattern = /class=label[^>]*>\s*([^<:]+):\s*<\/(?:span|div)>\s*(?:<[^>]*>\s*)*?class=value[^>]*>\s*([^<]+)/gi;
+    let kvMatch;
+    while ((kvMatch = kvPattern.exec(html)) !== null) {
+      const key = kvMatch[1].trim().toLowerCase();
+      const val = kvMatch[2].trim().replace(/[$,\s]/g, '');
+      switch (key) {
+        case 'prestige': profile.prestige = parseFloat(val) || 0; break;
+        case 'facility prestige': profile.facPrestige = parseFloat(val) || 0; break;
+        case 'research prestige': profile.researchPrestige = parseFloat(val) || 0; break;
+        case 'buildings': {
+          // Format: "13 / 100"
+          const parts = val.split('/');
+          if (parts.length === 2) {
+            profile.facCount = parseInt(parts[0], 10) || profile.facCount;
+            profile.facMax = parseInt(parts[1], 10) || profile.facMax;
+          }
+          break;
+        }
+        case 'area': profile.area = parseFloat(val) || 0; break;
+        case 'nobility': profile.nobPoints = parseFloat(val) || 0; break;
+      }
+    }
+
+    // Level names → tier mapping
+    const levelTiers: Record<string, number> = {
+      apprentice: 0, entrepreneur: 1, tycoon: 2, master: 3,
+      paradigm: 4, legend: 5, beyondlegend: 6,
+    };
+    if (profile.levelName) {
+      const tier = levelTiers[profile.levelName.toLowerCase()];
+      if (tier !== undefined) {
+        profile.levelTier = tier;
+        profile.licenceLevel = tier;
+      }
+    }
   }
 
   // ===========================================================================
@@ -1445,7 +1540,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     const level = Math.min(profile.licenceLevel, levelNames.length - 1);
     return {
       currentLevel: level,
-      currentLevelName: levelNames[level] || 'Unknown',
+      currentLevelName: profile.levelName || levelNames[level] || 'Unknown',
       prestige: profile.prestige,
       facPrestige: profile.facPrestige,
       researchPrestige: profile.researchPrestige,
@@ -1459,47 +1554,83 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
   }
 
   /**
-   * Fetch bank account data — queries Budget property from tycoon proxy.
-   * Loan list and max loan use the same formulas as the original ASP page.
+   * Fetch bank account data via TycoonBankAccount.asp on IS HTTP server.
+   * Parses budget, loan list, interest rates, and terms from the ASP HTML response.
    */
   public async fetchBankAccount(): Promise<BankAccountData> {
-    if (!this.fTycoonProxyId) throw new Error('Tycoon proxy not available');
+    const html = await this.fetchAspPage('NewTycoon/TycoonBankAccount.asp', { RIWS: '' });
+    return this.parseBankAccountHtml(html);
+  }
 
-    const proxyId = String(this.fTycoonProxyId);
-
-    // Get current budget
-    let budget = '0';
-    try {
-      const packet = await this.sendRdoRequest('world', {
-        verb: RdoVerb.SEL,
-        targetId: proxyId,
-        action: RdoAction.GET,
-        member: 'Budget',
-      });
-      const val = parsePropertyResponseHelper(packet.payload!, 'Budget');
-      if (val) budget = val;
-    } catch (e) {
-      this.log.warn('[Bank] Failed to fetch Budget:', e);
+  /**
+   * Parse TycoonBankAccount.asp HTML response.
+   * Budget: `var budget = <number>;` in script block.
+   * Loans: TR rows with `lid` attribute containing bank, date, amount, interest, term, slice.
+   */
+  private parseBankAccountHtml(html: string): BankAccountData {
+    // Extract budget from JS variable
+    let balance = this.accountMoney || '0';
+    const budgetMatch = /var\s+budget\s*=\s*(-?\d+)\s*;/i.exec(html);
+    if (budgetMatch) {
+      balance = budgetMatch[1];
     }
 
     // Max loan: 2,500,000,000 (hardcoded in original ASP)
     const maxLoan = '2500000000';
-    const existingLoans = 0; // TODO: fetch actual loan sum from server
-    const defaultInterest = Math.round((existingLoans + 2_500_000_000) / 100_000_000);
-    let defaultTerm = 200 - Math.round((existingLoans + 2_500_000_000) / 10_000_000);
+
+    // Parse loan rows
+    const loans: LoanInfo[] = [];
+    // Loan table rows: <tr id="loanN" lid=N> with cells: Bank, Date, Amount, Int, Term, Slice
+    const loanRowRegex = /<tr[^>]*\bid\s*=\s*"?loan(\d+)"?[^>]*\blid\s*=\s*"?(\d+)"?/gi;
+    let loanMatch;
+    while ((loanMatch = loanRowRegex.exec(html)) !== null) {
+      const loanIndex = parseInt(loanMatch[2], 10);
+      // Extract cell values after this row
+      const rowStart = loanMatch.index;
+      const nextRowIdx = html.indexOf('</tr>', rowStart);
+      if (nextRowIdx === -1) continue;
+      const rowHtml = html.substring(rowStart, nextRowIdx);
+
+      // Extract TD values in order: Bank, Date, Amount, Interest, Term, Slice
+      const cellValues: string[] = [];
+      const cellRegex = /<td[^>]*>\s*(?:<[^>]*>\s*)*([^<]*)/gi;
+      let cellMatch;
+      while ((cellMatch = cellRegex.exec(rowHtml)) !== null) {
+        const val = cellMatch[1].trim();
+        if (val) cellValues.push(val);
+      }
+
+      if (cellValues.length >= 6) {
+        loans.push({
+          bank: cellValues[0],
+          date: cellValues[1],
+          amount: cellValues[2].replace(/[$,\s]/g, ''),
+          interest: parseFloat(cellValues[3].replace('%', '')) || 0,
+          term: parseInt(cellValues[4], 10) || 0,
+          slice: cellValues[5].replace(/[$,\s]/g, ''),
+          loanIndex,
+        });
+      }
+    }
+
+    // Compute interest/term defaults from total existing loans
+    const existingLoanTotal = loans.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
+    const defaultInterest = Math.round((existingLoanTotal + 2_500_000_000) / 100_000_000);
+    let defaultTerm = 200 - Math.round((existingLoanTotal + 2_500_000_000) / 10_000_000);
     if (defaultTerm < 5) defaultTerm = 5;
 
     return {
-      balance: budget,
+      balance,
       maxLoan,
-      loans: [], // TODO: query actual loans from game server
+      loans,
       defaultInterest,
       defaultTerm,
     };
   }
 
   /**
-   * Execute a bank action (borrow, send, payoff) via RDO methods on TTycoon.
+   * Execute a bank action (borrow, send, payoff) via TycoonBankAccount.asp.
+   * The legacy Voyager client performs these as GET requests with Action params.
    */
   public async executeBankAction(
     action: string,
@@ -1508,272 +1639,385 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     _reason?: string,
     loanIndex?: number
   ): Promise<BankActionResult> {
-    if (!this.fTycoonProxyId) {
-      return { success: false, message: 'Tycoon proxy not available' };
-    }
-
-    const proxyId = String(this.fTycoonProxyId);
-
     try {
+      const worldIp = this.currentWorldInfo?.ip;
+      if (!worldIp) return { success: false, message: 'World IP not available' };
+
+      // Build base URL matching legacy Voyager pattern (no ISAddr/ISPort/ClientViewId for action URLs)
+      const baseParams = new URLSearchParams({
+        Tycoon: this.cachedUsername || '',
+        Password: this.cachedPassword || '',
+        Company: this.currentCompany?.name || '',
+        WorldName: this.currentWorldInfo?.name || '',
+        DAAddr: this.daAddr || config.rdo.directoryHost,
+        DAPort: String(config.rdo.ports.directory),
+        SecurityId: '',
+      });
+
+      let actionParams: URLSearchParams;
+
       switch (action) {
         case 'borrow': {
           if (!amount) return { success: false, message: 'Amount required' };
-          const packet = await this.sendRdoRequest('world', {
-            verb: RdoVerb.SEL,
-            targetId: proxyId,
-            action: RdoAction.CALL,
-            member: 'RDOAskLoan',
-            args: [RdoValue.string(amount).toString()],
-          });
-          const resp = packet.payload || '';
-          if (resp.includes('NOERROR') || resp.includes('Approved')) {
-            return { success: true, message: 'Loan approved' };
-          }
-          return { success: false, message: resp || 'Loan rejected' };
+          actionParams = new URLSearchParams(baseParams);
+          actionParams.set('Action', 'LOAN');
+          actionParams.set('LoanValue', amount);
+          break;
         }
         case 'send': {
           if (!amount || !toTycoon) return { success: false, message: 'Amount and recipient required' };
-          const packet = await this.sendRdoRequest('world', {
-            verb: RdoVerb.SEL,
-            targetId: proxyId,
-            action: RdoAction.CALL,
-            member: 'RDOSendMoney',
-            args: [RdoValue.string(toTycoon).toString(), RdoValue.string('').toString(), RdoValue.string(amount).toString()],
-          });
-          const resp = packet.payload || '';
-          if (resp.includes('NOERROR')) {
-            return { success: true, message: `Sent $${amount} to ${toTycoon}` };
-          }
-          return { success: false, message: resp || 'Transfer failed' };
+          actionParams = new URLSearchParams(baseParams);
+          actionParams.set('Action', 'SEND');
+          actionParams.set('SendValue', amount);
+          actionParams.set('SendDest', toTycoon);
+          actionParams.set('SendReason', '');
+          break;
         }
         case 'payoff': {
           if (loanIndex === undefined || loanIndex < 0) return { success: false, message: 'Loan index required' };
-          const packet = await this.sendRdoRequest('world', {
-            verb: RdoVerb.SEL,
-            targetId: proxyId,
-            action: RdoAction.CALL,
-            member: 'RDOPayOff',
-            args: [RdoValue.int(loanIndex).toString()],
-          });
-          const resp = packet.payload || '';
-          return { success: true, message: resp || 'Loan paid off' };
+          actionParams = new URLSearchParams(baseParams);
+          actionParams.set('Action', 'PAYOFF');
+          actionParams.set('LID', String(loanIndex));
+          break;
         }
         default:
           return { success: false, message: `Unknown action: ${action}` };
       }
+
+      const url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/TycoonBankAccount.asp?${actionParams.toString()}`;
+      this.log.debug(`[Bank] Executing ${action}: ${url}`);
+      const response = await fetch(url, { redirect: 'follow' });
+      const html = await response.text();
+
+      // Check for error messages in response HTML
+      const errorMatch = /class=errorText[^>]*>\s*([^<]+)/i.exec(html);
+      if (errorMatch) {
+        return { success: false, message: errorMatch[1].trim() };
+      }
+
+      // If the page reloaded successfully with updated budget, it worked
+      const budgetMatch = /var\s+budget\s*=\s*(-?\d+)\s*;/i.exec(html);
+      if (budgetMatch) {
+        this.accountMoney = budgetMatch[1];
+      }
+
+      return { success: true, message: `${action} completed successfully` };
     } catch (e) {
       return { success: false, message: toErrorMessage(e) };
     }
   }
 
   /**
-   * Fetch profit & loss data. Queries GetCompanyProfit on IS proxy for each company.
-   * The full hierarchical P&L tree requires parsing the account report from the server.
+   * Fetch profit & loss data via TycoonProfitAndLoses.asp on IS HTTP server.
+   * Parses the full hierarchical P&L tree from the ASP HTML response.
    */
   public async fetchProfitLoss(): Promise<ProfitLossData> {
-    // Start with fetching basic tycoon budget info
-    const profile = await this.fetchTycoonProfile();
+    const html = await this.fetchAspPage('NewTycoon/TycoonProfitAndLoses.asp', { RIWS: '' });
+    return this.parseProfitLossHtml(html);
+  }
 
-    // Build a simple P&L tree from available data
+  /**
+   * Parse TycoonProfitAndLoses.asp HTML response.
+   * Each row: `<div class=labelAccountLevel{N}>` label, then `$<amount>` in sibling div.
+   * Chart data: `ChartInfo=<count>,<values...>` in href attributes.
+   * Builds hierarchical ProfitLossNode tree by nesting levels.
+   */
+  private parseProfitLossHtml(html: string): ProfitLossData {
     const root: ProfitLossNode = {
       label: 'Net Profit (losses)',
       level: 0,
-      amount: profile.budget,
+      amount: '0',
       children: [],
     };
 
-    // Try to get per-company profit from IS proxy
-    if (this.interfaceServerId) {
-      try {
-        const isProxyId = String(this.interfaceServerId);
-        // Get company count
-        const countPacket = await this.sendRdoRequest('world', {
-          verb: RdoVerb.SEL,
-          targetId: isProxyId,
-          action: RdoAction.GET,
-          member: 'CompanyCount',
-        });
-        const countStr = parsePropertyResponseHelper(countPacket.payload!, 'CompanyCount');
-        const companyCount = parseInt(countStr || '0', 10);
+    // Parse all P&L rows in sequence
+    // Pattern: <div class=labelAccountLevelN> ... label text ... </div> followed by amount
+    const rowRegex = /<div\s+class=labelAccountLevel(\d)[^>]*>[\s\S]*?<nobr>([\s\S]*?)<\/nobr>[\s\S]*?<\/td>\s*<td[^>]*>[\s\S]*?(?:\$([0-9,.-]+)|<\/nobr>)/gi;
+    let match;
+    const nodes: ProfitLossNode[] = [];
 
-        for (let i = 0; i < companyCount; i++) {
-          try {
-            // Get company name and profit
-            const namePacket = await this.sendRdoRequest('world', {
-              verb: RdoVerb.SEL,
-              targetId: isProxyId,
-              action: RdoAction.CALL,
-              member: 'GetCompanyName',
-              args: [RdoValue.int(i).toString()],
-            });
-            const companyName = parsePropertyResponseHelper(namePacket.payload!, 'GetCompanyName') || `Company ${i}`;
+    while ((match = rowRegex.exec(html)) !== null) {
+      const level = parseInt(match[1], 10);
+      // Clean label: strip HTML tags and img elements
+      let label = match[2].replace(/<[^>]*>/g, '').trim();
+      const amount = match[3] ? match[3].replace(/,/g, '') : '';
 
-            const profitPacket = await this.sendRdoRequest('world', {
-              verb: RdoVerb.SEL,
-              targetId: isProxyId,
-              action: RdoAction.CALL,
-              member: 'GetCompanyProfit',
-              args: [RdoValue.int(i).toString()],
-            });
-            const profitStr = parsePropertyResponseHelper(profitPacket.payload!, 'GetCompanyProfit') || '0';
-
-            root.children!.push({
-              label: companyName,
-              level: 1,
-              amount: profitStr,
-            });
-          } catch (e) {
-            this.log.warn(`[P&L] Failed to fetch company ${i} data:`, e);
-          }
-        }
-      } catch (e) {
-        this.log.warn('[P&L] Failed to fetch company data from IS:', e);
+      // Extract chart data if available nearby
+      const chartMatch = /ChartInfo=(\d+),([-\d,]+)/i.exec(html.substring(match.index, match.index + 500));
+      let chartData: number[] | undefined;
+      if (chartMatch) {
+        const values = chartMatch[2].split(',').map(v => parseInt(v, 10));
+        chartData = values;
       }
+
+      // Level 2 items with margin-top are sub-headers (e.g., "RESIDENTIALS")
+      const isHeader = level === 2 && !amount;
+
+      const node: ProfitLossNode = {
+        label: label || 'Unknown',
+        level,
+        amount: amount || '0',
+        chartData,
+        isHeader,
+        children: [],
+      };
+
+      nodes.push(node);
+    }
+
+    // Build tree: level 0 = root, higher levels nest under their parent
+    if (nodes.length > 0) {
+      // First node is the root (Net Profit)
+      root.label = nodes[0].label;
+      root.amount = nodes[0].amount;
+      root.chartData = nodes[0].chartData;
+    }
+
+    // Stack-based nesting: each node is child of nearest lower-level ancestor
+    const stack: ProfitLossNode[] = [root];
+    for (let i = 1; i < nodes.length; i++) {
+      const node = nodes[i];
+      // Pop stack until we find a parent with lower level
+      while (stack.length > 1 && stack[stack.length - 1].level >= node.level) {
+        stack.pop();
+      }
+      const parent = stack[stack.length - 1];
+      if (!parent.children) parent.children = [];
+      parent.children.push(node);
+      stack.push(node);
     }
 
     return { root };
   }
 
   /**
-   * Fetch companies list via IS proxy methods.
+   * Fetch companies list via chooseCompany.asp on IS HTTP server.
+   * This matches the legacy Voyager client and shows cluster, facility count, etc.
    */
   public async fetchCompanies(): Promise<CompaniesData> {
-    const companies: CompanyListItem[] = [];
     const currentCompany = this.currentCompany?.name || '';
 
-    if (this.interfaceServerId) {
-      const isProxyId = String(this.interfaceServerId);
-
-      try {
-        const countPacket = await this.sendRdoRequest('world', {
-          verb: RdoVerb.SEL,
-          targetId: isProxyId,
-          action: RdoAction.GET,
-          member: 'CompanyCount',
-        });
-        const countStr = parsePropertyResponseHelper(countPacket.payload!, 'CompanyCount');
-        const companyCount = parseInt(countStr || '0', 10);
-
-        for (let i = 0; i < companyCount; i++) {
-          try {
-            const namePacket = await this.sendRdoRequest('world', {
-              verb: RdoVerb.SEL,
-              targetId: isProxyId,
-              action: RdoAction.CALL,
-              member: 'GetCompanyName',
-              args: [RdoValue.int(i).toString()],
-            });
-            const name = parsePropertyResponseHelper(namePacket.payload!, 'GetCompanyName') || `Company ${i}`;
-
-            const idPacket = await this.sendRdoRequest('world', {
-              verb: RdoVerb.SEL,
-              targetId: isProxyId,
-              action: RdoAction.CALL,
-              member: 'GetCompanyId',
-              args: [RdoValue.int(i).toString()],
-            });
-            const companyId = parseInt(parsePropertyResponseHelper(idPacket.payload!, 'GetCompanyId') || '0', 10);
-
-            // Try to get facility count
-            let facilityCount = 0;
-            try {
-              const facPacket = await this.sendRdoRequest('world', {
-                verb: RdoVerb.SEL,
-                targetId: isProxyId,
-                action: RdoAction.CALL,
-                member: 'GetCompanyFacilityCount',
-                args: [RdoValue.int(i).toString()],
-              });
-              facilityCount = parseInt(parsePropertyResponseHelper(facPacket.payload!, 'GetCompanyFacilityCount') || '0', 10);
-            } catch {
-              // Facility count not available — proceed with 0
-            }
-
-            companies.push({
-              name,
-              companyId,
-              ownerRole: this.cachedUsername || '',
-              cluster: '', // Would need additional RDO to determine
-              facilityCount,
-              companyType: 'Private',
-            });
-          } catch (e) {
-            this.log.warn(`[Companies] Failed to fetch company ${i}:`, e);
-          }
-        }
-      } catch (e) {
-        this.log.warn('[Companies] Failed to fetch company list:', e);
-      }
+    try {
+      const html = await this.fetchAspPage('NewLogon/chooseCompany.asp', {
+        Logon: 'FALSE',
+        UserName: this.cachedUsername || '',
+        RIWS: '',
+      });
+      const companies = this.parseCompaniesHtml(html);
+      return { companies, currentCompany };
+    } catch (e) {
+      this.log.warn('[Companies] ASP fetch failed:', e);
+      return { companies: [], currentCompany };
     }
-
-    return { companies, currentCompany };
   }
 
   /**
-   * Fetch auto-connections (initial suppliers) from tycoon proxy.
+   * Parse chooseCompany.asp HTML response.
+   * Companies: `<td ... companyId="N" companyName="..." companyOwnerRole="...">` elements.
+   * Cluster: from CompanyCluster= in "more info" link.
+   * Facility count: from "<nobr> N Facilities </nobr>" text.
+   */
+  private parseCompaniesHtml(html: string): CompanyListItem[] {
+    const companies: CompanyListItem[] = [];
+
+    // Match company <td> elements with attributes
+    const tdRegex = /<td[^>]*companyId="(\d+)"[^>]*>/gi;
+    let tdMatch;
+
+    while ((tdMatch = tdRegex.exec(html)) !== null) {
+      const companyId = parseInt(tdMatch[1], 10);
+      const tdElement = tdMatch[0];
+
+      // Extract company name
+      const nameMatch = /companyName="([^"]+)"/i.exec(tdElement);
+      const name = nameMatch ? nameMatch[1] : `Company ${companyId}`;
+
+      // Extract owner role
+      const roleMatch = /companyOwnerRole="([^"]*)"/i.exec(tdElement);
+      const ownerRole = roleMatch ? roleMatch[1] : this.cachedUsername || '';
+
+      // Look ahead in the HTML after this td for cluster and facility count
+      const nextTdIdx = html.indexOf('<td', tdMatch.index + tdMatch[0].length);
+      const sectionEnd = nextTdIdx > 0 ? nextTdIdx : tdMatch.index + 2000;
+      const section = html.substring(tdMatch.index, sectionEnd);
+
+      // Extract cluster from "more info" link: CompanyCluster=<cluster>
+      const clusterMatch = /CompanyCluster=(\w+)/i.exec(section);
+      const cluster = clusterMatch ? clusterMatch[1] : '';
+
+      // Extract facility count: "N Facilities"
+      const facMatch = /(\d+)\s+Facilities/i.exec(section);
+      const facilityCount = facMatch ? parseInt(facMatch[1], 10) : 0;
+
+      // Extract company type: "Private" or other text in <nobr>
+      const typeMatch = /<nobr>\s*(Private|Public|Mayor|Minister|President)\s*<\/nobr>/i.exec(section);
+      const companyType = typeMatch ? typeMatch[1] : 'Private';
+
+      companies.push({
+        name,
+        companyId,
+        ownerRole,
+        cluster,
+        facilityCount,
+        companyType,
+      });
+    }
+
+    return companies;
+  }
+
+  /**
+   * Fetch auto-connections (initial suppliers) via TycoonAutoConnections.asp on IS HTTP server.
    */
   public async fetchAutoConnections(): Promise<AutoConnectionsData> {
-    // Auto-connections are a complex collection property on TTycoon.
-    // The data format needs to be parsed from the RDO response.
-    // For now, return empty — will be populated when we verify the RDO format.
+    try {
+      const html = await this.fetchAspPage('NewTycoon/TycoonAutoConnections.asp', { RIWS: '' });
+      return this.parseAutoConnectionsHtml(html);
+    } catch (e) {
+      this.log.warn('[AutoConnections] ASP fetch failed:', e);
+      return { fluids: [] };
+    }
+  }
+
+  /**
+   * Parse TycoonAutoConnections.asp HTML response.
+   * Fluid headers: `<div id="FluidName" class=header3>`.
+   * Supplier rows: `<tr id=FluidN fluid=Fluid facilityId="x,y,">` with facility/company names.
+   * Checkboxes: HireTC (trade center) and HireWH (warehouses only).
+   */
+  private parseAutoConnectionsHtml(html: string): AutoConnectionsData {
     const fluids: AutoConnectionFluid[] = [];
 
-    if (this.fTycoonProxyId) {
-      try {
-        const proxyId = String(this.fTycoonProxyId);
-        const packet = await this.sendRdoRequest('world', {
-          verb: RdoVerb.SEL,
-          targetId: proxyId,
-          action: RdoAction.GET,
-          member: 'AutoConnections',
+    // Find all fluid header divs: <div id="FluidName" class=header3 style="color: #EEEECC">
+    const headerRegex = /<div\s+id="([^"]+)"\s+class=header3[^>]*>\s*([^<]*)/gi;
+    let headerMatch;
+    const fluidPositions: Array<{ fluidName: string; startIdx: number }> = [];
+
+    while ((headerMatch = headerRegex.exec(html)) !== null) {
+      fluidPositions.push({
+        fluidName: headerMatch[1],
+        startIdx: headerMatch.index,
+      });
+    }
+
+    // Process each fluid section
+    for (let fi = 0; fi < fluidPositions.length; fi++) {
+      const { fluidName, startIdx } = fluidPositions[fi];
+      const endIdx = fi + 1 < fluidPositions.length ? fluidPositions[fi + 1].startIdx : html.length;
+      const section = html.substring(startIdx, endIdx);
+
+      const suppliers: SupplierEntry[] = [];
+
+      // Parse supplier rows: <tr id=FluidN fluid=Fluid onClick="onRowClick()" facilityId="x,y,">
+      const rowRegex = /<tr[^>]*\bfluid=(\w+)[^>]*\bfacilityId="([^"]+)"[^>]*>([\s\S]*?)<\/tr>/gi;
+      let rowMatch;
+      while ((rowMatch = rowRegex.exec(section)) !== null) {
+        const facilityId = rowMatch[2].trim();
+        const rowContent = rowMatch[3];
+
+        // Extract facility name and company name from <div class=value> elements
+        const valueRegex = /<div\s+class=value[^>]*>\s*([^<]+)/gi;
+        const values: string[] = [];
+        let valMatch;
+        while ((valMatch = valueRegex.exec(rowContent)) !== null) {
+          values.push(valMatch[1].trim());
+        }
+
+        suppliers.push({
+          facilityName: values[0] || 'Unknown',
+          facilityId,
+          companyName: values[1] || '',
         });
-        const raw = packet.payload || '';
-        this.log.debug('[AutoConnections] Raw response:', raw);
-        // TODO: Parse the AutoConnections collection format
-        // Format likely: serialized fluid→supplier pairs
-      } catch (e) {
-        this.log.warn('[AutoConnections] Failed to fetch:', e);
       }
+
+      // Parse trade center checkbox: <input id=FluidHireTC ... fluidId="Fluid" checked>
+      const tcRegex = new RegExp(`<input[^>]*id=${fluidName}HireTC[^>]*\\bchecked\\b`, 'i');
+      const hireTradeCenter = tcRegex.test(section);
+
+      // Parse warehouse checkbox: <input id=FluidHireWH ... checked>
+      const whRegex = new RegExp(`<input[^>]*id=${fluidName}HireWH[^>]*\\bchecked\\b`, 'i');
+      const onlyWarehouses = whRegex.test(section);
+
+      fluids.push({
+        fluidName,
+        fluidId: fluidName,
+        suppliers,
+        hireTradeCenter,
+        onlyWarehouses,
+      });
     }
 
     return { fluids };
   }
 
   /**
-   * Execute an auto-connection action (add/delete supplier, toggle trade center/warehouse).
+   * Execute an auto-connection action via IS HTTP ASP pages.
+   * Delete: DeleteDefaultSupplier.asp, Toggle TC: ModifyTradeCenterStatus.asp,
+   * Toggle WH: ModifyWarehouseStatus.asp. These match the legacy Voyager pattern.
    */
   public async executeAutoConnectionAction(
     action: string,
     fluidId: string,
     suppliers?: string
   ): Promise<{ success: boolean; message?: string }> {
-    if (!this.fTycoonProxyId) {
-      return { success: false, message: 'Tycoon proxy not available' };
-    }
+    const worldIp = this.currentWorldInfo?.ip;
+    if (!worldIp) return { success: false, message: 'World IP not available' };
 
-    const proxyId = String(this.fTycoonProxyId);
+    const basePath = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/`;
+    const tycoonId = this.tycoonId || '';
 
     try {
-      const methodMap: Record<string, { member: string; args: string[] }> = {
-        add: { member: 'RDOAddAutoConnection', args: [RdoValue.string(fluidId).toString(), RdoValue.string(suppliers || '').toString()] },
-        delete: { member: 'RDODelAutoConnection', args: [RdoValue.string(fluidId).toString(), RdoValue.string(suppliers || '').toString()] },
-        hireTradeCenter: { member: 'RDOHireTradeCenter', args: [RdoValue.string(fluidId).toString()] },
-        dontHireTradeCenter: { member: 'RDODontHireTradeCenter', args: [RdoValue.string(fluidId).toString()] },
-        onlyWarehouses: { member: 'RDOHireOnlyFromWarehouse', args: [RdoValue.string(fluidId).toString()] },
-        dontOnlyWarehouses: { member: 'RDODontHireOnlyFromWarehouse', args: [RdoValue.string(fluidId).toString()] },
-      };
+      let url: string;
 
-      const method = methodMap[action];
-      if (!method) return { success: false, message: `Unknown action: ${action}` };
+      switch (action) {
+        case 'delete': {
+          if (!suppliers) return { success: false, message: 'Supplier facility ID required' };
+          const params = new URLSearchParams({
+            TycoonId: tycoonId,
+            FluidId: fluidId,
+            DAAddr: this.daAddr || config.rdo.directoryHost,
+            DAPort: String(config.rdo.ports.directory),
+            Supplier: suppliers,
+          });
+          url = `${basePath}DeleteDefaultSupplier.asp?${params.toString()}`;
+          break;
+        }
+        case 'hireTradeCenter':
+        case 'dontHireTradeCenter': {
+          const params = new URLSearchParams({
+            TycoonId: tycoonId,
+            FluidId: fluidId,
+            DAAddr: this.daAddr || config.rdo.directoryHost,
+            WorldName: this.currentWorldInfo?.name || '',
+            Tycoon: this.cachedUsername || '',
+            Password: this.cachedPassword || '',
+            DAPort: String(config.rdo.ports.directory),
+            Hire: action === 'hireTradeCenter' ? 'YES' : 'NO',
+          });
+          url = `${basePath}ModifyTradeCenterStatus.asp?${params.toString()}`;
+          break;
+        }
+        case 'onlyWarehouses':
+        case 'dontOnlyWarehouses': {
+          const params = new URLSearchParams({
+            TycoonId: tycoonId,
+            FluidId: fluidId,
+            DAAddr: this.daAddr || config.rdo.directoryHost,
+            WorldName: this.currentWorldInfo?.name || '',
+            Tycoon: this.cachedUsername || '',
+            Password: this.cachedPassword || '',
+            DAPort: String(config.rdo.ports.directory),
+            Hire: action === 'onlyWarehouses' ? 'YES' : 'NO',
+          });
+          url = `${basePath}ModifyWarehouseStatus.asp?${params.toString()}`;
+          break;
+        }
+        default:
+          return { success: false, message: `Unknown action: ${action}` };
+      }
 
-      await this.sendRdoRequest('world', {
-        verb: RdoVerb.SEL,
-        targetId: proxyId,
-        action: RdoAction.CALL,
-        member: method.member,
-        args: method.args,
-      });
-
+      this.log.debug(`[AutoConnections] Executing ${action}: ${url}`);
+      await fetch(url, { redirect: 'follow' });
       return { success: true };
     } catch (e) {
       return { success: false, message: toErrorMessage(e) };
@@ -1781,50 +2025,91 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
   }
 
   /**
-   * Fetch policy data (diplomatic relationships) from tycoon proxy.
+   * Fetch policy data (diplomatic relationships) via TycoonPolicy.asp on IS HTTP server.
    */
   public async fetchPolicy(): Promise<PolicyData> {
-    const policies: PolicyEntry[] = [];
+    try {
+      const html = await this.fetchAspPage('NewTycoon/TycoonPolicy.asp', { RIWS: '' });
+      return this.parsePolicyHtml(html);
+    } catch (e) {
+      this.log.warn('[Policy] ASP fetch failed:', e);
+      return { policies: [] };
+    }
+  }
 
-    if (this.fTycoonProxyId) {
-      try {
-        const proxyId = String(this.fTycoonProxyId);
-        const packet = await this.sendRdoRequest('world', {
-          verb: RdoVerb.SEL,
-          targetId: proxyId,
-          action: RdoAction.GET,
-          member: 'Policy',
-        });
-        const raw = packet.payload || '';
-        this.log.debug('[Policy] Raw response:', raw);
-        // TODO: Parse the Policy collection format
-        // Format likely: serialized tycoon→status pairs
-      } catch (e) {
-        this.log.warn('[Policy] Failed to fetch:', e);
-      }
+  /**
+   * Parse TycoonPolicy.asp HTML response.
+   * Tycoon rows: name in `<div class=label style="color: #94B9B0">`, your policy in
+   * `<select ... tycoon="name">` with selected option (0=Ally,1=Neutral,2=Enemy),
+   * their policy in `<span id=otherspan\d+>` (A/N/E).
+   */
+  private parsePolicyHtml(html: string): PolicyData {
+    const policies: PolicyEntry[] = [];
+    const policyLetterMap: Record<string, number> = { A: 0, N: 1, E: 2 };
+
+    // Match select elements with tycoon attribute
+    const selectRegex = /<select[^>]*\btycoon="([^"]+)"[^>]*>([\s\S]*?)<\/select>/gi;
+    let selectMatch;
+    let idx = 0;
+
+    while ((selectMatch = selectRegex.exec(html)) !== null) {
+      const tycoonName = selectMatch[1];
+      const selectContent = selectMatch[2];
+
+      // Find selected option value
+      const selectedMatch = /<option\s+value="(\d)"[^>]*\bselected\b/i.exec(selectContent);
+      const yourPolicy = selectedMatch ? parseInt(selectedMatch[1], 10) : 1;
+
+      // Find their policy: <span id=otherspan{idx}> text
+      const otherSpanRegex = new RegExp(`<span\\s+id=otherspan${idx}[^>]*>\\s*([ANE])`, 'i');
+      const otherMatch = otherSpanRegex.exec(html);
+      const theirPolicyLetter = otherMatch ? otherMatch[1].toUpperCase() : 'N';
+      const theirPolicy = policyLetterMap[theirPolicyLetter] ?? 1;
+
+      policies.push({ tycoonName, yourPolicy, theirPolicy });
+      idx++;
     }
 
     return { policies };
   }
 
   /**
-   * Set diplomatic policy towards another tycoon.
+   * Set diplomatic policy towards another tycoon via TycoonPolicy.asp POST.
+   * This matches the legacy Voyager form submission pattern.
    */
   public async setPolicyStatus(tycoonName: string, status: number): Promise<{ success: boolean; message?: string }> {
-    if (!this.fTycoonProxyId) {
-      return { success: false, message: 'Tycoon proxy not available' };
-    }
-
-    const proxyId = String(this.fTycoonProxyId);
+    const worldIp = this.currentWorldInfo?.ip;
+    if (!worldIp) return { success: false, message: 'World IP not available' };
 
     try {
-      await this.sendRdoRequest('world', {
-        verb: RdoVerb.SEL,
-        targetId: proxyId,
-        action: RdoAction.CALL,
-        member: 'RDOSetPolicyStatus',
-        args: [RdoValue.string(tycoonName).toString(), RdoValue.int(status).toString()],
+      const queryParams = new URLSearchParams({
+        Action: 'modify',
+        WorldName: this.currentWorldInfo?.name || '',
+        Tycoon: this.cachedUsername || '',
+        TycoonId: this.tycoonId || '',
+        Password: this.cachedPassword || '',
+        DAAddr: this.daAddr || config.rdo.directoryHost,
+        DAPort: String(config.rdo.ports.directory),
       });
+
+      const url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/TycoonPolicy.asp?${queryParams.toString()}`;
+
+      // POST body matches the form: NextStatus + SubTycoon + Subject + Status
+      const body = new URLSearchParams({
+        NextStatus: String(status),
+        SubTycoon: tycoonName,
+        Subject: tycoonName,
+        Status: String(status),
+      });
+
+      this.log.debug(`[Policy] Setting policy for ${tycoonName} to ${status}`);
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+        redirect: 'follow',
+      });
+
       return { success: true };
     } catch (e) {
       return { success: false, message: toErrorMessage(e) };
@@ -3042,6 +3327,12 @@ private handlePush(socketName: string, packet: RdoPacket) {
         buildingCount: parseInt(cleanArgs[3], 10) || 0,
         maxBuildings: parseInt(cleanArgs[4], 10) || 0
       };
+
+      // Cache push data for profile queries
+      this.accountMoney = tycoonUpdate.cash;
+      this.lastRanking = tycoonUpdate.ranking;
+      this.lastBuildingCount = tycoonUpdate.buildingCount;
+      this.lastMaxBuildings = tycoonUpdate.maxBuildings;
 
       this.log.debug(`[Push] Tycoon Update: Cash=${tycoonUpdate.cash}, Income/h=${tycoonUpdate.incomePerHour}, Rank=${tycoonUpdate.ranking}, Buildings=${tycoonUpdate.buildingCount}/${tycoonUpdate.maxBuildings}`);
       this.emit('ws_event', tycoonUpdate);
