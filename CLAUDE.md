@@ -55,6 +55,28 @@ Browser Client ──WebSocket──> Node.js Gateway ──RDO Protocol──> 
 
 For bash/git-bash shells, add to PATH: `export PATH="/c/Program Files/nodejs:$PATH"`
 
+## MCP Servers (Claude Code)
+
+Project-level MCP config is in [.mcp.json](.mcp.json) (committed to git). All devs get the same tools automatically.
+
+| MCP | Package | Purpose |
+|-----|---------|---------|
+| **GitHub** | `@modelcontextprotocol/server-github` | PRs, issues, code search, repo management |
+| **Playwright** | `@playwright/mcp` | Browser automation for E2E testing |
+| **Context7** | `@upstash/context7-mcp` | Live documentation lookup (TS, Jest, Node.js, etc.) |
+
+**Setup (one-time per dev):**
+
+```bash
+# Set GitHub token (required for GitHub MCP)
+# Generate at: https://github.com/settings/tokens (scopes: repo, read:org)
+export GITHUB_PERSONAL_ACCESS_TOKEN="ghp_your_token_here"
+
+# Or add to your shell profile (~/.bashrc, ~/.zshrc, etc.) for persistence
+```
+
+**Note:** Chrome/browser automation is built into Claude Code (`claude --chrome`), no MCP needed.
+
 ## Commands
 
 ```bash
