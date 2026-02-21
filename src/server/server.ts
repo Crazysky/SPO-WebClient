@@ -116,6 +116,21 @@ import {
   // Profile
   WsReqGetProfile,
   WsRespGetProfile,
+  // Profile Tabs
+  WsReqProfileBankAction,
+  WsRespProfileCurriculum,
+  WsRespProfileBank,
+  WsRespProfileBankAction,
+  WsRespProfileProfitLoss,
+  WsRespProfileCompanies,
+  WsRespProfileAutoConnections,
+  WsReqProfileAutoConnectionAction,
+  WsRespProfileAutoConnectionAction,
+  WsRespProfilePolicy,
+  WsReqProfilePolicySet,
+  WsRespProfilePolicySet,
+  BankActionType,
+  AutoConnectionActionType,
 } from '../shared/types';
 import { toErrorMessage } from '../shared/error-utils';
 
@@ -2056,6 +2071,133 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
           type: WsMessageType.RESP_GET_PROFILE,
           wsRequestId: msg.wsRequestId,
           profile,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      // =================================================================
+      // PROFILE TABS
+      // =================================================================
+
+      case WsMessageType.REQ_PROFILE_CURRICULUM: {
+        console.log('[Gateway] Getting curriculum data');
+        const data = await session.fetchCurriculumData();
+        const response: WsRespProfileCurriculum = {
+          type: WsMessageType.RESP_PROFILE_CURRICULUM,
+          wsRequestId: msg.wsRequestId,
+          data,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_PROFILE_BANK: {
+        console.log('[Gateway] Getting bank account data');
+        const data = await session.fetchBankAccount();
+        const response: WsRespProfileBank = {
+          type: WsMessageType.RESP_PROFILE_BANK,
+          wsRequestId: msg.wsRequestId,
+          data,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_PROFILE_BANK_ACTION: {
+        const bankReq = msg as WsReqProfileBankAction;
+        console.log(`[Gateway] Bank action: ${bankReq.action}`);
+        const result = await session.executeBankAction(
+          bankReq.action,
+          bankReq.amount,
+          bankReq.toTycoon,
+          bankReq.reason,
+          bankReq.loanIndex
+        );
+        const response: WsRespProfileBankAction = {
+          type: WsMessageType.RESP_PROFILE_BANK_ACTION,
+          wsRequestId: msg.wsRequestId,
+          result,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_PROFILE_PROFITLOSS: {
+        console.log('[Gateway] Getting profit & loss data');
+        const data = await session.fetchProfitLoss();
+        const response: WsRespProfileProfitLoss = {
+          type: WsMessageType.RESP_PROFILE_PROFITLOSS,
+          wsRequestId: msg.wsRequestId,
+          data,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_PROFILE_COMPANIES: {
+        console.log('[Gateway] Getting companies data');
+        const data = await session.fetchCompanies();
+        const response: WsRespProfileCompanies = {
+          type: WsMessageType.RESP_PROFILE_COMPANIES,
+          wsRequestId: msg.wsRequestId,
+          data,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_PROFILE_AUTOCONNECTIONS: {
+        console.log('[Gateway] Getting auto connections data');
+        const data = await session.fetchAutoConnections();
+        const response: WsRespProfileAutoConnections = {
+          type: WsMessageType.RESP_PROFILE_AUTOCONNECTIONS,
+          wsRequestId: msg.wsRequestId,
+          data,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_PROFILE_AUTOCONNECTION_ACTION: {
+        const acReq = msg as WsReqProfileAutoConnectionAction;
+        console.log(`[Gateway] Auto connection action: ${acReq.action} for fluid ${acReq.fluidId}`);
+        const result = await session.executeAutoConnectionAction(
+          acReq.action,
+          acReq.fluidId,
+          acReq.suppliers
+        );
+        const response: WsRespProfileAutoConnectionAction = {
+          type: WsMessageType.RESP_PROFILE_AUTOCONNECTION_ACTION,
+          wsRequestId: msg.wsRequestId,
+          success: result.success,
+          message: result.message,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_PROFILE_POLICY: {
+        console.log('[Gateway] Getting policy data');
+        const data = await session.fetchPolicy();
+        const response: WsRespProfilePolicy = {
+          type: WsMessageType.RESP_PROFILE_POLICY,
+          wsRequestId: msg.wsRequestId,
+          data,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_PROFILE_POLICY_SET: {
+        const polReq = msg as WsReqProfilePolicySet;
+        console.log(`[Gateway] Setting policy for ${polReq.tycoonName} to ${polReq.status}`);
+        const result = await session.setPolicyStatus(polReq.tycoonName, polReq.status);
+        const response: WsRespProfilePolicySet = {
+          type: WsMessageType.RESP_PROFILE_POLICY_SET,
+          wsRequestId: msg.wsRequestId,
+          success: result.success,
+          message: result.message,
         };
         ws.send(JSON.stringify(response));
         break;

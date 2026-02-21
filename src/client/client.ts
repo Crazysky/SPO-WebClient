@@ -107,6 +107,7 @@ export class StarpeaceClient {
   private storedPassword = '';
   private availableCompanies: CompanyInfo[] = [];
   private currentCompanyName: string = '';
+  private currentWorldName: string = '';
 
   // Building focus state
   private currentFocusedBuilding: BuildingFocusInfo | null = null;
@@ -214,7 +215,7 @@ export class StarpeaceClient {
       });
 
       this.ui.toolbarUI.setOnCompanyMenu(() => {
-        this.ui.log('Info', 'Company menu not yet implemented');
+        this.ui.showProfilePanel('companies');
       });
 
       this.ui.toolbarUI.setOnMail(() => {
@@ -444,6 +445,19 @@ export class StarpeaceClient {
         this.ui.handleSearchMenuResponse(msg);
         break;
 
+      // Profile Tab Responses (delegated to profile panel)
+      case WsMessageType.RESP_PROFILE_CURRICULUM:
+      case WsMessageType.RESP_PROFILE_BANK:
+      case WsMessageType.RESP_PROFILE_BANK_ACTION:
+      case WsMessageType.RESP_PROFILE_PROFITLOSS:
+      case WsMessageType.RESP_PROFILE_COMPANIES:
+      case WsMessageType.RESP_PROFILE_AUTOCONNECTIONS:
+      case WsMessageType.RESP_PROFILE_AUTOCONNECTION_ACTION:
+      case WsMessageType.RESP_PROFILE_POLICY:
+      case WsMessageType.RESP_PROFILE_POLICY_SET:
+        this.ui.handleProfileResponse(msg);
+        break;
+
       // Profile Response
       case WsMessageType.RESP_GET_PROFILE: {
         const profile = (msg as WsRespGetProfile).profile;
@@ -463,6 +477,10 @@ export class StarpeaceClient {
           levelTier: profile.levelTier,
           area: profile.area,
         });
+        // Update profile panel tycoon info
+        if (this.ui.profilePanel) {
+          this.ui.profilePanel.setTycoonInfo(profile.name, profile.ranking, this.currentWorldName);
+        }
         break;
       }
 
@@ -513,6 +531,7 @@ export class StarpeaceClient {
 
     this.ui.log('Login', `Joining world ${worldName}...`);
     this.ui.loginUI.showWorldListLoading(`Connecting to ${worldName}...`);
+    this.currentWorldName = worldName;
 
     try {
       const req: WsReqLoginWorld = {
@@ -645,7 +664,19 @@ export class StarpeaceClient {
     this.ui.initGameUI(this.uiGamePanel, (msg) => this.sendMessage(msg));
     this.setupGameUICallbacks();
     this.ui.initTycoonStats(this.storedUsername);
-    
+
+    // Wire profile panel company switching callback
+    if (this.ui.profilePanel) {
+      this.ui.profilePanel.setOnSwitchCompany((companyName: string, _companyId: number) => {
+        // Find matching company from available companies
+        const company = this.availableCompanies.find(c => c.name === companyName);
+        if (company) {
+          this.ui.log('Profile', `Switching to company: ${companyName}`);
+          this.selectCompanyAndStart(company.id);
+        }
+      });
+    }
+
     this.ui.log('Renderer', 'Game view initialized');
   }
 

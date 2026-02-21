@@ -12,6 +12,7 @@ import { ZoneOverlayUI } from './zone-overlay-ui';
 import { BuildingDetailsPanel } from './building-details';
 import { SearchMenuPanel } from './search-menu';
 import { MailPanel } from './mail-panel';
+import { ProfilePanel } from './profile-panel';
 import {
   BuildingDetailsResponse,
   WsMessage,
@@ -46,6 +47,7 @@ export class UIManager {
   public buildingDetailsPanel: BuildingDetailsPanel | null = null;
   public searchMenuPanel: SearchMenuPanel | null = null;
   public mailPanel: MailPanel | null = null;
+  public profilePanel: ProfilePanel | null = null;
 
   // Console
   private uiConsole: HTMLElement;
@@ -108,6 +110,13 @@ export class UIManager {
         deleteMailMessage: (folder: MailFolder, messageId: string) => {
           sendMessage({ type: WsMessageType.REQ_MAIL_DELETE, folder, messageId });
         },
+      });
+    }
+
+    // Profile Panel
+    if (sendMessage) {
+      this.profilePanel = new ProfilePanel({
+        sendMessage,
       });
     }
   }
@@ -291,5 +300,29 @@ export class UIManager {
     if (this.searchMenuPanel) {
       this.searchMenuPanel.showError(errorMessage);
     }
+  }
+
+  // ===========================================================================
+  // PROFILE PANEL METHODS
+  // ===========================================================================
+
+  /**
+   * Show the profile panel (optionally opening a specific tab)
+   */
+  public showProfilePanel(tab?: 'curriculum' | 'bank' | 'profitloss' | 'suppliers' | 'companies' | 'strategy') {
+    if (this.profilePanel) {
+      this.profilePanel.show(tab);
+    }
+  }
+
+  /**
+   * Handle profile tab responses and route to profile panel
+   */
+  public handleProfileResponse(msg: WsMessage) {
+    if (!this.profilePanel) {
+      console.error('[UIManager] profilePanel is null!');
+      return;
+    }
+    this.profilePanel.handleResponse(msg);
   }
 }

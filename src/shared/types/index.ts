@@ -55,9 +55,23 @@ export type {
   MailAttachment,
   // Profile types
   TycoonProfileFull,
+  // Profile tab types
+  CurriculumData,
+  LoanInfo,
+  BankAccountData,
+  BankActionResult,
+  ProfitLossNode,
+  ProfitLossData,
+  CompanyListItem,
+  CompaniesData,
+  SupplierEntry,
+  AutoConnectionFluid,
+  AutoConnectionsData,
+  PolicyEntry,
+  PolicyData,
 } from './domain-types';
 
-export type { MailFolder } from './domain-types';
+export type { MailFolder, BankActionType, AutoConnectionActionType } from './domain-types';
 
 // Message types (WebSocket protocol)
 export {
@@ -171,4 +185,23 @@ export type {
   // Profile messages
   WsReqGetProfile,
   WsRespGetProfile,
+  // Profile tab messages
+  WsReqProfileCurriculum,
+  WsRespProfileCurriculum,
+  WsReqProfileBank,
+  WsRespProfileBank,
+  WsReqProfileBankAction,
+  WsRespProfileBankAction,
+  WsReqProfileProfitLoss,
+  WsRespProfileProfitLoss,
+  WsReqProfileCompanies,
+  WsRespProfileCompanies,
+  WsReqProfileAutoConnections,
+  WsRespProfileAutoConnections,
+  WsReqProfileAutoConnectionAction,
+  WsRespProfileAutoConnectionAction,
+  WsReqProfilePolicy,
+  WsRespProfilePolicy,
+  WsReqProfilePolicySet,
+  WsRespProfilePolicySet,
 } from './message-types';

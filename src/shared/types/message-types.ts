@@ -24,6 +24,15 @@ import type {
   MailFolder,
   MailMessageHeader,
   MailMessageFull,
+  CurriculumData,
+  BankAccountData,
+  BankActionType,
+  BankActionResult,
+  ProfitLossData,
+  CompaniesData,
+  AutoConnectionsData,
+  AutoConnectionActionType,
+  PolicyData,
 } from './domain-types';
 
 import type { RdoVerb, RdoAction } from './protocol-types';
@@ -160,6 +169,26 @@ export enum WsMessageType {
   // Profile
   REQ_GET_PROFILE = 'REQ_GET_PROFILE',
   RESP_GET_PROFILE = 'RESP_GET_PROFILE',
+
+  // Profile Tabs
+  REQ_PROFILE_CURRICULUM = 'REQ_PROFILE_CURRICULUM',
+  RESP_PROFILE_CURRICULUM = 'RESP_PROFILE_CURRICULUM',
+  REQ_PROFILE_BANK = 'REQ_PROFILE_BANK',
+  RESP_PROFILE_BANK = 'RESP_PROFILE_BANK',
+  REQ_PROFILE_BANK_ACTION = 'REQ_PROFILE_BANK_ACTION',
+  RESP_PROFILE_BANK_ACTION = 'RESP_PROFILE_BANK_ACTION',
+  REQ_PROFILE_PROFITLOSS = 'REQ_PROFILE_PROFITLOSS',
+  RESP_PROFILE_PROFITLOSS = 'RESP_PROFILE_PROFITLOSS',
+  REQ_PROFILE_COMPANIES = 'REQ_PROFILE_COMPANIES',
+  RESP_PROFILE_COMPANIES = 'RESP_PROFILE_COMPANIES',
+  REQ_PROFILE_AUTOCONNECTIONS = 'REQ_PROFILE_AUTOCONNECTIONS',
+  RESP_PROFILE_AUTOCONNECTIONS = 'RESP_PROFILE_AUTOCONNECTIONS',
+  REQ_PROFILE_AUTOCONNECTION_ACTION = 'REQ_PROFILE_AUTOCONNECTION_ACTION',
+  RESP_PROFILE_AUTOCONNECTION_ACTION = 'RESP_PROFILE_AUTOCONNECTION_ACTION',
+  REQ_PROFILE_POLICY = 'REQ_PROFILE_POLICY',
+  RESP_PROFILE_POLICY = 'RESP_PROFILE_POLICY',
+  REQ_PROFILE_POLICY_SET = 'REQ_PROFILE_POLICY_SET',
+  RESP_PROFILE_POLICY_SET = 'RESP_PROFILE_POLICY_SET',
 }
 
 // =============================================================================
@@ -749,6 +778,109 @@ export interface WsReqGetProfile extends WsMessage {
 export interface WsRespGetProfile extends WsMessage {
   type: WsMessageType.RESP_GET_PROFILE;
   profile: TycoonProfileFull;
+}
+
+// =============================================================================
+// PROFILE TAB MESSAGES
+// =============================================================================
+
+// --- Curriculum ---
+export interface WsReqProfileCurriculum extends WsMessage {
+  type: WsMessageType.REQ_PROFILE_CURRICULUM;
+}
+
+export interface WsRespProfileCurriculum extends WsMessage {
+  type: WsMessageType.RESP_PROFILE_CURRICULUM;
+  data: CurriculumData;
+}
+
+// --- Bank Account ---
+export interface WsReqProfileBank extends WsMessage {
+  type: WsMessageType.REQ_PROFILE_BANK;
+}
+
+export interface WsRespProfileBank extends WsMessage {
+  type: WsMessageType.RESP_PROFILE_BANK;
+  data: BankAccountData;
+}
+
+export interface WsReqProfileBankAction extends WsMessage {
+  type: WsMessageType.REQ_PROFILE_BANK_ACTION;
+  action: BankActionType;
+  amount?: string;
+  toTycoon?: string;
+  reason?: string;
+  loanIndex?: number;
+}
+
+export interface WsRespProfileBankAction extends WsMessage {
+  type: WsMessageType.RESP_PROFILE_BANK_ACTION;
+  result: BankActionResult;
+}
+
+// --- Profit & Loss ---
+export interface WsReqProfileProfitLoss extends WsMessage {
+  type: WsMessageType.REQ_PROFILE_PROFITLOSS;
+}
+
+export interface WsRespProfileProfitLoss extends WsMessage {
+  type: WsMessageType.RESP_PROFILE_PROFITLOSS;
+  data: ProfitLossData;
+}
+
+// --- Companies ---
+export interface WsReqProfileCompanies extends WsMessage {
+  type: WsMessageType.REQ_PROFILE_COMPANIES;
+}
+
+export interface WsRespProfileCompanies extends WsMessage {
+  type: WsMessageType.RESP_PROFILE_COMPANIES;
+  data: CompaniesData;
+}
+
+// --- Auto Connections ---
+export interface WsReqProfileAutoConnections extends WsMessage {
+  type: WsMessageType.REQ_PROFILE_AUTOCONNECTIONS;
+}
+
+export interface WsRespProfileAutoConnections extends WsMessage {
+  type: WsMessageType.RESP_PROFILE_AUTOCONNECTIONS;
+  data: AutoConnectionsData;
+}
+
+export interface WsReqProfileAutoConnectionAction extends WsMessage {
+  type: WsMessageType.REQ_PROFILE_AUTOCONNECTION_ACTION;
+  action: AutoConnectionActionType;
+  fluidId: string;
+  suppliers?: string;
+}
+
+export interface WsRespProfileAutoConnectionAction extends WsMessage {
+  type: WsMessageType.RESP_PROFILE_AUTOCONNECTION_ACTION;
+  success: boolean;
+  message?: string;
+}
+
+// --- Policy ---
+export interface WsReqProfilePolicy extends WsMessage {
+  type: WsMessageType.REQ_PROFILE_POLICY;
+}
+
+export interface WsRespProfilePolicy extends WsMessage {
+  type: WsMessageType.RESP_PROFILE_POLICY;
+  data: PolicyData;
+}
+
+export interface WsReqProfilePolicySet extends WsMessage {
+  type: WsMessageType.REQ_PROFILE_POLICY_SET;
+  tycoonName: string;
+  status: number;
+}
+
+export interface WsRespProfilePolicySet extends WsMessage {
+  type: WsMessageType.RESP_PROFILE_POLICY_SET;
+  success: boolean;
+  message?: string;
 }
 
 // =============================================================================

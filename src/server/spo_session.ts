@@ -35,6 +35,18 @@ import {
   MailMessageFull,
   MailAttachment,
   TycoonProfileFull,
+  CurriculumData,
+  BankAccountData,
+  BankActionResult,
+  ProfitLossData,
+  ProfitLossNode,
+  CompaniesData,
+  CompanyListItem,
+  AutoConnectionsData,
+  AutoConnectionFluid,
+  SupplierEntry,
+  PolicyData,
+  PolicyEntry,
 } from '../shared/types';
 import {
   getTemplateForVisualClass,
@@ -1417,6 +1429,406 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 
     this.log.debug(`[Profile] Fetched tycoon profile: ${profile.name} (Ranking #${profile.ranking})`);
     return profile;
+  }
+
+  // ===========================================================================
+  // PROFILE TABS
+  // ===========================================================================
+
+  /**
+   * Fetch curriculum data — reuses fetchTycoonProfile() since curriculum
+   * displays the same TTycoon properties (level, prestige, etc.).
+   */
+  public async fetchCurriculumData(): Promise<CurriculumData> {
+    const profile = await this.fetchTycoonProfile();
+    const levelNames = ['Apprentice', 'Entrepreneur', 'Tycoon', 'Master', 'Paradigm', 'Legend', 'BeyondLegend'];
+    const level = Math.min(profile.licenceLevel, levelNames.length - 1);
+    return {
+      currentLevel: level,
+      currentLevelName: levelNames[level] || 'Unknown',
+      prestige: profile.prestige,
+      facPrestige: profile.facPrestige,
+      researchPrestige: profile.researchPrestige,
+      budget: profile.budget,
+      ranking: profile.ranking,
+      facCount: profile.facCount,
+      facMax: profile.facMax,
+      area: profile.area,
+      nobPoints: profile.nobPoints,
+    };
+  }
+
+  /**
+   * Fetch bank account data — queries Budget property from tycoon proxy.
+   * Loan list and max loan use the same formulas as the original ASP page.
+   */
+  public async fetchBankAccount(): Promise<BankAccountData> {
+    if (!this.fTycoonProxyId) throw new Error('Tycoon proxy not available');
+
+    const proxyId = String(this.fTycoonProxyId);
+
+    // Get current budget
+    let budget = '0';
+    try {
+      const packet = await this.sendRdoRequest('world', {
+        verb: RdoVerb.SEL,
+        targetId: proxyId,
+        action: RdoAction.GET,
+        member: 'Budget',
+      });
+      const val = parsePropertyResponseHelper(packet.payload!, 'Budget');
+      if (val) budget = val;
+    } catch (e) {
+      this.log.warn('[Bank] Failed to fetch Budget:', e);
+    }
+
+    // Max loan: 2,500,000,000 (hardcoded in original ASP)
+    const maxLoan = '2500000000';
+    const existingLoans = 0; // TODO: fetch actual loan sum from server
+    const defaultInterest = Math.round((existingLoans + 2_500_000_000) / 100_000_000);
+    let defaultTerm = 200 - Math.round((existingLoans + 2_500_000_000) / 10_000_000);
+    if (defaultTerm < 5) defaultTerm = 5;
+
+    return {
+      balance: budget,
+      maxLoan,
+      loans: [], // TODO: query actual loans from game server
+      defaultInterest,
+      defaultTerm,
+    };
+  }
+
+  /**
+   * Execute a bank action (borrow, send, payoff) via RDO methods on TTycoon.
+   */
+  public async executeBankAction(
+    action: string,
+    amount?: string,
+    toTycoon?: string,
+    _reason?: string,
+    loanIndex?: number
+  ): Promise<BankActionResult> {
+    if (!this.fTycoonProxyId) {
+      return { success: false, message: 'Tycoon proxy not available' };
+    }
+
+    const proxyId = String(this.fTycoonProxyId);
+
+    try {
+      switch (action) {
+        case 'borrow': {
+          if (!amount) return { success: false, message: 'Amount required' };
+          const packet = await this.sendRdoRequest('world', {
+            verb: RdoVerb.SEL,
+            targetId: proxyId,
+            action: RdoAction.CALL,
+            member: 'RDOAskLoan',
+            args: [RdoValue.string(amount).toString()],
+          });
+          const resp = packet.payload || '';
+          if (resp.includes('NOERROR') || resp.includes('Approved')) {
+            return { success: true, message: 'Loan approved' };
+          }
+          return { success: false, message: resp || 'Loan rejected' };
+        }
+        case 'send': {
+          if (!amount || !toTycoon) return { success: false, message: 'Amount and recipient required' };
+          const packet = await this.sendRdoRequest('world', {
+            verb: RdoVerb.SEL,
+            targetId: proxyId,
+            action: RdoAction.CALL,
+            member: 'RDOSendMoney',
+            args: [RdoValue.string(toTycoon).toString(), RdoValue.string('').toString(), RdoValue.string(amount).toString()],
+          });
+          const resp = packet.payload || '';
+          if (resp.includes('NOERROR')) {
+            return { success: true, message: `Sent $${amount} to ${toTycoon}` };
+          }
+          return { success: false, message: resp || 'Transfer failed' };
+        }
+        case 'payoff': {
+          if (loanIndex === undefined || loanIndex < 0) return { success: false, message: 'Loan index required' };
+          const packet = await this.sendRdoRequest('world', {
+            verb: RdoVerb.SEL,
+            targetId: proxyId,
+            action: RdoAction.CALL,
+            member: 'RDOPayOff',
+            args: [RdoValue.int(loanIndex).toString()],
+          });
+          const resp = packet.payload || '';
+          return { success: true, message: resp || 'Loan paid off' };
+        }
+        default:
+          return { success: false, message: `Unknown action: ${action}` };
+      }
+    } catch (e) {
+      return { success: false, message: toErrorMessage(e) };
+    }
+  }
+
+  /**
+   * Fetch profit & loss data. Queries GetCompanyProfit on IS proxy for each company.
+   * The full hierarchical P&L tree requires parsing the account report from the server.
+   */
+  public async fetchProfitLoss(): Promise<ProfitLossData> {
+    // Start with fetching basic tycoon budget info
+    const profile = await this.fetchTycoonProfile();
+
+    // Build a simple P&L tree from available data
+    const root: ProfitLossNode = {
+      label: 'Net Profit (losses)',
+      level: 0,
+      amount: profile.budget,
+      children: [],
+    };
+
+    // Try to get per-company profit from IS proxy
+    if (this.interfaceServerId) {
+      try {
+        const isProxyId = String(this.interfaceServerId);
+        // Get company count
+        const countPacket = await this.sendRdoRequest('world', {
+          verb: RdoVerb.SEL,
+          targetId: isProxyId,
+          action: RdoAction.GET,
+          member: 'CompanyCount',
+        });
+        const countStr = parsePropertyResponseHelper(countPacket.payload!, 'CompanyCount');
+        const companyCount = parseInt(countStr || '0', 10);
+
+        for (let i = 0; i < companyCount; i++) {
+          try {
+            // Get company name and profit
+            const namePacket = await this.sendRdoRequest('world', {
+              verb: RdoVerb.SEL,
+              targetId: isProxyId,
+              action: RdoAction.CALL,
+              member: 'GetCompanyName',
+              args: [RdoValue.int(i).toString()],
+            });
+            const companyName = parsePropertyResponseHelper(namePacket.payload!, 'GetCompanyName') || `Company ${i}`;
+
+            const profitPacket = await this.sendRdoRequest('world', {
+              verb: RdoVerb.SEL,
+              targetId: isProxyId,
+              action: RdoAction.CALL,
+              member: 'GetCompanyProfit',
+              args: [RdoValue.int(i).toString()],
+            });
+            const profitStr = parsePropertyResponseHelper(profitPacket.payload!, 'GetCompanyProfit') || '0';
+
+            root.children!.push({
+              label: companyName,
+              level: 1,
+              amount: profitStr,
+            });
+          } catch (e) {
+            this.log.warn(`[P&L] Failed to fetch company ${i} data:`, e);
+          }
+        }
+      } catch (e) {
+        this.log.warn('[P&L] Failed to fetch company data from IS:', e);
+      }
+    }
+
+    return { root };
+  }
+
+  /**
+   * Fetch companies list via IS proxy methods.
+   */
+  public async fetchCompanies(): Promise<CompaniesData> {
+    const companies: CompanyListItem[] = [];
+    const currentCompany = this.currentCompany?.name || '';
+
+    if (this.interfaceServerId) {
+      const isProxyId = String(this.interfaceServerId);
+
+      try {
+        const countPacket = await this.sendRdoRequest('world', {
+          verb: RdoVerb.SEL,
+          targetId: isProxyId,
+          action: RdoAction.GET,
+          member: 'CompanyCount',
+        });
+        const countStr = parsePropertyResponseHelper(countPacket.payload!, 'CompanyCount');
+        const companyCount = parseInt(countStr || '0', 10);
+
+        for (let i = 0; i < companyCount; i++) {
+          try {
+            const namePacket = await this.sendRdoRequest('world', {
+              verb: RdoVerb.SEL,
+              targetId: isProxyId,
+              action: RdoAction.CALL,
+              member: 'GetCompanyName',
+              args: [RdoValue.int(i).toString()],
+            });
+            const name = parsePropertyResponseHelper(namePacket.payload!, 'GetCompanyName') || `Company ${i}`;
+
+            const idPacket = await this.sendRdoRequest('world', {
+              verb: RdoVerb.SEL,
+              targetId: isProxyId,
+              action: RdoAction.CALL,
+              member: 'GetCompanyId',
+              args: [RdoValue.int(i).toString()],
+            });
+            const companyId = parseInt(parsePropertyResponseHelper(idPacket.payload!, 'GetCompanyId') || '0', 10);
+
+            // Try to get facility count
+            let facilityCount = 0;
+            try {
+              const facPacket = await this.sendRdoRequest('world', {
+                verb: RdoVerb.SEL,
+                targetId: isProxyId,
+                action: RdoAction.CALL,
+                member: 'GetCompanyFacilityCount',
+                args: [RdoValue.int(i).toString()],
+              });
+              facilityCount = parseInt(parsePropertyResponseHelper(facPacket.payload!, 'GetCompanyFacilityCount') || '0', 10);
+            } catch {
+              // Facility count not available — proceed with 0
+            }
+
+            companies.push({
+              name,
+              companyId,
+              ownerRole: this.cachedUsername || '',
+              cluster: '', // Would need additional RDO to determine
+              facilityCount,
+              companyType: 'Private',
+            });
+          } catch (e) {
+            this.log.warn(`[Companies] Failed to fetch company ${i}:`, e);
+          }
+        }
+      } catch (e) {
+        this.log.warn('[Companies] Failed to fetch company list:', e);
+      }
+    }
+
+    return { companies, currentCompany };
+  }
+
+  /**
+   * Fetch auto-connections (initial suppliers) from tycoon proxy.
+   */
+  public async fetchAutoConnections(): Promise<AutoConnectionsData> {
+    // Auto-connections are a complex collection property on TTycoon.
+    // The data format needs to be parsed from the RDO response.
+    // For now, return empty — will be populated when we verify the RDO format.
+    const fluids: AutoConnectionFluid[] = [];
+
+    if (this.fTycoonProxyId) {
+      try {
+        const proxyId = String(this.fTycoonProxyId);
+        const packet = await this.sendRdoRequest('world', {
+          verb: RdoVerb.SEL,
+          targetId: proxyId,
+          action: RdoAction.GET,
+          member: 'AutoConnections',
+        });
+        const raw = packet.payload || '';
+        this.log.debug('[AutoConnections] Raw response:', raw);
+        // TODO: Parse the AutoConnections collection format
+        // Format likely: serialized fluid→supplier pairs
+      } catch (e) {
+        this.log.warn('[AutoConnections] Failed to fetch:', e);
+      }
+    }
+
+    return { fluids };
+  }
+
+  /**
+   * Execute an auto-connection action (add/delete supplier, toggle trade center/warehouse).
+   */
+  public async executeAutoConnectionAction(
+    action: string,
+    fluidId: string,
+    suppliers?: string
+  ): Promise<{ success: boolean; message?: string }> {
+    if (!this.fTycoonProxyId) {
+      return { success: false, message: 'Tycoon proxy not available' };
+    }
+
+    const proxyId = String(this.fTycoonProxyId);
+
+    try {
+      const methodMap: Record<string, { member: string; args: string[] }> = {
+        add: { member: 'RDOAddAutoConnection', args: [RdoValue.string(fluidId).toString(), RdoValue.string(suppliers || '').toString()] },
+        delete: { member: 'RDODelAutoConnection', args: [RdoValue.string(fluidId).toString(), RdoValue.string(suppliers || '').toString()] },
+        hireTradeCenter: { member: 'RDOHireTradeCenter', args: [RdoValue.string(fluidId).toString()] },
+        dontHireTradeCenter: { member: 'RDODontHireTradeCenter', args: [RdoValue.string(fluidId).toString()] },
+        onlyWarehouses: { member: 'RDOHireOnlyFromWarehouse', args: [RdoValue.string(fluidId).toString()] },
+        dontOnlyWarehouses: { member: 'RDODontHireOnlyFromWarehouse', args: [RdoValue.string(fluidId).toString()] },
+      };
+
+      const method = methodMap[action];
+      if (!method) return { success: false, message: `Unknown action: ${action}` };
+
+      await this.sendRdoRequest('world', {
+        verb: RdoVerb.SEL,
+        targetId: proxyId,
+        action: RdoAction.CALL,
+        member: method.member,
+        args: method.args,
+      });
+
+      return { success: true };
+    } catch (e) {
+      return { success: false, message: toErrorMessage(e) };
+    }
+  }
+
+  /**
+   * Fetch policy data (diplomatic relationships) from tycoon proxy.
+   */
+  public async fetchPolicy(): Promise<PolicyData> {
+    const policies: PolicyEntry[] = [];
+
+    if (this.fTycoonProxyId) {
+      try {
+        const proxyId = String(this.fTycoonProxyId);
+        const packet = await this.sendRdoRequest('world', {
+          verb: RdoVerb.SEL,
+          targetId: proxyId,
+          action: RdoAction.GET,
+          member: 'Policy',
+        });
+        const raw = packet.payload || '';
+        this.log.debug('[Policy] Raw response:', raw);
+        // TODO: Parse the Policy collection format
+        // Format likely: serialized tycoon→status pairs
+      } catch (e) {
+        this.log.warn('[Policy] Failed to fetch:', e);
+      }
+    }
+
+    return { policies };
+  }
+
+  /**
+   * Set diplomatic policy towards another tycoon.
+   */
+  public async setPolicyStatus(tycoonName: string, status: number): Promise<{ success: boolean; message?: string }> {
+    if (!this.fTycoonProxyId) {
+      return { success: false, message: 'Tycoon proxy not available' };
+    }
+
+    const proxyId = String(this.fTycoonProxyId);
+
+    try {
+      await this.sendRdoRequest('world', {
+        verb: RdoVerb.SEL,
+        targetId: proxyId,
+        action: RdoAction.CALL,
+        member: 'RDOSetPolicyStatus',
+        args: [RdoValue.string(tycoonName).toString(), RdoValue.int(status).toString()],
+      });
+      return { success: true };
+    } catch (e) {
+      return { success: false, message: toErrorMessage(e) };
+    }
   }
 
 public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64): Promise<MapData> {

@@ -430,6 +430,130 @@ export interface TycoonProfileFull {
 }
 
 // =============================================================================
+// PROFILE TABS - CURRICULUM
+// =============================================================================
+
+/**
+ * Curriculum/level data for the tycoon profile Curriculum tab.
+ * Uses existing TycoonProfileFull fields + level progression constants from TycoonLevels.pas.
+ */
+export interface CurriculumData {
+  currentLevel: number;
+  currentLevelName: string;
+  prestige: number;
+  facPrestige: number;
+  researchPrestige: number;
+  budget: string;
+  ranking: number;
+  facCount: number;
+  facMax: number;
+  area: number;
+  nobPoints: number;
+}
+
+// =============================================================================
+// PROFILE TABS - BANK ACCOUNT
+// =============================================================================
+
+export interface LoanInfo {
+  bank: string;
+  date: string;
+  amount: string;
+  interest: number;
+  term: number;
+  slice: string;
+  loanIndex: number;
+}
+
+export interface BankAccountData {
+  balance: string;
+  maxLoan: string;
+  loans: LoanInfo[];
+  defaultInterest: number;
+  defaultTerm: number;
+}
+
+export type BankActionType = 'borrow' | 'send' | 'payoff';
+
+export interface BankActionResult {
+  success: boolean;
+  message: string;
+}
+
+// =============================================================================
+// PROFILE TABS - PROFIT & LOSS
+// =============================================================================
+
+export interface ProfitLossNode {
+  label: string;
+  level: number;
+  amount: string;
+  chartData?: number[];
+  isHeader?: boolean;
+  children?: ProfitLossNode[];
+}
+
+export interface ProfitLossData {
+  root: ProfitLossNode;
+}
+
+// =============================================================================
+// PROFILE TABS - COMPANIES
+// =============================================================================
+
+export interface CompanyListItem {
+  name: string;
+  companyId: number;
+  ownerRole: string;
+  cluster: string;
+  facilityCount: number;
+  companyType: string;
+}
+
+export interface CompaniesData {
+  companies: CompanyListItem[];
+  currentCompany: string;
+}
+
+// =============================================================================
+// PROFILE TABS - AUTO CONNECTIONS (INITIAL SUPPLIERS)
+// =============================================================================
+
+export interface SupplierEntry {
+  facilityName: string;
+  facilityId: string;
+  companyName: string;
+}
+
+export interface AutoConnectionFluid {
+  fluidName: string;
+  fluidId: string;
+  suppliers: SupplierEntry[];
+  hireTradeCenter: boolean;
+  onlyWarehouses: boolean;
+}
+
+export interface AutoConnectionsData {
+  fluids: AutoConnectionFluid[];
+}
+
+export type AutoConnectionActionType = 'add' | 'delete' | 'hireTradeCenter' | 'dontHireTradeCenter' | 'onlyWarehouses' | 'dontOnlyWarehouses';
+
+// =============================================================================
+// PROFILE TABS - POLICY (STRATEGY)
+// =============================================================================
+
+export interface PolicyEntry {
+  tycoonName: string;
+  yourPolicy: number;
+  theirPolicy: number;
+}
+
+export interface PolicyData {
+  policies: PolicyEntry[];
+}
+
+// =============================================================================
 // ROAD BUILDING
 // =============================================================================
 
