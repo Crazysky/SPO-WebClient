@@ -29,6 +29,7 @@ import {
   BuildingDetailsResponse,
   BuildingPropertyValue,
   BuildingSupplyData,
+  BuildingProductData,
   BuildingConnectionData,
   WsEventNewMail,
   MailMessageHeader,
@@ -4303,18 +4304,21 @@ private handlePush(socketName: string, packet: RdoPacket) {
 		  const indexedDefs = collected.indexedByCount.get(countProp) || [];
 		  for (const def of indexedDefs) {
 			const suffix = def.indexSuffix || '';
-			
-			for (let idx = 0; idx < count; idx++) {
-			  indexedProps.push(`${def.rdoName}${idx}${suffix}`);
-			  if (def.maxProperty) {
-				indexedProps.push(`${def.maxProperty}${idx}${suffix}`);
-			  }
-			}
 
 			if (def.columns) {
+			  // TABLE type: columns loop generates all needed property names
+			  // (skip base rdoName to avoid duplicates when a column rdoSuffix matches it)
 			  for (const col of def.columns) {
 				for (let idx = 0; idx < count; idx++) {
 				  indexedProps.push(`${col.rdoSuffix}${idx}${col.columnSuffix || ''}${suffix}`);
+				}
+			  }
+			} else {
+			  // Non-TABLE indexed property
+			  for (let idx = 0; idx < count; idx++) {
+				indexedProps.push(`${def.rdoName}${idx}${suffix}`);
+				if (def.maxProperty) {
+				  indexedProps.push(`${def.maxProperty}${idx}${suffix}`);
 				}
 			  }
 			}
@@ -4487,6 +4491,13 @@ private handlePush(socketName: string, packet: RdoPacket) {
         supplies = await this.fetchBuildingSupplies(tempObjectId, x, y);
       }
 
+      // Fetch product/output data if this template has products group
+      let products: BuildingProductData[] | undefined;
+      const productsGroup = template.groups.find(g => g.special === 'products');
+      if (productsGroup) {
+        products = await this.fetchBuildingProducts(tempObjectId, x, y);
+      }
+
       const response: BuildingDetailsResponse = {
         buildingId: buildingId || allValues.get('ObjectId') || allValues.get('CurrBlock') || '',
         x,
@@ -4506,6 +4517,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
         })),
         groups,
         supplies,
+        products,
         moneyGraph,
         timestamp: Date.now(),
       };
@@ -4656,7 +4668,129 @@ private handlePush(socketName: string, packet: RdoPacket) {
     return supplies;
   }
 
-  /**WorldName: this.currentWorldInfo.name,
+  /**
+   * Fetch product/output data with connections for a building
+   * Uses GetOutputNames and SetPath to navigate output gate structure
+   * Mirror of fetchBuildingSupplies() but for output gates (ProdSheetForm.pas)
+   *
+   * Output gate properties: MetaFluid, LastFluid, FluidQuality, PricePc, AvgPrice, MarketPrice, cnxCount
+   * Per-connection: cnxFacilityName, cnxCompanyName, LastValueCnxInfo, ConnectedCnxInfo, tCostCnxInfo, cnxXPos, cnxYPos
+   */
+  private async fetchBuildingProducts(
+    tempObjectId: string,
+    _x: number,
+    _y: number
+  ): Promise<BuildingProductData[]> {
+    const products: BuildingProductData[] = [];
+
+    try {
+      // Get output names (same RDO pattern as GetInputNames but for outputs)
+      const outputNamesPacket = await this.sendRdoRequest('map', {
+        verb: RdoVerb.SEL,
+        targetId: tempObjectId,
+        action: RdoAction.CALL,
+        member: 'GetOutputNames',
+        args: ['0', '0'], // index=0, language=0 (English)
+      });
+
+      const outputNamesRaw = cleanPayloadHelper(outputNamesPacket.payload || '');
+      if (!outputNamesRaw || outputNamesRaw === '0' || outputNamesRaw === '-1') {
+        return products;
+      }
+
+      // Parse output names (format: "path:..name\r" separated entries — same as inputs)
+      const entries = outputNamesRaw.split('\r').filter(e => e.trim());
+
+      for (const entry of entries) {
+        const colonIdx = entry.indexOf(':');
+        if (colonIdx === -1) continue;
+
+        const path = entry.substring(0, colonIdx);
+        // Skip 2 chars after colon (:: separator), then read name until null
+        let name = entry.substring(colonIdx + 3);
+        const nullIdx = name.indexOf('\0');
+        if (nullIdx !== -1) {
+          name = name.substring(0, nullIdx);
+        }
+
+        // Create new temp object for this output path
+        const productTempId = await this.cacherCreateObject();
+
+        try {
+          // Navigate to output path
+          const setPathPacket = await this.sendRdoRequest('map', {
+            verb: RdoVerb.SEL,
+            targetId: productTempId,
+            action: RdoAction.CALL,
+            member: 'SetPath',
+            args: [path],
+          });
+
+          const setPathResult = cleanPayloadHelper(setPathPacket.payload || '');
+          if (setPathResult === '-1' || setPathResult === '0') {
+            // Successfully navigated — fetch output gate properties
+            const outputProps = await this.cacherGetPropertyList(productTempId, [
+              'MetaFluid', 'LastFluid', 'FluidQuality', 'PricePc',
+              'AvgPrice', 'MarketPrice', 'cnxCount'
+            ]);
+
+            const connectionCount = parseInt(outputProps[6] || '0', 10);
+            const connections: BuildingConnectionData[] = [];
+
+            // Fetch connection details (clients/buyers of this output)
+            for (let i = 0; i < connectionCount && i < 20; i++) {
+              const cnxProps = await this.fetchSubObjectProperties(productTempId, i, [
+                `cnxFacilityName${i}`,
+                `cnxCompanyName${i}`,
+                `LastValueCnxInfo${i}`,
+                `ConnectedCnxInfo${i}`,
+                `tCostCnxInfo${i}`,
+                `cnxXPos${i}`,
+                `cnxYPos${i}`,
+              ]);
+
+              if (cnxProps.length >= 7) {
+                connections.push({
+                  facilityName: cnxProps[0] || '',
+                  companyName: cnxProps[1] || '',
+                  createdBy: '',
+                  price: '',
+                  overprice: '',
+                  lastValue: cnxProps[2] || '',
+                  cost: cnxProps[4] || '',
+                  quality: '',
+                  connected: cnxProps[3] === '1',
+                  x: parseInt(cnxProps[5] || '0', 10),
+                  y: parseInt(cnxProps[6] || '0', 10),
+                });
+              }
+            }
+
+            products.push({
+              path,
+              name,
+              metaFluid: outputProps[0] || '',
+              lastFluid: outputProps[1] || '',
+              quality: outputProps[2] || '',
+              pricePc: outputProps[3] || '',
+              avgPrice: outputProps[4] || '',
+              marketPrice: outputProps[5] || '',
+              connectionCount,
+              connections,
+            });
+          }
+        } finally {
+          await this.cacherCloseObject(productTempId);
+        }
+      }
+    } catch (e) {
+      this.log.warn('[BuildingDetails] Error fetching products:', e);
+    }
+
+    return products;
+  }
+
+  /**
    * Fetch sub-object properties (for indexed connections)
    */
   private async fetchSubObjectProperties(

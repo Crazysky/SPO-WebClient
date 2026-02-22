@@ -13,7 +13,7 @@ import {
   getGroupById,
 } from '../../../shared/building-details';
 import { renderPropertyGroup } from './property-renderers';
-import { renderSuppliesWithTabs } from './property-table';
+import { renderSuppliesWithTabs, renderProductsWithTabs } from './property-table';
 import { renderSparklineGraph } from './property-graph';
 
 export interface BuildingDetailsPanelOptions {
@@ -62,8 +62,15 @@ export class BuildingDetailsPanel {
    * When false, edit controls (rename, delete, sliders, upgrade) are hidden.
    */
   private get isOwner(): boolean {
-    if (!this.currentDetails || !this.options.currentCompanyName) return false;
-    return this.currentDetails.ownerName === this.options.currentCompanyName;
+    if (!this.currentDetails || !this.options.currentCompanyName) {
+      console.debug(`[BuildingDetails] isOwner=false: details=${!!this.currentDetails}, companyName="${this.options.currentCompanyName || ''}"`);
+      return false;
+    }
+    const match = this.currentDetails.ownerName === this.options.currentCompanyName;
+    if (!match) {
+      console.debug(`[BuildingDetails] isOwner=false: owner="${this.currentDetails.ownerName}" vs company="${this.options.currentCompanyName}"`);
+    }
+    return match;
   }
 
   constructor(container: HTMLElement, options: BuildingDetailsPanelOptions = {}) {
@@ -676,6 +683,7 @@ export class BuildingDetailsPanel {
       // Check if this tab has any data
       const hasData = (this.currentDetails?.groups[tab.id]?.length ?? 0) > 0 ||
         (tab.special === 'supplies' && (this.currentDetails?.supplies?.length ?? 0) > 0) ||
+        (tab.special === 'products' && (this.currentDetails?.products?.length ?? 0) > 0) ||
         (tab.special === 'finances' && (this.currentDetails?.moneyGraph?.length ?? 0) > 0);
 
       const btn = document.createElement('button');
@@ -720,6 +728,7 @@ export class BuildingDetailsPanel {
 
 	  // Special handling for certain tab types (based on tab.special or well-known IDs)
 	  const isSupplies = tab.special === 'supplies';
+	  const isProducts = tab.special === 'products';
 	  const isFinances = tab.special === 'finances' || tab.id === 'finances';
 	  const isUpgrade = tab.id === 'upgrade' || tab.handlerName === 'facManagement';
 
@@ -729,6 +738,15 @@ export class BuildingDetailsPanel {
 		  this.options.onNavigateToBuilding
 		);
 		this.contentContainer.appendChild(suppliesEl);
+		return;
+	  }
+
+	  if (isProducts && details.products?.length) {
+		const productsEl = renderProductsWithTabs(
+		  details.products,
+		  this.options.onNavigateToBuilding
+		);
+		this.contentContainer.appendChild(productsEl);
 		return;
 	  }
 

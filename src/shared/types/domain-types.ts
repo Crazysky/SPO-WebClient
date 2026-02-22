@@ -266,6 +266,34 @@ export interface BuildingSupplyData {
 }
 
 /**
+ * Product/output gate data with connections
+ * Fetched via GetOutputNames + SetPath + per-gate property queries
+ * Mirror of BuildingSupplyData but with output-specific properties
+ */
+export interface BuildingProductData {
+  /** Output gate path */
+  path: string;
+  /** Product name (e.g., "Chemicals", "Clothing") */
+  name: string;
+  /** Meta fluid type identifier */
+  metaFluid: string;
+  /** Last produced value (LastFluid) */
+  lastFluid: string;
+  /** Quality percentage (FluidQuality) */
+  quality: string;
+  /** Sell price percentage (PricePc, 0-300, 100=market) */
+  pricePc: string;
+  /** Average price percentage (AvgPrice) */
+  avgPrice: string;
+  /** Market price (absolute value) */
+  marketPrice: string;
+  /** Connection count */
+  connectionCount: number;
+  /** Output connections (clients/buyers) */
+  connections: BuildingConnectionData[];
+}
+
+/**
  * Tab metadata sent from server to client.
  * Driven by CLASSES.BIN [InspectorInfo] section — each building class
  * defines exactly which tabs to display.
@@ -309,8 +337,10 @@ export interface BuildingDetailsResponse {
   tabs: BuildingDetailsTab[];
   /** All property values grouped by tab */
   groups: { [groupId: string]: BuildingPropertyValue[] };
-  /** Supply data (if applicable) */
+  /** Supply/input data (if applicable) */
   supplies?: BuildingSupplyData[];
+  /** Product/output data (if applicable) */
+  products?: BuildingProductData[];
   /** Money graph data points */
   moneyGraph?: number[];
   /** Timestamp */

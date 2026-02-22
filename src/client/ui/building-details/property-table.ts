@@ -4,7 +4,7 @@
  * Renders tabular data like supply connections.
  */
 
-import { BuildingConnectionData, BuildingSupplyData, BuildingPropertyValue } from '../../../shared/types';
+import { BuildingConnectionData, BuildingSupplyData, BuildingProductData, BuildingPropertyValue } from '../../../shared/types';
 import {
   formatCurrency,
   formatPercentage,
@@ -190,6 +190,132 @@ export function renderSuppliesWithTabs(
       tabsContent.querySelectorAll('.nested-tab-pane').forEach(pane => pane.classList.remove('active'));
 
       // Activate clicked
+      tabBtn.classList.add('active');
+      tabPane.classList.add('active');
+    };
+
+    tabsNav.appendChild(tabBtn);
+    tabsContent.appendChild(tabPane);
+  });
+
+  container.appendChild(tabsNav);
+  container.appendChild(tabsContent);
+
+  return container;
+}
+
+/**
+ * Render a single product/output gate with its header info + connections table
+ */
+function renderProductGateTable(
+  product: BuildingProductData,
+  onConnectionClick?: (x: number, y: number) => void
+): HTMLElement {
+  const container = document.createElement('div');
+  container.className = 'property-table-container';
+
+  // Header with output gate properties
+  const header = document.createElement('div');
+  header.className = 'supply-header';
+
+  const marketPrice = parseFloat(product.marketPrice);
+  const pricePc = parseInt(product.pricePc, 10);
+  const priceDisplay = !isNaN(marketPrice) && !isNaN(pricePc)
+    ? formatCurrency(marketPrice * pricePc / 100) + ` (${pricePc}%)`
+    : product.pricePc ? `${product.pricePc}%` : '-';
+
+  header.innerHTML = `
+    <div class="supply-name">${escapeHtml(product.name)}</div>
+    <div class="supply-info">
+      <span class="product-stat"><b>Produced:</b> ${escapeHtml(product.lastFluid || '-')}</span>
+      <span class="product-stat"><b>Quality:</b> ${escapeHtml(product.quality ? product.quality + '%' : '-')}</span>
+      <span class="product-stat"><b>Price:</b> ${priceDisplay}</span>
+      <span class="product-stat"><b>Avg:</b> ${escapeHtml(product.avgPrice ? product.avgPrice + '%' : '-')}</span>
+      <span class="supply-count">${product.connectionCount} client${product.connectionCount !== 1 ? 's' : ''}</span>
+    </div>
+  `;
+  container.appendChild(header);
+
+  if (product.connections.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'table-empty';
+    empty.textContent = 'No clients connected';
+    container.appendChild(empty);
+    return container;
+  }
+
+  // Connections table
+  const table = document.createElement('table');
+  table.className = 'property-table';
+
+  const thead = document.createElement('thead');
+  thead.innerHTML = `
+    <tr>
+      <th>Facility</th>
+      <th>Company</th>
+      <th>Last Value</th>
+      <th>Cost</th>
+      <th>Status</th>
+    </tr>
+  `;
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  for (const conn of product.connections) {
+    const row = createConnectionRow(conn, onConnectionClick);
+    tbody.appendChild(row);
+  }
+  table.appendChild(tbody);
+
+  container.appendChild(table);
+  return container;
+}
+
+/**
+ * Render all products/outputs with nested tabs (FingerTabs pattern)
+ * Mirror of renderSuppliesWithTabs but for output gates
+ */
+export function renderProductsWithTabs(
+  products: BuildingProductData[],
+  onConnectionClick?: (x: number, y: number) => void
+): HTMLElement {
+  const container = document.createElement('div');
+  container.className = 'supplies-container';
+
+  if (products.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'supplies-empty';
+    empty.textContent = 'No products configured';
+    container.appendChild(empty);
+    return container;
+  }
+
+  if (products.length === 1) {
+    container.appendChild(renderProductGateTable(products[0], onConnectionClick));
+    return container;
+  }
+
+  // Multiple products — use nested tabs
+  const tabsNav = document.createElement('div');
+  tabsNav.className = 'nested-tabs-nav';
+
+  const tabsContent = document.createElement('div');
+  tabsContent.className = 'nested-tabs-content';
+
+  products.forEach((product, index) => {
+    const tabBtn = document.createElement('button');
+    tabBtn.className = 'nested-tab-btn' + (index === 0 ? ' active' : '');
+    tabBtn.textContent = product.name || `Product ${index + 1}`;
+    tabBtn.dataset.index = index.toString();
+
+    const tabPane = document.createElement('div');
+    tabPane.className = 'nested-tab-pane' + (index === 0 ? ' active' : '');
+    tabPane.dataset.index = index.toString();
+    tabPane.appendChild(renderProductGateTable(product, onConnectionClick));
+
+    tabBtn.onclick = () => {
+      tabsNav.querySelectorAll('.nested-tab-btn').forEach(btn => btn.classList.remove('active'));
+      tabsContent.querySelectorAll('.nested-tab-pane').forEach(pane => pane.classList.remove('active'));
       tabBtn.classList.add('active');
       tabPane.classList.add('active');
     };

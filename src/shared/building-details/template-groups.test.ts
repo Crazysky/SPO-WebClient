@@ -25,6 +25,7 @@ import {
   WORKFORCE_GROUP,
   SUPPLIES_GROUP,
   SERVICES_GROUP,
+  PRODUCTS_GROUP,
   ADVERTISEMENT_GROUP,
   UPGRADE_GROUP,
   FINANCES_GROUP,
@@ -86,7 +87,7 @@ describe('HANDLER_TO_GROUP mapping', () => {
 
   it('should map core handlers to existing groups', () => {
     expect(HANDLER_TO_GROUP['Supplies']).toBe(SUPPLIES_GROUP);
-    expect(HANDLER_TO_GROUP['Products']).toBe(SERVICES_GROUP);
+    expect(HANDLER_TO_GROUP['Products']).toBe(PRODUCTS_GROUP);
     expect(HANDLER_TO_GROUP['compInputs']).toBe(ADVERTISEMENT_GROUP);
     expect(HANDLER_TO_GROUP['Workforce']).toBe(WORKFORCE_GROUP);
     expect(HANDLER_TO_GROUP['facManagement']).toBe(UPGRADE_GROUP);

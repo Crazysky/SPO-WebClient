@@ -34,11 +34,12 @@ interface MockBuilding {
   tabs: BuildingDetailsTab[];
   groups: Record<string, BuildingPropertyValue[]>;
   supplies?: BuildingDetailsResponse['supplies'];
+  products?: BuildingDetailsResponse['products'];
   moneyGraph?: number[];
 }
 
 // -----------------------------------------------------------------------------
-// Factory (IndGeneral + Supplies + Workforce + facManagement + Chart)
+// Factory (IndGeneral + Products + Supplies + Workforce + facManagement + Chart)
 // -----------------------------------------------------------------------------
 
 const MOCK_FACTORY: MockBuilding = {
@@ -49,6 +50,7 @@ const MOCK_FACTORY: MockBuilding = {
   y: 392,
   tabs: [
     { id: 'indGeneral', name: 'GENERAL', icon: 'i', order: 0, handlerName: 'IndGeneral' },
+    { id: 'products', name: 'PRODUCTS', icon: 'P', order: 15, handlerName: 'Products', special: 'products' },
     { id: 'supplies', name: 'SUPPLIES', icon: 'S', order: 20, handlerName: 'Supplies', special: 'supplies' },
     { id: 'workforce', name: 'WORKFORCE', icon: 'W', order: 10, handlerName: 'Workforce', special: 'workforce' },
     { id: 'upgrade', name: 'MANAGEMENT', icon: 'U', order: 40, handlerName: 'facManagement' },
@@ -88,6 +90,59 @@ const MOCK_FACTORY: MockBuilding = {
       { name: 'MoneyGraph', value: '1' },
     ],
   },
+  products: [
+    {
+      path: 'Outputs/Chemicals',
+      name: 'Chemicals',
+      metaFluid: 'CHEMICALS',
+      lastFluid: '485',
+      quality: '82',
+      pricePc: '110',
+      avgPrice: '105',
+      marketPrice: '320.50',
+      connectionCount: 2,
+      connections: [
+        {
+          facilityName: 'Drug Store 10',
+          companyName: 'Yellow Inc.',
+          createdBy: '',
+          price: '',
+          overprice: '',
+          lastValue: '120',
+          cost: '$15',
+          quality: '',
+          connected: true,
+          x: 477,
+          y: 392,
+        },
+        {
+          facilityName: 'Warehouse 5',
+          companyName: 'Yellow Inc.',
+          createdBy: '',
+          price: '',
+          overprice: '',
+          lastValue: '365',
+          cost: '$8',
+          quality: '',
+          connected: true,
+          x: 480,
+          y: 395,
+        },
+      ],
+    },
+    {
+      path: 'Outputs/Plastics',
+      name: 'Plastics',
+      metaFluid: 'PLASTICS',
+      lastFluid: '210',
+      quality: '78',
+      pricePc: '100',
+      avgPrice: '98',
+      marketPrice: '180.00',
+      connectionCount: 0,
+      connections: [],
+    },
+  ],
   moneyGraph: [-29, -25, -18, -10, 5, 15, 22, 30, 28, 35, 42, 38],
 };
 
@@ -103,7 +158,7 @@ const MOCK_STORE: MockBuilding = {
   y: 392,
   tabs: [
     { id: 'srvGeneral', name: 'GENERAL', icon: 'i', order: 0, handlerName: 'SrvGeneral' },
-    { id: 'services', name: 'PRODUCTS', icon: '$', order: 30, handlerName: 'Products', special: 'services' },
+    { id: 'products', name: 'PRODUCTS', icon: 'P', order: 30, handlerName: 'Products', special: 'products' },
     { id: 'workforce', name: 'WORKFORCE', icon: 'W', order: 10, handlerName: 'Workforce', special: 'workforce' },
     { id: 'upgrade', name: 'MANAGEMENT', icon: 'U', order: 40, handlerName: 'facManagement' },
     { id: 'finances', name: 'FINANCES', icon: 'F', order: 50, handlerName: 'Chart', special: 'finances' },
@@ -117,13 +172,13 @@ const MOCK_STORE: MockBuilding = {
       { name: 'Years', value: '1' },
       { name: 'Trouble', value: '0' },
       { name: 'ServiceCount', value: '2' },
-      { name: 'srvNames0.0', value: 'Pharmaceutics', index: 0 },
+      { name: 'srvNames0', value: 'Pharmaceutics', index: 0 },
       { name: 'srvPrices0', value: '120', index: 0 },
       { name: 'srvSupplies0', value: '5', index: 0 },
       { name: 'srvDemands0', value: '12', index: 0 },
       { name: 'srvMarketPrices0', value: '95', index: 0 },
       { name: 'srvAvgPrices0', value: '110', index: 0 },
-      { name: 'srvNames1.0', value: 'Organic Food', index: 1 },
+      { name: 'srvNames1', value: 'Organic Food', index: 1 },
       { name: 'srvPrices1', value: '100', index: 1 },
       { name: 'srvSupplies1', value: '8', index: 1 },
       { name: 'srvDemands1', value: '15', index: 1 },
@@ -567,6 +622,7 @@ function buildDetailsResponse(
     tabs: building.tabs,
     groups: building.groups,
     supplies: building.supplies,
+    products: building.products,
     moneyGraph: building.moneyGraph,
     timestamp: Date.now(),
   };

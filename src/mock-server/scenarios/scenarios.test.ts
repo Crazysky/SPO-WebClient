@@ -550,10 +550,12 @@ describe('building-details scenario', () => {
     }
   });
 
-  it('MOCK_FACTORY has IndGeneral + workforce + upgrade + finances tabs', () => {
-    expect(MOCK_FACTORY.tabs).toHaveLength(5);
+  it('MOCK_FACTORY has IndGeneral + products + supplies + workforce + upgrade + finances tabs', () => {
+    expect(MOCK_FACTORY.tabs).toHaveLength(6);
     const handlerNames = MOCK_FACTORY.tabs.map(t => t.handlerName);
     expect(handlerNames).toContain('IndGeneral');
+    expect(handlerNames).toContain('Products');
+    expect(handlerNames).toContain('Supplies');
     expect(handlerNames).toContain('Workforce');
     expect(handlerNames).toContain('facManagement');
     expect(handlerNames).toContain('Chart');

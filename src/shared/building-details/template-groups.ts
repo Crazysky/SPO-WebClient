@@ -397,6 +397,33 @@ export const SERVICES_GROUP: PropertyGroup = {
   ],
 };
 
+/**
+ * Products — Output gate handler for industrial buildings (172 classes)
+ * Voyager: ProdSheetForm.pas — FingerTabs with per-output gate properties + connections
+ *
+ * Data fetched via GetOutputNames + SetPath + per-gate property queries,
+ * NOT from indexed srvNames/srvPrices properties (those are SrvGeneral inline table).
+ *
+ * Output gate properties: MetaFluid, LastFluid, FluidQuality, PricePc, AvgPrice, MarketPrice, cnxCount
+ * Per-connection: cnxFacilityName, cnxCompanyName, LastValueCnxInfo, ConnectedCnxInfo, tCostCnxInfo, cnxXPos, cnxYPos
+ */
+export const PRODUCTS_GROUP: PropertyGroup = {
+  id: 'products',
+  name: 'Products',
+  icon: 'P',
+  order: 30,
+  special: 'products',
+  properties: [
+    { rdoName: 'MetaFluid', displayName: 'Product', type: PropertyType.TEXT },
+    { rdoName: 'LastFluid', displayName: 'Produced', type: PropertyType.NUMBER },
+    { rdoName: 'FluidQuality', displayName: 'Quality', type: PropertyType.PERCENTAGE },
+    { rdoName: 'PricePc', displayName: 'Price', type: PropertyType.SLIDER, editable: true, min: 0, max: 300, step: 5, unit: '%' },
+    { rdoName: 'AvgPrice', displayName: 'Avg Price', type: PropertyType.PERCENTAGE },
+    { rdoName: 'MarketPrice', displayName: 'Market Price', type: PropertyType.CURRENCY },
+    { rdoName: 'cnxCount', displayName: 'Clients', type: PropertyType.NUMBER },
+  ],
+};
+
 export const ADVERTISEMENT_GROUP: PropertyGroup = {
   id: 'advertisement',
   name: 'Advertising',
@@ -404,12 +431,12 @@ export const ADVERTISEMENT_GROUP: PropertyGroup = {
   order: 25,
   properties: [
     { rdoName: 'cInput', displayName: 'Services', type: PropertyType.TEXT, indexed: true, indexSuffix: '.0', countProperty: 'cInputCount' },
-    { rdoName: 'cInputSup', displayName: 'Receiving', type: PropertyType.NUMBER, indexed: true },
-    { rdoName: 'cInputDem', displayName: 'Requesting', type: PropertyType.NUMBER, indexed: true },
-    { rdoName: 'cInputRatio', displayName: 'Ratio', type: PropertyType.PERCENTAGE, indexed: true },
-    { rdoName: 'cInputMax', displayName: 'Max', type: PropertyType.NUMBER, indexed: true },
-    { rdoName: 'cEditable', displayName: 'Editable', type: PropertyType.BOOLEAN, indexed: true },
-    { rdoName: 'cUnits', displayName: 'Units', type: PropertyType.TEXT, indexed: true },
+    { rdoName: 'cInputSup', displayName: 'Receiving', type: PropertyType.NUMBER, indexed: true, countProperty: 'cInputCount' },
+    { rdoName: 'cInputDem', displayName: 'Requesting', type: PropertyType.NUMBER, indexed: true, countProperty: 'cInputCount' },
+    { rdoName: 'cInputRatio', displayName: 'Ratio', type: PropertyType.PERCENTAGE, indexed: true, countProperty: 'cInputCount' },
+    { rdoName: 'cInputMax', displayName: 'Max', type: PropertyType.NUMBER, indexed: true, countProperty: 'cInputCount' },
+    { rdoName: 'cEditable', displayName: 'Editable', type: PropertyType.BOOLEAN, indexed: true, countProperty: 'cInputCount' },
+    { rdoName: 'cUnits', displayName: 'Units', type: PropertyType.TEXT, indexed: true, countProperty: 'cInputCount' },
   ],
 };
 
@@ -833,6 +860,7 @@ export const GROUP_BY_ID: Record<string, PropertyGroup> = {
   'workforce': WORKFORCE_GROUP,
   'supplies': SUPPLIES_GROUP,
   'services': SERVICES_GROUP,
+  'products': PRODUCTS_GROUP,
   'upgrade': UPGRADE_GROUP,
   'finances': FINANCES_GROUP,
   'advertisement': ADVERTISEMENT_GROUP,
@@ -890,7 +918,7 @@ export const HANDLER_TO_GROUP: Record<string, PropertyGroup> = {
 
   // Core handlers (existing, working)
   'Supplies': SUPPLIES_GROUP,
-  'Products': SERVICES_GROUP,
+  'Products': PRODUCTS_GROUP,
   'compInputs': ADVERTISEMENT_GROUP,
   'Workforce': WORKFORCE_GROUP,
   'facManagement': UPGRADE_GROUP,
