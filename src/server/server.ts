@@ -156,7 +156,7 @@ const CACHE_DIR = path.join(__dirname, '../../cache');
 // Update service (syncs files from update server) - no dependencies
 serviceRegistry.register('update', new UpdateService());
 
-// Facility dimensions cache - depends on update service (needs facility_db.csv)
+// Facility dimensions cache - depends on update service (needs CLASSES.BIN)
 serviceRegistry.register('facilities', new FacilityDimensionsCache(), {
   dependsOn: ['update']
 });

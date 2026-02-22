@@ -2,8 +2,6 @@
  * Building Data Types
  * Complete building metadata including visual class mapping and texture filenames
  *
- * Based on BUILDING_VISUALCLASS_REFERENCE.md analysis
- *
  * Key concepts:
  * - Runtime VisualClass = BaseVisualClass + Stage0.VisualStages + CurrentBlock.VisualClassId
  * - ObjectsInArea returns the RUNTIME VisualClass

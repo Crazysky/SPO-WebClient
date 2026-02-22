@@ -88,7 +88,7 @@ const binExists = fs.existsSync(CLASSES_BIN_PATH);
       expect(entry!.imagePath).toBe('MapIFELAlienParkB64x32x0.gif');
     });
 
-    it('should contain ID 4722 with correct texture (not buildings.json wrong name)', () => {
+    it('should contain ID 4722 with correct texture name', () => {
       const entry = result.byId.get(4722);
       expect(entry).toBeDefined();
       // CLASSES.BIN has the correct name: MapPGIMarketA, NOT MapPGISupermarketA

@@ -50,7 +50,6 @@ export class UpdateService implements Service {
    * Files to exclude from synchronization (local customizations)
    */
   private readonly EXCLUDED_FILES = [
-    'BuildingClasses/facility_db.csv',  // Local custom file, not on server
     '.cab-metadata.json'                 // CAB extraction tracking metadata
   ];
 

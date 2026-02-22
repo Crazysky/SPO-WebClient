@@ -65,7 +65,7 @@ const binExists = fs.existsSync(CLASSES_BIN_PATH);
     });
 
     it('should find previously-invisible buildings from CLASSES.BIN', () => {
-      // These IDs were missing from buildings.json but exist in CLASSES.BIN
+      // Previously-invisible buildings found via CLASSES.BIN
       const targets = [
         { id: '602', texture: 'MapPGIHQ1.gif' },
         { id: '8022', texture: 'MapIFELTennis64x32.gif' },

@@ -7,7 +7,7 @@
 - Use `any` types — use `unknown` for catch blocks, typed interfaces for data
 - Modify without reading first — always read existing code before changing it
 - Skip tests — all code changes require tests, coverage >= 93%
-- Modify these files without discussion: `src/shared/rdo-types.ts`, `src/server/rdo.ts`, `BuildingClasses/facility_db.csv`, `src/__fixtures__/*`
+- Modify these files without discussion: `src/shared/rdo-types.ts`, `src/server/rdo.ts`, `src/__fixtures__/*`
 - Load screenshots directly in the main context during debug/E2E sessions — use sub-agent delegation (see below)
 
 **Screenshot analysis (mandatory for debug/E2E sessions):**
