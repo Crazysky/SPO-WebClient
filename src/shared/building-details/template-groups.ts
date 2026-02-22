@@ -5,25 +5,7 @@
  * These are reusable building blocks for different building types.
  */
 
-import { PropertyGroup, PropertyType, PropertyDefinition, TableColumn } from './property-definitions';
-
-// =============================================================================
-// CONNECTION TABLE COLUMNS
-// =============================================================================
-
-export const CONNECTION_COLUMNS: TableColumn[] = [
-  { rdoSuffix: 'cnxFacilityName', label: 'Facility', type: PropertyType.TEXT, width: '30%' },
-  { rdoSuffix: 'cnxCreatedBy', label: 'Owner', type: PropertyType.TEXT, width: '20%' },
-  { rdoSuffix: 'cnxCompanyName', label: 'Company', type: PropertyType.TEXT, width: '30%' },
-  { rdoSuffix: 'cnxNfPrice', label: 'Price', type: PropertyType.CURRENCY, width: '15%' },
-  { rdoSuffix: 'OverPriceCnxInfo', label: 'Overpaid', type: PropertyType.CURRENCY, width: '15%' },
-  { rdoSuffix: 'cnxQuality', label: 'Quality', type: PropertyType.PERCENTAGE, width: '10%' },
-  { rdoSuffix: 'LastValueCnxInfo', label: 'Last', type: PropertyType.TEXT, width: '15%' },
-  { rdoSuffix: 'tCostCnxInfo', label: 'T. Cost', type: PropertyType.BOOLEAN, width: '10%' },
-  // Coordinates of the supplier - act as a shortcut for map.
-  { rdoSuffix: 'cnxYPos', label: 'Coord. Y', type: PropertyType.NUMBER, width: '10%' },
-  { rdoSuffix: 'cnxXPos', label: 'Coord. X', type: PropertyType.NUMBER, width: '10%' },
-];
+import { PropertyGroup, PropertyType } from './property-definitions';
 
 // =============================================================================
 // OVERVIEW GROUP (Common to all buildings)
@@ -402,40 +384,3 @@ export const HANDLER_TO_GROUP: Record<string, PropertyGroup> = {
   'townTaxes': GENERIC_GROUP,
 };
 
-// =============================================================================
-// HELPER: Collect all property names from a group
-// =============================================================================
-
-export function collectPropertyNames(group: PropertyGroup): string[] {
-  const names: string[] = [];
-
-  for (const prop of group.properties) {
-    if (prop.indexed && prop.indexMax !== undefined) {
-      // Add indexed properties
-      for (let i = 0; i <= prop.indexMax; i++) {
-        names.push(`${prop.rdoName}${i}`);
-        if (prop.maxProperty) {
-          names.push(`${prop.maxProperty}${i}`);
-        }
-      }
-    } else if (prop.indexed && prop.countProperty) {
-      // Count property needs to be fetched first
-      names.push(prop.countProperty);
-      // We'll fetch indexed props in a second pass
-    } else {
-      names.push(prop.rdoName);
-      if (prop.maxProperty) {
-        names.push(prop.maxProperty);
-      }
-    }
-  }
-
-  // Recurse into subgroups
-  if (group.subGroups) {
-    for (const subGroup of group.subGroups) {
-      names.push(...collectPropertyNames(subGroup));
-    }
-  }
-
-  return [...new Set(names)]; // Remove duplicates
-}
