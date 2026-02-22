@@ -1488,3 +1488,124 @@ body {
     transform: translateX(-50%) translateY(0);
   }
 }
+
+/* =============================================================================
+   DATA TABLE (PropertyType.TABLE — bank loans, votes, towns, taxes, etc.)
+   ============================================================================= */
+
+.data-table-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.data-table-empty {
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface-base);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.data-table thead {
+  background: var(--surface-elevated);
+}
+
+.data-table th {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  font-weight: 600;
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--glass-border);
+  white-space: nowrap;
+}
+
+.data-table tbody tr {
+  border-bottom: 1px solid var(--glass-border);
+  transition: background-color var(--transition-fast);
+}
+
+.data-table tbody tr:hover {
+  background: var(--surface-elevated);
+}
+
+.data-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.data-table td {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.data-cell-currency {
+  color: var(--success-green);
+  font-weight: 500;
+}
+
+.data-cell-percentage {
+  text-align: right;
+}
+
+.data-cell-number {
+  text-align: right;
+}
+
+.data-cell-boolean {
+  text-align: center;
+}
+
+/* Inline slider in table cells */
+.table-cell-slider {
+  width: 80px;
+  height: 4px;
+  vertical-align: middle;
+  accent-color: var(--accent-primary);
+}
+
+.table-cell-slider-value {
+  display: inline-block;
+  width: 36px;
+  text-align: right;
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  margin-left: var(--space-1);
+}
+
+/* =============================================================================
+   ENUM SELECT (PropertyType.ENUM — TradeRole, TradeLevel dropdowns)
+   ============================================================================= */
+
+.property-enum-select {
+  background: var(--surface-elevated);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.property-enum-select:hover {
+  border-color: var(--accent-primary);
+}
+
+/* =============================================================================
+   BOOLEAN CHECKBOX (editable boolean properties)
+   ============================================================================= */
+
+.property-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+}

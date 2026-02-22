@@ -4200,7 +4200,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
 			if (def.columns) {
 			  for (const col of def.columns) {
 				for (let idx = 0; idx < count; idx++) {
-				  indexedProps.push(`${col.rdoSuffix}${idx}${suffix}`);
+				  indexedProps.push(`${col.rdoSuffix}${idx}${col.columnSuffix || ''}${suffix}`);
 				}
 			  }
 			}
@@ -4260,14 +4260,30 @@ private handlePush(socketName: string, packet: RdoPacket) {
 			  continue;
 			}
 
-			if (prop.indexed && prop.countProperty) {
+			if (prop.type === 'TABLE' && prop.columns && prop.countProperty) {
+			  // TABLE type: include individual column values grouped by row index
+			  const count = countValues.get(prop.countProperty) || 0;
+			  for (let idx = 0; idx < count; idx++) {
+				for (const col of prop.columns) {
+				  const colName = `${col.rdoSuffix}${idx}${col.columnSuffix || ''}${suffix}`;
+				  const colValue = allValues.get(colName);
+				  if (colValue) {
+					groupValues.push({
+					  name: colName,
+					  value: colValue,
+					  index: idx,
+					});
+				  }
+				}
+			  }
+			} else if (prop.indexed && prop.countProperty) {
 			  // Handle indexed properties using the count value
 			  const count = countValues.get(prop.countProperty) || 0;
-			  
+
 			  for (let idx = 0; idx < count; idx++) {
 				const propName = `${prop.rdoName}${idx}${suffix}`;
 				const value = allValues.get(propName);
-				
+
 				if (value) {
 				  groupValues.push({
 					name: propName,
@@ -4275,7 +4291,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
 					index: idx,
 				  });
 				}
-				
+
 				// Also get max property if defined
 				if (prop.maxProperty) {
 				  const maxPropName = `${prop.maxProperty}${idx}${suffix}`;
@@ -4614,7 +4630,15 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
       // Send SetProperty command via construction service
       // The sel on CurrBlock is persistent (no closure needed)
-      const setCmd = `C sel ${currBlock} call ${propertyName} "*" ${rdoArgs};`;
+      let setCmd: string;
+      if (propertyName === 'property' && additionalParams?.propertyName) {
+        // Direct property set: use SET verb
+        const actualPropName = additionalParams.propertyName;
+        setCmd = `C sel ${currBlock} set ${actualPropName}=${rdoArgs};`;
+      } else {
+        // RDO method call: use CALL verb
+        setCmd = `C sel ${currBlock} call ${propertyName} "*" ${rdoArgs};`;
+      }
       socket.write(setCmd);
       this.log.debug(`[BuildingDetails] Sent: ${setCmd}`);
 
@@ -4708,6 +4732,35 @@ private handlePush(socketName: string, packet: RdoPacket) {
         break;
       }
 
+      case 'RDOSetTradeLevel':
+      case 'RDOSetRole':
+      case 'RDOSetLoanPerc': {
+        // Single integer argument
+        args.push(RdoValue.int(parseInt(value, 10)));
+        break;
+      }
+
+      case 'RDOSetTaxPercent': {
+        // Args: tax index, new percentage
+        const taxIndex = parseInt(params.index || '0', 10);
+        args.push(RdoValue.int(taxIndex), RdoValue.int(parseInt(value, 10)));
+        break;
+      }
+
+      case 'RDOAutoProduce':
+      case 'RDOAutoRelease': {
+        // Boolean as WordBool (#-1 = true, #0 = false)
+        const boolVal = parseInt(value, 10) !== 0 ? -1 : 0;
+        args.push(RdoValue.int(boolVal));
+        break;
+      }
+
+      case 'property': {
+        // Direct property set — format as quoted integer value
+        args.push(RdoValue.int(parseInt(value, 10)));
+        break;
+      }
+
       default:
         // Fallback: single value parameter
         args.push(RdoValue.int(parseInt(value, 10)));
@@ -4752,6 +4805,27 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
       case 'RDOSetInputMinK':
         return 'minK';
+
+      case 'RDOSetTradeLevel':
+        return 'TradeLevel';
+
+      case 'RDOSetRole':
+        return 'Role';
+
+      case 'RDOSetLoanPerc':
+        return 'BudgetPerc';
+
+      case 'RDOSetTaxPercent':
+        return `Tax${params.index || '0'}Percent`;
+
+      case 'RDOAutoProduce':
+        return 'AutoProd';
+
+      case 'RDOAutoRelease':
+        return 'AutoRel';
+
+      case 'property':
+        return params.propertyName || rdoCommand;
 
       default:
         // Fallback: try to infer from command name

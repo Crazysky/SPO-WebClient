@@ -2,36 +2,303 @@
  * Building Details Template Groups
  *
  * Pre-defined property groups (tabs) that can be composed into building templates.
- * These are reusable building blocks for different building types.
+ * Each group corresponds to a Voyager sheet handler (e.g., IndGeneral, BankLoans).
+ * RDO property names are matched to the original Delphi source.
  */
 
 import { PropertyGroup, PropertyType } from './property-definitions';
 
 // =============================================================================
-// OVERVIEW GROUP (Common to all buildings)
+// GENERIC FALLBACK GROUP
 // =============================================================================
 
-export const OVERVIEW_GROUP: PropertyGroup = {
-  id: 'overview',
-  name: 'Overview',
-  icon: 'i',
+export const GENERIC_GROUP: PropertyGroup = {
+  id: 'generic',
+  name: 'Details',
+  icon: 'D',
   order: 0,
   properties: [
-    { rdoName: 'Name', displayName: 'Building Name', type: PropertyType.TEXT },
+    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
     { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
-    { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'SecurityId', displayName: 'Security ID', type: PropertyType.TEXT },
+    { rdoName: 'ObjectId', displayName: 'Object ID', type: PropertyType.TEXT, hideEmpty: true },
+    { rdoName: 'CurrBlock', displayName: 'Block ID', type: PropertyType.TEXT, hideEmpty: true },
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
-    { rdoName: 'ROI', displayName: 'Return on Investment', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
-    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
+    { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'Trouble', displayName: 'Trouble', type: PropertyType.NUMBER, hideEmpty: true },
   ],
 };
 
 // =============================================================================
-// WORKFORCE GROUP (For buildings with employees)
+// GROUP A: GENERAL TAB VARIANTS (10 handlers)
 // =============================================================================
-// Workforce table - displays all worker classes in a 4-column table
-// Columns: Label | Executives | Professionals | Workers
-// Rows: Jobs (ratio), Work Force Quality (%), Salaries (editable %)
+
+/**
+ * unkGeneral — Unknown/construction facilities (336 classes)
+ * Voyager: UnkFacilitySheet.pas — basic facility info
+ */
+export const UNK_GENERAL_GROUP: PropertyGroup = {
+  id: 'unkGeneral',
+  name: 'General',
+  icon: 'i',
+  order: 0,
+  properties: [
+    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
+    { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
+    { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
+    { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
+    { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
+  ],
+};
+
+/**
+ * IndGeneral — Industry/factory facilities (172 classes)
+ * Voyager: IndustryGeneralSheet.pas — trade settings
+ */
+export const IND_GENERAL_GROUP: PropertyGroup = {
+  id: 'indGeneral',
+  name: 'General',
+  icon: 'i',
+  order: 0,
+  properties: [
+    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
+    { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
+    { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
+    { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
+    { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'Role', displayName: 'Role', type: PropertyType.ENUM, enumLabels: { '0': 'Neutral', '1': 'Producer', '2': 'Distributor', '3': 'Buyer', '4': 'Importer', '5': 'Export', '6': 'Import' } },
+    { rdoName: 'TradeRole', displayName: 'Trade Role', type: PropertyType.ENUM, enumLabels: { '0': 'Neutral', '1': 'Producer', '2': 'Distributor', '3': 'Buyer', '4': 'Importer', '5': 'Export', '6': 'Import' } },
+    { rdoName: 'TradeLevel', displayName: 'Trade Level', type: PropertyType.ENUM, editable: true, enumLabels: { '0': 'Same Owner', '1': 'Subsidiaries', '2': 'Allies', '3': 'Anyone' } },
+  ],
+  rdoCommands: {
+    'TradeLevel': { command: 'RDOSetTradeLevel' },
+    'Role': { command: 'RDOSetRole' },
+  },
+};
+
+/**
+ * SrvGeneral — Service/store facilities (58 classes)
+ * Voyager: SrvGeneralSheetForm.pas — overview + indexed service price table
+ */
+export const SRV_GENERAL_GROUP: PropertyGroup = {
+  id: 'srvGeneral',
+  name: 'General',
+  icon: 'i',
+  order: 0,
+  properties: [
+    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
+    { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
+    { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
+    { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
+    { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
+    {
+      rdoName: 'srvNames',
+      displayName: 'Services',
+      type: PropertyType.TABLE,
+      indexed: true,
+      countProperty: 'ServiceCount',
+      columns: [
+        { rdoSuffix: 'srvNames', label: 'Product', type: PropertyType.TEXT, width: '20%' },
+        { rdoSuffix: 'srvPrices', label: 'Price', type: PropertyType.SLIDER, width: '15%', editable: true, min: 0, max: 500, step: 10 },
+        { rdoSuffix: 'srvSupplies', label: 'Offer', type: PropertyType.NUMBER, width: '15%' },
+        { rdoSuffix: 'srvDemands', label: 'Demand', type: PropertyType.NUMBER, width: '15%' },
+        { rdoSuffix: 'srvMarketPrices', label: 'Market', type: PropertyType.CURRENCY, width: '15%' },
+        { rdoSuffix: 'srvAvgPrices', label: 'Avg Price', type: PropertyType.CURRENCY, width: '15%' },
+      ],
+    },
+  ],
+  rdoCommands: {
+    'srvPrices': { command: 'RDOSetPrice', indexed: true },
+  },
+};
+
+/**
+ * ResGeneral — Residential facilities (183 classes)
+ * Voyager: ResidentialSheet.pas — rent/maintenance sliders
+ */
+export const RES_GENERAL_GROUP: PropertyGroup = {
+  id: 'resGeneral',
+  name: 'General',
+  icon: 'i',
+  order: 0,
+  properties: [
+    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
+    { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
+    { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
+    { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
+    { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'Rent', displayName: 'Rent', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, unit: '%' },
+    { rdoName: 'Maintenance', displayName: 'Maintenance', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, unit: '%' },
+  ],
+  rdoCommands: {
+    'Rent': { command: 'property' },
+    'Maintenance': { command: 'property' },
+  },
+};
+
+/**
+ * HqGeneral — Headquarters facilities (35 classes)
+ * Voyager: HqMainSheet.pas — same as unkGeneral (inventions sub-handler is separate)
+ */
+export const HQ_GENERAL_GROUP: PropertyGroup = {
+  id: 'hqGeneral',
+  name: 'General',
+  icon: 'i',
+  order: 0,
+  properties: [
+    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
+    { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
+    { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
+    { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
+    { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
+  ],
+};
+
+/**
+ * BankGeneral — Bank facilities (1 class)
+ * Voyager: BankGeneralSheet.pas — bank stats + budget slider
+ */
+export const BANK_GENERAL_GROUP: PropertyGroup = {
+  id: 'bankGeneral',
+  name: 'General',
+  icon: 'i',
+  order: 0,
+  properties: [
+    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
+    { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
+    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'EstLoan', displayName: 'Estimated Loan', type: PropertyType.CURRENCY },
+    { rdoName: 'Interest', displayName: 'Interest Rate', type: PropertyType.PERCENTAGE },
+    { rdoName: 'Term', displayName: 'Loan Term', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'BudgetPerc', displayName: 'Budget', type: PropertyType.SLIDER, editable: true, min: 0, max: 100, unit: '%' },
+  ],
+  rdoCommands: {
+    'BudgetPerc': { command: 'RDOSetLoanPerc' },
+  },
+};
+
+/**
+ * WHGeneral — Warehouse facilities (2 classes)
+ * Voyager: WHGeneralSheet.pas — trade settings
+ */
+export const WH_GENERAL_GROUP: PropertyGroup = {
+  id: 'whGeneral',
+  name: 'General',
+  icon: 'i',
+  order: 0,
+  properties: [
+    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
+    { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
+    { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
+    { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
+    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'TradeRole', displayName: 'Trade Role', type: PropertyType.ENUM, enumLabels: { '0': 'Neutral', '1': 'Producer', '2': 'Distributor', '3': 'Buyer', '4': 'Importer', '5': 'Export', '6': 'Import' } },
+    { rdoName: 'TradeLevel', displayName: 'Trade Level', type: PropertyType.ENUM, editable: true, enumLabels: { '0': 'Same Owner', '1': 'Subsidiaries', '2': 'Allies', '3': 'Anyone' } },
+    { rdoName: 'GateMap', displayName: 'Gate Map', type: PropertyType.NUMBER, hideEmpty: true },
+  ],
+  rdoCommands: {
+    'TradeLevel': { command: 'RDOSetTradeLevel' },
+  },
+};
+
+/**
+ * TVGeneral — TV station facilities (4 classes)
+ * Voyager: TVGeneralSheet.pas — broadcast settings
+ */
+export const TV_GENERAL_GROUP: PropertyGroup = {
+  id: 'tvGeneral',
+  name: 'General',
+  icon: 'i',
+  order: 0,
+  properties: [
+    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
+    { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
+    { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
+    { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
+    { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'HoursOnAir', displayName: 'Hours On Air', type: PropertyType.SLIDER, editable: true, min: 0, max: 100, unit: '%' },
+    { rdoName: 'Comercials', displayName: 'Commercials', type: PropertyType.SLIDER, editable: true, min: 0, max: 100, unit: '%' },
+  ],
+  rdoCommands: {
+    'HoursOnAir': { command: 'property' },
+    'Comercials': { command: 'property' },
+  },
+};
+
+/**
+ * capitolGeneral — Capitol building (1 class)
+ * Voyager: CapitolSheet.pas — ruler stats + indexed coverage
+ */
+export const CAPITOL_GENERAL_GROUP: PropertyGroup = {
+  id: 'capitolGeneral',
+  name: 'General',
+  icon: 'i',
+  order: 0,
+  properties: [
+    { rdoName: 'HasRuler', displayName: 'Has Ruler', type: PropertyType.BOOLEAN },
+    { rdoName: 'YearsToElections', displayName: 'Years to Elections', type: PropertyType.NUMBER },
+    { rdoName: 'RulerActualPrestige', displayName: 'Prestige', type: PropertyType.NUMBER },
+    { rdoName: 'RulerRating', displayName: 'Ruler Rating', type: PropertyType.PERCENTAGE },
+    { rdoName: 'TycoonsRating', displayName: 'Tycoons Rating', type: PropertyType.PERCENTAGE },
+    {
+      rdoName: 'covName',
+      displayName: 'Coverage',
+      type: PropertyType.TABLE,
+      indexed: true,
+      indexSuffix: '.0',
+      countProperty: 'covCount',
+      columns: [
+        { rdoSuffix: 'covName', label: 'Service', type: PropertyType.TEXT, width: '50%' },
+        { rdoSuffix: 'covValue', label: 'Coverage', type: PropertyType.PERCENTAGE, width: '50%' },
+      ],
+    },
+  ],
+};
+
+/**
+ * townGeneral — Town hall (4 classes)
+ * Voyager: TownHallSheet.pas — mayor stats + coverage
+ */
+export const TOWN_GENERAL_GROUP: PropertyGroup = {
+  id: 'townGeneral',
+  name: 'General',
+  icon: 'i',
+  order: 0,
+  properties: [
+    { rdoName: 'ActualRuler', displayName: 'Mayor', type: PropertyType.TEXT },
+    { rdoName: 'Town', displayName: 'Town', type: PropertyType.TEXT },
+    { rdoName: 'NewspaperName', displayName: 'Newspaper', type: PropertyType.TEXT },
+    { rdoName: 'RulerPrestige', displayName: 'Prestige', type: PropertyType.NUMBER },
+    { rdoName: 'RulerRating', displayName: 'Ruler Rating', type: PropertyType.PERCENTAGE },
+    { rdoName: 'TycoonsRating', displayName: 'Tycoons Rating', type: PropertyType.PERCENTAGE },
+    { rdoName: 'YearsToElections', displayName: 'Years to Elections', type: PropertyType.NUMBER },
+    { rdoName: 'HasRuler', displayName: 'Has Ruler', type: PropertyType.BOOLEAN },
+    { rdoName: 'RulerPeriods', displayName: 'Ruler Periods', type: PropertyType.NUMBER },
+    {
+      rdoName: 'covName',
+      displayName: 'Coverage',
+      type: PropertyType.TABLE,
+      indexed: true,
+      indexSuffix: '.0',
+      countProperty: 'covCount',
+      columns: [
+        { rdoSuffix: 'covName', label: 'Service', type: PropertyType.TEXT, width: '50%' },
+        { rdoSuffix: 'covValue', label: 'Coverage', type: PropertyType.PERCENTAGE, width: '50%' },
+      ],
+    },
+  ],
+};
+
+// =============================================================================
+// GROUP B: CORE HANDLERS (already working — unchanged)
+// =============================================================================
 
 export const WORKFORCE_GROUP: PropertyGroup = {
   id: 'workforce',
@@ -47,10 +314,6 @@ export const WORKFORCE_GROUP: PropertyGroup = {
     },
   ],
 };
-
-// =============================================================================
-// SUPPLIES GROUP (For buildings with inputs)
-// =============================================================================
 
 export const SUPPLIES_GROUP: PropertyGroup = {
   id: 'supplies',
@@ -69,10 +332,6 @@ export const SUPPLIES_GROUP: PropertyGroup = {
   ],
 };
 
-// =============================================================================
-// SERVICES GROUP (For retail/commerce buildings)
-// =============================================================================
-
 export const SERVICES_GROUP: PropertyGroup = {
   id: 'services',
   name: 'Services',
@@ -85,7 +344,7 @@ export const SERVICES_GROUP: PropertyGroup = {
       displayName: 'Product',
       type: PropertyType.TEXT,
       indexed: true,
-	  indexSuffix: '.0',
+      indexSuffix: '.0',
       countProperty: 'ServiceCount',
     },
     {
@@ -131,9 +390,21 @@ export const SERVICES_GROUP: PropertyGroup = {
   ],
 };
 
-// =============================================================================
-// UPGRADE GROUP (For buildings with upgrade capability)
-// =============================================================================
+export const ADVERTISEMENT_GROUP: PropertyGroup = {
+  id: 'advertisement',
+  name: 'Advertising',
+  icon: 'A',
+  order: 25,
+  properties: [
+    { rdoName: 'cInput', displayName: 'Services', type: PropertyType.TEXT, indexed: true, indexSuffix: '.0', countProperty: 'cInputCount' },
+    { rdoName: 'cInputSup', displayName: 'Receiving', type: PropertyType.NUMBER, indexed: true },
+    { rdoName: 'cInputDem', displayName: 'Requesting', type: PropertyType.NUMBER, indexed: true },
+    { rdoName: 'cInputRatio', displayName: 'Ratio', type: PropertyType.PERCENTAGE, indexed: true },
+    { rdoName: 'cInputMax', displayName: 'Max', type: PropertyType.NUMBER, indexed: true },
+    { rdoName: 'cEditable', displayName: 'Editable', type: PropertyType.BOOLEAN, indexed: true },
+    { rdoName: 'cUnits', displayName: 'Units', type: PropertyType.TEXT, indexed: true },
+  ],
+};
 
 export const UPGRADE_GROUP: PropertyGroup = {
   id: 'upgrade',
@@ -141,20 +412,14 @@ export const UPGRADE_GROUP: PropertyGroup = {
   icon: 'U',
   order: 40,
   properties: [
-    // Hidden properties needed by UPGRADE_ACTIONS component (not rendered as rows)
     { rdoName: 'UpgradeLevel', displayName: 'Current Level', type: PropertyType.NUMBER, hideEmpty: true },
     { rdoName: 'MaxUpgrade', displayName: 'Max Level', type: PropertyType.NUMBER, hideEmpty: true },
     { rdoName: 'NextUpgCost', displayName: 'Upgrade Cost', type: PropertyType.CURRENCY, hideEmpty: true },
     { rdoName: 'Upgrading', displayName: 'Upgrading', type: PropertyType.BOOLEAN, hideEmpty: true },
     { rdoName: 'Pending', displayName: 'Pending', type: PropertyType.NUMBER, hideEmpty: true },
-    // Main UI component
     { rdoName: 'UpgradeActions', displayName: 'Actions', type: PropertyType.UPGRADE_ACTIONS },
   ],
 };
-
-// =============================================================================
-// FINANCES GROUP (Money graph)
-// =============================================================================
 
 export const FINANCES_GROUP: PropertyGroup = {
   id: 'finances',
@@ -168,28 +433,305 @@ export const FINANCES_GROUP: PropertyGroup = {
 };
 
 // =============================================================================
-// ADVERTISEMENT/INPUTS GROUP
+// GROUP C: SPECIALIZED HANDLERS (11 handlers — NEW)
 // =============================================================================
 
-export const ADVERTISEMENT_GROUP: PropertyGroup = {
-  id: 'advertisement',
-  name: 'Advertising',
-  icon: 'A',
-  order: 25,
+/**
+ * BankLoans — Bank loan table
+ * Voyager: BankLoansSheet.pas — indexed loan table
+ */
+export const BANK_LOANS_GROUP: PropertyGroup = {
+  id: 'bankLoans',
+  name: 'Loans',
+  icon: 'L',
+  order: 10,
   properties: [
-    { rdoName: 'cInput', displayName: 'Services', type: PropertyType.TEXT, indexed: true,indexSuffix: '.0', countProperty: 'cInputCount' },
-    { rdoName: 'cInputSup', displayName: 'Receiving', type: PropertyType.NUMBER, indexed: true },
-    { rdoName: 'cInputDem', displayName: 'Requesting', type: PropertyType.NUMBER, indexed: true },
-    { rdoName: 'cInputRatio', displayName: 'Ratio', type: PropertyType.PERCENTAGE, indexed: true },
-    { rdoName: 'cInputMax', displayName: 'Max', type: PropertyType.NUMBER, indexed: true },
-    { rdoName: 'cEditable', displayName: 'Editable', type: PropertyType.BOOLEAN, indexed: true },
-    { rdoName: 'cUnits', displayName: 'Units', type: PropertyType.TEXT, indexed: true },
+    {
+      rdoName: 'Debtor',
+      displayName: 'Loans',
+      type: PropertyType.TABLE,
+      indexed: true,
+      countProperty: 'LoanCount',
+      columns: [
+        { rdoSuffix: 'Debtor', label: 'Debtor', type: PropertyType.TEXT, width: '30%' },
+        { rdoSuffix: 'Amount', label: 'Amount', type: PropertyType.CURRENCY, width: '25%' },
+        { rdoSuffix: 'Interest', label: 'Interest', type: PropertyType.PERCENTAGE, width: '20%' },
+        { rdoSuffix: 'Term', label: 'Term', type: PropertyType.NUMBER, width: '25%' },
+      ],
+    },
   ],
 };
 
+/**
+ * Antennas — TV antenna table
+ * Voyager: AntennasSheet.pas — indexed antenna table
+ */
+export const ANTENNAS_GROUP: PropertyGroup = {
+  id: 'antennas',
+  name: 'Antennas',
+  icon: 'A',
+  order: 10,
+  properties: [
+    {
+      rdoName: 'antName',
+      displayName: 'Antennas',
+      type: PropertyType.TABLE,
+      indexed: true,
+      countProperty: 'antCount',
+      columns: [
+        { rdoSuffix: 'antName', label: 'Name', type: PropertyType.TEXT, width: '30%' },
+        { rdoSuffix: 'antTown', label: 'Town', type: PropertyType.TEXT, width: '25%' },
+        { rdoSuffix: 'antViewers', label: 'Viewers', type: PropertyType.NUMBER, width: '25%' },
+        { rdoSuffix: 'antActive', label: 'Active', type: PropertyType.BOOLEAN, width: '20%' },
+      ],
+    },
+  ],
+};
+
+/**
+ * Films — Film production status
+ * Voyager: FilmsSheet.pas
+ */
+export const FILMS_GROUP: PropertyGroup = {
+  id: 'films',
+  name: 'Films',
+  icon: 'F',
+  order: 10,
+  properties: [
+    { rdoName: 'InProd', displayName: 'In Production', type: PropertyType.TEXT },
+    { rdoName: 'FilmDone', displayName: 'Film Done', type: PropertyType.BOOLEAN },
+    { rdoName: 'AutoProd', displayName: 'Auto Produce', type: PropertyType.BOOLEAN, editable: true },
+    { rdoName: 'AutoRel', displayName: 'Auto Release', type: PropertyType.BOOLEAN, editable: true },
+  ],
+  rdoCommands: {
+    'AutoProd': { command: 'RDOAutoProduce' },
+    'AutoRel': { command: 'RDOAutoRelease' },
+  },
+};
+
+/**
+ * Mausoleum — Memorial building
+ * Voyager: MausoleumSheet.pas
+ */
+export const MAUSOLEUM_GROUP: PropertyGroup = {
+  id: 'mausoleum',
+  name: 'Memorial',
+  icon: 'M',
+  order: 10,
+  properties: [
+    { rdoName: 'WordsOfWisdom', displayName: 'Words of Wisdom', type: PropertyType.TEXT },
+    { rdoName: 'OwnerName', displayName: 'Owner', type: PropertyType.TEXT },
+    { rdoName: 'Transcended', displayName: 'Transcended', type: PropertyType.BOOLEAN },
+  ],
+};
+
+/**
+ * Votes — Election/voting tab
+ * Voyager: VotesSheet.pas — ruler + candidate table
+ */
+export const VOTES_GROUP: PropertyGroup = {
+  id: 'votes',
+  name: 'Votes',
+  icon: 'V',
+  order: 10,
+  properties: [
+    { rdoName: 'RulerName', displayName: 'Ruler', type: PropertyType.TEXT },
+    { rdoName: 'RulerVotes', displayName: 'Ruler Votes', type: PropertyType.NUMBER },
+    { rdoName: 'RulerCmpRat', displayName: 'Ruler Campaign Rating', type: PropertyType.PERCENTAGE },
+    { rdoName: 'RulerCmpPnts', displayName: 'Ruler Campaign Points', type: PropertyType.NUMBER },
+    {
+      rdoName: 'Candidate',
+      displayName: 'Candidates',
+      type: PropertyType.TABLE,
+      indexed: true,
+      countProperty: 'CampaignCount',
+      columns: [
+        { rdoSuffix: 'Candidate', label: 'Candidate', type: PropertyType.TEXT, width: '30%' },
+        { rdoSuffix: 'Votes', label: 'Votes', type: PropertyType.NUMBER, width: '25%' },
+        { rdoSuffix: 'CmpRat', label: 'Rating', type: PropertyType.PERCENTAGE, width: '25%' },
+        { rdoSuffix: 'CmpPnts', label: 'Points', type: PropertyType.NUMBER, width: '20%' },
+      ],
+    },
+  ],
+};
+
+/**
+ * CapitolTowns — Capitol's town table
+ * Voyager: CapitolTownsSheet.pas — indexed town table
+ */
+export const CAPITOL_TOWNS_GROUP: PropertyGroup = {
+  id: 'capitolTowns',
+  name: 'Towns',
+  icon: 'T',
+  order: 10,
+  properties: [
+    { rdoName: 'ActualRuler', displayName: 'Ruler', type: PropertyType.TEXT },
+    {
+      rdoName: 'Town',
+      displayName: 'Towns',
+      type: PropertyType.TABLE,
+      indexed: true,
+      countProperty: 'TownCount',
+      columns: [
+        { rdoSuffix: 'Town', label: 'Town', type: PropertyType.TEXT, width: '16%' },
+        { rdoSuffix: 'TownPopulation', label: 'Population', type: PropertyType.NUMBER, width: '12%' },
+        { rdoSuffix: 'TownRating', label: 'Rating', type: PropertyType.PERCENTAGE, width: '12%' },
+        { rdoSuffix: 'TownQOL', label: 'QoL', type: PropertyType.PERCENTAGE, width: '12%' },
+        { rdoSuffix: 'TownQOS', label: 'QoS', type: PropertyType.PERCENTAGE, width: '12%' },
+        { rdoSuffix: 'TownWealth', label: 'Wealth', type: PropertyType.CURRENCY, width: '12%' },
+        { rdoSuffix: 'TownTax', label: 'Tax', type: PropertyType.PERCENTAGE, width: '12%' },
+        { rdoSuffix: 'HasMayor', label: 'Mayor', type: PropertyType.BOOLEAN, width: '10%' },
+      ],
+    },
+  ],
+};
+
+/**
+ * Ministeries — Capitol minister table
+ * Voyager: MinisteriesSheet.pas — indexed minister table
+ */
+export const MINISTERIES_GROUP: PropertyGroup = {
+  id: 'ministeries',
+  name: 'Ministries',
+  icon: 'M',
+  order: 10,
+  properties: [
+    { rdoName: 'ActualRuler', displayName: 'Ruler', type: PropertyType.TEXT },
+    {
+      rdoName: 'Ministry',
+      displayName: 'Ministries',
+      type: PropertyType.TABLE,
+      indexed: true,
+      indexSuffix: '.0',
+      countProperty: 'MinisterCount',
+      columns: [
+        { rdoSuffix: 'Ministry', label: 'Ministry', type: PropertyType.TEXT, width: '25%' },
+        { rdoSuffix: 'Minister', label: 'Minister', type: PropertyType.TEXT, width: '25%' },
+        { rdoSuffix: 'MinisterRating', label: 'Rating', type: PropertyType.PERCENTAGE, width: '25%' },
+        { rdoSuffix: 'MinisterBudget', label: 'Budget', type: PropertyType.CURRENCY, width: '25%' },
+      ],
+    },
+  ],
+};
+
+/**
+ * townJobs — Town hall job settings
+ * Voyager: TownHallJobsSheet.pas — min salary per worker class
+ */
+export const TOWN_JOBS_GROUP: PropertyGroup = {
+  id: 'townJobs',
+  name: 'Jobs',
+  icon: 'J',
+  order: 10,
+  properties: [
+    { rdoName: 'hiActualMinSalary', displayName: 'Executive Min Salary', type: PropertyType.CURRENCY },
+    { rdoName: 'midActualMinSalary', displayName: 'Professional Min Salary', type: PropertyType.CURRENCY },
+    { rdoName: 'loActualMinSalary', displayName: 'Worker Min Salary', type: PropertyType.CURRENCY },
+  ],
+};
+
+/**
+ * townRes — Town hall residential statistics
+ * Voyager: TownHallResSheet.pas — uses FiveViewUtils (xfer_ prefixed controls)
+ * Properties: 3 residential classes × (Demand, Quantity, Rent Price)
+ */
+export const TOWN_RES_GROUP: PropertyGroup = {
+  id: 'townRes',
+  name: 'Residential',
+  icon: 'R',
+  order: 10,
+  properties: [
+    { rdoName: 'hiResDemand', displayName: 'High Class Demand', type: PropertyType.NUMBER },
+    { rdoName: 'hiResQ', displayName: 'High Class Population', type: PropertyType.NUMBER },
+    { rdoName: 'hiRentPrice', displayName: 'High Class Rent', type: PropertyType.CURRENCY },
+    { rdoName: 'midResDemand', displayName: 'Middle Class Demand', type: PropertyType.NUMBER },
+    { rdoName: 'midResQ', displayName: 'Middle Class Population', type: PropertyType.NUMBER },
+    { rdoName: 'midRentPrice', displayName: 'Middle Class Rent', type: PropertyType.CURRENCY },
+    { rdoName: 'loResDemand', displayName: 'Low Class Demand', type: PropertyType.NUMBER },
+    { rdoName: 'loResQ', displayName: 'Low Class Population', type: PropertyType.NUMBER },
+    { rdoName: 'loRentPrice', displayName: 'Low Class Rent', type: PropertyType.CURRENCY },
+  ],
+};
+
+/**
+ * townServices — Town products/services table
+ * Voyager: TownProdSheet.pas — indexed product table
+ */
+export const TOWN_SERVICES_GROUP: PropertyGroup = {
+  id: 'townServices',
+  name: 'Services',
+  icon: 'S',
+  order: 10,
+  properties: [
+    {
+      rdoName: 'prdName',
+      displayName: 'Products',
+      type: PropertyType.TABLE,
+      indexed: true,
+      indexSuffix: '.0',
+      countProperty: 'prdCount',
+      columns: [
+        { rdoSuffix: 'prdName', label: 'Product', type: PropertyType.TEXT, width: '12%' },
+        { rdoSuffix: 'prdInputValue', label: 'In Value', type: PropertyType.NUMBER, width: '10%' },
+        { rdoSuffix: 'prdInputCapacity', label: 'In Cap', type: PropertyType.NUMBER, width: '10%' },
+        { rdoSuffix: 'prdInputQuality', label: 'In Qual', type: PropertyType.PERCENTAGE, width: '10%' },
+        { rdoSuffix: 'prdInputPrice', label: 'In Price', type: PropertyType.CURRENCY, width: '10%' },
+        { rdoSuffix: 'prdOutputValue', label: 'Out Value', type: PropertyType.NUMBER, width: '10%' },
+        { rdoSuffix: 'prdOutputCapacity', label: 'Out Cap', type: PropertyType.NUMBER, width: '10%' },
+        { rdoSuffix: 'prdOutputQuality', label: 'Out Qual', type: PropertyType.PERCENTAGE, width: '10%' },
+        { rdoSuffix: 'prdOutputPrice', label: 'Out Price', type: PropertyType.CURRENCY, width: '10%' },
+      ],
+    },
+  ],
+};
+
+/**
+ * townTaxes — Town tax table (uses columnSuffix for mid-index pattern)
+ * Voyager: TownTaxesSheet.pas — Tax{idx}Name, Tax{idx}Percent
+ */
+export const TOWN_TAXES_GROUP: PropertyGroup = {
+  id: 'townTaxes',
+  name: 'Taxes',
+  icon: 'T',
+  order: 10,
+  properties: [
+    {
+      rdoName: 'Tax',
+      displayName: 'Taxes',
+      type: PropertyType.TABLE,
+      indexed: true,
+      countProperty: 'TaxCount',
+      columns: [
+        { rdoSuffix: 'Tax', columnSuffix: 'Name', label: 'Tax', type: PropertyType.TEXT, width: '30%' },
+        { rdoSuffix: 'Tax', columnSuffix: 'Kind', label: 'Kind', type: PropertyType.TEXT, width: '20%' },
+        { rdoSuffix: 'Tax', columnSuffix: 'Percent', label: 'Rate', type: PropertyType.SLIDER, width: '25%', editable: true, min: 0, max: 100, step: 1 },
+        { rdoSuffix: 'Tax', columnSuffix: 'LastYear', label: 'Last Year', type: PropertyType.CURRENCY, width: '25%' },
+      ],
+    },
+  ],
+  rdoCommands: {
+    'TaxPercent': { command: 'RDOSetTaxPercent', indexed: true },
+  },
+};
+
 // =============================================================================
-// TOWN/LOCATION GROUP
+// UNUSED GROUPS (kept for potential direct use)
 // =============================================================================
+
+export const OVERVIEW_GROUP: PropertyGroup = {
+  id: 'overview',
+  name: 'Overview',
+  icon: 'i',
+  order: 0,
+  properties: [
+    { rdoName: 'Name', displayName: 'Building Name', type: PropertyType.TEXT },
+    { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
+    { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
+    { rdoName: 'ROI', displayName: 'Return on Investment', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
+    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
+  ],
+};
 
 export const TOWN_GROUP: PropertyGroup = {
   id: 'town',
@@ -205,10 +747,6 @@ export const TOWN_GROUP: PropertyGroup = {
     { rdoName: 'QOL', displayName: 'QoL', type: PropertyType.PERCENTAGE, hideEmpty: true },
   ],
 };
-
-// =============================================================================
-// COVERAGE GROUP (Public services coverage)
-// =============================================================================
 
 export const COVERAGE_GROUP: PropertyGroup = {
   id: 'coverage',
@@ -228,47 +766,17 @@ export const COVERAGE_GROUP: PropertyGroup = {
   ],
 };
 
-// =============================================================================
-// TRADE GROUP (For trade centers, warehouses)
-// =============================================================================
-
 export const TRADE_GROUP: PropertyGroup = {
   id: 'trade',
   name: 'Trade',
   icon: 'T',
   order: 35,
   properties: [
-    { rdoName: 'TradeRole', displayName: 'Trade Role', type: PropertyType.NUMBER },
-    { rdoName: 'TradeLevel', displayName: 'Trade Level', type: PropertyType.NUMBER },
+    { rdoName: 'TradeRole', displayName: 'Trade Role', type: PropertyType.ENUM, enumLabels: { '0': 'Neutral', '1': 'Producer', '2': 'Distributor', '3': 'Buyer', '4': 'Importer', '5': 'Export', '6': 'Import' } },
+    { rdoName: 'TradeLevel', displayName: 'Trade Level', type: PropertyType.ENUM, editable: true, enumLabels: { '0': 'Same Owner', '1': 'Subsidiaries', '2': 'Allies', '3': 'Anyone' } },
     { rdoName: 'GateMap', displayName: 'Gate Map', type: PropertyType.NUMBER, hideEmpty: true },
   ],
 };
-
-// =============================================================================
-// GENERIC FALLBACK GROUP
-// =============================================================================
-
-export const GENERIC_GROUP: PropertyGroup = {
-  id: 'generic',
-  name: 'Details',
-  icon: 'D',
-  order: 0,
-  properties: [
-    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
-    { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
-    { rdoName: 'SecurityId', displayName: 'Security ID', type: PropertyType.TEXT },
-    { rdoName: 'ObjectId', displayName: 'Object ID', type: PropertyType.TEXT, hideEmpty: true },
-    { rdoName: 'CurrBlock', displayName: 'Block ID', type: PropertyType.TEXT, hideEmpty: true },
-    { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
-    { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
-    { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
-    { rdoName: 'Trouble', displayName: 'Trouble', type: PropertyType.NUMBER, hideEmpty: true },
-  ],
-};
-
-// =============================================================================
-// LOCAL SERVICES TABLE (QOS data for residential/town)
-// =============================================================================
 
 export const LOCAL_SERVICES_GROUP: PropertyGroup = {
   id: 'localServices',
@@ -283,7 +791,7 @@ export const LOCAL_SERVICES_GROUP: PropertyGroup = {
       displayName: 'Service',
       type: PropertyType.TABLE,
       indexed: true,
-	  indexSuffix: '.0',
+      indexSuffix: '.0',
       countProperty: 'srvCount',
       columns: [
         { rdoSuffix: 'svrName', label: 'Service', type: PropertyType.TEXT, width: '25%' },
@@ -302,15 +810,19 @@ export const LOCAL_SERVICES_GROUP: PropertyGroup = {
 // GROUP LOOKUP BY ID (for client-side property rendering)
 // =============================================================================
 
-/**
- * Lookup PropertyGroup by its well-known ID.
- * Used by the client to find PropertyDefinitions for rendering tab content.
- * For data-driven tabs with handler-suffixed IDs (e.g., "generic_Ministeries"),
- * strip the suffix and look up the base ID.
- */
 export const GROUP_BY_ID: Record<string, PropertyGroup> = {
   'overview': OVERVIEW_GROUP,
   'generic': GENERIC_GROUP,
+  'unkGeneral': UNK_GENERAL_GROUP,
+  'indGeneral': IND_GENERAL_GROUP,
+  'srvGeneral': SRV_GENERAL_GROUP,
+  'resGeneral': RES_GENERAL_GROUP,
+  'hqGeneral': HQ_GENERAL_GROUP,
+  'bankGeneral': BANK_GENERAL_GROUP,
+  'whGeneral': WH_GENERAL_GROUP,
+  'tvGeneral': TV_GENERAL_GROUP,
+  'capitolGeneral': CAPITOL_GENERAL_GROUP,
+  'townGeneral': TOWN_GENERAL_GROUP,
   'workforce': WORKFORCE_GROUP,
   'supplies': SUPPLIES_GROUP,
   'services': SERVICES_GROUP,
@@ -321,6 +833,17 @@ export const GROUP_BY_ID: Record<string, PropertyGroup> = {
   'coverage': COVERAGE_GROUP,
   'trade': TRADE_GROUP,
   'localServices': LOCAL_SERVICES_GROUP,
+  'bankLoans': BANK_LOANS_GROUP,
+  'antennas': ANTENNAS_GROUP,
+  'films': FILMS_GROUP,
+  'mausoleum': MAUSOLEUM_GROUP,
+  'votes': VOTES_GROUP,
+  'capitolTowns': CAPITOL_TOWNS_GROUP,
+  'ministeries': MINISTERIES_GROUP,
+  'townJobs': TOWN_JOBS_GROUP,
+  'townRes': TOWN_RES_GROUP,
+  'townServices': TOWN_SERVICES_GROUP,
+  'townTaxes': TOWN_TAXES_GROUP,
 };
 
 /**
@@ -328,9 +851,7 @@ export const GROUP_BY_ID: Record<string, PropertyGroup> = {
  * E.g., "generic_Ministeries" → GENERIC_GROUP, "supplies" → SUPPLIES_GROUP
  */
 export function getGroupById(tabId: string): PropertyGroup | undefined {
-  // Direct match first
   if (GROUP_BY_ID[tabId]) return GROUP_BY_ID[tabId];
-  // Try stripping handler suffix (e.g., "generic_Ministeries" → "generic")
   const underscoreIdx = tabId.indexOf('_');
   if (underscoreIdx > 0) {
     const baseId = tabId.substring(0, underscoreIdx);
@@ -346,23 +867,21 @@ export function getGroupById(tabId: string): PropertyGroup | undefined {
 /**
  * Maps CLASSES.BIN handler names → PropertyGroup objects.
  * Handler names come from [InspectorInfo] TabHandler{i} values in CLASSES.BIN.
- * Handlers without dedicated PropertyGroup implementations map to GENERIC_GROUP
- * as a placeholder until their RDO properties are implemented.
  */
 export const HANDLER_TO_GROUP: Record<string, PropertyGroup> = {
-  // General tab variants
-  'unkGeneral': GENERIC_GROUP,
-  'ResGeneral': GENERIC_GROUP,
-  'IndGeneral': GENERIC_GROUP,
-  'SrvGeneral': GENERIC_GROUP,
-  'HqGeneral': GENERIC_GROUP,
-  'BankGeneral': GENERIC_GROUP,
-  'WHGeneral': GENERIC_GROUP,
-  'TVGeneral': GENERIC_GROUP,
-  'capitolGeneral': GENERIC_GROUP,
-  'townGeneral': GENERIC_GROUP,
+  // General tab variants — each has dedicated properties
+  'unkGeneral': UNK_GENERAL_GROUP,
+  'ResGeneral': RES_GENERAL_GROUP,
+  'IndGeneral': IND_GENERAL_GROUP,
+  'SrvGeneral': SRV_GENERAL_GROUP,
+  'HqGeneral': HQ_GENERAL_GROUP,
+  'BankGeneral': BANK_GENERAL_GROUP,
+  'WHGeneral': WH_GENERAL_GROUP,
+  'TVGeneral': TV_GENERAL_GROUP,
+  'capitolGeneral': CAPITOL_GENERAL_GROUP,
+  'townGeneral': TOWN_GENERAL_GROUP,
 
-  // Specific tabs → existing groups
+  // Core handlers (existing, working)
   'Supplies': SUPPLIES_GROUP,
   'Products': SERVICES_GROUP,
   'compInputs': ADVERTISEMENT_GROUP,
@@ -370,17 +889,16 @@ export const HANDLER_TO_GROUP: Record<string, PropertyGroup> = {
   'facManagement': UPGRADE_GROUP,
   'Chart': FINANCES_GROUP,
 
-  // Handlers without dedicated groups yet (placeholder → GENERIC_GROUP)
-  'BankLoans': GENERIC_GROUP,
-  'Antennas': GENERIC_GROUP,
-  'Films': GENERIC_GROUP,
-  'Mausoleum': GENERIC_GROUP,
-  'Votes': GENERIC_GROUP,
-  'CapitolTowns': GENERIC_GROUP,
-  'Ministeries': GENERIC_GROUP,
-  'townJobs': GENERIC_GROUP,
-  'townRes': GENERIC_GROUP,
-  'townServices': GENERIC_GROUP,
-  'townTaxes': GENERIC_GROUP,
+  // Specialized handlers (NEW)
+  'BankLoans': BANK_LOANS_GROUP,
+  'Antennas': ANTENNAS_GROUP,
+  'Films': FILMS_GROUP,
+  'Mausoleum': MAUSOLEUM_GROUP,
+  'Votes': VOTES_GROUP,
+  'CapitolTowns': CAPITOL_TOWNS_GROUP,
+  'Ministeries': MINISTERIES_GROUP,
+  'townJobs': TOWN_JOBS_GROUP,
+  'townRes': TOWN_RES_GROUP,
+  'townServices': TOWN_SERVICES_GROUP,
+  'townTaxes': TOWN_TAXES_GROUP,
 };
-

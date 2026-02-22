@@ -128,7 +128,7 @@ export interface CollectedPropertyNames {
 export interface IndexedPropertyInfo {
   rdoName: string;
   maxProperty?: string;
-  columns?: { rdoSuffix: string }[];
+  columns?: { rdoSuffix: string; columnSuffix?: string }[];
   indexSuffix?: string;
 }
 
@@ -209,7 +209,7 @@ function collectGroupPropertyNamesStructured(
     if (prop.columns && !prop.countProperty) {
       for (let i = 0; i < 10; i++) {
         for (const col of prop.columns) {
-          regularProperties.add(`${col.rdoSuffix}${i}${suffix}`);
+          regularProperties.add(`${col.rdoSuffix}${i}${col.columnSuffix || ''}${suffix}`);
         }
       }
     }

@@ -7,6 +7,7 @@
 import {
   PropertyType,
   PropertyDefinition,
+  TableColumn,
   formatCurrency,
   formatPercentage,
   formatNumber,
@@ -131,16 +132,57 @@ export function renderRatioProperty(
 }
 
 /**
- * Render a boolean property
+ * Render a boolean property (read-only or editable checkbox)
  */
-export function renderBooleanProperty(value: string): HTMLElement {
+export function renderBooleanProperty(
+  value: string,
+  editable?: boolean,
+  onChange?: (value: number) => void
+): HTMLElement {
+  const isTrue = value === '1' || value.toLowerCase() === 'yes' || value.toLowerCase() === 'true';
+
+  if (editable && onChange) {
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'property-checkbox';
+    checkbox.checked = isTrue;
+    checkbox.onchange = () => onChange(checkbox.checked ? 1 : 0);
+    return checkbox;
+  }
+
   const span = document.createElement('span');
   span.className = 'property-value property-boolean';
-
-  const isTrue = value === '1' || value.toLowerCase() === 'yes' || value.toLowerCase() === 'true';
   span.textContent = isTrue ? 'Yes' : 'No';
   span.classList.add(isTrue ? 'text-success' : 'text-muted');
 
+  return span;
+}
+
+/**
+ * Render an enum property (read-only label or editable dropdown)
+ */
+export function renderEnumProperty(
+  value: string,
+  definition: PropertyDefinition,
+  onChange?: (value: number) => void
+): HTMLElement {
+  if (definition.editable && definition.enumLabels && onChange) {
+    const select = document.createElement('select');
+    select.className = 'property-enum-select';
+    for (const [val, label] of Object.entries(definition.enumLabels)) {
+      const option = document.createElement('option');
+      option.value = val;
+      option.textContent = label;
+      option.selected = val === value;
+      select.appendChild(option);
+    }
+    select.onchange = () => onChange(parseInt(select.value, 10));
+    return select;
+  }
+
+  const span = document.createElement('span');
+  span.className = 'property-value property-enum';
+  span.textContent = definition.enumLabels?.[value] || value;
   return span;
 }
 
@@ -190,7 +232,19 @@ export function renderPropertyRow(
       break;
 
     case PropertyType.BOOLEAN:
-      valueElement = renderBooleanProperty(propertyValue.value);
+      valueElement = renderBooleanProperty(
+        propertyValue.value,
+        definition.editable,
+        definition.editable && onSliderChange ? onSliderChange : undefined
+      );
+      break;
+
+    case PropertyType.ENUM:
+      valueElement = renderEnumProperty(
+        propertyValue.value,
+        definition,
+        definition.editable && onSliderChange ? onSliderChange : undefined
+      );
       break;
 
     case PropertyType.SLIDER:
@@ -412,6 +466,127 @@ export function renderWorkforceTable(
 }
 
 /**
+ * Format a cell value based on column type
+ */
+function formatCellValue(value: string, colType: PropertyType): string {
+  const num = parseFloat(value);
+  switch (colType) {
+    case PropertyType.CURRENCY:
+      return formatCurrency(num);
+    case PropertyType.PERCENTAGE:
+      return formatPercentage(num);
+    case PropertyType.NUMBER:
+      return isNaN(num) ? value : formatNumber(num);
+    case PropertyType.BOOLEAN: {
+      const isTrue = value === '1' || value.toLowerCase() === 'yes' || value.toLowerCase() === 'true';
+      return isTrue ? 'Yes' : 'No';
+    }
+    default:
+      return value || '-';
+  }
+}
+
+/**
+ * Render a data table for PropertyType.TABLE
+ * Builds an HTML table from indexed column properties
+ */
+export function renderDataTable(
+  def: PropertyDefinition,
+  properties: BuildingPropertyValue[],
+  valueMap: Map<string, string>,
+  onPropertyChange?: (propertyName: string, value: number) => void
+): HTMLElement {
+  const container = document.createElement('div');
+  container.className = 'data-table-container';
+
+  if (!def.columns || def.columns.length === 0) {
+    container.textContent = 'No columns defined';
+    return container;
+  }
+
+  const suffix = def.indexSuffix || '';
+
+  // Determine row count from available properties
+  let rowCount = 0;
+  for (const prop of properties) {
+    if (prop.index !== undefined && prop.index >= rowCount) {
+      rowCount = prop.index + 1;
+    }
+  }
+
+  if (rowCount === 0) {
+    const emptyMsg = document.createElement('div');
+    emptyMsg.className = 'data-table-empty';
+    emptyMsg.textContent = 'No data available';
+    container.appendChild(emptyMsg);
+    return container;
+  }
+
+  const table = document.createElement('table');
+  table.className = 'data-table';
+
+  // Header
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  for (const col of def.columns) {
+    const th = document.createElement('th');
+    th.textContent = col.label;
+    if (col.width) th.style.width = col.width;
+    headerRow.appendChild(th);
+  }
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  // Body
+  const tbody = document.createElement('tbody');
+  for (let idx = 0; idx < rowCount; idx++) {
+    const tr = document.createElement('tr');
+
+    for (const col of def.columns) {
+      const td = document.createElement('td');
+      const colName = `${col.rdoSuffix}${idx}${col.columnSuffix || ''}${suffix}`;
+      const value = valueMap.get(colName) || '';
+
+      if (col.editable && col.type === PropertyType.SLIDER && onPropertyChange) {
+        // Editable slider cell
+        const num = parseFloat(value) || 0;
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.className = 'table-cell-slider';
+        input.min = (col.min ?? 0).toString();
+        input.max = (col.max ?? 300).toString();
+        input.step = (col.step ?? 5).toString();
+        input.value = num.toString();
+
+        const valSpan = document.createElement('span');
+        valSpan.className = 'table-cell-slider-value';
+        valSpan.textContent = num.toString();
+
+        input.oninput = () => {
+          valSpan.textContent = input.value;
+        };
+        input.onchange = () => {
+          onPropertyChange(colName, parseFloat(input.value));
+        };
+
+        td.appendChild(input);
+        td.appendChild(valSpan);
+      } else {
+        td.textContent = formatCellValue(value, col.type);
+      }
+
+      td.className = `data-cell data-cell-${col.type.toLowerCase()}`;
+      tr.appendChild(td);
+    }
+
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  container.appendChild(table);
+  return container;
+}
+
+/**
  * Render a group of properties
  * Indexed properties with the same countProperty are grouped into nested tabs
  */
@@ -463,6 +638,23 @@ export function renderPropertyGroup(
       renderedProperties.add('Upgrading');
       renderedProperties.add('Pending');
       renderedProperties.add('UpgradeActions');
+      continue;
+    }
+
+    // Handle TABLE type: render as data table with columns
+    if (def.type === PropertyType.TABLE && def.columns) {
+      const tableEl = renderDataTable(def, properties, valueMap, onPropertyChange);
+      container.appendChild(tableEl);
+      // Mark all column properties as rendered
+      for (const prop of properties) {
+        if (prop.index !== undefined) {
+          const suffix2 = def.indexSuffix || '';
+          for (const col of def.columns) {
+            const colName = `${col.rdoSuffix}${prop.index}${col.columnSuffix || ''}${suffix2}`;
+            renderedProperties.add(colName);
+          }
+        }
+      }
       continue;
     }
 

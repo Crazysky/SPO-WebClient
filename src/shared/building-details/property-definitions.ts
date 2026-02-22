@@ -33,6 +33,8 @@ export enum PropertyType {
   WORKFORCE_TABLE = 'WORKFORCE_TABLE',
   /** Upgrade action controls (downgrade, start upgrade, stop upgrade buttons) */
   UPGRADE_ACTIONS = 'UPGRADE_ACTIONS',
+  /** Dropdown/select for enum values (TradeRole, TradeLevel) */
+  ENUM = 'ENUM',
 }
 
 /**
@@ -78,24 +80,54 @@ export interface PropertyDefinition {
   tooltip?: string;
   /** Whether to hide if value is empty */
   hideEmpty?: boolean;
+  /** For ENUM: map of numeric value → display label */
+  enumLabels?: Record<string, string>;
 }
 
 /**
  * Table column definition for TABLE type properties
+ *
+ * Property name construction: rdoSuffix + index + (columnSuffix || '') + (indexSuffix || '')
+ * Standard pattern: rdoSuffix='Debtor', index=0 → 'Debtor0'
+ * Mid-index pattern: rdoSuffix='Tax', columnSuffix='Name', index=0 → 'Tax0Name'
  */
 export interface TableColumn {
-  /** RDO property name suffix (e.g., "cnxFacilityName" becomes "cnxFacilityName0") */
+  /** RDO property name prefix before index (e.g., "Debtor" → "Debtor0") */
   rdoSuffix: string;
+  /** Suffix AFTER index for mid-index patterns (e.g., 'Name' → Tax0Name) */
+  columnSuffix?: string;
   /** Column header label */
   label: string;
   /** Column type for formatting */
   type: PropertyType;
   /** Column width (CSS value) */
   width?: string;
+  /** Can user change this column value? (only for SLIDER type) */
+  editable?: boolean;
+  /** For SLIDER columns: minimum value */
+  min?: number;
+  /** For SLIDER columns: maximum value */
+  max?: number;
+  /** For SLIDER columns: step increment */
+  step?: number;
 }
 
 /**
- * Property group for organizing properties into tabs
+ * Maps editable property names to RDO write commands.
+ * Used by the client to determine which RDO method to call when a property is changed.
+ */
+export interface RdoCommandMapping {
+  /** RDO method name (e.g., 'RDOSetTradeLevel') or 'property' for direct property set */
+  command: string;
+  /** If true, extract index from property name (e.g., srvPrices0 → index=0) */
+  indexed?: boolean;
+  /** If true, collect all 3 salary values when one changes */
+  allSalaries?: boolean;
+}
+
+/**
+ * Property group for organizing properties into tabs.
+ * Each group corresponds to a Voyager sheet handler (e.g., IndGeneral, BankLoans).
  */
 export interface PropertyGroup {
   /** Unique identifier */
@@ -114,6 +146,8 @@ export interface PropertyGroup {
   special?: 'supplies' | 'services' | 'workforce' | 'connections' | 'town';
   /** Original CLASSES.BIN handler name (set by registerInspectorTabs) */
   handlerName?: string;
+  /** Maps editable property base names → RDO write commands */
+  rdoCommands?: Record<string, RdoCommandMapping>;
 }
 
 /**

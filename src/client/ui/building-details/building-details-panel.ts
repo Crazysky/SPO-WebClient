@@ -757,23 +757,55 @@ export class BuildingDetailsPanel {
 	 * - MaxPrice → { rdoCommand: 'RDOSetInputMaxPrice', params: { metaFluid: '?' } }
 	 */
 	private mapPropertyToRdoCommand(propertyName: string, value: number): { rdoCommand: string; params: Record<string, string> } {
-	  // Check for indexed properties (e.g., srvPrices0, Salaries1)
+	  // 1. Check current tab's group for data-driven rdoCommands
+	  const group = getGroupById(this.currentTab);
+	  if (group?.rdoCommands) {
+		// Exact match first
+		const mapping = group.rdoCommands[propertyName];
+		if (mapping) {
+		  if (mapping.allSalaries) {
+			const salaryParams = this.getSalaryParams(0, value);
+			return { rdoCommand: mapping.command, params: salaryParams };
+		  }
+		  if (mapping.command === 'property') {
+			return { rdoCommand: 'property', params: { propertyName } };
+		  }
+		  return { rdoCommand: mapping.command, params: {} };
+		}
+
+		// Indexed match: strip trailing digits
+		const indexMatch = propertyName.match(/^(\w+?)(\d+)(.*)$/);
+		if (indexMatch) {
+		  const baseName = indexMatch[1];
+		  const index = indexMatch[2];
+		  const baseMapping = group.rdoCommands[baseName];
+		  if (baseMapping?.indexed) {
+			return { rdoCommand: baseMapping.command, params: { index } };
+		  }
+		  // Check with suffix (e.g., TaxPercent from Tax0Percent)
+		  const suffixName = baseName + indexMatch[3];
+		  const suffixMapping = group.rdoCommands[suffixName];
+		  if (suffixMapping?.indexed) {
+			return { rdoCommand: suffixMapping.command, params: { index } };
+		  }
+		}
+	  }
+
+	  // 2. Fall back to hardcoded mappings for existing handlers
 	  const indexMatch = propertyName.match(/^(\w+?)(\d+)$/);
 
 	  if (indexMatch) {
 		const baseName = indexMatch[1];
 		const index = indexMatch[2];
 
-		// Map base name to RDO command
 		switch (baseName) {
 		  case 'srvPrices':
 			return { rdoCommand: 'RDOSetPrice', params: { index } };
 
-		  case 'Salaries':
-			// For salaries, we need all 3 values (0, 1, 2)
-			// We'll fetch current values from the details
+		  case 'Salaries': {
 			const salaryParams = this.getSalaryParams(parseInt(index), value);
 			return { rdoCommand: 'RDOSetSalaries', params: salaryParams };
+		  }
 
 		  case 'cInputDem':
 			return { rdoCommand: 'RDOSetCompanyInputDemand', params: { index } };
@@ -787,12 +819,9 @@ export class BuildingDetailsPanel {
 	  // Non-indexed properties
 	  switch (propertyName) {
 		case 'MaxPrice':
-		  // For MaxPrice, we need the MetaFluid value from the current supply context
-		  // This will be provided by the caller (supply tab)
 		  return { rdoCommand: 'RDOSetInputMaxPrice', params: {} };
 
 		case 'minK':
-		  // For minK, we need the MetaFluid value from the current supply context
 		  return { rdoCommand: 'RDOSetInputMinK', params: {} };
 
 		default:
