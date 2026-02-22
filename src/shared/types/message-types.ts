@@ -33,6 +33,7 @@ import type {
   AutoConnectionsData,
   AutoConnectionActionType,
   PolicyData,
+  PoliticsData,
 } from './domain-types';
 
 import type { RdoVerb, RdoAction } from './protocol-types';
@@ -189,6 +190,10 @@ export enum WsMessageType {
   RESP_PROFILE_POLICY = 'RESP_PROFILE_POLICY',
   REQ_PROFILE_POLICY_SET = 'REQ_PROFILE_POLICY_SET',
   RESP_PROFILE_POLICY_SET = 'RESP_PROFILE_POLICY_SET',
+
+  // Politics
+  REQ_POLITICS_DATA = 'REQ_POLITICS_DATA',
+  RESP_POLITICS_DATA = 'RESP_POLITICS_DATA',
 }
 
 // =============================================================================
@@ -881,6 +886,22 @@ export interface WsRespProfilePolicySet extends WsMessage {
   type: WsMessageType.RESP_PROFILE_POLICY_SET;
   success: boolean;
   message?: string;
+}
+
+// =============================================================================
+// POLITICS
+// =============================================================================
+
+export interface WsReqPoliticsData extends WsMessage {
+  type: WsMessageType.REQ_POLITICS_DATA;
+  townName: string;
+  buildingX: number;
+  buildingY: number;
+}
+
+export interface WsRespPoliticsData extends WsMessage {
+  type: WsMessageType.RESP_POLITICS_DATA;
+  data: PoliticsData;
 }
 
 // =============================================================================

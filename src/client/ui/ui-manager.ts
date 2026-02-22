@@ -13,6 +13,7 @@ import { BuildingDetailsPanel } from './building-details';
 import { SearchMenuPanel } from './search-menu';
 import { MailPanel } from './mail-panel';
 import { ProfilePanel } from './profile-panel';
+import { PoliticsPanel } from './politics-panel';
 import {
   BuildingDetailsResponse,
   WsMessage,
@@ -48,6 +49,7 @@ export class UIManager {
   public searchMenuPanel: SearchMenuPanel | null = null;
   public mailPanel: MailPanel | null = null;
   public profilePanel: ProfilePanel | null = null;
+  public politicsPanel: PoliticsPanel | null = null;
 
   // Console
   private uiConsole: HTMLElement;
@@ -119,6 +121,13 @@ export class UIManager {
         sendMessage,
       });
     }
+
+    // Politics Panel
+    if (sendMessage) {
+      this.politicsPanel = new PoliticsPanel({
+        sendMessage,
+      });
+    }
   }
 
   /**
@@ -187,7 +196,8 @@ export class UIManager {
     onUpgradeAction?: (action: 'DOWNGRADE' | 'START_UPGRADE' | 'STOP_UPGRADE', count?: number) => Promise<void>,
     onRefresh?: () => Promise<void>,
     onRename?: (newName: string) => Promise<void>,
-    onDelete?: () => Promise<void>
+    onDelete?: () => Promise<void>,
+    onActionButton?: (actionId: string, details: BuildingDetailsResponse) => void
   ) {
     if (this.buildingDetailsPanel) {
       // Update options with callbacks
@@ -198,6 +208,7 @@ export class UIManager {
         onRefresh,
         onRename,
         onDelete,
+        onActionButton,
       });
       this.buildingDetailsPanel.show(details);
     }
@@ -324,5 +335,21 @@ export class UIManager {
       return;
     }
     this.profilePanel.handleResponse(msg);
+  }
+
+  // ===========================================================================
+  // POLITICS PANEL METHODS
+  // ===========================================================================
+
+  public showPoliticsPanel(townName: string, buildingX: number, buildingY: number) {
+    if (this.politicsPanel) {
+      this.politicsPanel.show(townName, buildingX, buildingY);
+    }
+  }
+
+  public handlePoliticsResponse(msg: WsMessage) {
+    if (this.politicsPanel) {
+      this.politicsPanel.handleResponse(msg);
+    }
   }
 }

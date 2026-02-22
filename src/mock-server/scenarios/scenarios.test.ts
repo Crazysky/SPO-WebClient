@@ -1,5 +1,5 @@
 /**
- * Scenario integrity tests for all 14 mock server scenario factory functions
+ * Scenario integrity tests for all 15 mock server scenario factory functions
  * and the scenario registry.
  */
 import { describe, it, expect } from '@jest/globals';
@@ -18,6 +18,15 @@ import { createOverlaysScenario } from './overlays-scenario';
 import { createBuildMenuScenario, CAPTURED_BUILD_SUCCESS, CAPTURED_BUILD_DUPLICATE } from './build-menu-scenario';
 import { createBuildRoadsScenario, CAPTURED_ROAD_BUILD } from './build-roads-scenario';
 import { createMailScenario, CAPTURED_MAIL_SEND } from './mail-scenario';
+import {
+  createBuildingDetailsScenario,
+  MOCK_FACTORY,
+  MOCK_BANK,
+  MOCK_TV_STATION,
+  MOCK_CAPITOL,
+  MOCK_TOWN_HALL,
+  ALL_MOCK_BUILDINGS,
+} from './building-details-scenario';
 import { loadScenario, loadAll, SCENARIO_NAMES } from './scenario-registry';
 
 // =============================================================================
@@ -519,12 +528,101 @@ describe('mail scenario', () => {
 });
 
 // =============================================================================
+// Scenario 15: building-details
+// =============================================================================
+
+describe('building-details scenario', () => {
+  it('creates scenario with WS and RDO', () => {
+    const { ws, rdo } = createBuildingDetailsScenario();
+    expect(ws).toBeDefined();
+    expect(rdo).toBeDefined();
+    expect(ws.name).toBe('building-details');
+    expect(rdo.name).toBe('building-details');
+  });
+
+  it('has WS exchanges for all mock buildings', () => {
+    const { ws } = createBuildingDetailsScenario();
+    expect(ws.exchanges).toHaveLength(ALL_MOCK_BUILDINGS.length);
+    for (const exchange of ws.exchanges) {
+      expect(exchange.tags).toContain('building-details');
+      const request = exchange.request as unknown as Record<string, unknown>;
+      expect(request.type).toBe(WsMessageType.REQ_BUILDING_DETAILS);
+    }
+  });
+
+  it('MOCK_FACTORY has IndGeneral + workforce + upgrade + finances tabs', () => {
+    expect(MOCK_FACTORY.tabs).toHaveLength(5);
+    const handlerNames = MOCK_FACTORY.tabs.map(t => t.handlerName);
+    expect(handlerNames).toContain('IndGeneral');
+    expect(handlerNames).toContain('Workforce');
+    expect(handlerNames).toContain('facManagement');
+    expect(handlerNames).toContain('Chart');
+  });
+
+  it('MOCK_BANK has BankGeneral + BankLoans tabs', () => {
+    expect(MOCK_BANK.tabs).toHaveLength(2);
+    expect(MOCK_BANK.groups['bankLoans']).toBeDefined();
+    const loanCount = MOCK_BANK.groups['bankLoans'].find(p => p.name === 'LoanCount');
+    expect(loanCount?.value).toBe('3');
+  });
+
+  it('MOCK_TV_STATION has TVGeneral + Antennas + Films tabs', () => {
+    expect(MOCK_TV_STATION.tabs).toHaveLength(4);
+    expect(MOCK_TV_STATION.groups['antennas']).toBeDefined();
+    expect(MOCK_TV_STATION.groups['films']).toBeDefined();
+    const antCount = MOCK_TV_STATION.groups['antennas'].find(p => p.name === 'antCount');
+    expect(antCount?.value).toBe('3');
+  });
+
+  it('MOCK_CAPITOL has capitolGeneral + CapitolTowns + Ministeries + Votes tabs', () => {
+    expect(MOCK_CAPITOL.tabs).toHaveLength(4);
+    const handlerNames = MOCK_CAPITOL.tabs.map(t => t.handlerName);
+    expect(handlerNames).toContain('capitolGeneral');
+    expect(handlerNames).toContain('CapitolTowns');
+    expect(handlerNames).toContain('Ministeries');
+    expect(handlerNames).toContain('Votes');
+  });
+
+  it('MOCK_TOWN_HALL has townGeneral + townJobs + townRes + townServices + townTaxes tabs', () => {
+    expect(MOCK_TOWN_HALL.tabs).toHaveLength(5);
+    const handlerNames = MOCK_TOWN_HALL.tabs.map(t => t.handlerName);
+    expect(handlerNames).toContain('townGeneral');
+    expect(handlerNames).toContain('townJobs');
+    expect(handlerNames).toContain('townRes');
+    expect(handlerNames).toContain('townServices');
+    expect(handlerNames).toContain('townTaxes');
+  });
+
+  it('townTaxes uses columnSuffix pattern (Tax0Name, Tax0Kind, Tax0Percent)', () => {
+    const taxProps = MOCK_TOWN_HALL.groups['townTaxes'];
+    expect(taxProps).toBeDefined();
+    const propNames = taxProps.map(p => p.name);
+    expect(propNames).toContain('Tax0Name.0');
+    expect(propNames).toContain('Tax0Kind');
+    expect(propNames).toContain('Tax0Percent');
+    expect(propNames).toContain('Tax0LastYear');
+  });
+
+  it('RDO has GetPropertyList exchanges for each building group', () => {
+    const { rdo } = createBuildingDetailsScenario();
+    // Each building has exchanges for each group
+    const totalGroups = ALL_MOCK_BUILDINGS.reduce(
+      (sum, b) => sum + Object.keys(b.groups).length, 0
+    );
+    expect(rdo.exchanges).toHaveLength(totalGroups);
+    for (const exchange of rdo.exchanges) {
+      expect(exchange.matchKeys?.member).toBe('GetPropertyList');
+    }
+  });
+});
+
+// =============================================================================
 // Scenario Registry
 // =============================================================================
 
 describe('scenario registry', () => {
-  it('SCENARIO_NAMES has 14 entries', () => {
-    expect(SCENARIO_NAMES).toHaveLength(14);
+  it('SCENARIO_NAMES has 16 entries', () => {
+    expect(SCENARIO_NAMES).toHaveLength(16);
   });
 
   it('loadScenario returns bundle for each name', () => {

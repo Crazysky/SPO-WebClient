@@ -70,6 +70,9 @@ export type {
   AutoConnectionsData,
   PolicyEntry,
   PolicyData,
+  PoliticsRatingEntry,
+  PoliticsCampaignEntry,
+  PoliticsData,
 } from './domain-types';
 
 export type { MailFolder, BankActionType, AutoConnectionActionType } from './domain-types';
@@ -205,4 +208,7 @@ export type {
   WsRespProfilePolicy,
   WsReqProfilePolicySet,
   WsRespProfilePolicySet,
+  // Politics
+  WsReqPoliticsData,
+  WsRespPoliticsData,
 } from './message-types';

@@ -24,6 +24,7 @@ export interface BuildingDetailsPanelOptions {
   onRefresh?: () => Promise<void>;
   onRename?: (newName: string) => Promise<void>;
   onDelete?: () => Promise<void>;
+  onActionButton?: (actionId: string, details: BuildingDetailsResponse) => void;
 }
 
 export class BuildingDetailsPanel {
@@ -692,7 +693,8 @@ export class BuildingDetailsPanel {
 		  const propsEl = renderPropertyGroup(
 			financeProps,
 			group.properties,
-			this.handlePropertyChange.bind(this)
+			this.handlePropertyChange.bind(this),
+			this.handleActionButton.bind(this)
 		  );
 		  this.contentContainer.appendChild(propsEl);
 		}
@@ -715,7 +717,8 @@ export class BuildingDetailsPanel {
 	  const propsEl = renderPropertyGroup(
 		groupData,
 		properties,
-		this.handlePropertyChange.bind(this)
+		this.handlePropertyChange.bind(this),
+		this.handleActionButton.bind(this)
 	  );
 	  this.contentContainer.appendChild(propsEl);
 
@@ -745,6 +748,15 @@ export class BuildingDetailsPanel {
 	  // Auto-refresh after property update
 	  if (this.options.onRefresh) {
 	    await this.options.onRefresh();
+	  }
+	}
+
+	/**
+	 * Handle action button click from property renderers
+	 */
+	private handleActionButton(actionId: string): void {
+	  if (this.options.onActionButton && this.currentDetails) {
+	    this.options.onActionButton(actionId, this.currentDetails);
 	  }
 	}
 

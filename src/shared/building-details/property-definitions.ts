@@ -35,6 +35,8 @@ export enum PropertyType {
   UPGRADE_ACTIONS = 'UPGRADE_ACTIONS',
   /** Dropdown/select for enum values (TradeRole, TradeLevel) */
   ENUM = 'ENUM',
+  /** Clickable action button (e.g., "Visit Politics Page") */
+  ACTION_BUTTON = 'ACTION_BUTTON',
 }
 
 /**
@@ -82,6 +84,10 @@ export interface PropertyDefinition {
   hideEmpty?: boolean;
   /** For ENUM: map of numeric value → display label */
   enumLabels?: Record<string, string>;
+  /** For ACTION_BUTTON: action identifier dispatched on click */
+  actionId?: string;
+  /** For ACTION_BUTTON: button label text */
+  buttonLabel?: string;
 }
 
 /**

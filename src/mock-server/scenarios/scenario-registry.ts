@@ -1,5 +1,5 @@
 /**
- * Central registry for all mock server scenarios (1-14).
+ * Central registry for all mock server scenarios (1-16).
  * Provides lookup by name, full-set loading, and combined scenario merging.
  */
 
@@ -22,6 +22,8 @@ import { createOverlaysScenario } from './overlays-scenario';
 import { createBuildMenuScenario } from './build-menu-scenario';
 import { createBuildRoadsScenario } from './build-roads-scenario';
 import { createMailScenario } from './mail-scenario';
+import { createBuildingDetailsScenario } from './building-details-scenario';
+import { createPoliticsScenario } from './politics-scenario';
 
 /** All recognized scenario names */
 export type ScenarioName =
@@ -38,7 +40,9 @@ export type ScenarioName =
   | 'overlays'
   | 'build-menu'
   | 'build-roads'
-  | 'mail';
+  | 'mail'
+  | 'building-details'
+  | 'politics';
 
 /** Ordered list of all scenario names */
 export const SCENARIO_NAMES: ScenarioName[] = [
@@ -56,6 +60,8 @@ export const SCENARIO_NAMES: ScenarioName[] = [
   'build-menu',
   'build-roads',
   'mail',
+  'building-details',
+  'politics',
 ];
 
 /** Union result from any scenario factory */
@@ -84,6 +90,8 @@ const SCENARIO_FACTORIES: Record<
   'build-menu': (o) => createBuildMenuScenario(o),
   'build-roads': (o) => createBuildRoadsScenario(o),
   'mail': (o) => createMailScenario(o),
+  'building-details': (o) => createBuildingDetailsScenario(o),
+  'politics': (o) => createPoliticsScenario(o),
 };
 
 /**
@@ -105,7 +113,7 @@ export interface AllScenariosBundle {
 }
 
 /**
- * Load all 14 scenarios and merge them into a single combined bundle.
+ * Load all scenarios and merge them into a single combined bundle.
  * WS exchanges, RDO exchanges, and HTTP exchanges are concatenated.
  * Scheduled events from all WS scenarios are merged.
  */
@@ -142,7 +150,7 @@ export function loadAll(
 
   const ws: WsCaptureScenario = {
     name: 'all-scenarios',
-    description: 'Combined: all 14 mock server scenarios',
+    description: 'Combined: all 16 mock server scenarios',
     capturedAt: '2026-02-18',
     serverInfo: { world: 'Shamba', zone: 'BETA', date: '2026-02-18' },
     exchanges: allWsExchanges,
@@ -151,7 +159,7 @@ export function loadAll(
 
   const rdo: RdoScenario = {
     name: 'all-scenarios',
-    description: 'Combined: all RDO exchanges from 14 scenarios',
+    description: 'Combined: all RDO exchanges from 16 scenarios',
     exchanges: allRdoExchanges,
     variables: rdoVariables,
   };

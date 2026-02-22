@@ -593,7 +593,8 @@ export function renderDataTable(
 export function renderPropertyGroup(
   properties: BuildingPropertyValue[],
   definitions: PropertyDefinition[],
-  onPropertyChange?: (propertyName: string, value: number) => void
+  onPropertyChange?: (propertyName: string, value: number) => void,
+  onActionButton?: (actionId: string) => void
 ): HTMLElement {
   const container = document.createElement('div');
   container.className = 'property-group';
@@ -638,6 +639,44 @@ export function renderPropertyGroup(
       renderedProperties.add('Upgrading');
       renderedProperties.add('Pending');
       renderedProperties.add('UpgradeActions');
+      continue;
+    }
+
+    // Handle ACTION_BUTTON type: render a clickable button
+    if (def.type === PropertyType.ACTION_BUTTON) {
+      const btnContainer = document.createElement('div');
+      btnContainer.className = 'property-action-button-container';
+      btnContainer.style.cssText = 'padding: 12px 0; text-align: center;';
+
+      const btn = document.createElement('button');
+      btn.className = 'property-action-button';
+      btn.textContent = def.buttonLabel || def.displayName;
+      btn.style.cssText = [
+        'padding: 8px 20px',
+        'cursor: pointer',
+        'background: rgba(52, 89, 80, 0.8)',
+        'color: #ffffcc',
+        'border: 1px solid #4a7a6a',
+        'border-radius: 4px',
+        'font-family: Tahoma, Verdana, Arial, sans-serif',
+        'font-size: 12px',
+        'transition: background 0.2s, border-color 0.2s',
+      ].join('; ');
+      btn.onmouseenter = () => {
+        btn.style.background = 'rgba(74, 122, 106, 0.9)';
+        btn.style.borderColor = '#ffffcc';
+      };
+      btn.onmouseleave = () => {
+        btn.style.background = 'rgba(52, 89, 80, 0.8)';
+        btn.style.borderColor = '#4a7a6a';
+      };
+      if (onActionButton && def.actionId) {
+        btn.onclick = () => onActionButton(def.actionId!);
+      }
+
+      btnContainer.appendChild(btn);
+      container.appendChild(btnContainer);
+      renderedProperties.add(def.rdoName);
       continue;
     }
 

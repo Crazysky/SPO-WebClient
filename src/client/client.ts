@@ -458,6 +458,11 @@ export class StarpeaceClient {
         this.ui.handleProfileResponse(msg);
         break;
 
+      // Politics Response
+      case WsMessageType.RESP_POLITICS_DATA:
+        this.ui.handlePoliticsResponse(msg);
+        break;
+
       // Profile Response
       case WsMessageType.RESP_GET_PROFILE: {
         const profile = (msg as WsRespGetProfile).profile;
@@ -834,6 +839,9 @@ export class StarpeaceClient {
           async () => {
             // Delete callback
             await this.deleteFacility(x, y);
+          },
+          (actionId, buildingDetails) => {
+            this.handleBuildingAction(actionId, buildingDetails);
           }
         );
       } else {
@@ -880,6 +888,9 @@ export class StarpeaceClient {
           async () => {
             // Delete callback
             await this.deleteFacility(x, y);
+          },
+          (actionId, buildingDetails) => {
+            this.handleBuildingAction(actionId, buildingDetails);
           }
         );
       }
@@ -1083,6 +1094,18 @@ export class StarpeaceClient {
     } catch (err: unknown) {
       this.ui.log('Error', `Failed to delete building: ${toErrorMessage(err)}`);
       return false;
+    }
+  }
+
+  // =========================================================================
+  // BUILDING ACTION BUTTON HANDLERS
+  // =========================================================================
+
+  private handleBuildingAction(actionId: string, buildingDetails: BuildingDetailsResponse): void {
+    if (actionId === 'visitPolitics') {
+      const townName = buildingDetails.groups['townGeneral']
+        ?.find(p => p.name === 'Town')?.value || '';
+      this.ui.showPoliticsPanel(townName, buildingDetails.x, buildingDetails.y);
     }
   }
 

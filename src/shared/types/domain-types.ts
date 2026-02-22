@@ -576,6 +576,35 @@ export interface PolicyData {
 }
 
 // =============================================================================
+// POLITICS
+// =============================================================================
+
+export interface PoliticsRatingEntry {
+  name: string;
+  value: number;
+}
+
+export interface PoliticsCampaignEntry {
+  candidateName: string;
+  rating: number;
+}
+
+export interface PoliticsData {
+  townName: string;
+  yearsToElections: number;
+  mayorName: string;
+  mayorPrestige: number;
+  mayorRating: number;
+  tycoonsRating: number;
+  campaignCount: number;
+  popularRatings: PoliticsRatingEntry[];
+  ifelRatings: PoliticsRatingEntry[];
+  campaigns: PoliticsCampaignEntry[];
+  canLaunchCampaign: boolean;
+  campaignMessage: string;
+}
+
+// =============================================================================
 // ROAD BUILDING
 // =============================================================================
 

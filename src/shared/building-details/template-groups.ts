@@ -293,6 +293,13 @@ export const TOWN_GENERAL_GROUP: PropertyGroup = {
         { rdoSuffix: 'covValue', label: 'Coverage', type: PropertyType.PERCENTAGE, width: '50%' },
       ],
     },
+    {
+      rdoName: 'visitPolitics',
+      displayName: 'Visit Politics Page',
+      type: PropertyType.ACTION_BUTTON,
+      actionId: 'visitPolitics',
+      buttonLabel: 'Visit Politics Page',
+    },
   ],
 };
 

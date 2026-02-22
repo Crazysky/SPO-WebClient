@@ -48,6 +48,8 @@ import {
   SupplierEntry,
   PolicyData,
   PolicyEntry,
+  PoliticsData,
+  PoliticsRatingEntry,
 } from '../shared/types';
 import {
   getTemplateForVisualClass,
@@ -2128,6 +2130,118 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     } catch (e) {
       return { success: false, message: toErrorMessage(e) };
     }
+  }
+
+  /**
+   * Fetch politics data for a Town Hall building.
+   * Fetches mayor info and ratings from the game server's politics ASP pages.
+   */
+  public async getPoliticsData(townName: string, buildingX: number, buildingY: number): Promise<PoliticsData> {
+    const worldIp = this.currentWorldInfo?.ip;
+    if (!worldIp) {
+      return this.getDefaultPoliticsData(townName);
+    }
+
+    try {
+      const queryParams = new URLSearchParams({
+        WorldName: this.currentWorldInfo?.name || '',
+        TycoonName: this.cachedUsername || '',
+        Password: this.cachedPassword || '',
+        TownName: townName,
+        DAAddr: this.daAddr || config.rdo.directoryHost,
+        DAPort: String(this.daPort || config.rdo.ports.directory),
+      });
+
+      const baseUrl = `http://${worldIp}/Five/0/Visual/Voyager/Politics`;
+
+      // Fetch popular ratings page
+      const ratingsUrl = `${baseUrl}/popularratings.asp?${queryParams.toString().replace(/\+/g, '%20')}`;
+      this.log.debug(`[Politics] Fetching popular ratings from ${ratingsUrl}`);
+      const ratingsResp = await fetch(ratingsUrl, { redirect: 'follow' });
+      const ratingsHtml = await ratingsResp.text();
+      const popularRatings = this.parsePoliticsRatings(ratingsHtml);
+
+      // Fetch IFEL ratings page
+      const ifelUrl = `${baseUrl}/ifelratings.asp?${queryParams.toString().replace(/\+/g, '%20')}`;
+      this.log.debug(`[Politics] Fetching IFEL ratings from ${ifelUrl}`);
+      const ifelResp = await fetch(ifelUrl, { redirect: 'follow' });
+      const ifelHtml = await ifelResp.text();
+      const ifelRatings = this.parsePoliticsRatings(ifelHtml);
+
+      // Fetch mayor data from the town hall building properties
+      const mayorData = await this.fetchMayorDataFromBuilding(buildingX, buildingY);
+
+      return {
+        townName,
+        yearsToElections: mayorData.yearsToElections,
+        mayorName: mayorData.mayorName,
+        mayorPrestige: mayorData.mayorPrestige,
+        mayorRating: mayorData.mayorRating,
+        tycoonsRating: mayorData.tycoonsRating,
+        campaignCount: mayorData.campaignCount,
+        popularRatings,
+        ifelRatings,
+        campaigns: [],
+        canLaunchCampaign: true,
+        campaignMessage: '',
+      };
+    } catch (e) {
+      this.log.warn(`[Politics] Failed to fetch politics data: ${toErrorMessage(e)}`);
+      return this.getDefaultPoliticsData(townName);
+    }
+  }
+
+  private parsePoliticsRatings(html: string): PoliticsRatingEntry[] {
+    const ratings: PoliticsRatingEntry[] = [];
+    // Pattern: <td class=label>Name</td> ... <td class=value ...>Value%</td>
+    const rowRegex = /<td\s+class=label>\s*([\s\S]*?)\s*<\/td>[\s\S]*?<td\s+class=value[^>]*>\s*([\d.]+)%?\s*<\/td>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = rowRegex.exec(html)) !== null) {
+      const name = match[1].trim();
+      const value = parseFloat(match[2]) || 0;
+      if (name) {
+        ratings.push({ name, value });
+      }
+    }
+    return ratings;
+  }
+
+  private async fetchMayorDataFromBuilding(x: number, y: number): Promise<{
+    mayorName: string; mayorPrestige: number; mayorRating: number;
+    tycoonsRating: number; yearsToElections: number; campaignCount: number;
+  }> {
+    try {
+      const propNames = ['ActualRuler', 'RulerPrestige', 'RulerRating', 'TycoonsRating', 'YearsToElections', 'RulerPeriods'];
+      const values = await this.getCacherPropertyListAt(x, y, propNames);
+      return {
+        mayorName: values[0] || '',
+        mayorPrestige: parseInt(values[1]) || 0,
+        mayorRating: parseInt(values[2]) || 0,
+        tycoonsRating: parseInt(values[3]) || 0,
+        yearsToElections: parseInt(values[4]) || 0,
+        campaignCount: parseInt(values[5]) || 0,
+      };
+    } catch (e) {
+      this.log.debug(`[Politics] Could not fetch mayor data from building: ${toErrorMessage(e)}`);
+    }
+    return { mayorName: '', mayorPrestige: 0, mayorRating: 0, tycoonsRating: 0, yearsToElections: 0, campaignCount: 0 };
+  }
+
+  private getDefaultPoliticsData(townName: string): PoliticsData {
+    return {
+      townName,
+      yearsToElections: 0,
+      mayorName: '',
+      mayorPrestige: 0,
+      mayorRating: 0,
+      tycoonsRating: 0,
+      campaignCount: 0,
+      popularRatings: [],
+      ifelRatings: [],
+      campaigns: [],
+      canLaunchCampaign: false,
+      campaignMessage: 'Politics data is not available.',
+    };
   }
 
 public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64): Promise<MapData> {

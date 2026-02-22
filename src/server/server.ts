@@ -129,6 +129,8 @@ import {
   WsRespProfilePolicy,
   WsReqProfilePolicySet,
   WsRespProfilePolicySet,
+  WsReqPoliticsData,
+  WsRespPoliticsData,
   BankActionType,
   AutoConnectionActionType,
 } from '../shared/types';
@@ -2198,6 +2200,19 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
           wsRequestId: msg.wsRequestId,
           success: result.success,
           message: result.message,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_POLITICS_DATA: {
+        const polReq = msg as WsReqPoliticsData;
+        console.log(`[Gateway] Getting politics data for town: ${polReq.townName}`);
+        const data = await session.getPoliticsData(polReq.townName, polReq.buildingX, polReq.buildingY);
+        const response: WsRespPoliticsData = {
+          type: WsMessageType.RESP_POLITICS_DATA,
+          wsRequestId: msg.wsRequestId,
+          data,
         };
         ws.send(JSON.stringify(response));
         break;
