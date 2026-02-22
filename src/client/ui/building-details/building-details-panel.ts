@@ -25,6 +25,8 @@ export interface BuildingDetailsPanelOptions {
   onRename?: (newName: string) => Promise<void>;
   onDelete?: () => Promise<void>;
   onActionButton?: (actionId: string, details: BuildingDetailsResponse) => void;
+  /** Current player's company name — used to determine building ownership */
+  currentCompanyName?: string;
 }
 
 export class BuildingDetailsPanel {
@@ -50,6 +52,19 @@ export class BuildingDetailsPanel {
 
   // Rename mode state
   private isRenameMode: boolean = false;
+
+  // Auto-refresh timer (20s interval while panel is open)
+  private refreshInterval: ReturnType<typeof setInterval> | null = null;
+  private static readonly REFRESH_INTERVAL_MS = 20_000;
+
+  /**
+   * Whether the current player owns the currently displayed building.
+   * When false, edit controls (rename, delete, sliders, upgrade) are hidden.
+   */
+  private get isOwner(): boolean {
+    if (!this.currentDetails || !this.options.currentCompanyName) return false;
+    return this.currentDetails.ownerName === this.options.currentCompanyName;
+  }
 
   constructor(container: HTMLElement, options: BuildingDetailsPanelOptions = {}) {
     this.container = container;
@@ -225,12 +240,17 @@ export class BuildingDetailsPanel {
       this.modal.style.display = 'flex';
       this.modal.style.animation = 'scaleIn 0.2s ease-out';
     }
+
+    // Start auto-refresh timer
+    this.startAutoRefresh();
   }
 
   /**
    * Hide the panel
    */
   public hide(): void {
+    this.stopAutoRefresh();
+
     if (this.modal) {
       this.modal.style.animation = 'fadeOut 0.2s ease-out';
       setTimeout(() => {
@@ -238,6 +258,29 @@ export class BuildingDetailsPanel {
           this.modal.style.display = 'none';
         }
       }, 200);
+    }
+  }
+
+  /**
+   * Start periodic auto-refresh (every 20s)
+   * Skips refresh if user is actively editing an input
+   */
+  private startAutoRefresh(): void {
+    this.stopAutoRefresh();
+    this.refreshInterval = setInterval(async () => {
+      if (!this.activeFocusedElement && this.options.onRefresh) {
+        await this.options.onRefresh();
+      }
+    }, BuildingDetailsPanel.REFRESH_INTERVAL_MS);
+  }
+
+  /**
+   * Stop the auto-refresh timer
+   */
+  private stopAutoRefresh(): void {
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+      this.refreshInterval = null;
     }
   }
 
@@ -510,8 +553,14 @@ export class BuildingDetailsPanel {
       timestampEl.textContent = date.toLocaleTimeString();
     }
 
-    // Wire up rename button
+    // Wire up rename button (owner only)
     this.setupRenameButton();
+
+    // Security gating: hide owner-only controls for non-owned buildings
+    const renameBtn = document.getElementById('bd-rename-btn');
+    const deleteBtn = this.modal?.querySelector('.header-delete-btn') as HTMLElement;
+    if (renameBtn) renameBtn.style.display = this.isOwner ? '' : 'none';
+    if (deleteBtn) deleteBtn.style.display = this.isOwner ? '' : 'none';
 
     // Render tabs from server-provided tab configuration (data-driven from CLASSES.BIN)
     this.renderTabs(details.tabs);
@@ -625,9 +674,9 @@ export class BuildingDetailsPanel {
 
     for (const tab of sortedTabs) {
       // Check if this tab has any data
-      const hasData = this.currentDetails?.groups[tab.id]?.length > 0 ||
-        (tab.special === 'supplies' && this.currentDetails?.supplies?.length) ||
-        (tab.special === 'finances' && this.currentDetails?.moneyGraph?.length);
+      const hasData = (this.currentDetails?.groups[tab.id]?.length ?? 0) > 0 ||
+        (tab.special === 'supplies' && (this.currentDetails?.supplies?.length ?? 0) > 0) ||
+        (tab.special === 'finances' && (this.currentDetails?.moneyGraph?.length ?? 0) > 0);
 
       const btn = document.createElement('button');
       btn.className = 'tab-btn' + (this.currentTab === tab.id ? ' active' : '');
@@ -666,6 +715,9 @@ export class BuildingDetailsPanel {
 	  // Look up the PropertyGroup for property definitions (rendering types, etc.)
 	  const group = getGroupById(tab.id);
 
+	  // Security: only pass change callback if player owns this building
+	  const changeCallback = this.isOwner ? this.handlePropertyChange.bind(this) : undefined;
+
 	  // Special handling for certain tab types (based on tab.special or well-known IDs)
 	  const isSupplies = tab.special === 'supplies';
 	  const isFinances = tab.special === 'finances' || tab.id === 'finances';
@@ -693,7 +745,7 @@ export class BuildingDetailsPanel {
 		  const propsEl = renderPropertyGroup(
 			financeProps,
 			group.properties,
-			this.handlePropertyChange.bind(this),
+			changeCallback,
 			this.handleActionButton.bind(this)
 		  );
 		  this.contentContainer.appendChild(propsEl);
@@ -717,13 +769,13 @@ export class BuildingDetailsPanel {
 	  const propsEl = renderPropertyGroup(
 		groupData,
 		properties,
-		this.handlePropertyChange.bind(this),
+		changeCallback,
 		this.handleActionButton.bind(this)
 	  );
 	  this.contentContainer.appendChild(propsEl);
 
-	  // Wire up upgrade action buttons
-	  if (isUpgrade) {
+	  // Wire up upgrade action buttons (owner only)
+	  if (isUpgrade && this.isOwner) {
 		this.wireUpgradeActions();
 	  }
 	}

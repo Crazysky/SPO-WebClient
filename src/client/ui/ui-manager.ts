@@ -197,7 +197,8 @@ export class UIManager {
     onRefresh?: () => Promise<void>,
     onRename?: (newName: string) => Promise<void>,
     onDelete?: () => Promise<void>,
-    onActionButton?: (actionId: string, details: BuildingDetailsResponse) => void
+    onActionButton?: (actionId: string, details: BuildingDetailsResponse) => void,
+    currentCompanyName?: string
   ) {
     if (this.buildingDetailsPanel) {
       // Update options with callbacks
@@ -209,6 +210,7 @@ export class UIManager {
         onRename,
         onDelete,
         onActionButton,
+        currentCompanyName,
       });
       this.buildingDetailsPanel.show(details);
     }

@@ -370,13 +370,25 @@ export class StarpeaceClient {
         this.ui.updateMapData(mapMsg.data);
         break;
 
-      case WsMessageType.EVENT_BUILDING_REFRESH:
-        // Deprecated: Automatic refresh removed in favor of manual/on-demand refresh
-        // Refresh is now triggered by:
-        // 1. Manual refresh button click
-        // 2. Tab switch
-        // 3. After property value change
+      case WsMessageType.EVENT_BUILDING_REFRESH: {
+        const refreshEvt = msg as WsEventBuildingRefresh;
+        // If the refreshed building matches the one currently viewed, re-fetch details
+        if (this.currentFocusedBuilding &&
+            this.currentFocusedBuilding.buildingId === refreshEvt.building.buildingId) {
+          this.requestBuildingDetails(
+            this.currentFocusedBuilding.x,
+            this.currentFocusedBuilding.y,
+            this.currentFocusedVisualClass || '0'
+          ).then(refreshedDetails => {
+            if (refreshedDetails) {
+              this.ui.updateBuildingDetailsPanel(refreshedDetails);
+            }
+          }).catch(err => {
+            this.ui.log('Error', `Failed to refresh building: ${toErrorMessage(err)}`);
+          });
+        }
         break;
+      }
 
         case WsMessageType.EVENT_TYCOON_UPDATE:
           const tycoonUpdate = msg as WsEventTycoonUpdate;
@@ -821,7 +833,9 @@ export class StarpeaceClient {
           async (propertyName, value, additionalParams) => {
             await this.setBuildingProperty(x, y, propertyName, value, additionalParams);
           },
-          undefined, // onNavigateToBuilding
+          (targetX: number, targetY: number) => {
+            this.focusBuilding(targetX, targetY);
+          },
           async (action, count) => {
             await this.upgradeBuildingAction(x, y, action, count);
           },
@@ -842,7 +856,8 @@ export class StarpeaceClient {
           },
           (actionId, buildingDetails) => {
             this.handleBuildingAction(actionId, buildingDetails);
-          }
+          },
+          this.currentCompanyName
         );
       } else {
         // Fallback: create minimal details from BuildingFocusInfo
@@ -870,7 +885,9 @@ export class StarpeaceClient {
           async (propertyName, value, additionalParams) => {
             await this.setBuildingProperty(x, y, propertyName, value, additionalParams);
           },
-          undefined, // onNavigateToBuilding
+          (targetX: number, targetY: number) => {
+            this.focusBuilding(targetX, targetY);
+          },
           async (action, count) => {
             await this.upgradeBuildingAction(x, y, action, count);
           },
@@ -891,7 +908,8 @@ export class StarpeaceClient {
           },
           (actionId, buildingDetails) => {
             this.handleBuildingAction(actionId, buildingDetails);
-          }
+          },
+          this.currentCompanyName
         );
       }
 
