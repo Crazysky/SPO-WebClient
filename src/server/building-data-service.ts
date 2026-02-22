@@ -17,6 +17,7 @@ import * as path from 'path';
 import { createLogger } from '../shared/logger';
 import { BuildingData, getConstructionTexture } from '../shared/types/building-data';
 import { parseClassesBin } from './classes-bin-parser';
+import { registerInspectorTabs } from '../shared/building-details/property-templates';
 import type { Service } from './service-registry';
 
 const logger = createLogger('BuildingDataService');
@@ -104,10 +105,32 @@ export class BuildingDataService implements Service {
         constructionTextureFilename: cls.imagePath.startsWith('Construction')
           ? cls.imagePath
           : getConstructionTexture(cls.size, cls.size),
+        // Full CLASSES.BIN properties (100% Delphi TBuildingClass parity)
+        voidSquares: cls.voidSquares,
+        hideColor: cls.hideColor,
+        urban: cls.urban,
+        accident: cls.accident,
+        zoneType: cls.zoneType,
+        facId: cls.facId,
+        requires: cls.requires,
+        selectable: cls.selectable,
+        buildOpts: cls.buildOpts,
+        animated: cls.animated,
+        levelSignX: cls.levelSignX,
+        levelSignY: cls.levelSignY,
+        animArea: cls.animArea,
+        soundData: cls.soundData,
+        efxData: cls.efxData,
+        inspectorTabs: cls.inspectorTabs,
       };
 
       this.cacheByVisualClass.set(visualClass, building);
       this.cacheByName.set(building.name, building);
+
+      // Register inspector tabs for data-driven template selection
+      if (cls.inspectorTabs.length > 0) {
+        registerInspectorTabs(visualClass, cls.inspectorTabs);
+      }
     }
 
     logger.info(`[BuildingDataService] Loaded ${this.cacheByVisualClass.size} classes from CLASSES.BIN`);

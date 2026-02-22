@@ -7,7 +7,7 @@
 
 import { BuildingTemplate, PropertyGroup } from './property-definitions';
 import {
-  OVERVIEW_GROUP,  
+  OVERVIEW_GROUP,
   WORKFORCE_GROUP,
   SUPPLIES_GROUP,
   SERVICES_GROUP,
@@ -19,6 +19,7 @@ import {
   TRADE_GROUP,
   GENERIC_GROUP,
   LOCAL_SERVICES_GROUP,
+  HANDLER_TO_GROUP,
 } from './template-groups';
 
 // =============================================================================
@@ -164,9 +165,15 @@ export const BUILDING_TEMPLATES: BuildingTemplate[] = [
 ];
 
 /**
- * Template lookup cache by visualClassId
+ * Template lookup cache by visualClassId (legacy hardcoded templates)
  */
 const templateCache: Map<string, BuildingTemplate> = new Map();
+
+/**
+ * Data-driven template cache from CLASSES.BIN [InspectorInfo] sections.
+ * Populated by registerInspectorTabs() during BuildingDataService initialization.
+ */
+const dataDrivenTemplateCache: Map<string, BuildingTemplate> = new Map();
 
 /**
  * Register a visualClassId to a template
@@ -179,16 +186,81 @@ export function registerTemplateMapping(visualClassId: string, template: Buildin
 }
 
 /**
+ * Register inspectorTabs from CLASSES.BIN for a visualClass.
+ * Converts [InspectorInfo] tab handler names into PropertyGroup arrays
+ * using the HANDLER_TO_GROUP mapping.
+ *
+ * Called during BuildingDataService initialization for every building class.
+ */
+export function registerInspectorTabs(
+  visualClassId: string,
+  inspectorTabs: { tabName: string; tabHandler: string }[]
+): void {
+  if (!inspectorTabs.length) return;
+
+  const groups: PropertyGroup[] = [];
+  const usedIds = new Set<string>();
+
+  for (let i = 0; i < inspectorTabs.length; i++) {
+    const tab = inspectorTabs[i];
+    const baseGroup = HANDLER_TO_GROUP[tab.tabHandler];
+    if (!baseGroup) continue;
+
+    // Create a unique group ID per tab position.
+    // Well-known handlers (Supplies, Workforce, etc.) keep their original ID
+    // unless it's already taken. Duplicate IDs (e.g., multiple handlers → GENERIC_GROUP)
+    // get a handler-suffixed ID so every tab is preserved.
+    let groupId = baseGroup.id;
+    if (usedIds.has(groupId)) {
+      groupId = `${baseGroup.id}_${tab.tabHandler}`;
+    }
+    usedIds.add(groupId);
+
+    groups.push({
+      ...baseGroup,
+      id: groupId,
+      name: tab.tabName || baseGroup.name,
+      order: i * 10,
+      handlerName: tab.tabHandler,
+    });
+  }
+
+  if (groups.length > 0) {
+    dataDrivenTemplateCache.set(visualClassId, {
+      visualClassIds: [visualClassId],
+      name: 'Building',
+      groups,
+    });
+  }
+}
+
+/**
+ * Clear the data-driven template cache (for testing)
+ */
+export function clearInspectorTabsCache(): void {
+  dataDrivenTemplateCache.clear();
+}
+
+/**
  * Get template for a visualClassId
- * Returns GENERIC_TEMPLATE if no specific template is found
+ *
+ * Priority:
+ * 1. Data-driven template from CLASSES.BIN [InspectorInfo]
+ * 2. Legacy hardcoded template cache
+ * 3. Search legacy BUILDING_TEMPLATES array
+ * 4. GENERIC_TEMPLATE fallback
  */
 export function getTemplateForVisualClass(visualClassId: string): BuildingTemplate {
-  // Check cache first
+  // Priority 1: Data-driven from CLASSES.BIN
+  const dataDriven = dataDrivenTemplateCache.get(visualClassId);
+  if (dataDriven) return dataDriven;
+
+  // Priority 2: Legacy cache
   if (templateCache.has(visualClassId)) {
     return templateCache.get(visualClassId)!;
   }
 
-  // Search registered templates
+  // Priority 3: Search legacy templates
   for (const template of BUILDING_TEMPLATES) {
     if (template.visualClassIds.includes(visualClassId)) {
       templateCache.set(visualClassId, template);
@@ -196,7 +268,7 @@ export function getTemplateForVisualClass(visualClassId: string): BuildingTempla
     }
   }
 
-  // Return generic template for unknown types
+  // Priority 4: Fallback
   return GENERIC_TEMPLATE;
 }
 

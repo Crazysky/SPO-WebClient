@@ -112,6 +112,8 @@ export interface PropertyGroup {
   subGroups?: PropertyGroup[];
   /** Whether this group requires special handling (e.g., supplies need SetPath) */
   special?: 'supplies' | 'services' | 'workforce' | 'connections' | 'town';
+  /** Original CLASSES.BIN handler name (set by registerInspectorTabs) */
+  handlerName?: string;
 }
 
 /**

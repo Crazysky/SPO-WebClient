@@ -266,6 +266,26 @@ export interface BuildingSupplyData {
 }
 
 /**
+ * Tab metadata sent from server to client.
+ * Driven by CLASSES.BIN [InspectorInfo] section — each building class
+ * defines exactly which tabs to display.
+ */
+export interface BuildingDetailsTab {
+  /** Unique tab ID (group ID, possibly handler-suffixed for uniqueness) */
+  id: string;
+  /** Display name from CLASSES.BIN (e.g., "GENERAL", "PRODUCTS", "JOBS") */
+  name: string;
+  /** Icon character for the tab button */
+  icon: string;
+  /** Sort order for tab navigation */
+  order: number;
+  /** Special rendering hint: 'supplies' | 'finances' | 'workforce' | 'upgrade' etc. */
+  special?: string;
+  /** Original handler name from CLASSES.BIN [InspectorInfo] (e.g., "IndGeneral", "Supplies") */
+  handlerName: string;
+}
+
+/**
  * Complete building details response
  */
 export interface BuildingDetailsResponse {
@@ -285,6 +305,8 @@ export interface BuildingDetailsResponse {
   ownerName: string;
   /** Security/owner ID */
   securityId: string;
+  /** Tab configuration from CLASSES.BIN [InspectorInfo] — drives tab navigation */
+  tabs: BuildingDetailsTab[];
   /** All property values grouped by tab */
   groups: { [groupId: string]: BuildingPropertyValue[] };
   /** Supply data (if applicable) */

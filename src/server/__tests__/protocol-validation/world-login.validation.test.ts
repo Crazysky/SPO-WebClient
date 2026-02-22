@@ -6,7 +6,7 @@
  *
  * Flow under test (single world socket):
  *   1. idof "InterfaceServer"
- *   2. 10x GET world properties (WorldName, DSArea, WorldURL, DAAddr, DALockPort, MailAddr, MailPort, WorldXSize, WorldYSize, WorldSeason)
+ *   2. 11x GET world properties (WorldName, DSArea, WorldURL, DAAddr, DAPort, DALockPort, MailAddr, MailPort, WorldXSize, WorldYSize, WorldSeason)
  *   3. AccountStatus CALL with username, password
  *   4. Logon CALL with username, password → contextId
  *   5. GET MailAccount, GET TycoonId, GET RDOCnntId
@@ -47,7 +47,7 @@ const TYCOON_ID = '22';
 const RDO_CNNT_ID = '12345678';
 
 const WORLD_PROPERTY_NAMES = [
-  'WorldName', 'DSArea', 'WorldURL', 'DAAddr', 'DALockPort',
+  'WorldName', 'DSArea', 'WorldURL', 'DAAddr', 'DAPort', 'DALockPort',
   'MailAddr', 'MailPort', 'WorldXSize', 'WorldYSize', 'WorldSeason',
 ];
 
@@ -95,12 +95,13 @@ describe('Protocol Validation: loginWorld()', () => {
 
   const authBundle = createAuthScenario({ username: 'SPO_test3', password: 'test3' });
   const worldListBundle = createWorldListScenario({ username: 'SPO_test3', password: 'test3' });
-  // Use lowercase 'shamba' — that's what connectDirectory() returns in WorldInfo.name
-  // Use America's shamba IP since keyFieldMatch returns first RDOQueryKey (America)
+  // Use proper-cased 'Shamba' — loginWorld()'s fetchWorldProperties() overwrites
+  // WorldInfo.name with the InterfaceServer's WorldName response ("Shamba"),
+  // and this name is used in the HTTP logonComplete.asp URL.
   const companyBundle = createCompanyListScenario({
     username: 'SPO_test3',
     password: 'test3',
-    worldName: 'shamba',
+    worldName: 'Shamba',
     worldIp: '142.44.158.91',
     worldPort: 8000,
   });
@@ -186,14 +187,14 @@ describe('Protocol Validation: loginWorld()', () => {
   });
 
   describe('World property GET commands', () => {
-    it('should send 10 GET commands for world properties', async () => {
+    it('should send 11 GET commands for world properties', async () => {
       await runFullLoginFlow();
 
       const worldCmds = getWorldCommands();
       const getCmds = worldCmds.filter(cmd => cmd.includes(' get '));
 
-      // 10 world properties + 3 user properties (MailAccount, TycoonId, RDOCnntId) + 1 GetCompanyCount = 14 GETs total
-      // But GetCompanyCount is also a GET, so filter specifically for the 10 world props
+      // 11 world properties + 3 user properties (MailAccount, TycoonId, RDOCnntId) + 1 GetCompanyCount = 15 GETs total
+      // Filter specifically for the 11 world props
       for (const prop of WORLD_PROPERTY_NAMES) {
         const propCmd = getCmds.find(cmd => cmd.includes(`get ${prop}`));
         expect(propCmd).toBeDefined();

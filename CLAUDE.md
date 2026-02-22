@@ -212,6 +212,7 @@ Read the relevant doc when working on a specific system:
 | Raw RDO packet captures | [doc/building_details_rdo.txt](doc/building_details_rdo.txt) |
 | Mock server / adding scenarios | [doc/mock-server-guide.md](doc/mock-server-guide.md) |
 | RDO conformity / Delphi source index | [doc/spo-original-reference.md](doc/spo-original-reference.md) |
+| Facility inspector tabs (legacy Voyager) | [doc/facility-tabs-reference.md](doc/facility-tabs-reference.md) |
 
 ## Git Conventions
 

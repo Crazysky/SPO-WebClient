@@ -217,6 +217,7 @@ export function buildWorldPropertyFallbacks(vars: {
     { member: 'DSArea', payload: `DSArea="%BETA"` },
     { member: 'WorldURL', payload: `WorldURL="%http://${vars.worldIp}"` },
     { member: 'DAAddr', payload: `DAAddr="%${vars.worldIp}"` },
+    { member: 'DAPort', payload: `DAPort="#2000"` },
     { member: 'DALockPort', payload: `DALockPort="#80"` },
     { member: 'MailAddr', payload: `MailAddr="%${vars.mailAddr}"` },
     { member: 'MailPort', payload: `MailPort="#${vars.mailPort}"` },

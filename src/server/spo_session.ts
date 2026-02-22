@@ -120,6 +120,7 @@ export class StarpeaceSession extends EventEmitter {
   private cacherId: string | null = null;
   private worldId: string | null = null;
   private daAddr: string | null = null;
+  private daPort: number | null = null;
 
   // InitClient data (received during login)
   private virtualDate: number | null = null; // Server virtual date (Double)
@@ -138,6 +139,7 @@ export class StarpeaceSession extends EventEmitter {
 
   // Current company info (for role-based switching)
   private currentCompany: CompanyInfo | null = null;
+  private availableCompanies: CompanyInfo[] = [];
 
   // Additional world properties
   private mailAccount: string | null = null;
@@ -194,11 +196,10 @@ export class StarpeaceSession extends EventEmitter {
   }
 
   /**
-   * Get Directory Agent port for HTTP requests
-   * Always returns 80 for HTTP requests
+   * Get Directory Agent port (from InterfaceServer DAPort property)
    */
   public getDAPort(): number {
-    return 80;
+    return this.daPort || config.rdo.ports.directory;
   }
 
   /**
@@ -436,10 +437,12 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
 
   // CRITICAL: Wait for server to send InitClient push command (with timeout)
   this.log.debug(`[Session] Waiting for server InitClient push...`);
+  let initTimeoutHandle: ReturnType<typeof setTimeout>;
   const initClientTimeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('InitClient push timeout after 15s')), 15000)
+    initTimeoutHandle = setTimeout(() => reject(new Error('InitClient push timeout after 15s')), 15000)
   );
   await Promise.race([this.initClientReceived, initClientTimeout]);
+  clearTimeout(initTimeoutHandle!);
   this.log.debug(`[Session] InitClient received, continuing...`);
 
   // 8. SetLanguage - CLIENT sends this as PUSH command (no RID)
@@ -467,6 +470,7 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
 
   // 10. Fetch companies via HTTP for UI
   const { companies } = await this.fetchCompaniesViaHttp(world.ip, username);
+  this.availableCompanies = companies;
 
   this.log.info('Login phase complete. Waiting for company selection...');
 
@@ -480,6 +484,13 @@ public async selectCompany(companyId: string): Promise<void> {
   }
 
   this.log.debug(`[Session] Selecting company ID: ${companyId}`);
+
+  // Store the selected company for ASP requests (bank, profile, etc.)
+  const matched = this.availableCompanies.find(c => c.id === companyId);
+  if (matched) {
+    this.currentCompany = matched;
+    this.log.debug(`[Session] Current company set: ${matched.name}`);
+  }
 
   // 1. EnableEvents (set to -1 to activate)
   await this.sendRdoRequest('world', {
@@ -614,6 +625,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
   this.rdoCnntId = null;
   this.cacherId = null;
   this.worldId = null;
+  this.daPort = null;
   this.currentFocusedBuildingId = null;
   this.currentFocusedCoords = null;
 
@@ -774,7 +786,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       Company: this.currentCompany?.name || '',
       WorldName: this.currentWorldInfo?.name || '',
       DAAddr: this.daAddr || config.rdo.directoryHost,
-      DAPort: String(config.rdo.ports.directory),
+      DAPort: String(this.daPort || config.rdo.ports.directory),
       ISAddr: this.currentWorldInfo?.ip || '',
       ISPort: '8000',
       ClientViewId: String(this.interfaceServerId || '0'),
@@ -795,7 +807,9 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
         params.set(k, v);
       }
     }
-    return `http://${worldIp}/Five/0/Visual/Voyager/${aspPath}?${params.toString()}`;
+    // Use %20 for spaces (not +) to match the original Voyager client behavior.
+    // Legacy IIS/Classic ASP may not decode + as space in URL query strings.
+    return `http://${worldIp}/Five/0/Visual/Voyager/${aspPath}?${params.toString().replace(/\+/g, '%20')}`;
   }
 
   /**
@@ -836,7 +850,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       LangId: '0'
     });
 
-    const url = `http://${worldIp}/Five/0/Visual/Voyager/NewLogon/logonComplete.asp?${params.toString()}`;
+    const url = `http://${worldIp}/Five/0/Visual/Voyager/NewLogon/logonComplete.asp?${params.toString().replace(/\+/g, '%20')}`;
     this.log.debug(`[HTTP] Fetching companies from ${url}`);
 
     try {
@@ -1343,7 +1357,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       Action: '',
     });
 
-    const url = `http://${this.currentWorldInfo.ip}/five/0/visual/voyager/mail/MessageList.asp?${params.toString()}`;
+    const url = `http://${this.currentWorldInfo.ip}/five/0/visual/voyager/mail/MessageList.asp?${params.toString().replace(/\+/g, '%20')}`;
     this.log.debug(`[Mail] Fetching folder listing from ${url}`);
 
     try {
@@ -1650,7 +1664,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
         Company: this.currentCompany?.name || '',
         WorldName: this.currentWorldInfo?.name || '',
         DAAddr: this.daAddr || config.rdo.directoryHost,
-        DAPort: String(config.rdo.ports.directory),
+        DAPort: String(this.daPort || config.rdo.ports.directory),
         SecurityId: '',
       });
 
@@ -1684,7 +1698,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
           return { success: false, message: `Unknown action: ${action}` };
       }
 
-      const url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/TycoonBankAccount.asp?${actionParams.toString()}`;
+      const url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/TycoonBankAccount.asp?${actionParams.toString().replace(/\+/g, '%20')}`;
       this.log.debug(`[Bank] Executing ${action}: ${url}`);
       const response = await fetch(url, { redirect: 'follow' });
       const html = await response.text();
@@ -1976,10 +1990,10 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
             TycoonId: tycoonId,
             FluidId: fluidId,
             DAAddr: this.daAddr || config.rdo.directoryHost,
-            DAPort: String(config.rdo.ports.directory),
+            DAPort: String(this.daPort || config.rdo.ports.directory),
             Supplier: suppliers,
           });
-          url = `${basePath}DeleteDefaultSupplier.asp?${params.toString()}`;
+          url = `${basePath}DeleteDefaultSupplier.asp?${params.toString().replace(/\+/g, '%20')}`;
           break;
         }
         case 'hireTradeCenter':
@@ -1991,10 +2005,10 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
             WorldName: this.currentWorldInfo?.name || '',
             Tycoon: this.cachedUsername || '',
             Password: this.cachedPassword || '',
-            DAPort: String(config.rdo.ports.directory),
+            DAPort: String(this.daPort || config.rdo.ports.directory),
             Hire: action === 'hireTradeCenter' ? 'YES' : 'NO',
           });
-          url = `${basePath}ModifyTradeCenterStatus.asp?${params.toString()}`;
+          url = `${basePath}ModifyTradeCenterStatus.asp?${params.toString().replace(/\+/g, '%20')}`;
           break;
         }
         case 'onlyWarehouses':
@@ -2006,10 +2020,10 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
             WorldName: this.currentWorldInfo?.name || '',
             Tycoon: this.cachedUsername || '',
             Password: this.cachedPassword || '',
-            DAPort: String(config.rdo.ports.directory),
+            DAPort: String(this.daPort || config.rdo.ports.directory),
             Hire: action === 'onlyWarehouses' ? 'YES' : 'NO',
           });
-          url = `${basePath}ModifyWarehouseStatus.asp?${params.toString()}`;
+          url = `${basePath}ModifyWarehouseStatus.asp?${params.toString().replace(/\+/g, '%20')}`;
           break;
         }
         default:
@@ -2089,10 +2103,10 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
         TycoonId: this.tycoonId || '',
         Password: this.cachedPassword || '',
         DAAddr: this.daAddr || config.rdo.directoryHost,
-        DAPort: String(config.rdo.ports.directory),
+        DAPort: String(this.daPort || config.rdo.ports.directory),
       });
 
-      const url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/TycoonPolicy.asp?${queryParams.toString()}`;
+      const url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/TycoonPolicy.asp?${queryParams.toString().replace(/\+/g, '%20')}`;
 
       // POST body matches the form: NextStatus + SubTycoon + Subject + Status
       const body = new URLSearchParams({
@@ -2858,7 +2872,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
    */
   private async fetchWorldProperties(interfaceServerId: string): Promise<void> {
     const props = [
-      "WorldName", "DSArea", "WorldURL", "DAAddr", "DALockPort",
+      "WorldName", "DSArea", "WorldURL", "DAAddr", "DAPort", "DALockPort",
       "MailAddr", "MailPort", "WorldXSize", "WorldYSize", "WorldSeason"
     ] as const;
 
@@ -2878,8 +2892,15 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       const value = parsePropertyResponseHelper(packets[i].payload!, prop);
       this.log.debug(`[Session] ${prop}: ${value}`);
 
+      if (prop === "WorldName" && value && this.currentWorldInfo) {
+        // Use InterfaceServer's proper-case WorldName (e.g., "Shamba" not "shamba")
+        this.currentWorldInfo.name = value;
+      }
       if (prop === "DAAddr") {
         this.daAddr = value;
+      }
+      if (prop === "DAPort") {
+        this.daPort = parseInt(value, 10);
       }
       if (prop === "MailAddr") {
         this.mailAddr = value;
@@ -3656,6 +3677,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     this.rdoCnntId = null;
     this.cacherId = null;
     this.worldId = null;
+    this.daPort = null;
     this.interfaceEventsId = null;
     this.currentFocusedBuildingId = null;
     this.currentFocusedCoords = null;
@@ -3927,7 +3949,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       TycoonLevel: tycoonLevel.toString()
     });
 
-    const url = `http://${this.currentWorldInfo.ip}/five/0/visual/voyager/Build/FacilityList.asp?${params.toString()}`;
+    const url = `http://${this.currentWorldInfo.ip}/five/0/visual/voyager/Build/FacilityList.asp?${params.toString().replace(/\+/g, '%20')}`;
     this.log.debug(`[BuildConstruction] Fetching facilities from ${url}`);
 
     try {
@@ -4344,6 +4366,14 @@ private handlePush(socketName: string, packet: RdoPacket) {
         buildingName,
         ownerName,
         securityId: allValues.get('SecurityId') || '',
+        tabs: template.groups.map(g => ({
+          id: g.id,
+          name: g.name,
+          icon: g.icon || '',
+          order: g.order,
+          special: g.special,
+          handlerName: g.handlerName || '',
+        })),
         groups,
         supplies,
         moneyGraph,

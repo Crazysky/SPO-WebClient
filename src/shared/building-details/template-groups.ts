@@ -317,6 +317,92 @@ export const LOCAL_SERVICES_GROUP: PropertyGroup = {
 };
 
 // =============================================================================
+// GROUP LOOKUP BY ID (for client-side property rendering)
+// =============================================================================
+
+/**
+ * Lookup PropertyGroup by its well-known ID.
+ * Used by the client to find PropertyDefinitions for rendering tab content.
+ * For data-driven tabs with handler-suffixed IDs (e.g., "generic_Ministeries"),
+ * strip the suffix and look up the base ID.
+ */
+export const GROUP_BY_ID: Record<string, PropertyGroup> = {
+  'overview': OVERVIEW_GROUP,
+  'generic': GENERIC_GROUP,
+  'workforce': WORKFORCE_GROUP,
+  'supplies': SUPPLIES_GROUP,
+  'services': SERVICES_GROUP,
+  'upgrade': UPGRADE_GROUP,
+  'finances': FINANCES_GROUP,
+  'advertisement': ADVERTISEMENT_GROUP,
+  'town': TOWN_GROUP,
+  'coverage': COVERAGE_GROUP,
+  'trade': TRADE_GROUP,
+  'localServices': LOCAL_SERVICES_GROUP,
+};
+
+/**
+ * Look up a PropertyGroup by tab ID, handling handler-suffixed IDs.
+ * E.g., "generic_Ministeries" → GENERIC_GROUP, "supplies" → SUPPLIES_GROUP
+ */
+export function getGroupById(tabId: string): PropertyGroup | undefined {
+  // Direct match first
+  if (GROUP_BY_ID[tabId]) return GROUP_BY_ID[tabId];
+  // Try stripping handler suffix (e.g., "generic_Ministeries" → "generic")
+  const underscoreIdx = tabId.indexOf('_');
+  if (underscoreIdx > 0) {
+    const baseId = tabId.substring(0, underscoreIdx);
+    return GROUP_BY_ID[baseId];
+  }
+  return undefined;
+}
+
+// =============================================================================
+// HANDLER → GROUP MAPPING (CLASSES.BIN [InspectorInfo] TabHandler values)
+// =============================================================================
+
+/**
+ * Maps CLASSES.BIN handler names → PropertyGroup objects.
+ * Handler names come from [InspectorInfo] TabHandler{i} values in CLASSES.BIN.
+ * Handlers without dedicated PropertyGroup implementations map to GENERIC_GROUP
+ * as a placeholder until their RDO properties are implemented.
+ */
+export const HANDLER_TO_GROUP: Record<string, PropertyGroup> = {
+  // General tab variants
+  'unkGeneral': GENERIC_GROUP,
+  'ResGeneral': GENERIC_GROUP,
+  'IndGeneral': GENERIC_GROUP,
+  'SrvGeneral': GENERIC_GROUP,
+  'HqGeneral': GENERIC_GROUP,
+  'BankGeneral': GENERIC_GROUP,
+  'WHGeneral': GENERIC_GROUP,
+  'TVGeneral': GENERIC_GROUP,
+  'capitolGeneral': GENERIC_GROUP,
+  'townGeneral': GENERIC_GROUP,
+
+  // Specific tabs → existing groups
+  'Supplies': SUPPLIES_GROUP,
+  'Products': SERVICES_GROUP,
+  'compInputs': ADVERTISEMENT_GROUP,
+  'Workforce': WORKFORCE_GROUP,
+  'facManagement': UPGRADE_GROUP,
+  'Chart': FINANCES_GROUP,
+
+  // Handlers without dedicated groups yet (placeholder → GENERIC_GROUP)
+  'BankLoans': GENERIC_GROUP,
+  'Antennas': GENERIC_GROUP,
+  'Films': GENERIC_GROUP,
+  'Mausoleum': GENERIC_GROUP,
+  'Votes': GENERIC_GROUP,
+  'CapitolTowns': GENERIC_GROUP,
+  'Ministeries': GENERIC_GROUP,
+  'townJobs': GENERIC_GROUP,
+  'townRes': GENERIC_GROUP,
+  'townServices': GENERIC_GROUP,
+  'townTaxes': GENERIC_GROUP,
+};
+
+// =============================================================================
 // HELPER: Collect all property names from a group
 // =============================================================================
 

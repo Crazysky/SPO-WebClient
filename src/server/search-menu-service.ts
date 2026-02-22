@@ -51,13 +51,13 @@ export class SearchMenuService {
 
   /**
    * Fetch HTML content from ASP page
-   * Uses DAAddr (Directory Agent) for HTTP requests, not interface server
+   * Uses DAAddr (Directory Agent) host on HTTP port 80, not the RDO DAPort.
    */
   private async fetchPage(path: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const options = {
         hostname: this.daAddr,
-        port: this.daPort,
+        port: 80,
         path,
         method: 'GET',
         headers: {

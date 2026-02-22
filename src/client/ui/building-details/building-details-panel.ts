@@ -7,10 +7,10 @@
 
 import {
   BuildingDetailsResponse,
+  BuildingDetailsTab,
 } from '../../../shared/types';
 import {
-  getTemplateForVisualClass,
-  PropertyGroup,
+  getGroupById,
 } from '../../../shared/building-details';
 import { renderPropertyGroup } from './property-renderers';
 import { renderSuppliesWithTabs } from './property-table';
@@ -490,7 +490,6 @@ export class BuildingDetailsPanel {
     if (!this.currentDetails) return;
 
     const details = this.currentDetails;
-    const template = getTemplateForVisualClass(details.visualClass);
 
     // Update header
     const nameEl = document.getElementById('bd-building-name');
@@ -499,11 +498,10 @@ export class BuildingDetailsPanel {
     const visualClassEl = document.getElementById('bd-visual-class');
     const timestampEl = document.getElementById('bd-timestamp');
 
-    // Get building name - prefer direct field, fallback to properties, then template name
-    const nameValue = details.buildingName || template.name;
+    const nameValue = details.buildingName || details.templateName || 'Building';
 
     if (nameEl) nameEl.textContent = nameValue;
-    if (templateEl) templateEl.textContent = template.name;
+    if (templateEl) templateEl.textContent = details.templateName || '';
     if (coordsEl) coordsEl.textContent = `(${details.x}, ${details.y})`;
     if (visualClassEl) visualClassEl.textContent = `VC: ${details.visualClass}`;
     if (timestampEl) {
@@ -514,8 +512,8 @@ export class BuildingDetailsPanel {
     // Wire up rename button
     this.setupRenameButton();
 
-    // Render tabs
-    this.renderTabs(template.groups);
+    // Render tabs from server-provided tab configuration (data-driven from CLASSES.BIN)
+    this.renderTabs(details.tabs);
 
     // Render active tab content
     this.renderTabContent();
@@ -529,7 +527,6 @@ export class BuildingDetailsPanel {
     if (!this.currentDetails || !this.contentContainer) return;
 
     const details = this.currentDetails;
-    const template = getTemplateForVisualClass(details.visualClass);
 
     // Update header (safe - user won't be editing these)
     const nameEl = document.getElementById('bd-building-name');
@@ -538,10 +535,10 @@ export class BuildingDetailsPanel {
     const visualClassEl = document.getElementById('bd-visual-class');
     const timestampEl = document.getElementById('bd-timestamp');
 
-    const nameValue = details.buildingName || template.name;
+    const nameValue = details.buildingName || details.templateName || 'Building';
 
     if (nameEl) nameEl.textContent = nameValue;
-    if (templateEl) templateEl.textContent = template.name;
+    if (templateEl) templateEl.textContent = details.templateName || '';
     if (coordsEl) coordsEl.textContent = `(${details.x}, ${details.y})`;
     if (visualClassEl) visualClassEl.textContent = `VC: ${details.visualClass}`;
     if (timestampEl) {
@@ -561,8 +558,9 @@ export class BuildingDetailsPanel {
     if (!this.currentDetails || !this.contentContainer) return;
 
     const details = this.currentDetails;
-    const template = getTemplateForVisualClass(details.visualClass);
-    const group = template.groups.find(g => g.id === this.currentTab);
+    const tab = details.tabs?.find(t => t.id === this.currentTab);
+    if (!tab) return;
+    const group = getGroupById(tab.id);
     if (!group) return;
 
     // Update text/display values only
@@ -610,39 +608,39 @@ export class BuildingDetailsPanel {
   /**
    * Render tab navigation
    */
-  private renderTabs(groups: PropertyGroup[]): void {
-    if (!this.tabsNav) return;
+  private renderTabs(tabs: BuildingDetailsTab[]): void {
+    if (!this.tabsNav || !tabs?.length) return;
 
     this.tabsNav.innerHTML = '';
 
-    // Sort groups by order
-    const sortedGroups = [...groups].sort((a, b) => a.order - b.order);
+    // Sort tabs by order
+    const sortedTabs = [...tabs].sort((a, b) => a.order - b.order);
 
-    // Check if current tab exists in this template
-    const tabExists = sortedGroups.some(g => g.id === this.currentTab);
-    if (!tabExists && sortedGroups.length > 0) {
-      this.currentTab = sortedGroups[0].id;
+    // Check if current tab exists
+    const tabExists = sortedTabs.some(t => t.id === this.currentTab);
+    if (!tabExists && sortedTabs.length > 0) {
+      this.currentTab = sortedTabs[0].id;
     }
 
-    for (const group of sortedGroups) {
-      // Check if this group has any data
-      const hasData = this.currentDetails?.groups[group.id]?.length > 0 ||
-        (group.special === 'supplies' && this.currentDetails?.supplies?.length) ||
-        (group.id === 'finances' && this.currentDetails?.moneyGraph?.length);
+    for (const tab of sortedTabs) {
+      // Check if this tab has any data
+      const hasData = this.currentDetails?.groups[tab.id]?.length > 0 ||
+        (tab.special === 'supplies' && this.currentDetails?.supplies?.length) ||
+        (tab.special === 'finances' && this.currentDetails?.moneyGraph?.length);
 
       const btn = document.createElement('button');
-      btn.className = 'tab-btn' + (this.currentTab === group.id ? ' active' : '');
+      btn.className = 'tab-btn' + (this.currentTab === tab.id ? ' active' : '');
       if (!hasData) btn.classList.add('tab-empty');
-      btn.innerHTML = `<span class="tab-icon">${group.icon || ''}</span><span class="tab-label">${group.name}</span>`;
+      btn.innerHTML = `<span class="tab-icon">${tab.icon || ''}</span><span class="tab-label">${tab.name}</span>`;
 
       btn.onclick = async () => {
         const previousTab = this.currentTab;
-        this.currentTab = group.id;
-        this.renderTabs(sortedGroups);
+        this.currentTab = tab.id;
+        this.renderTabs(sortedTabs);
         this.renderTabContent();
 
         // Auto-refresh when switching to a new tab
-        if (previousTab !== group.id && this.options.onRefresh) {
+        if (previousTab !== tab.id && this.options.onRefresh) {
           await this.options.onRefresh();
         }
       };
@@ -656,16 +654,23 @@ export class BuildingDetailsPanel {
 
 	  this.contentContainer.innerHTML = '';
 	  const details = this.currentDetails;
-	  const template = getTemplateForVisualClass(details.visualClass);
-	  const group = template.groups.find(g => g.id === this.currentTab);
 
-	  if (!group) {
+	  // Find current tab from server-provided tab metadata
+	  const tab = details.tabs?.find(t => t.id === this.currentTab);
+	  if (!tab) {
 		this.contentContainer.innerHTML = '<p>No data available</p>';
 		return;
 	  }
 
-	  // Special handling for certain group types
-	  if (group.special === 'supplies' && details.supplies?.length) {
+	  // Look up the PropertyGroup for property definitions (rendering types, etc.)
+	  const group = getGroupById(tab.id);
+
+	  // Special handling for certain tab types (based on tab.special or well-known IDs)
+	  const isSupplies = tab.special === 'supplies';
+	  const isFinances = tab.special === 'finances' || tab.id === 'finances';
+	  const isUpgrade = tab.id === 'upgrade' || tab.handlerName === 'facManagement';
+
+	  if (isSupplies && details.supplies?.length) {
 		const suppliesEl = renderSuppliesWithTabs(
 		  details.supplies,
 		  this.options.onNavigateToBuilding
@@ -674,7 +679,7 @@ export class BuildingDetailsPanel {
 		return;
 	  }
 
-	  if (group.id === 'finances' && details.moneyGraph?.length) {
+	  if (isFinances && details.moneyGraph?.length) {
 		const graphEl = renderSparklineGraph(details.moneyGraph, {
 		  width: 440,
 		  height: 100,
@@ -682,12 +687,12 @@ export class BuildingDetailsPanel {
 		});
 		this.contentContainer.appendChild(graphEl);
 
-		const financeProps = details.groups['finances'];
-		if (financeProps?.length) {
+		const financeProps = details.groups[tab.id];
+		if (financeProps?.length && group) {
 		  const propsEl = renderPropertyGroup(
 			financeProps,
 			group.properties,
-			this.handlePropertyChange.bind(this) // ← FIX: Bind callback
+			this.handlePropertyChange.bind(this)
 		  );
 		  this.contentContainer.appendChild(propsEl);
 		}
@@ -695,21 +700,27 @@ export class BuildingDetailsPanel {
 	  }
 
 	  // Standard property rendering
-	  const groupData = details.groups[group.id];
+	  const groupData = details.groups[tab.id];
 	  if (!groupData || groupData.length === 0) {
-		this.contentContainer.innerHTML = '<p>No data available for this section</p>';
+		// Show placeholder for unimplemented tabs
+		const placeholder = document.createElement('div');
+		placeholder.className = 'tab-placeholder';
+		placeholder.innerHTML = `<p class="tab-placeholder-text">No data available for this section</p>`;
+		this.contentContainer.appendChild(placeholder);
 		return;
 	  }
 
+	  // Use property definitions from the group if available, otherwise render raw
+	  const properties = group?.properties || [];
 	  const propsEl = renderPropertyGroup(
 		groupData,
-		group.properties,
-		this.handlePropertyChange.bind(this) // ← FIX: Bind callback
+		properties,
+		this.handlePropertyChange.bind(this)
 	  );
 	  this.contentContainer.appendChild(propsEl);
 
-	  // Wire up upgrade action buttons if this is the upgrade tab
-	  if (group.id === 'upgrade') {
+	  // Wire up upgrade action buttons
+	  if (isUpgrade) {
 		this.wireUpgradeActions();
 	  }
 	}
