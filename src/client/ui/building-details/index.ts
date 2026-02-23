@@ -7,5 +7,7 @@
 export { BuildingDetailsPanel, BuildingDetailsPanelOptions } from './building-details-panel';
 export { renderPropertyRow, renderPropertyGroup, renderSliderProperty } from './property-renderers';
 export { renderConnectionsTable, renderSuppliesWithTabs, renderProductsWithTabs } from './property-table';
-export type { TablePropertyChangeCallback, DisconnectCallback } from './property-table';
+export type { TablePropertyChangeCallback, DisconnectCallback, SearchConnectionCallback } from './property-table';
 export { renderSparklineGraph, renderBarChart, GraphOptions } from './property-graph';
+export { ConnectionPickerDialog } from './connection-picker-dialog';
+export type { ConnectionPickerOptions, ConnectionSearchFilters } from './connection-picker-dialog';

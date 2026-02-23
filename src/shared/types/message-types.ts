@@ -194,6 +194,14 @@ export enum WsMessageType {
   // Politics
   REQ_POLITICS_DATA = 'REQ_POLITICS_DATA',
   RESP_POLITICS_DATA = 'RESP_POLITICS_DATA',
+  REQ_POLITICS_VOTE = 'REQ_POLITICS_VOTE',
+  RESP_POLITICS_VOTE = 'RESP_POLITICS_VOTE',
+  REQ_POLITICS_LAUNCH_CAMPAIGN = 'REQ_POLITICS_LAUNCH_CAMPAIGN',
+  RESP_POLITICS_LAUNCH_CAMPAIGN = 'RESP_POLITICS_LAUNCH_CAMPAIGN',
+
+  // Connection Search
+  REQ_SEARCH_CONNECTIONS = 'REQ_SEARCH_CONNECTIONS',
+  RESP_SEARCH_CONNECTIONS = 'RESP_SEARCH_CONNECTIONS',
 }
 
 // =============================================================================
@@ -902,6 +910,65 @@ export interface WsReqPoliticsData extends WsMessage {
 export interface WsRespPoliticsData extends WsMessage {
   type: WsMessageType.RESP_POLITICS_DATA;
   data: PoliticsData;
+}
+
+export interface WsReqPoliticsVote extends WsMessage {
+  type: WsMessageType.REQ_POLITICS_VOTE;
+  buildingX: number;
+  buildingY: number;
+  candidateName: string;
+}
+
+export interface WsRespPoliticsVote extends WsMessage {
+  type: WsMessageType.RESP_POLITICS_VOTE;
+  success: boolean;
+  message?: string;
+}
+
+export interface WsReqPoliticsLaunchCampaign extends WsMessage {
+  type: WsMessageType.REQ_POLITICS_LAUNCH_CAMPAIGN;
+  buildingX: number;
+  buildingY: number;
+}
+
+export interface WsRespPoliticsLaunchCampaign extends WsMessage {
+  type: WsMessageType.RESP_POLITICS_LAUNCH_CAMPAIGN;
+  success: boolean;
+  message?: string;
+}
+
+// =============================================================================
+// CONNECTION SEARCH
+// =============================================================================
+
+export interface WsReqSearchConnections extends WsMessage {
+  type: WsMessageType.REQ_SEARCH_CONNECTIONS;
+  buildingX: number;
+  buildingY: number;
+  fluidId: string;
+  direction: 'input' | 'output';
+  filters?: {
+    company?: string;
+    town?: string;
+    maxResults?: number;
+    roles?: number;
+  };
+}
+
+export interface ConnectionSearchResult {
+  facilityName: string;
+  companyName: string;
+  x: number;
+  y: number;
+  price?: string;
+  quality?: string;
+}
+
+export interface WsRespSearchConnections extends WsMessage {
+  type: WsMessageType.RESP_SEARCH_CONNECTIONS;
+  results: ConnectionSearchResult[];
+  fluidId: string;
+  direction: 'input' | 'output';
 }
 
 // =============================================================================

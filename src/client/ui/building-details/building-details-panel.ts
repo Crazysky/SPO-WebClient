@@ -13,7 +13,7 @@ import {
   getGroupById,
 } from '../../../shared/building-details';
 import { renderPropertyGroup } from './property-renderers';
-import { renderSuppliesWithTabs, renderProductsWithTabs, DisconnectCallback, TablePropertyChangeCallback } from './property-table';
+import { renderSuppliesWithTabs, renderProductsWithTabs, DisconnectCallback, TablePropertyChangeCallback, SearchConnectionCallback } from './property-table';
 import { renderSparklineGraph } from './property-graph';
 
 export interface BuildingDetailsPanelOptions {
@@ -25,6 +25,7 @@ export interface BuildingDetailsPanelOptions {
   onRename?: (newName: string) => Promise<void>;
   onDelete?: () => Promise<void>;
   onActionButton?: (actionId: string, details: BuildingDetailsResponse) => void;
+  onSearchConnections?: (fluidId: string, fluidName: string, direction: 'input' | 'output') => void;
   /** Current player's company name — used to determine building ownership */
   currentCompanyName?: string;
 }
@@ -746,10 +747,18 @@ export class BuildingDetailsPanel {
 		  }
 		  : undefined;
 
+		// Owner-only: search for suppliers to connect
+		const supplySearch: SearchConnectionCallback | undefined = this.isOwner
+		  ? (fluidId, fluidName, direction) => {
+			this.options.onSearchConnections?.(fluidId, fluidName, direction);
+		  }
+		  : undefined;
+
 		const suppliesEl = renderSuppliesWithTabs(
 		  details.supplies,
 		  this.options.onNavigateToBuilding,
-		  supplyDisconnect
+		  supplyDisconnect,
+		  supplySearch
 		);
 		this.contentContainer.appendChild(suppliesEl);
 		return;
@@ -779,11 +788,19 @@ export class BuildingDetailsPanel {
 		  }
 		  : undefined;
 
+		// Owner-only: search for clients to connect
+		const productSearch: SearchConnectionCallback | undefined = this.isOwner
+		  ? (fluidId, fluidName, direction) => {
+			this.options.onSearchConnections?.(fluidId, fluidName, direction);
+		  }
+		  : undefined;
+
 		const productsEl = renderProductsWithTabs(
 		  details.products,
 		  this.options.onNavigateToBuilding,
 		  productPriceChange,
-		  productDisconnect
+		  productDisconnect,
+		  productSearch
 		);
 		this.contentContainer.appendChild(productsEl);
 		return;

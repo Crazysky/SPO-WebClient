@@ -28,13 +28,21 @@ export type DisconnectCallback = (
   connectionY: number
 ) => Promise<void>;
 
+/** Callback for opening the connection search dialog */
+export type SearchConnectionCallback = (
+  fluidId: string,
+  fluidName: string,
+  direction: 'input' | 'output'
+) => void;
+
 /**
  * Render a connections table for a supply
  */
 export function renderConnectionsTable(
   supply: BuildingSupplyData,
   onConnectionClick?: (x: number, y: number) => void,
-  onDisconnect?: DisconnectCallback
+  onDisconnect?: DisconnectCallback,
+  onSearchConnection?: SearchConnectionCallback
 ): HTMLElement {
   const container = document.createElement('div');
   container.className = 'property-table-container';
@@ -50,6 +58,19 @@ export function renderConnectionsTable(
       <span class="supply-count">${supply.connectionCount} connection${supply.connectionCount !== 1 ? 's' : ''}</span>
     </div>
   `;
+
+  if (onSearchConnection) {
+    const connectBtn = document.createElement('button');
+    connectBtn.className = 'search-connection-btn';
+    connectBtn.textContent = 'Find Suppliers';
+    connectBtn.title = 'Search for suppliers to connect';
+    connectBtn.onclick = (e) => {
+      e.stopPropagation();
+      onSearchConnection(supply.metaFluid, supply.name, 'input');
+    };
+    header.appendChild(connectBtn);
+  }
+
   container.appendChild(header);
 
   if (supply.connections.length === 0) {
@@ -176,7 +197,8 @@ function createConnectionRow(
 export function renderSuppliesWithTabs(
   supplies: BuildingSupplyData[],
   onConnectionClick?: (x: number, y: number) => void,
-  onDisconnect?: DisconnectCallback
+  onDisconnect?: DisconnectCallback,
+  onSearchConnection?: SearchConnectionCallback
 ): HTMLElement {
   const container = document.createElement('div');
   container.className = 'supplies-container';
@@ -191,7 +213,7 @@ export function renderSuppliesWithTabs(
 
   if (supplies.length === 1) {
     // Single supply - no tabs needed
-    container.appendChild(renderConnectionsTable(supplies[0], onConnectionClick, onDisconnect));
+    container.appendChild(renderConnectionsTable(supplies[0], onConnectionClick, onDisconnect, onSearchConnection));
     return container;
   }
 
@@ -213,7 +235,7 @@ export function renderSuppliesWithTabs(
     const tabPane = document.createElement('div');
     tabPane.className = 'nested-tab-pane' + (index === 0 ? ' active' : '');
     tabPane.dataset.index = index.toString();
-    tabPane.appendChild(renderConnectionsTable(supply, onConnectionClick, onDisconnect));
+    tabPane.appendChild(renderConnectionsTable(supply, onConnectionClick, onDisconnect, onSearchConnection));
 
     // Click handler
     tabBtn.onclick = () => {
@@ -243,7 +265,8 @@ function renderProductGateTable(
   product: BuildingProductData,
   onConnectionClick?: (x: number, y: number) => void,
   onPriceChange?: TablePropertyChangeCallback,
-  onDisconnect?: DisconnectCallback
+  onDisconnect?: DisconnectCallback,
+  onSearchConnection?: SearchConnectionCallback
 ): HTMLElement {
   const container = document.createElement('div');
   container.className = 'property-table-container';
@@ -268,6 +291,19 @@ function renderProductGateTable(
       <span class="supply-count">${product.connectionCount} client${product.connectionCount !== 1 ? 's' : ''}</span>
     </div>
   `;
+
+  if (onSearchConnection) {
+    const connectBtn = document.createElement('button');
+    connectBtn.className = 'search-connection-btn';
+    connectBtn.textContent = 'Find Clients';
+    connectBtn.title = 'Search for clients to connect';
+    connectBtn.onclick = (e) => {
+      e.stopPropagation();
+      onSearchConnection(product.metaFluid, product.name, 'output');
+    };
+    header.appendChild(connectBtn);
+  }
+
   container.appendChild(header);
 
   // Price slider (owner-only, rendered when callback provided)
@@ -355,7 +391,8 @@ export function renderProductsWithTabs(
   products: BuildingProductData[],
   onConnectionClick?: (x: number, y: number) => void,
   onPriceChange?: TablePropertyChangeCallback,
-  onDisconnect?: DisconnectCallback
+  onDisconnect?: DisconnectCallback,
+  onSearchConnection?: SearchConnectionCallback
 ): HTMLElement {
   const container = document.createElement('div');
   container.className = 'supplies-container';
@@ -369,7 +406,7 @@ export function renderProductsWithTabs(
   }
 
   if (products.length === 1) {
-    container.appendChild(renderProductGateTable(products[0], onConnectionClick, onPriceChange, onDisconnect));
+    container.appendChild(renderProductGateTable(products[0], onConnectionClick, onPriceChange, onDisconnect, onSearchConnection));
     return container;
   }
 
@@ -389,7 +426,7 @@ export function renderProductsWithTabs(
     const tabPane = document.createElement('div');
     tabPane.className = 'nested-tab-pane' + (index === 0 ? ' active' : '');
     tabPane.dataset.index = index.toString();
-    tabPane.appendChild(renderProductGateTable(product, onConnectionClick, onPriceChange, onDisconnect));
+    tabPane.appendChild(renderProductGateTable(product, onConnectionClick, onPriceChange, onDisconnect, onSearchConnection));
 
     tabBtn.onclick = () => {
       tabsNav.querySelectorAll('.nested-tab-btn').forEach(btn => btn.classList.remove('active'));

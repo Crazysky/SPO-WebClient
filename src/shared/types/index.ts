@@ -212,4 +212,13 @@ export type {
   // Politics
   WsReqPoliticsData,
   WsRespPoliticsData,
+  WsReqPoliticsVote,
+  WsRespPoliticsVote,
+  WsReqPoliticsLaunchCampaign,
+  WsRespPoliticsLaunchCampaign,
+  // Connection Search
+  WsReqSearchConnections,
+  WsRespSearchConnections,
 } from './message-types';
+
+export type { ConnectionSearchResult } from './message-types';

@@ -165,6 +165,14 @@ export class PoliticsPanel {
       electionsInfo.textContent = `${resp.data.yearsToElections} years to elections`;
 
       this.renderContent();
+    } else if (msg.type === WsMessageType.RESP_POLITICS_VOTE || msg.type === WsMessageType.RESP_POLITICS_LAUNCH_CAMPAIGN) {
+      // Refresh politics data after vote/campaign action
+      this.callbacks.sendMessage({
+        type: WsMessageType.REQ_POLITICS_DATA,
+        townName: this.townName,
+        buildingX: this.buildingX,
+        buildingY: this.buildingY,
+      } as WsMessage);
     }
   }
 
@@ -252,11 +260,34 @@ export class PoliticsPanel {
       const candidateList = document.createElement('div');
       for (const c of d.campaigns) {
         const row = document.createElement('div');
-        row.style.cssText = 'display: flex; justify-content: space-between; padding: 4px 0; color: #ddd; font-size: 12px; border-bottom: 1px solid rgba(74, 122, 106, 0.15);';
-        row.innerHTML = `
-          <span>${this.escapeHtml(c.candidateName)}</span>
-          <span style="color: #88aa99;">${c.rating}%</span>
-        `;
+        row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 4px 0; color: #ddd; font-size: 12px; border-bottom: 1px solid rgba(74, 122, 106, 0.15);';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = c.candidateName;
+
+        const rightSide = document.createElement('div');
+        rightSide.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+        const ratingSpan = document.createElement('span');
+        ratingSpan.style.color = '#88aa99';
+        ratingSpan.textContent = `${c.rating}%`;
+
+        const voteBtn = document.createElement('button');
+        voteBtn.style.cssText = 'padding: 2px 8px; background: rgba(52, 89, 80, 0.8); color: #ffffcc; border: 1px solid #4a7a6a; border-radius: 3px; cursor: pointer; font-size: 10px;';
+        voteBtn.textContent = 'Vote';
+        voteBtn.onclick = () => {
+          this.callbacks.sendMessage({
+            type: WsMessageType.REQ_POLITICS_VOTE,
+            buildingX: this.buildingX,
+            buildingY: this.buildingY,
+            candidateName: c.candidateName,
+          } as WsMessage);
+        };
+
+        rightSide.appendChild(ratingSpan);
+        rightSide.appendChild(voteBtn);
+        row.appendChild(nameSpan);
+        row.appendChild(rightSide);
         candidateList.appendChild(row);
       }
       oppositionSection.appendChild(candidateList);
@@ -302,6 +333,13 @@ export class PoliticsPanel {
       launchBtn.onmouseleave = () => {
         launchBtn.style.background = 'rgba(52, 89, 80, 0.8)';
         launchBtn.style.borderColor = '#4a7a6a';
+      };
+      launchBtn.onclick = () => {
+        this.callbacks.sendMessage({
+          type: WsMessageType.REQ_POLITICS_LAUNCH_CAMPAIGN,
+          buildingX: this.buildingX,
+          buildingY: this.buildingY,
+        } as WsMessage);
       };
       campaignSection.appendChild(launchBtn);
     }

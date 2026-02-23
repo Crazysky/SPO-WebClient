@@ -471,6 +471,7 @@ export const UPGRADE_GROUP: PropertyGroup = {
     { rdoName: 'Upgrading', displayName: 'Upgrading', type: PropertyType.BOOLEAN, hideEmpty: true },
     { rdoName: 'Pending', displayName: 'Pending', type: PropertyType.NUMBER, hideEmpty: true },
     { rdoName: 'UpgradeActions', displayName: 'Actions', type: PropertyType.UPGRADE_ACTIONS },
+    { rdoName: 'cloneFacility', displayName: 'Clone Facility', type: PropertyType.ACTION_BUTTON, actionId: 'clone', buttonLabel: 'Clone Facility' },
   ],
   rdoCommands: {
     'RDOAcceptCloning': { command: 'RDOAcceptCloning' },

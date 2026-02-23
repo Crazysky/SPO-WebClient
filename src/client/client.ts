@@ -84,11 +84,15 @@ import {
   WsReqGetProfile,
   WsRespGetProfile,
   TycoonProfileFull,
+  // Connection Search
+  WsReqSearchConnections,
+  WsRespSearchConnections,
 } from '../shared/types';
 import { getErrorMessage } from '../shared/error-codes';
 import { toErrorMessage } from '../shared/error-utils';
 import { UIManager } from './ui/ui-manager';
 import { getFacilityDimensionsCache } from './facility-dimensions-cache';
+import { ConnectionPickerDialog } from './ui/building-details';
 
 export class StarpeaceClient {
   private ws: WebSocket | null = null;
@@ -122,6 +126,13 @@ export class StarpeaceClient {
   private isSendingChatMessage: boolean = false;
   private isJoiningChannel: boolean = false;
   private isSelectingCompany: boolean = false;
+
+  // Clone facility state
+  private isCloneMode: boolean = false;
+  private cloneSourceBuilding: BuildingDetailsResponse | null = null;
+
+  // Connection picker dialog state
+  private connectionPickerDialog: ConnectionPickerDialog | null = null;
 
   // Road building state
   private isRoadBuildingMode: boolean = false;
@@ -475,6 +486,15 @@ export class StarpeaceClient {
         this.ui.handlePoliticsResponse(msg);
         break;
 
+      // Connection Search Response
+      case WsMessageType.RESP_SEARCH_CONNECTIONS: {
+        const searchResp = msg as WsRespSearchConnections;
+        if (this.connectionPickerDialog) {
+          this.connectionPickerDialog.updateResults(searchResp.results);
+        }
+        break;
+      }
+
       // Profile Response
       case WsMessageType.RESP_GET_PROFILE: {
         const profile = (msg as WsRespGetProfile).profile;
@@ -793,6 +813,8 @@ export class StarpeaceClient {
   private handleMapClick(x: number, y: number, visualClass?: string) {
     if (this.currentBuildingToPlace) {
       this.placeBuilding(x, y);
+    } else if (this.isCloneMode) {
+      this.executeCloneFacility(x, y);
     } else {
       this.focusBuilding(x, y, visualClass);
     }
@@ -857,7 +879,10 @@ export class StarpeaceClient {
           (actionId, buildingDetails) => {
             this.handleBuildingAction(actionId, buildingDetails);
           },
-          this.currentCompanyName
+          this.currentCompanyName,
+          (fluidId, fluidName, direction) => {
+            this.openConnectionPicker(x, y, fluidId, fluidName, direction);
+          }
         );
       } else {
         // Fallback: create minimal details from BuildingFocusInfo
@@ -909,7 +934,10 @@ export class StarpeaceClient {
           (actionId, buildingDetails) => {
             this.handleBuildingAction(actionId, buildingDetails);
           },
-          this.currentCompanyName
+          this.currentCompanyName,
+          (fluidId, fluidName, direction) => {
+            this.openConnectionPicker(x, y, fluidId, fluidName, direction);
+          }
         );
       }
 
@@ -1124,6 +1152,175 @@ export class StarpeaceClient {
       const townName = buildingDetails.groups['townGeneral']
         ?.find(p => p.name === 'Town')?.value || '';
       this.ui.showPoliticsPanel(townName, buildingDetails.x, buildingDetails.y);
+    } else if (actionId === 'clone') {
+      this.startCloneFacility(buildingDetails);
+    }
+  }
+
+  // =========================================================================
+  // CLONE FACILITY
+  // =========================================================================
+
+  private async startCloneFacility(buildingDetails: BuildingDetailsResponse): void {
+    this.isCloneMode = true;
+    this.cloneSourceBuilding = buildingDetails;
+
+    // Get facility dimensions from the source building's visual class
+    let xsize = 1;
+    let ysize = 1;
+    try {
+      const dimensions = await this.getFacilityDimensions(buildingDetails.visualClass);
+      if (dimensions) {
+        xsize = dimensions.xsize;
+        ysize = dimensions.ysize;
+      }
+    } catch (err) {
+      console.error('Failed to fetch facility dimensions for clone:', err);
+    }
+
+    const renderer = this.ui.mapNavigationUI?.getRenderer();
+    if (renderer) {
+      renderer.setPlacementMode(true, `Clone: ${buildingDetails.buildingName}`, 0, 0, '', xsize, ysize);
+    }
+
+    this.setupCloneKeyboardHandler();
+    this.showNotification(`Click on map to clone ${buildingDetails.buildingName}. Press ESC to cancel.`, 'info');
+  }
+
+  private setupCloneKeyboardHandler(): void {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && this.isCloneMode) {
+        this.cancelCloneMode();
+        document.removeEventListener('keydown', handler);
+      }
+    };
+    document.addEventListener('keydown', handler);
+  }
+
+  private cancelCloneMode(): void {
+    this.isCloneMode = false;
+    this.cloneSourceBuilding = null;
+
+    const renderer = this.ui.mapNavigationUI?.getRenderer();
+    if (renderer) {
+      renderer.setPlacementMode(false);
+    }
+  }
+
+  private async executeCloneFacility(targetX: number, targetY: number): Promise<void> {
+    if (!this.cloneSourceBuilding) return;
+
+    const source = this.cloneSourceBuilding;
+    this.ui.log('Clone', `Cloning ${source.buildingName} to (${targetX}, ${targetY})...`);
+
+    try {
+      await this.setBuildingProperty(source.x, source.y, 'CloneFacility', '0', {
+        x: String(targetX),
+        y: String(targetY),
+        tycoonId: '0',
+        limitToTown: '0',
+        limitToCompany: '0',
+      });
+
+      this.showNotification(`${source.buildingName} cloned successfully!`, 'success');
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to clone facility: ${toErrorMessage(err)}`);
+      this.showNotification('Failed to clone facility', 'error');
+    } finally {
+      this.cancelCloneMode();
+    }
+  }
+
+  // =========================================================================
+  // CONNECTION PICKER (Find Suppliers / Find Clients)
+  // =========================================================================
+
+  private openConnectionPicker(
+    buildingX: number,
+    buildingY: number,
+    fluidId: string,
+    fluidName: string,
+    direction: 'input' | 'output'
+  ): void {
+    // Close any existing dialog
+    if (this.connectionPickerDialog) {
+      this.connectionPickerDialog.close();
+      this.connectionPickerDialog = null;
+    }
+
+    this.connectionPickerDialog = new ConnectionPickerDialog(
+      document.body,
+      {
+        fluidName,
+        fluidId,
+        direction,
+        buildingX,
+        buildingY,
+        onSearch: (searchFluidId, searchDirection, filters) => {
+          this.searchConnections(buildingX, buildingY, searchFluidId, searchDirection, filters);
+        },
+        onConnect: async (connectFluidId, connectDirection, selectedCoords) => {
+          await this.connectFacilities(buildingX, buildingY, connectFluidId, connectDirection, selectedCoords);
+        },
+        onClose: () => {
+          this.connectionPickerDialog = null;
+        },
+      }
+    );
+  }
+
+  private searchConnections(
+    buildingX: number,
+    buildingY: number,
+    fluidId: string,
+    direction: 'input' | 'output',
+    filters?: { company?: string; town?: string; maxResults?: number; roles?: number }
+  ): void {
+    const req: WsReqSearchConnections = {
+      type: WsMessageType.REQ_SEARCH_CONNECTIONS,
+      buildingX,
+      buildingY,
+      fluidId,
+      direction,
+      filters,
+    };
+    this.ws?.send(JSON.stringify(req));
+  }
+
+  private async connectFacilities(
+    buildingX: number,
+    buildingY: number,
+    fluidId: string,
+    direction: 'input' | 'output',
+    selectedCoords: Array<{ x: number; y: number }>
+  ): Promise<void> {
+    if (selectedCoords.length === 0) return;
+
+    // Build connection list: "x1,y1,x2,y2,..." format
+    const connectionList = selectedCoords.map(c => `${c.x},${c.y}`).join(',');
+
+    const rdoCommand = direction === 'input' ? 'RDOConnectInput' : 'RDOConnectOutput';
+
+    try {
+      await this.setBuildingProperty(buildingX, buildingY, rdoCommand, '0', {
+        fluidId,
+        connectionList,
+      });
+
+      this.showNotification(
+        `Connected ${selectedCoords.length} ${direction === 'input' ? 'supplier' : 'client'}${selectedCoords.length !== 1 ? 's' : ''}`,
+        'success'
+      );
+
+      // Refresh building details to show new connections
+      const visualClass = this.currentFocusedVisualClass || '0';
+      const refreshedDetails = await this.requestBuildingDetails(buildingX, buildingY, visualClass);
+      if (refreshedDetails) {
+        this.ui.updateBuildingDetailsPanel(refreshedDetails);
+      }
+    } catch (err: unknown) {
+      this.ui.log('Error', `Failed to connect: ${toErrorMessage(err)}`);
+      this.showNotification('Failed to connect facilities', 'error');
     }
   }
 

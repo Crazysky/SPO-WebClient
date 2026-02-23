@@ -754,6 +754,25 @@ body {
   padding: var(--space-3);
   background: rgba(0, 0, 0, 0.2);
   border-bottom: 1px solid var(--glass-border);
+  position: relative;
+}
+
+.search-connection-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 2px 8px;
+  font-size: var(--text-xs);
+  background: rgba(52, 89, 80, 0.6);
+  color: var(--text-primary);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.search-connection-btn:hover {
+  background: rgba(52, 89, 80, 0.9);
 }
 
 .supply-name {

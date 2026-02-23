@@ -131,6 +131,12 @@ import {
   WsRespProfilePolicySet,
   WsReqPoliticsData,
   WsRespPoliticsData,
+  WsReqPoliticsVote,
+  WsRespPoliticsVote,
+  WsReqPoliticsLaunchCampaign,
+  WsRespPoliticsLaunchCampaign,
+  WsReqSearchConnections,
+  WsRespSearchConnections,
   BankActionType,
   AutoConnectionActionType,
 } from '../shared/types';
@@ -2213,6 +2219,52 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
           type: WsMessageType.RESP_POLITICS_DATA,
           wsRequestId: msg.wsRequestId,
           data,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_POLITICS_VOTE: {
+        const voteReq = msg as WsReqPoliticsVote;
+        console.log(`[Gateway] Voting for ${voteReq.candidateName}`);
+        const result = await session.politicsVote(voteReq.buildingX, voteReq.buildingY, voteReq.candidateName);
+        const response: WsRespPoliticsVote = {
+          type: WsMessageType.RESP_POLITICS_VOTE,
+          wsRequestId: msg.wsRequestId,
+          success: result.success,
+          message: result.message,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_POLITICS_LAUNCH_CAMPAIGN: {
+        const campReq = msg as WsReqPoliticsLaunchCampaign;
+        console.log(`[Gateway] Launching political campaign`);
+        const result = await session.politicsLaunchCampaign(campReq.buildingX, campReq.buildingY);
+        const response: WsRespPoliticsLaunchCampaign = {
+          type: WsMessageType.RESP_POLITICS_LAUNCH_CAMPAIGN,
+          wsRequestId: msg.wsRequestId,
+          success: result.success,
+          message: result.message,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_SEARCH_CONNECTIONS: {
+        const searchReq = msg as WsReqSearchConnections;
+        console.log(`[Gateway] Searching ${searchReq.direction} connections for fluid: ${searchReq.fluidId}`);
+        const results = await session.searchConnections(
+          searchReq.buildingX, searchReq.buildingY,
+          searchReq.fluidId, searchReq.direction, searchReq.filters
+        );
+        const response: WsRespSearchConnections = {
+          type: WsMessageType.RESP_SEARCH_CONNECTIONS,
+          wsRequestId: msg.wsRequestId,
+          results,
+          fluidId: searchReq.fluidId,
+          direction: searchReq.direction,
         };
         ws.send(JSON.stringify(response));
         break;

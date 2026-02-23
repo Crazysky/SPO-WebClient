@@ -51,6 +51,7 @@ import {
   PolicyEntry,
   PoliticsData,
   PoliticsRatingEntry,
+  ConnectionSearchResult,
 } from '../shared/types';
 import {
   getTemplateForVisualClass,
@@ -2226,6 +2227,168 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       this.log.debug(`[Politics] Could not fetch mayor data from building: ${toErrorMessage(e)}`);
     }
     return { mayorName: '', mayorPrestige: 0, mayorRating: 0, tycoonsRating: 0, yearsToElections: 0, campaignCount: 0 };
+  }
+
+  /**
+   * Cast a vote for a candidate in a Town Hall election.
+   * Voyager: VotesSheet.pas — RDOVote(voter, votee) on CurrBlock
+   */
+  public async politicsVote(buildingX: number, buildingY: number, candidateName: string): Promise<{ success: boolean; message: string }> {
+    try {
+      await this.connectConstructionService();
+      if (!this.worldId) throw new Error('Construction service not initialized');
+
+      await this.connectMapService();
+      const tempObjectId = await this.cacherCreateObject();
+      let currBlock: string;
+
+      try {
+        await this.cacherSetObject(tempObjectId, buildingX, buildingY);
+        const values = await this.cacherGetPropertyList(tempObjectId, ['CurrBlock']);
+        currBlock = values[0];
+        if (!currBlock) throw new Error(`No CurrBlock at (${buildingX}, ${buildingY})`);
+      } finally {
+        await this.cacherCloseObject(tempObjectId);
+      }
+
+      const socket = this.sockets.get('construction');
+      if (!socket) throw new Error('Construction socket unavailable');
+
+      const voterName = this.cachedUsername || '';
+      const cmd = RdoCommand
+        .sel(parseInt(currBlock))
+        .call('RDOVote').push()
+        .args(RdoValue.string(voterName), RdoValue.string(candidateName))
+        .build();
+
+      this.log.debug(`[Politics] Voting: ${voterName} → ${candidateName}`);
+      socket.write(cmd);
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      return { success: true, message: `Voted for ${candidateName}` };
+    } catch (e) {
+      this.log.warn(`[Politics] Vote failed: ${toErrorMessage(e)}`);
+      return { success: false, message: toErrorMessage(e) };
+    }
+  }
+
+  /**
+   * Launch a political campaign at a Town Hall.
+   * Voyager: VotesSheet.pas / TownPolitics.pas — RDOLaunchCampaign(TycoonId)
+   */
+  public async politicsLaunchCampaign(buildingX: number, buildingY: number): Promise<{ success: boolean; message: string }> {
+    try {
+      await this.connectConstructionService();
+      if (!this.worldId) throw new Error('Construction service not initialized');
+
+      await this.connectMapService();
+      const tempObjectId = await this.cacherCreateObject();
+      let currBlock: string;
+
+      try {
+        await this.cacherSetObject(tempObjectId, buildingX, buildingY);
+        const values = await this.cacherGetPropertyList(tempObjectId, ['CurrBlock']);
+        currBlock = values[0];
+        if (!currBlock) throw new Error(`No CurrBlock at (${buildingX}, ${buildingY})`);
+      } finally {
+        await this.cacherCloseObject(tempObjectId);
+      }
+
+      const socket = this.sockets.get('construction');
+      if (!socket) throw new Error('Construction socket unavailable');
+
+      const tycoonName = this.cachedUsername || '';
+      const cmd = RdoCommand
+        .sel(parseInt(currBlock))
+        .call('RDOLaunchCampaign').push()
+        .args(RdoValue.string(tycoonName))
+        .build();
+
+      this.log.debug(`[Politics] Launching campaign for ${tycoonName}`);
+      socket.write(cmd);
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      return { success: true, message: 'Campaign launched' };
+    } catch (e) {
+      this.log.warn(`[Politics] LaunchCampaign failed: ${toErrorMessage(e)}`);
+      return { success: false, message: toErrorMessage(e) };
+    }
+  }
+
+  /**
+   * Search for available suppliers or clients to connect to.
+   * Uses the game server's Five/Cache ASP search pages (same as Voyager SupplyFinder/ClientFinder).
+   */
+  public async searchConnections(
+    buildingX: number, buildingY: number,
+    fluidId: string, direction: 'input' | 'output',
+    filters?: { company?: string; town?: string; maxResults?: number; roles?: number }
+  ): Promise<ConnectionSearchResult[]> {
+    const worldIp = this.currentWorldInfo?.ip;
+    if (!worldIp) {
+      this.log.warn('[Connections] No world IP available for search');
+      return [];
+    }
+
+    try {
+      const page = direction === 'input' ? 'outputSearch' : 'inputSearch';
+      const params = new URLSearchParams({
+        Fluid: fluidId,
+        x: String(buildingX),
+        y: String(buildingY),
+        Count: String(filters?.maxResults || 20),
+        Roles: String(filters?.roles || 255),
+      });
+      if (filters?.company) params.set('Owner', filters.company);
+      if (filters?.town) params.set('Town', filters.town);
+
+      const url = `http://${worldIp}/Five/0/Visual/Voyager/URLHandlers/${page}.asp?${params.toString().replace(/\+/g, '%20')}`;
+      this.log.debug(`[Connections] Searching: ${url}`);
+
+      const resp = await fetch(url, { redirect: 'follow' });
+      const html = await resp.text();
+      return this.parseConnectionSearchResults(html);
+    } catch (e) {
+      this.log.warn(`[Connections] Search failed: ${toErrorMessage(e)}`);
+      return [];
+    }
+  }
+
+  /**
+   * Parse HTML search results from outputSearch.asp / inputSearch.asp.
+   * Results are in a table with rows containing facility data.
+   */
+  private parseConnectionSearchResults(html: string): ConnectionSearchResult[] {
+    const results: ConnectionSearchResult[] = [];
+    // Pattern: each result row has coordinates, facility name, company name
+    // Format varies but typically: <tr>...<td>FacilityName</td><td>CompanyName</td>...<a href="...x=123&y=456...">
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = rowRegex.exec(html)) !== null) {
+      const row = match[1];
+      // Extract cell values
+      const cells: string[] = [];
+      const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+      let cellMatch: RegExpExecArray | null;
+      while ((cellMatch = cellRegex.exec(row)) !== null) {
+        cells.push(cellMatch[1].replace(/<[^>]+>/g, '').trim());
+      }
+      // Extract coordinates from links or hidden inputs
+      const xMatch = row.match(/[?&]x=(\d+)/i) || row.match(/xPos[=:](\d+)/i);
+      const yMatch = row.match(/[?&]y=(\d+)/i) || row.match(/yPos[=:](\d+)/i);
+
+      if (cells.length >= 2 && xMatch && yMatch) {
+        results.push({
+          facilityName: cells[0] || 'Unknown',
+          companyName: cells[1] || '',
+          x: parseInt(xMatch[1]),
+          y: parseInt(yMatch[1]),
+          price: cells[2] || undefined,
+          quality: cells[3] || undefined,
+        });
+      }
+    }
+    return results;
   }
 
   private getDefaultPoliticsData(townName: string): PoliticsData {

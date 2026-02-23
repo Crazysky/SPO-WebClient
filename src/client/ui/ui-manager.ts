@@ -198,7 +198,8 @@ export class UIManager {
     onRename?: (newName: string) => Promise<void>,
     onDelete?: () => Promise<void>,
     onActionButton?: (actionId: string, details: BuildingDetailsResponse) => void,
-    currentCompanyName?: string
+    currentCompanyName?: string,
+    onSearchConnections?: (fluidId: string, fluidName: string, direction: 'input' | 'output') => void
   ) {
     if (this.buildingDetailsPanel) {
       // Update options with callbacks
@@ -210,6 +211,7 @@ export class UIManager {
         onRename,
         onDelete,
         onActionButton,
+        onSearchConnections,
         currentCompanyName,
       });
       this.buildingDetailsPanel.show(details);
