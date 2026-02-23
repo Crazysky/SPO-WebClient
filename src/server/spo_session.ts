@@ -5288,6 +5288,63 @@ private handlePush(socketName: string, packet: RdoPacket) {
         break;
       }
 
+      case 'RDOSetMinSalaryValue': {
+        // Args: levelIndex (integer: 0=hi, 1=mid, 2=lo), value (integer)
+        // Voyager: TownHallJobsSheet.pas — Proxy.RDOSetMinSalaryValue(Sender.Tag, Value)
+        const levelIndex = params.levelIndex || '0';
+        args.push(RdoValue.int(parseInt(levelIndex, 10)), RdoValue.int(parseInt(value, 10)));
+        break;
+      }
+
+      case 'RDOLaunchMovie': {
+        // Args: name (widestring), budget (double), months (integer), autoRel (wordbool)
+        // Voyager: FilmsSheet.pas line 311 — Proxy.RDOLaunchMovie(name, budget, months, autoRel)
+        const filmName = params.filmName || '';
+        const budget = params.budget || '1000000';
+        const months = params.months || '12';
+        const autoRel = parseInt(params.autoRel || '0', 10) !== 0 ? -1 : 0;
+        args.push(
+          RdoValue.string(filmName),
+          RdoValue.double(parseFloat(budget)),
+          RdoValue.int(parseInt(months, 10)),
+          RdoValue.int(autoRel)
+        );
+        break;
+      }
+
+      case 'RDOCancelMovie':
+      case 'RDOReleaseMovie': {
+        // Args: dummy integer (always 0)
+        // Voyager: FilmsSheet.pas lines 330/350 — Proxy.RDOCancelMovie(0) / RDOReleaseMovie(0)
+        args.push(RdoValue.int(0));
+        break;
+      }
+
+      case 'RDOSetMinistryBudget': {
+        // Args: MinId (integer), Budget (widestring)
+        // Voyager: MinisteriesSheet.pas line 251 — Proxy.RDOSetMinistryBudget(MinId, Budget)
+        const minId = parseInt(params.ministryId || '0', 10);
+        args.push(RdoValue.int(minId), RdoValue.string(value));
+        break;
+      }
+
+      case 'RDOBanMinister': {
+        // Args: MinId (integer)
+        // Voyager: MinisteriesSheet.pas line 271 — Proxy.RDOBanMinister(MinId)
+        const minId = parseInt(params.ministryId || '0', 10);
+        args.push(RdoValue.int(minId));
+        break;
+      }
+
+      case 'RDOSitMinister': {
+        // Args: MinId (integer), MinName (widestring)
+        // Voyager: MinisteriesSheet.pas line 293 — Proxy.RDOSitMinister(MinId, MinName)
+        const minId = parseInt(params.ministryId || '0', 10);
+        const minName = params.ministerName || '';
+        args.push(RdoValue.int(minId), RdoValue.string(minName));
+        break;
+      }
+
       case 'property': {
         // Direct property set — format as quoted integer value
         args.push(RdoValue.int(parseInt(value, 10)));
@@ -5389,6 +5446,24 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
       case 'CloneFacility':
         return 'UpgradeLevel';
+
+      case 'RDOSetMinSalaryValue': {
+        const level = params.levelIndex || '0';
+        const prefix = level === '0' ? 'hi' : level === '1' ? 'mid' : 'lo';
+        return `${prefix}ActualMinSalary`;
+      }
+
+      case 'RDOLaunchMovie':
+      case 'RDOCancelMovie':
+      case 'RDOReleaseMovie':
+        return 'InProd';
+
+      case 'RDOSetMinistryBudget':
+        return `MinisterBudget${params.ministryId || '0'}`;
+
+      case 'RDOBanMinister':
+      case 'RDOSitMinister':
+        return `Minister${params.ministryId || '0'}`;
 
       case 'property':
         return params.propertyName || rdoCommand;

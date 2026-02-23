@@ -537,10 +537,12 @@ export const ANTENNAS_GROUP: PropertyGroup = {
       indexed: true,
       countProperty: 'antCount',
       columns: [
-        { rdoSuffix: 'antName', label: 'Name', type: PropertyType.TEXT, width: '30%' },
-        { rdoSuffix: 'antTown', label: 'Town', type: PropertyType.TEXT, width: '25%' },
-        { rdoSuffix: 'antViewers', label: 'Viewers', type: PropertyType.NUMBER, width: '25%' },
-        { rdoSuffix: 'antActive', label: 'Active', type: PropertyType.BOOLEAN, width: '20%' },
+        { rdoSuffix: 'antName', label: 'Name', type: PropertyType.TEXT, width: '25%' },
+        { rdoSuffix: 'antTown', label: 'Town', type: PropertyType.TEXT, width: '20%' },
+        { rdoSuffix: 'antViewers', label: 'Viewers', type: PropertyType.NUMBER, width: '15%' },
+        { rdoSuffix: 'antActive', label: 'Active', type: PropertyType.BOOLEAN, width: '15%' },
+        { rdoSuffix: 'antX', label: 'X', type: PropertyType.NUMBER, width: '12%' },
+        { rdoSuffix: 'antY', label: 'Y', type: PropertyType.NUMBER, width: '13%' },
       ],
     },
   ],
@@ -560,6 +562,9 @@ export const FILMS_GROUP: PropertyGroup = {
     { rdoName: 'FilmDone', displayName: 'Film Done', type: PropertyType.BOOLEAN },
     { rdoName: 'AutoProd', displayName: 'Auto Produce', type: PropertyType.BOOLEAN, editable: true },
     { rdoName: 'AutoRel', displayName: 'Auto Release', type: PropertyType.BOOLEAN, editable: true },
+    { rdoName: 'launchMovie', displayName: 'Launch Movie', type: PropertyType.ACTION_BUTTON, actionId: 'launchMovie', buttonLabel: 'Launch Movie' },
+    { rdoName: 'cancelMovie', displayName: 'Cancel Movie', type: PropertyType.ACTION_BUTTON, actionId: 'cancelMovie', buttonLabel: 'Cancel Movie' },
+    { rdoName: 'releaseMovie', displayName: 'Release Movie', type: PropertyType.ACTION_BUTTON, actionId: 'releaseMovie', buttonLabel: 'Release Movie' },
   ],
   rdoCommands: {
     'AutoProd': { command: 'RDOAutoProduce' },
@@ -610,6 +615,7 @@ export const VOTES_GROUP: PropertyGroup = {
         { rdoSuffix: 'CmpPnts', label: 'Points', type: PropertyType.NUMBER, width: '20%' },
       ],
     },
+    { rdoName: 'voteAction', displayName: 'Vote', type: PropertyType.ACTION_BUTTON, actionId: 'vote', buttonLabel: 'Vote for Candidate' },
   ],
 };
 
@@ -660,16 +666,21 @@ export const MINISTERIES_GROUP: PropertyGroup = {
       displayName: 'Ministries',
       type: PropertyType.TABLE,
       indexed: true,
-      indexSuffix: '.0',
       countProperty: 'MinisterCount',
       columns: [
+        { rdoSuffix: 'MinistryId', label: 'ID', type: PropertyType.TEXT, width: '0%' },
         { rdoSuffix: 'Ministry', label: 'Ministry', type: PropertyType.TEXT, width: '25%' },
         { rdoSuffix: 'Minister', label: 'Minister', type: PropertyType.TEXT, width: '25%' },
         { rdoSuffix: 'MinisterRating', label: 'Rating', type: PropertyType.PERCENTAGE, width: '25%' },
         { rdoSuffix: 'MinisterBudget', label: 'Budget', type: PropertyType.CURRENCY, width: '25%' },
       ],
     },
+    { rdoName: 'banMinister', displayName: 'Depose Minister', type: PropertyType.ACTION_BUTTON, actionId: 'banMinister', buttonLabel: 'Depose Minister' },
+    { rdoName: 'sitMinister', displayName: 'Appoint Minister', type: PropertyType.ACTION_BUTTON, actionId: 'sitMinister', buttonLabel: 'Appoint Minister' },
   ],
+  rdoCommands: {
+    'MinisterBudget': { command: 'RDOSetMinistryBudget' },
+  },
 };
 
 /**
@@ -682,10 +693,15 @@ export const TOWN_JOBS_GROUP: PropertyGroup = {
   icon: 'J',
   order: 10,
   properties: [
-    { rdoName: 'hiActualMinSalary', displayName: 'Executive Min Salary', type: PropertyType.CURRENCY },
-    { rdoName: 'midActualMinSalary', displayName: 'Professional Min Salary', type: PropertyType.CURRENCY },
-    { rdoName: 'loActualMinSalary', displayName: 'Worker Min Salary', type: PropertyType.CURRENCY },
+    { rdoName: 'hiActualMinSalary', displayName: 'Executive Min Salary', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, step: 5 },
+    { rdoName: 'midActualMinSalary', displayName: 'Professional Min Salary', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, step: 5 },
+    { rdoName: 'loActualMinSalary', displayName: 'Worker Min Salary', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, step: 5 },
   ],
+  rdoCommands: {
+    'hiActualMinSalary': { command: 'RDOSetMinSalaryValue', params: { levelIndex: '0' } },
+    'midActualMinSalary': { command: 'RDOSetMinSalaryValue', params: { levelIndex: '1' } },
+    'loActualMinSalary': { command: 'RDOSetMinSalaryValue', params: { levelIndex: '2' } },
+  },
 };
 
 /**
@@ -733,11 +749,12 @@ export const TOWN_SERVICES_GROUP: PropertyGroup = {
         { rdoSuffix: 'prdInputValue', label: 'In Value', type: PropertyType.NUMBER, width: '10%' },
         { rdoSuffix: 'prdInputCapacity', label: 'In Cap', type: PropertyType.NUMBER, width: '10%' },
         { rdoSuffix: 'prdInputQuality', label: 'In Qual', type: PropertyType.PERCENTAGE, width: '10%' },
-        { rdoSuffix: 'prdInputPrice', label: 'In Price', type: PropertyType.CURRENCY, width: '10%' },
-        { rdoSuffix: 'prdOutputValue', label: 'Out Value', type: PropertyType.NUMBER, width: '10%' },
-        { rdoSuffix: 'prdOutputCapacity', label: 'Out Cap', type: PropertyType.NUMBER, width: '10%' },
-        { rdoSuffix: 'prdOutputQuality', label: 'Out Qual', type: PropertyType.PERCENTAGE, width: '10%' },
-        { rdoSuffix: 'prdOutputPrice', label: 'Out Price', type: PropertyType.CURRENCY, width: '10%' },
+        { rdoSuffix: 'prdInputPrice', label: 'In Price', type: PropertyType.CURRENCY, width: '9%' },
+        { rdoSuffix: 'prdInputMaxPrice', label: 'Max Price', type: PropertyType.CURRENCY, width: '9%' },
+        { rdoSuffix: 'prdOutputValue', label: 'Out Value', type: PropertyType.NUMBER, width: '9%' },
+        { rdoSuffix: 'prdOutputCapacity', label: 'Out Cap', type: PropertyType.NUMBER, width: '9%' },
+        { rdoSuffix: 'prdOutputQuality', label: 'Out Qual', type: PropertyType.PERCENTAGE, width: '9%' },
+        { rdoSuffix: 'prdOutputPrice', label: 'Out Price', type: PropertyType.CURRENCY, width: '9%' },
       ],
     },
   ],

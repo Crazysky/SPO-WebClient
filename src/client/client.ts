@@ -1009,6 +1009,16 @@ export class StarpeaceClient {
   }
 
   /**
+   * Re-fetch building details and update the panel in-place
+   */
+  private async refreshBuildingDetails(x: number, y: number): Promise<void> {
+    const details = await this.requestBuildingDetails(x, y, '0');
+    if (details) {
+      this.ui.updateBuildingDetailsPanel(details);
+    }
+  }
+
+  /**
    * Set a building property value for editable properties
    * propertyName is now the RDO command name (e.g., 'RDOSetPrice', 'RDOSetSalaries')
    */
@@ -1154,6 +1164,18 @@ export class StarpeaceClient {
       this.ui.showPoliticsPanel(townName, buildingDetails.x, buildingDetails.y);
     } else if (actionId === 'clone') {
       this.startCloneFacility(buildingDetails);
+    } else if (actionId === 'launchMovie') {
+      this.launchMovie(buildingDetails);
+    } else if (actionId === 'cancelMovie') {
+      this.cancelMovie(buildingDetails);
+    } else if (actionId === 'releaseMovie') {
+      this.releaseMovie(buildingDetails);
+    } else if (actionId === 'vote') {
+      this.voteForCandidate(buildingDetails);
+    } else if (actionId === 'banMinister') {
+      this.banMinister(buildingDetails);
+    } else if (actionId === 'sitMinister') {
+      this.sitMinister(buildingDetails);
     }
   }
 
@@ -1228,6 +1250,137 @@ export class StarpeaceClient {
       this.showNotification('Failed to clone facility', 'error');
     } finally {
       this.cancelCloneMode();
+    }
+  }
+
+  // =========================================================================
+  // FILM ACTIONS (Launch / Cancel / Release Movie)
+  // =========================================================================
+
+  private async launchMovie(buildingDetails: BuildingDetailsResponse): Promise<void> {
+    const filmName = prompt('Movie name:');
+    if (!filmName) return;
+    const budgetStr = prompt('Budget ($):', '1000000');
+    if (!budgetStr) return;
+    const monthsStr = prompt('Production months:', '12');
+    if (!monthsStr) return;
+
+    try {
+      await this.setBuildingProperty(buildingDetails.x, buildingDetails.y, 'RDOLaunchMovie', '0', {
+        filmName,
+        budget: budgetStr,
+        months: monthsStr,
+        autoRel: '0',
+      });
+      this.showNotification(`Launching movie: ${filmName}`, 'success');
+      this.refreshBuildingDetails(buildingDetails.x, buildingDetails.y);
+    } catch (err: unknown) {
+      this.showNotification(`Failed to launch movie: ${toErrorMessage(err)}`, 'error');
+    }
+  }
+
+  private async cancelMovie(buildingDetails: BuildingDetailsResponse): Promise<void> {
+    if (!confirm('Cancel current movie production?')) return;
+    try {
+      await this.setBuildingProperty(buildingDetails.x, buildingDetails.y, 'RDOCancelMovie', '0');
+      this.showNotification('Movie production cancelled', 'success');
+      this.refreshBuildingDetails(buildingDetails.x, buildingDetails.y);
+    } catch (err: unknown) {
+      this.showNotification(`Failed to cancel movie: ${toErrorMessage(err)}`, 'error');
+    }
+  }
+
+  private async releaseMovie(buildingDetails: BuildingDetailsResponse): Promise<void> {
+    try {
+      await this.setBuildingProperty(buildingDetails.x, buildingDetails.y, 'RDOReleaseMovie', '0');
+      this.showNotification('Movie released!', 'success');
+      this.refreshBuildingDetails(buildingDetails.x, buildingDetails.y);
+    } catch (err: unknown) {
+      this.showNotification(`Failed to release movie: ${toErrorMessage(err)}`, 'error');
+    }
+  }
+
+  // =========================================================================
+  // VOTE FOR CANDIDATE
+  // =========================================================================
+
+  private async voteForCandidate(buildingDetails: BuildingDetailsResponse): Promise<void> {
+    // Get candidate list from the Votes group data
+    const votesData = buildingDetails.groups['votes'];
+    if (!votesData) {
+      this.showNotification('No voting data available', 'error');
+      return;
+    }
+
+    // Collect candidate names from the table data
+    const candidateNames: string[] = [];
+    for (const prop of votesData) {
+      if (prop.name.startsWith('Candidate') && !prop.name.includes('Count')) {
+        const match = prop.name.match(/^Candidate(\d+)$/);
+        if (match && prop.value) {
+          candidateNames.push(prop.value);
+        }
+      }
+    }
+
+    if (candidateNames.length === 0) {
+      this.showNotification('No candidates available', 'error');
+      return;
+    }
+
+    const candidateChoice = prompt(
+      `Vote for a candidate:\n${candidateNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}\n\nEnter candidate number:`
+    );
+    if (!candidateChoice) return;
+
+    const idx = parseInt(candidateChoice, 10) - 1;
+    if (idx < 0 || idx >= candidateNames.length) {
+      this.showNotification('Invalid candidate number', 'error');
+      return;
+    }
+
+    const candidateName = candidateNames[idx];
+    this.ws?.send(JSON.stringify({
+      type: WsMessageType.REQ_POLITICS_VOTE,
+      buildingX: buildingDetails.x,
+      buildingY: buildingDetails.y,
+      candidateName,
+    }));
+    this.showNotification(`Voted for ${candidateName}`, 'success');
+  }
+
+  // =========================================================================
+  // MINISTRY ACTIONS (Ban / Sit Minister)
+  // =========================================================================
+
+  private async banMinister(buildingDetails: BuildingDetailsResponse): Promise<void> {
+    const ministryIdStr = prompt('Ministry ID to depose minister from:');
+    if (!ministryIdStr) return;
+    try {
+      await this.setBuildingProperty(buildingDetails.x, buildingDetails.y, 'RDOBanMinister', '0', {
+        ministryId: ministryIdStr,
+      });
+      this.showNotification('Minister deposed', 'success');
+      this.refreshBuildingDetails(buildingDetails.x, buildingDetails.y);
+    } catch (err: unknown) {
+      this.showNotification(`Failed to depose minister: ${toErrorMessage(err)}`, 'error');
+    }
+  }
+
+  private async sitMinister(buildingDetails: BuildingDetailsResponse): Promise<void> {
+    const ministryIdStr = prompt('Ministry ID to appoint minister for:');
+    if (!ministryIdStr) return;
+    const ministerName = prompt('Minister name to appoint:');
+    if (!ministerName) return;
+    try {
+      await this.setBuildingProperty(buildingDetails.x, buildingDetails.y, 'RDOSitMinister', '0', {
+        ministryId: ministryIdStr,
+        ministerName,
+      });
+      this.showNotification(`${ministerName} appointed as minister`, 'success');
+      this.refreshBuildingDetails(buildingDetails.x, buildingDetails.y);
+    } catch (err: unknown) {
+      this.showNotification(`Failed to appoint minister: ${toErrorMessage(err)}`, 'error');
     }
   }
 

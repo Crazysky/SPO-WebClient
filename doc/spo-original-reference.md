@@ -443,6 +443,27 @@
 |--------|------|------|-----------|--------|-------------|-------|
 | `RDOAcceptCloning` | property | `set/get` | `#boolVal` | — | — | Toggle cloning acceptance |
 
+### Film production (FilmsSheet.pas)
+
+| Member | Kind | Verb | Signature | Return | Source Line | Notes |
+|--------|------|------|-----------|--------|-------------|-------|
+| `RDOAutoProduce` | procedure | `call` | `(#boolVal)` | void (`*`) | 372 | WordBool: #-1=true, #0=false |
+| `RDOAutoRelease` | procedure | `call` | `(#boolVal)` | void (`*`) | — | Same pattern as RDOAutoProduce |
+| `RDOLaunchMovie` | procedure | `call` | `(%name, @budget, #months, #autoRel)` | void (`*`) | 311 | autoRel is WordBool |
+| `RDOCancelMovie` | procedure | `call` | `(#0)` | void (`*`) | 330 | Dummy integer param |
+| `RDOReleaseMovie` | procedure | `call` | `(#0)` | void (`*`) | 350 | Dummy integer param |
+
+### Town hall (TownHallJobsSheet.pas / MinisteriesSheet.pas / VotesSheet.pas)
+
+| Member | Kind | Verb | Signature | Return | Source Line | Notes |
+|--------|------|------|-----------|--------|-------------|-------|
+| `RDOSetMinSalaryValue` | procedure | `call` | `(#levelIndex, #value)` | void (`*`) | 253 | levelIndex: 0=hi, 1=mid, 2=lo |
+| `RDOSetMinistryBudget` | procedure | `call` | `(#MinId, %Budget)` | void (`*`) | 251 | Budget sent as widestring |
+| `RDOBanMinister` | procedure | `call` | `(#MinId)` | void (`*`) | 271 | Depose a minister |
+| `RDOSitMinister` | procedure | `call` | `(#MinId, %MinName)` | void (`*`) | 293 | Appoint a minister |
+| `RDOVote` | procedure | `call` | `(%voter, %votee)` | void (`*`) | 259 | voter=tycoon name, votee=candidate |
+| `RDOVoteOf` | function | `call` | `(%voter)` | olevariant (`%name`) | 276 | Returns current vote target |
+
 ---
 
 ## Scenario-to-Source Cross-Reference

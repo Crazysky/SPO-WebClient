@@ -244,9 +244,9 @@ describe('Specialized handler RDO properties', () => {
     const tableProp = ANTENNAS_GROUP.properties.find(p => p.type === PropertyType.TABLE);
     expect(tableProp).toBeDefined();
     expect(tableProp!.countProperty).toBe('antCount');
-    expect(tableProp!.columns).toHaveLength(4);
+    expect(tableProp!.columns).toHaveLength(6);
     const colNames = tableProp!.columns!.map(c => c.rdoSuffix);
-    expect(colNames).toEqual(['antName', 'antTown', 'antViewers', 'antActive']);
+    expect(colNames).toEqual(['antName', 'antTown', 'antViewers', 'antActive', 'antX', 'antY']);
   });
 
   it('Films should have production properties with editable booleans', () => {
@@ -292,11 +292,11 @@ describe('Specialized handler RDO properties', () => {
     expect(tableProp!.columns!.length).toBeGreaterThanOrEqual(6);
   });
 
-  it('Ministeries should have minister TABLE with indexSuffix', () => {
+  it('Ministeries should have minister TABLE without indexSuffix (Voyager uses Ministry0 not Ministry.0)', () => {
     const tableProp = MINISTERIES_GROUP.properties.find(p => p.type === PropertyType.TABLE);
     expect(tableProp).toBeDefined();
     expect(tableProp!.countProperty).toBe('MinisterCount');
-    expect(tableProp!.indexSuffix).toBe('.0');
+    expect(tableProp!.indexSuffix).toBeUndefined();
   });
 
   it('townJobs should have salary properties', () => {
@@ -306,11 +306,13 @@ describe('Specialized handler RDO properties', () => {
     expect(rdoNames).toContain('loActualMinSalary');
   });
 
-  it('townServices should have product TABLE with 9 columns', () => {
+  it('townServices should have product TABLE with 10 columns (including prdInputMaxPrice)', () => {
     const tableProp = TOWN_SERVICES_GROUP.properties.find(p => p.type === PropertyType.TABLE);
     expect(tableProp).toBeDefined();
     expect(tableProp!.countProperty).toBe('prdCount');
-    expect(tableProp!.columns).toHaveLength(9);
+    expect(tableProp!.columns).toHaveLength(10);
+    const colNames = tableProp!.columns!.map(c => c.rdoSuffix);
+    expect(colNames).toContain('prdInputMaxPrice');
   });
 
   it('townRes should have 9 residential properties (3 classes × 3 metrics)', () => {

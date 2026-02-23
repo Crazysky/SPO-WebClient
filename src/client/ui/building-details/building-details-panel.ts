@@ -908,7 +908,7 @@ export class BuildingDetailsPanel {
 		  if (mapping.command === 'property') {
 			return { rdoCommand: 'property', params: { propertyName } };
 		  }
-		  return { rdoCommand: mapping.command, params: {} };
+		  return { rdoCommand: mapping.command, params: mapping.params ? { ...mapping.params } : {} };
 		}
 
 		// Indexed match: strip trailing digits

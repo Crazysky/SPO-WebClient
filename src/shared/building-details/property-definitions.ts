@@ -129,6 +129,8 @@ export interface RdoCommandMapping {
   indexed?: boolean;
   /** If true, collect all 3 salary values when one changes */
   allSalaries?: boolean;
+  /** Fixed additional params to pass with this command (e.g., { levelIndex: '0' }) */
+  params?: Record<string, string>;
 }
 
 /**
