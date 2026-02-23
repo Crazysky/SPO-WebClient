@@ -26,6 +26,7 @@ import {
   ZOOM_LEVELS,
   ZoomConfig,
   Rotation,
+  Season,
   TerrainData
 } from '../../shared/map-config';
 import {
@@ -1429,6 +1430,14 @@ export class IsometricMapRenderer {
    */
   public getZoom(): number {
     return this.terrainRenderer.getZoomLevel();
+  }
+
+  /**
+   * Set terrain season from server WorldSeason property
+   */
+  public setSeason(season: Season): void {
+    this.terrainRenderer.setSeason(season);
+    this.requestRender();
   }
 
   // =========================================================================

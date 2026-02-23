@@ -268,6 +268,37 @@ describe('CAB Extractor (7zip-min)', () => {
     });
   });
 
+  describe('CAB file exclusion', () => {
+    it('should not include the source CAB file in extractedFiles', async () => {
+      if (!cabextractAvailable) {
+        return;
+      }
+
+      const cabPath = path.join(__dirname, '../../cache/BuildingClasses/classes.cab');
+      if (!fs.existsSync(cabPath)) {
+        console.warn('⚠ BuildingClasses/classes.cab not found, skipping test');
+        return;
+      }
+
+      // Extract into tempDir first, then copy the CAB alongside the extracted files
+      // to simulate the real scenario where extraction happens in the same dir as the CAB
+      const extractDir = path.join(tempDir, 'with-cab');
+      fs.mkdirSync(extractDir, { recursive: true });
+      fs.copyFileSync(cabPath, path.join(extractDir, 'classes.cab'));
+
+      const result = await extractCabArchive(path.join(extractDir, 'classes.cab'), extractDir);
+
+      expect(result.success).toBe(true);
+      expect(result.extractedFiles.length).toBeGreaterThan(0);
+
+      // The source CAB file must NOT be in extractedFiles
+      const cabInList = result.extractedFiles.some(
+        f => f.toLowerCase() === 'classes.cab'
+      );
+      expect(cabInList).toBe(false);
+    });
+  });
+
   describe('Error handling', () => {
     it('should report errors for corrupted CAB files', async () => {
       if (!cabextractAvailable) {

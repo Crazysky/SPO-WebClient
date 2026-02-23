@@ -156,8 +156,11 @@ export async function extractCabArchive(
     // Extract using 7zip-min (promisified callback API)
     await unpackAsync(cabPath, targetDir);
 
-    // Get list of extracted files
-    const extractedFiles = getExtractedFiles(targetDir);
+    // Get list of extracted files, excluding the source CAB file itself
+    const cabBaseName = path.basename(cabPath).toLowerCase();
+    const extractedFiles = getExtractedFiles(targetDir).filter(
+      f => f.toLowerCase() !== cabBaseName
+    );
 
     if (extractedFiles.length === 0) {
       result.errors.push(`No files extracted from CAB archive: ${cabPath}`);

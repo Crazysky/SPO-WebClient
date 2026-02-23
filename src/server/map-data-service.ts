@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { MapMetadata, MapTownInfo } from '../shared/map-config';
+import { extractCabArchive } from './cab-extractor';
 import type { Service } from './service-registry';
 
 export class MapDataService implements Service {
@@ -19,9 +20,8 @@ export class MapDataService implements Service {
   }
 
   /**
-   * Extract CAB file if not already extracted
-   * For now, check if .bmp and .ini already exist
-   * If not, log a warning (CAB extraction to be implemented)
+   * Extract CAB file if not already extracted.
+   * Uses 7zip-min via cab-extractor to extract images.cab into the map directory.
    */
   async extractCabFile(mapName: string): Promise<void> {
     if (this.extracted.has(mapName)) {
@@ -47,9 +47,20 @@ export class MapDataService implements Service {
 
     console.log(`[MapDataService] Extracting CAB for ${mapName}...`);
 
-    // TODO: Implement CAB extraction
-    // For now, throw error if files don't exist
-    throw new Error(`CAB extraction not yet implemented. Please manually extract ${cabPath} to ${mapDir}`);
+    const result = await extractCabArchive(cabPath, mapDir);
+
+    if (!result.success) {
+      throw new Error(`Failed to extract CAB for map ${mapName}: ${result.errors.join(', ')}`);
+    }
+
+    console.log(`[MapDataService] Extracted ${result.extractedFiles.length} files for map ${mapName}`);
+
+    // Verify expected files exist after extraction
+    if (!fs.existsSync(bmpPath) || !fs.existsSync(iniPath)) {
+      throw new Error(`CAB extracted but expected files missing for map ${mapName}: ${mapName}.bmp and/or ${mapName}.ini`);
+    }
+
+    this.extracted.add(mapName);
   }
 
   /**

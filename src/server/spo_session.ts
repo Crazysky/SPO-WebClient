@@ -81,6 +81,14 @@ import {
   parseBuildingFocusResponse as parseBuildingFocusResponseHelper,
 } from './map-parsers';
 
+/** Parse WorldSeason value — real server sends integer (#2), test harness sends string (%Spring) */
+function parseSeasonValue(value: string): number {
+  const num = parseInt(value, 10);
+  if (!isNaN(num) && num >= 0 && num <= 3) return num;
+  const map: Record<string, number> = { winter: 0, spring: 1, summer: 2, autumn: 3, fall: 3 };
+  return map[value.toLowerCase()] ?? 2; // default Summer
+}
+
 export class StarpeaceSession extends EventEmitter {
   private readonly log = createLogger('Session');
   private sockets: Map<string, net.Socket> = new Map();
@@ -151,6 +159,9 @@ export class StarpeaceSession extends EventEmitter {
   private mailAddr: string | null = null;
   private mailPort: number | null = null;
   private mailServerId: string | null = null;
+  private worldXSize: number | null = null;
+  private worldYSize: number | null = null;
+  private worldSeason: number | null = null;  // 0=Winter, 1=Spring, 2=Summer, 3=Autumn
 
   // Known Objects Registry for bidirectional communication
   private knownObjects: Map<string, string> = new Map();
@@ -234,6 +245,21 @@ export class StarpeaceSession extends EventEmitter {
    */
   public getFTycoonProxyId(): number | null {
     return this.fTycoonProxyId;
+  }
+
+  public getWorldXSize(): number | null {
+    return this.worldXSize;
+  }
+
+  public getWorldYSize(): number | null {
+    return this.worldYSize;
+  }
+
+  /**
+   * Get world season from InterfaceServer (0=Winter, 1=Spring, 2=Summer, 3=Autumn)
+   */
+  public getWorldSeason(): number | null {
+    return this.worldSeason;
   }
 
   /**
@@ -341,6 +367,9 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
   contextId: string;
   tycoonId: string;
   companies: CompanyInfo[];
+  worldXSize: number | null;
+  worldYSize: number | null;
+  worldSeason: number | null;
 }> {
   this.phase = SessionPhase.WORLD_CONNECTING;
   this.currentWorldInfo = world;
@@ -479,7 +508,10 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
   this.log.info('Login phase complete. Waiting for company selection...');
 
   // NOTE: Phase remains WORLD_CONNECTING until selectCompany() is called
-  return { contextId: this.worldContextId, tycoonId: this.tycoonId, companies };
+  return {
+    contextId: this.worldContextId, tycoonId: this.tycoonId, companies,
+    worldXSize: this.worldXSize, worldYSize: this.worldYSize, worldSeason: this.worldSeason,
+  };
 }
 
 public async selectCompany(companyId: string): Promise<void> {
@@ -3185,6 +3217,17 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       }
       if (prop === "MailPort") {
         this.mailPort = parseInt(value, 10);
+      }
+      if (prop === "WorldXSize") {
+        this.worldXSize = parseInt(value, 10) || null;
+        if (this.currentWorldInfo) this.currentWorldInfo.mapSizeX = this.worldXSize ?? undefined;
+      }
+      if (prop === "WorldYSize") {
+        this.worldYSize = parseInt(value, 10) || null;
+        if (this.currentWorldInfo) this.currentWorldInfo.mapSizeY = this.worldYSize ?? undefined;
+      }
+      if (prop === "WorldSeason") {
+        this.worldSeason = parseSeasonValue(value);
       }
     }
   }

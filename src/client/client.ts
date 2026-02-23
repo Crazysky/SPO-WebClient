@@ -90,6 +90,7 @@ import {
 } from '../shared/types';
 import { getErrorMessage } from '../shared/error-codes';
 import { toErrorMessage } from '../shared/error-utils';
+import { Season } from '../shared/map-config';
 import { UIManager } from './ui/ui-manager';
 import { getFacilityDimensionsCache } from './facility-dimensions-cache';
 import { ConnectionPickerDialog } from './ui/building-details';
@@ -112,6 +113,9 @@ export class StarpeaceClient {
   private availableCompanies: CompanyInfo[] = [];
   private currentCompanyName: string = '';
   private currentWorldName: string = '';
+  private worldXSize: number | null = null;
+  private worldYSize: number | null = null;
+  private worldSeason: number | null = null;
 
   // Building focus state
   private currentFocusedBuilding: BuildingFocusInfo | null = null;
@@ -580,6 +584,11 @@ export class StarpeaceClient {
       const resp = (await this.sendRequest(req)) as WsRespLoginSuccess;
       this.ui.log('Login', `Success! Tycoon: ${resp.tycoonId}`);
 
+      // Store world properties from InterfaceServer
+      if (resp.worldXSize !== undefined) this.worldXSize = resp.worldXSize;
+      if (resp.worldYSize !== undefined) this.worldYSize = resp.worldYSize;
+      if (resp.worldSeason !== undefined) this.worldSeason = resp.worldSeason;
+
       if (resp.companies && resp.companies.length > 0) {
         this.availableCompanies = resp.companies;
         this.ui.log('Login', `Found ${resp.companies.length} compan${resp.companies.length > 1 ? 'ies' : 'y'}`);
@@ -653,6 +662,14 @@ export class StarpeaceClient {
 
       // Switch to game view
       this.switchToGameView();
+
+      // Apply server WorldSeason to renderer (overrides default SUMMER)
+      if (this.worldSeason !== null) {
+        const renderer = this.ui.mapNavigationUI?.getRenderer();
+        if (renderer) {
+          renderer.setSeason(this.worldSeason as Season);
+        }
+      }
 
       // Connect to mail service (non-blocking, fire-and-forget)
       this.connectMailService().catch(err => {

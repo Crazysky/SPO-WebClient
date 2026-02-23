@@ -1069,7 +1069,10 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
           tycoonId: result.tycoonId,
           contextId: result.contextId,
           companyCount: result.companies.length,
-          companies: result.companies
+          companies: result.companies,
+          worldXSize: result.worldXSize ?? undefined,
+          worldYSize: result.worldYSize ?? undefined,
+          worldSeason: result.worldSeason ?? undefined,
         };
         ws.send(JSON.stringify(response));
         break;

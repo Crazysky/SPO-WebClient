@@ -287,6 +287,9 @@ export interface WsRespLoginSuccess extends WsMessage {
   contextId: string;
   companyCount: number;
   companies?: CompanyInfo[];
+  worldXSize?: number;
+  worldYSize?: number;
+  worldSeason?: number;  // 0=Winter, 1=Spring, 2=Summer, 3=Autumn
 }
 
 export interface WsRespRdoResult extends WsMessage {
