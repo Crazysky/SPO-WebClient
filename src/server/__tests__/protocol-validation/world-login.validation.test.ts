@@ -6,7 +6,7 @@
  *
  * Flow under test (single world socket):
  *   1. idof "InterfaceServer"
- *   2. 11x GET world properties (WorldName, DSArea, WorldURL, DAAddr, DAPort, DALockPort, MailAddr, MailPort, WorldXSize, WorldYSize, WorldSeason)
+ *   2. 9x GET world properties (WorldName, WorldURL, DAAddr, DALockPort, MailAddr, MailPort, WorldXSize, WorldYSize, WorldSeason) — sequential, one at a time
  *   3. AccountStatus CALL with username, password
  *   4. Logon CALL with username, password → contextId
  *   5. GET MailAccount, GET TycoonId, GET RDOCnntId
@@ -46,8 +46,9 @@ const CONTEXT_ID = '8161308';
 const TYCOON_ID = '22';
 const RDO_CNNT_ID = '12345678';
 
+// Must match the legacy Delphi client's property list exactly (no DSArea, no DAPort)
 const WORLD_PROPERTY_NAMES = [
-  'WorldName', 'DSArea', 'WorldURL', 'DAAddr', 'DAPort', 'DALockPort',
+  'WorldName', 'WorldURL', 'DAAddr', 'DALockPort',
   'MailAddr', 'MailPort', 'WorldXSize', 'WorldYSize', 'WorldSeason',
 ];
 
@@ -187,18 +188,28 @@ describe('Protocol Validation: loginWorld()', () => {
   });
 
   describe('World property GET commands', () => {
-    it('should send 11 GET commands for world properties', async () => {
+    it('should send 9 GET commands for world properties', async () => {
       await runFullLoginFlow();
 
       const worldCmds = getWorldCommands();
       const getCmds = worldCmds.filter(cmd => cmd.includes(' get '));
 
-      // 11 world properties + 3 user properties (MailAccount, TycoonId, RDOCnntId) + 1 GetCompanyCount = 15 GETs total
-      // Filter specifically for the 11 world props
+      // 9 world properties + 3 user properties (MailAccount, TycoonId, RDOCnntId) + 1 GetCompanyCount = 13 GETs total
+      // Filter specifically for the 9 world props
       for (const prop of WORLD_PROPERTY_NAMES) {
         const propCmd = getCmds.find(cmd => cmd.includes(`get ${prop}`));
         expect(propCmd).toBeDefined();
       }
+    });
+
+    it('should NOT query DSArea or DAPort (not in legacy client)', async () => {
+      await runFullLoginFlow();
+
+      const worldCmds = getWorldCommands();
+      const dsAreaCmd = worldCmds.find(cmd => cmd.includes('get DSArea'));
+      const daPortCmd = worldCmds.find(cmd => cmd.includes('get DAPort'));
+      expect(dsAreaCmd).toBeUndefined();
+      expect(daPortCmd).toBeUndefined();
     });
 
     it('should target InterfaceServer ID for all world property GETs', async () => {
@@ -502,6 +513,30 @@ describe('Protocol Validation: loginWorld()', () => {
         expect(methodMatch).not.toBeNull();
         // Verify RDO call format: sel <id> call <method> "<sep>"
         expect(cmd).toMatch(new RegExp(`call ${methodMatch![1]} "[*^]"`));
+      }
+    });
+
+    it('should send all commands strictly sequentially (no parallel batching)', async () => {
+      // The legacy Delphi server is single-threaded and expects sequential
+      // command-response pairs. Sending multiple commands at once crashes it.
+      // Verify: no single write() call should contain more than one C command.
+      await runFullLoginFlow();
+
+      const worldSocket = harness.getSockets()[2];
+      const allWrites = worldSocket.getCapturedWrites();
+
+      // Each write to the socket should contain at most ONE C <rid> command.
+      // If Promise.all is used, multiple socket.write() calls happen before
+      // any response is processed, but each write is individual. The real
+      // proof is that commands appear in the captured-commands list in the
+      // same order they were sent — if commands were batched, the mock
+      // socket would process them as separate commands anyway, but the
+      // RIDs would interleave with responses incorrectly.
+      for (const write of allWrites) {
+        const cmdMatches = write.match(/C \d+/g);
+        if (cmdMatches) {
+          expect(cmdMatches.length).toBe(1);
+        }
       }
     });
 

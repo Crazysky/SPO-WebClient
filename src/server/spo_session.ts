@@ -427,24 +427,24 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
   this.worldContextId = contextId;
   this.log.debug(`[Session] Authenticated. Context RDO: ${this.worldContextId}`);
 
-  // 5. Retrieve User Properties (parallel - independent GETs)
-  const [mailPacket, tycoonPacket, cnntPacket] = await Promise.all([
-    this.sendRdoRequest("world", {
-      verb: RdoVerb.SEL, targetId: this.worldContextId,
-      action: RdoAction.GET, member: "MailAccount"
-    }),
-    this.sendRdoRequest("world", {
-      verb: RdoVerb.SEL, targetId: this.worldContextId,
-      action: RdoAction.GET, member: "TycoonId"
-    }),
-    this.sendRdoRequest("world", {
-      verb: RdoVerb.SEL, targetId: this.worldContextId,
-      action: RdoAction.GET, member: "RDOCnntId"
-    })
-  ]);
+  // 5. Retrieve User Properties — sequential (legacy client sends one at a time)
+  const mailPacket = await this.sendRdoRequest("world", {
+    verb: RdoVerb.SEL, targetId: this.worldContextId,
+    action: RdoAction.GET, member: "MailAccount"
+  });
   this.mailAccount = parsePropertyResponseHelper(mailPacket.payload!, "MailAccount");
   this.log.debug(`[Session] MailAccount: ${this.mailAccount}`);
+
+  const tycoonPacket = await this.sendRdoRequest("world", {
+    verb: RdoVerb.SEL, targetId: this.worldContextId,
+    action: RdoAction.GET, member: "TycoonId"
+  });
   this.tycoonId = parsePropertyResponseHelper(tycoonPacket.payload!, "TycoonId");
+
+  const cnntPacket = await this.sendRdoRequest("world", {
+    verb: RdoVerb.SEL, targetId: this.worldContextId,
+    action: RdoAction.GET, member: "RDOCnntId"
+  });
   this.rdoCnntId = parsePropertyResponseHelper(cnntPacket.payload!, "RDOCnntId");
 
   // 6. Setup InitClient waiter BEFORE RegisterEventsById
@@ -548,30 +548,30 @@ public async selectCompany(companyId: string): Promise<void> {
   });
   this.log.debug(`[Session] PickEvent #1 sent`);
 
-  // 3. Get Tycoon Cookies in parallel (independent reads)
-  const [lastYPacket, lastXPacket, allCookiesPacket] = await Promise.all([
-    this.sendRdoRequest("world", {
-      verb: RdoVerb.SEL, targetId: this.worldContextId,
-      action: RdoAction.CALL, member: "GetTycoonCookie",
-      args: [this.tycoonId!, "LastY.0"]
-    }),
-    this.sendRdoRequest("world", {
-      verb: RdoVerb.SEL, targetId: this.worldContextId,
-      action: RdoAction.CALL, member: "GetTycoonCookie",
-      args: [this.tycoonId!, "LastX.0"]
-    }),
-    this.sendRdoRequest("world", {
-      verb: RdoVerb.SEL, targetId: this.worldContextId,
-      action: RdoAction.CALL, member: "GetTycoonCookie",
-      args: [this.tycoonId!, ""]
-    })
-  ]);
+  // 3. Get Tycoon Cookies — sequential (legacy client sends one at a time)
+  const lastYPacket = await this.sendRdoRequest("world", {
+    verb: RdoVerb.SEL, targetId: this.worldContextId,
+    action: RdoAction.CALL, member: "GetTycoonCookie",
+    args: [this.tycoonId!, "LastY.0"]
+  });
   const lastY = parsePropertyResponseHelper(lastYPacket.payload!, "res");
   this.lastPlayerY = parseInt(lastY, 10) || 0;
   this.log.debug(`[Session] Cookie LastY.0: ${this.lastPlayerY}`);
+
+  const lastXPacket = await this.sendRdoRequest("world", {
+    verb: RdoVerb.SEL, targetId: this.worldContextId,
+    action: RdoAction.CALL, member: "GetTycoonCookie",
+    args: [this.tycoonId!, "LastX.0"]
+  });
   const lastX = parsePropertyResponseHelper(lastXPacket.payload!, "res");
   this.lastPlayerX = parseInt(lastX, 10) || 0;
   this.log.debug(`[Session] Cookie LastX.0: ${this.lastPlayerX}`);
+
+  const allCookiesPacket = await this.sendRdoRequest("world", {
+    verb: RdoVerb.SEL, targetId: this.worldContextId,
+    action: RdoAction.CALL, member: "GetTycoonCookie",
+    args: [this.tycoonId!, ""]
+  });
   const allCookies = parsePropertyResponseHelper(allCookiesPacket.payload!, "res");
   this.log.debug(`[Session] All Cookies:\n${allCookies}`);
 
@@ -3181,25 +3181,23 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
    * Fetch world properties from InterfaceServer
    */
   private async fetchWorldProperties(interfaceServerId: string): Promise<void> {
+    // Legacy Delphi client sends GET commands one at a time, waiting for each
+    // response before sending the next. The RDO server is single-threaded and
+    // crashes or deadlocks when bombarded with concurrent requests on one socket.
     const props = [
-      "WorldName", "DSArea", "WorldURL", "DAAddr", "DAPort", "DALockPort",
+      "WorldName", "WorldURL", "DAAddr", "DALockPort",
       "MailAddr", "MailPort", "WorldXSize", "WorldYSize", "WorldSeason"
     ] as const;
 
-    // Fetch all 10 properties in parallel (RDO supports concurrent RID-based requests)
-    const packets = await Promise.all(
-      props.map(prop => this.sendRdoRequest("world", {
+    // Sequential: send one GET, wait for response, then send the next
+    for (const prop of props) {
+      const packet = await this.sendRdoRequest("world", {
         verb: RdoVerb.SEL,
         targetId: interfaceServerId,
         action: RdoAction.GET,
         member: prop
-      }))
-    );
-
-    // Process results
-    for (let i = 0; i < props.length; i++) {
-      const prop = props[i];
-      const value = parsePropertyResponseHelper(packets[i].payload!, prop);
+      });
+      const value = parsePropertyResponseHelper(packet.payload!, prop);
       this.log.debug(`[Session] ${prop}: ${value}`);
 
       if (prop === "WorldName" && value && this.currentWorldInfo) {
@@ -3208,9 +3206,6 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       }
       if (prop === "DAAddr") {
         this.daAddr = value;
-      }
-      if (prop === "DAPort") {
-        this.daPort = parseInt(value, 10);
       }
       if (prop === "MailAddr") {
         this.mailAddr = value;
@@ -5340,17 +5335,19 @@ private handlePush(socketName: string, packet: RdoPacket) {
       }
 
       case 'RDOLaunchMovie': {
-        // Args: name (widestring), budget (double), months (integer), autoRel (wordbool)
-        // Voyager: FilmsSheet.pas line 311 — Proxy.RDOLaunchMovie(name, budget, months, autoRel)
+        // Args: name (widestring), budget (double), months (integer), autoInfo (word bitmask)
+        // MovieStudios.pas — flgAutoRelease=$01 (bit0), flgAutoProduce=$02 (bit1)
         const filmName = params.filmName || '';
         const budget = params.budget || '1000000';
         const months = params.months || '12';
-        const autoRel = parseInt(params.autoRel || '0', 10) !== 0 ? -1 : 0;
+        const autoRelBit = parseInt(params.autoRel || '0', 10) !== 0 ? 1 : 0;
+        const autoProdBit = parseInt(params.autoProd || '0', 10) !== 0 ? 1 : 0;
+        const autoInfo = autoRelBit | (autoProdBit << 1);
         args.push(
           RdoValue.string(filmName),
           RdoValue.double(parseFloat(budget)),
           RdoValue.int(parseInt(months, 10)),
-          RdoValue.int(autoRel)
+          RdoValue.int(autoInfo)
         );
         break;
       }

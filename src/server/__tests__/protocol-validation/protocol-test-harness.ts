@@ -203,7 +203,7 @@ export function createProtocolTestHarness(config: HarnessConfig): ProtocolTestHa
 
 /**
  * Build fallback responses for common world properties.
- * LoginWorld fetches 10 properties via GET — these need responses.
+ * LoginWorld fetches 9 properties via GET — these need responses.
  */
 export function buildWorldPropertyFallbacks(vars: {
   worldName: string;
@@ -214,10 +214,8 @@ export function buildWorldPropertyFallbacks(vars: {
 }): FallbackResponse[] {
   return [
     { member: 'WorldName', payload: `WorldName="%${vars.worldName}"` },
-    { member: 'DSArea', payload: `DSArea="%BETA"` },
     { member: 'WorldURL', payload: `WorldURL="%http://${vars.worldIp}"` },
     { member: 'DAAddr', payload: `DAAddr="%${vars.worldIp}"` },
-    { member: 'DAPort', payload: `DAPort="#2000"` },
     { member: 'DALockPort', payload: `DALockPort="#80"` },
     { member: 'MailAddr', payload: `MailAddr="%${vars.mailAddr}"` },
     { member: 'MailPort', payload: `MailPort="#${vars.mailPort}"` },
