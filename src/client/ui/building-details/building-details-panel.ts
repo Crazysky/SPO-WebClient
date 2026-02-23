@@ -13,7 +13,7 @@ import {
   getGroupById,
 } from '../../../shared/building-details';
 import { renderPropertyGroup } from './property-renderers';
-import { renderSuppliesWithTabs, renderProductsWithTabs } from './property-table';
+import { renderSuppliesWithTabs, renderProductsWithTabs, DisconnectCallback, TablePropertyChangeCallback } from './property-table';
 import { renderSparklineGraph } from './property-graph';
 
 export interface BuildingDetailsPanelOptions {
@@ -733,18 +733,57 @@ export class BuildingDetailsPanel {
 	  const isUpgrade = tab.id === 'upgrade' || tab.handlerName === 'facManagement';
 
 	  if (isSupplies && details.supplies?.length) {
+		// Owner-only disconnect: RDODisconnectInput via connection list format "x,y"
+		const supplyDisconnect: DisconnectCallback | undefined = this.isOwner
+		  ? async (fluidId, x, y) => {
+			if (this.options.onPropertyChange) {
+			  await this.options.onPropertyChange('RDODisconnectInput', '0', {
+				fluidId,
+				connectionList: `${x},${y}`,
+			  });
+			  if (this.options.onRefresh) await this.options.onRefresh();
+			}
+		  }
+		  : undefined;
+
 		const suppliesEl = renderSuppliesWithTabs(
 		  details.supplies,
-		  this.options.onNavigateToBuilding
+		  this.options.onNavigateToBuilding,
+		  supplyDisconnect
 		);
 		this.contentContainer.appendChild(suppliesEl);
 		return;
 	  }
 
 	  if (isProducts && details.products?.length) {
+		// Owner-only price change: RDOSetOutputPrice
+		const productPriceChange: TablePropertyChangeCallback | undefined = this.isOwner
+		  ? async (propertyName, value, additionalParams) => {
+			if (this.options.onPropertyChange) {
+			  await this.options.onPropertyChange(propertyName, value, additionalParams);
+			  if (this.options.onRefresh) await this.options.onRefresh();
+			}
+		  }
+		  : undefined;
+
+		// Owner-only disconnect: RDODisconnectOutput via connection list format "x,y"
+		const productDisconnect: DisconnectCallback | undefined = this.isOwner
+		  ? async (fluidId, x, y) => {
+			if (this.options.onPropertyChange) {
+			  await this.options.onPropertyChange('RDODisconnectOutput', '0', {
+				fluidId,
+				connectionList: `${x},${y}`,
+			  });
+			  if (this.options.onRefresh) await this.options.onRefresh();
+			}
+		  }
+		  : undefined;
+
 		const productsEl = renderProductsWithTabs(
 		  details.products,
-		  this.options.onNavigateToBuilding
+		  this.options.onNavigateToBuilding,
+		  productPriceChange,
+		  productDisconnect
 		);
 		this.contentContainer.appendChild(productsEl);
 		return;
@@ -905,6 +944,12 @@ export class BuildingDetailsPanel {
 
 		case 'minK':
 		  return { rdoCommand: 'RDOSetInputMinK', params: {} };
+
+		case 'PricePc':
+		  return { rdoCommand: 'RDOSetOutputPrice', params: {} };
+
+		case 'Stopped':
+		  return { rdoCommand: 'property', params: { propertyName: 'Stopped' } };
 
 		default:
 		  console.warn(`[BuildingDetails] Unknown property: ${propertyName}`);

@@ -315,4 +315,213 @@ export class MockRdoSession {
     this.send(cmd);
     return cmd;
   }
+
+  // === Connection Management ===
+
+  /**
+   * Simulates RDOSetOutputPrice command
+   * Voyager: ProdSheetForm.pas line 567
+   */
+  async simulateSetOutputPrice(buildingId: number, fluidId: string, price: number): Promise<string> {
+    const rid = this.getNextRequestId();
+    const cmd = RdoCommand
+      .sel(buildingId)
+      .withRequestId(rid)
+      .call('RDOSetOutputPrice')
+      .args(RdoValue.string(fluidId), RdoValue.int(price))
+      .build();
+
+    this.send(cmd);
+    return cmd;
+  }
+
+  /**
+   * Simulates RDOConnectInput command
+   * Voyager: SupplySheetForm.pas line 295
+   */
+  async simulateConnectInput(buildingId: number, fluidId: string, connectionList: string): Promise<string> {
+    const rid = this.getNextRequestId();
+    const cmd = RdoCommand
+      .sel(buildingId)
+      .withRequestId(rid)
+      .call('RDOConnectInput')
+      .args(RdoValue.string(fluidId), RdoValue.string(connectionList))
+      .build();
+
+    this.send(cmd);
+    return cmd;
+  }
+
+  /**
+   * Simulates RDODisconnectInput command
+   * Voyager: SupplySheetForm.pas line 418
+   */
+  async simulateDisconnectInput(buildingId: number, fluidId: string, connectionList: string): Promise<string> {
+    const rid = this.getNextRequestId();
+    const cmd = RdoCommand
+      .sel(buildingId)
+      .withRequestId(rid)
+      .call('RDODisconnectInput')
+      .args(RdoValue.string(fluidId), RdoValue.string(connectionList))
+      .build();
+
+    this.send(cmd);
+    return cmd;
+  }
+
+  /**
+   * Simulates RDOConnectOutput command
+   * Voyager: ProdSheetForm.pas line 265
+   */
+  async simulateConnectOutput(buildingId: number, fluidId: string, connectionList: string): Promise<string> {
+    const rid = this.getNextRequestId();
+    const cmd = RdoCommand
+      .sel(buildingId)
+      .withRequestId(rid)
+      .call('RDOConnectOutput')
+      .args(RdoValue.string(fluidId), RdoValue.string(connectionList))
+      .build();
+
+    this.send(cmd);
+    return cmd;
+  }
+
+  /**
+   * Simulates RDODisconnectOutput command
+   * Voyager: ProdSheetForm.pas line 363
+   */
+  async simulateDisconnectOutput(buildingId: number, fluidId: string, connectionList: string): Promise<string> {
+    const rid = this.getNextRequestId();
+    const cmd = RdoCommand
+      .sel(buildingId)
+      .withRequestId(rid)
+      .call('RDODisconnectOutput')
+      .args(RdoValue.string(fluidId), RdoValue.string(connectionList))
+      .build();
+
+    this.send(cmd);
+    return cmd;
+  }
+
+  /**
+   * Simulates RDOSetInputOverPrice command
+   * Voyager: SupplySheetForm.pas line 435
+   */
+  async simulateSetInputOverPrice(buildingId: number, fluidId: string, index: number, overprice: number): Promise<string> {
+    const rid = this.getNextRequestId();
+    const cmd = RdoCommand
+      .sel(buildingId)
+      .withRequestId(rid)
+      .call('RDOSetInputOverPrice')
+      .args(RdoValue.string(fluidId), RdoValue.int(index), RdoValue.int(overprice))
+      .build();
+
+    this.send(cmd);
+    return cmd;
+  }
+
+  /**
+   * Simulates RDOSetInputSortMode command
+   * Voyager: SupplySheetForm.pas line 722
+   */
+  async simulateSetInputSortMode(buildingId: number, fluidId: string, mode: number): Promise<string> {
+    const rid = this.getNextRequestId();
+    const cmd = RdoCommand
+      .sel(buildingId)
+      .withRequestId(rid)
+      .call('RDOSetInputSortMode')
+      .args(RdoValue.string(fluidId), RdoValue.int(mode))
+      .build();
+
+    this.send(cmd);
+    return cmd;
+  }
+
+  /**
+   * Simulates RDOSelSelected command (auto-buy toggle)
+   * Voyager: SupplySheetForm.pas line 699
+   */
+  async simulateSelSelected(buildingId: number, selected: boolean): Promise<string> {
+    const rid = this.getNextRequestId();
+    const boolVal = selected ? -1 : 0; // WordBool: -1=true, 0=false
+    const cmd = RdoCommand
+      .sel(buildingId)
+      .withRequestId(rid)
+      .call('RDOSelSelected')
+      .args(RdoValue.int(boolVal))
+      .build();
+
+    this.send(cmd);
+    return cmd;
+  }
+
+  /**
+   * Simulates RDOSetBuyingStatus command
+   * Voyager: SupplySheetForm.pas line 741
+   */
+  async simulateSetBuyingStatus(buildingId: number, fingerIndex: number, buying: boolean): Promise<string> {
+    const rid = this.getNextRequestId();
+    const boolVal = buying ? -1 : 0; // WordBool: -1=true, 0=false
+    const cmd = RdoCommand
+      .sel(buildingId)
+      .withRequestId(rid)
+      .call('RDOSetBuyingStatus')
+      .args(RdoValue.int(fingerIndex), RdoValue.int(boolVal))
+      .build();
+
+    this.send(cmd);
+    return cmd;
+  }
+
+  /**
+   * Simulates RDOConnectToTycoon command
+   * Voyager: IndustryGeneralSheet.pas line 345
+   */
+  async simulateConnectToTycoon(buildingId: number, tycoonId: number, kind: number): Promise<string> {
+    const rid = this.getNextRequestId();
+    const cmd = RdoCommand
+      .sel(buildingId)
+      .withRequestId(rid)
+      .call('RDOConnectToTycoon')
+      .args(RdoValue.int(tycoonId), RdoValue.int(kind), RdoValue.int(-1))
+      .build();
+
+    this.send(cmd);
+    return cmd;
+  }
+
+  /**
+   * Simulates RDODisconnectFromTycoon command
+   * Voyager: IndustryGeneralSheet.pas line 357
+   */
+  async simulateDisconnectFromTycoon(buildingId: number, tycoonId: number, kind: number): Promise<string> {
+    const rid = this.getNextRequestId();
+    const cmd = RdoCommand
+      .sel(buildingId)
+      .withRequestId(rid)
+      .call('RDODisconnectFromTycoon')
+      .args(RdoValue.int(tycoonId), RdoValue.int(kind), RdoValue.int(-1))
+      .build();
+
+    this.send(cmd);
+    return cmd;
+  }
+
+  /**
+   * Simulates Stopped property set (pause/resume facility)
+   * Voyager: IndustryGeneralSheet.pas line 379/384
+   */
+  simulateSetStopped(buildingId: number, stopped: boolean): string {
+    const rid = this.getNextRequestId();
+    const boolVal = stopped ? -1 : 0;
+    const cmd = RdoCommand
+      .sel(buildingId)
+      .withRequestId(rid)
+      .set('Stopped')
+      .args(RdoValue.int(boolVal))
+      .build();
+
+    this.send(cmd);
+    return cmd;
+  }
 }

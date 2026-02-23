@@ -5003,6 +5003,128 @@ private handlePush(socketName: string, packet: RdoPacket) {
         break;
       }
 
+      case 'RDOSetOutputPrice': {
+        // Args: fluidId (widestring), price (integer)
+        // Voyager: ProdSheetForm.pas line 567 — Proxy.RDOSetOutputPrice(fCurrFluidId, price)
+        const fluidId = params.fluidId;
+        if (!fluidId) {
+          throw new Error('RDOSetOutputPrice requires fluidId parameter');
+        }
+        args.push(RdoValue.string(fluidId), RdoValue.int(parseInt(value, 10)));
+        break;
+      }
+
+      case 'RDOConnectInput':
+      case 'RDODisconnectInput': {
+        // Args: fluidId (widestring), connectionList (widestring "x1,y1,x2,y2,...")
+        // Voyager: SupplySheetForm.pas line 295/418
+        const fluidId = params.fluidId;
+        const connectionList = params.connectionList;
+        if (!fluidId || !connectionList) {
+          throw new Error(`${rdoCommand} requires fluidId and connectionList parameters`);
+        }
+        args.push(RdoValue.string(fluidId), RdoValue.string(connectionList));
+        break;
+      }
+
+      case 'RDOConnectOutput':
+      case 'RDODisconnectOutput': {
+        // Args: fluidId (widestring), connectionList (widestring "x1,y1,x2,y2,...")
+        // Voyager: ProdSheetForm.pas line 265/363
+        const fluidId = params.fluidId;
+        const connectionList = params.connectionList;
+        if (!fluidId || !connectionList) {
+          throw new Error(`${rdoCommand} requires fluidId and connectionList parameters`);
+        }
+        args.push(RdoValue.string(fluidId), RdoValue.string(connectionList));
+        break;
+      }
+
+      case 'RDOSetInputOverPrice': {
+        // Args: fluidId (widestring), index (integer), overprice (integer)
+        // Voyager: SupplySheetForm.pas line 435
+        const fluidId = params.fluidId;
+        const index = params.index;
+        if (!fluidId || index === undefined) {
+          throw new Error('RDOSetInputOverPrice requires fluidId and index parameters');
+        }
+        args.push(RdoValue.string(fluidId), RdoValue.int(parseInt(index, 10)), RdoValue.int(parseInt(value, 10)));
+        break;
+      }
+
+      case 'RDOSetInputSortMode': {
+        // Args: fluidId (widestring), mode (integer: 0=cost, 1=quality)
+        // Voyager: SupplySheetForm.pas line 722
+        const fluidId = params.fluidId;
+        if (!fluidId) {
+          throw new Error('RDOSetInputSortMode requires fluidId parameter');
+        }
+        args.push(RdoValue.string(fluidId), RdoValue.int(parseInt(value, 10)));
+        break;
+      }
+
+      case 'RDOSelSelected': {
+        // Args: boolean as WordBool (#-1 = true, #0 = false)
+        // Voyager: SupplySheetForm.pas line 699
+        const boolVal = parseInt(value, 10) !== 0 ? -1 : 0;
+        args.push(RdoValue.int(boolVal));
+        break;
+      }
+
+      case 'RDOSetBuyingStatus': {
+        // Args: fingerIndex (integer), boolean as WordBool
+        // Voyager: SupplySheetForm.pas line 741
+        const fingerIndex = params.fingerIndex;
+        if (fingerIndex === undefined) {
+          throw new Error('RDOSetBuyingStatus requires fingerIndex parameter');
+        }
+        const boolVal = parseInt(value, 10) !== 0 ? -1 : 0;
+        args.push(RdoValue.int(parseInt(fingerIndex, 10)), RdoValue.int(boolVal));
+        break;
+      }
+
+      case 'RDOConnectToTycoon':
+      case 'RDODisconnectFromTycoon': {
+        // Args: tycoonId (integer), kind (integer), flag (wordbool = true)
+        // Voyager: IndustryGeneralSheet.pas line 345/357
+        const tycoonId = params.tycoonId;
+        const kind = params.kind;
+        if (!tycoonId || !kind) {
+          throw new Error(`${rdoCommand} requires tycoonId and kind parameters`);
+        }
+        args.push(RdoValue.int(parseInt(tycoonId, 10)), RdoValue.int(parseInt(kind, 10)), RdoValue.int(-1));
+        break;
+      }
+
+      case 'RDOAcceptCloning': {
+        // Args: boolean as WordBool (#-1 = true, #0 = false)
+        // Voyager: ManagementSheet.pas — toggle cloning acceptance
+        const boolVal = parseInt(value, 10) !== 0 ? -1 : 0;
+        args.push(RdoValue.int(boolVal));
+        break;
+      }
+
+      case 'CloneFacility': {
+        // Args: x (integer), y (integer), limitToTown (integer), limitToCompany (integer), tycoonId (integer)
+        // Voyager: TClientView.CloneFacility — doc/spo-original-reference.md:297
+        const cloneX = params.x;
+        const cloneY = params.y;
+        const limitToTown = params.limitToTown || '0';
+        const limitToCompany = params.limitToCompany || '0';
+        const cloneTycoonId = params.tycoonId || '0';
+        if (!cloneX || !cloneY) {
+          throw new Error('CloneFacility requires x and y parameters');
+        }
+        args.push(
+          RdoValue.int(parseInt(cloneX, 10)),
+          RdoValue.int(parseInt(cloneY, 10)),
+          RdoValue.int(parseInt(limitToTown, 10)),
+          RdoValue.int(parseInt(limitToCompany, 10)),
+          RdoValue.int(parseInt(cloneTycoonId, 10))
+        );
+        break;
+      }
+
       case 'property': {
         // Direct property set — format as quoted integer value
         args.push(RdoValue.int(parseInt(value, 10)));
@@ -5071,6 +5193,39 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
       case 'RDOAutoRelease':
         return 'AutoRel';
+
+      case 'RDOSetOutputPrice':
+        return 'PricePc';
+
+      case 'RDOConnectInput':
+      case 'RDODisconnectInput':
+        return 'cnxCount';
+
+      case 'RDOConnectOutput':
+      case 'RDODisconnectOutput':
+        return 'cnxCount';
+
+      case 'RDOSetInputOverPrice':
+        return 'OverPriceCnxInfo';
+
+      case 'RDOSetInputSortMode':
+        return 'SortMode';
+
+      case 'RDOSelSelected':
+        return 'Selected';
+
+      case 'RDOSetBuyingStatus':
+        return 'Selected';
+
+      case 'RDOConnectToTycoon':
+      case 'RDODisconnectFromTycoon':
+        return 'TradeRole';
+
+      case 'RDOAcceptCloning':
+        return 'CloneMenu0';
+
+      case 'CloneFacility':
+        return 'UpgradeLevel';
 
       case 'property':
         return params.propertyName || rdoCommand;

@@ -404,6 +404,47 @@
 
 ---
 
+## Building/Facility Object Methods (via MSProxy, BindTo CurrBlock)
+
+**Target:** Building object (resolved via `CurrBlock` property from map service)
+
+### Supply management (SupplySheetForm.pas)
+
+| Member | Kind | Verb | Signature | Return | Source Line | Notes |
+|--------|------|------|-----------|--------|-------------|-------|
+| `RDOConnectInput` | function | `call` | `(%fluidId, %cnxList)` | olevariant | 295 | cnxList="x1,y1,x2,y2,..."; WaitForAnswer=true |
+| `RDODisconnectInput` | function | `call` | `(%fluidId, %cnxList)` | olevariant | 418 | cnxList="x1,y1,x2,y2,..."; WaitForAnswer=false |
+| `RDOSetInputOverPrice` | function | `call` | `(%fluidId, #index, #overprice)` | olevariant | 435 | Uses MSProxy directly |
+| `RDOSetInputMinK` | function | `call` | `(%fluidId, #value)` | olevariant | 653 | BindTo(ObjectId) |
+| `RDOSetInputMaxPrice` | function | `call` | `(%fluidId, #value)` | olevariant | 676 | BindTo(ObjectId) |
+| `RDOSelSelected` | function | `call` | `(#boolVal)` | olevariant | 699 | BindTo(ObjectId); WordBool: -1=true, 0=false |
+| `RDOSetInputSortMode` | function | `call` | `(%fluidId, #mode)` | olevariant | 722 | BindTo(ObjectId); 0=cost, 1=quality |
+| `RDOSetBuyingStatus` | function | `call` | `(#fingerIndex, #boolVal)` | olevariant | 741 | BindTo(ObjectId); WordBool |
+
+### Product management (ProdSheetForm.pas)
+
+| Member | Kind | Verb | Signature | Return | Source Line | Notes |
+|--------|------|------|-----------|--------|-------------|-------|
+| `RDOConnectOutput` | function | `call` | `(%fluidId, %cnxList)` | olevariant | 265 | cnxList="x1,y1,x2,y2,..."; WaitForAnswer=true |
+| `RDODisconnectOutput` | function | `call` | `(%fluidId, %cnxList)` | olevariant | 363 | cnxList="x1,y1,x2,y2,..."; WaitForAnswer=false+true |
+| `RDOSetOutputPrice` | function | `call` | `(%fluidId, #price)` | olevariant | 567 | WaitForAnswer=false |
+
+### Industry general (IndustryGeneralSheet.pas)
+
+| Member | Kind | Verb | Signature | Return | Source Line | Notes |
+|--------|------|------|-----------|--------|-------------|-------|
+| `Stopped` | property | `set` | `#boolVal` | — | 379/384 | WordBool: -1=true, 0=false |
+| `RDOConnectToTycoon` | function | `call` | `(#tycoonId, #kind, #flag)` | olevariant | 345 | kind=button.Tag; flag=WordBool(-1) |
+| `RDODisconnectFromTycoon` | function | `call` | `(#tycoonId, #kind, #flag)` | olevariant | 357 | kind=button.Tag; flag=WordBool(-1) |
+
+### Facility management (ManagementSheet.pas / TClientView)
+
+| Member | Kind | Verb | Signature | Return | Source Line | Notes |
+|--------|------|------|-----------|--------|-------------|-------|
+| `RDOAcceptCloning` | property | `set/get` | `#boolVal` | — | — | Toggle cloning acceptance |
+
+---
+
 ## Scenario-to-Source Cross-Reference
 
 | WebClient Scenario | Delphi Source File | Key Methods |

@@ -69,6 +69,7 @@ export const IND_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
     { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'Stopped', displayName: 'Paused', type: PropertyType.BOOLEAN, editable: true },
     { rdoName: 'Role', displayName: 'Role', type: PropertyType.ENUM, enumLabels: { '0': 'Neutral', '1': 'Producer', '2': 'Distributor', '3': 'Buyer', '4': 'Importer', '5': 'Export', '6': 'Import' } },
     { rdoName: 'TradeRole', displayName: 'Trade Role', type: PropertyType.ENUM, enumLabels: { '0': 'Neutral', '1': 'Producer', '2': 'Distributor', '3': 'Buyer', '4': 'Importer', '5': 'Export', '6': 'Import' } },
     { rdoName: 'TradeLevel', displayName: 'Trade Level', type: PropertyType.ENUM, editable: true, enumLabels: { '0': 'Same Owner', '1': 'Subsidiaries', '2': 'Allies', '3': 'Anyone' } },
@@ -76,6 +77,9 @@ export const IND_GENERAL_GROUP: PropertyGroup = {
   rdoCommands: {
     'TradeLevel': { command: 'RDOSetTradeLevel' },
     'Role': { command: 'RDOSetRole' },
+    'Stopped': { command: 'property' },
+    'RDOConnectToTycoon': { command: 'RDOConnectToTycoon' },
+    'RDODisconnectFromTycoon': { command: 'RDODisconnectFromTycoon' },
   },
 };
 
@@ -337,6 +341,16 @@ export const SUPPLIES_GROUP: PropertyGroup = {
     { rdoName: 'QPSorted', displayName: 'Sort by Q/P', type: PropertyType.TEXT, hideEmpty: true },
     { rdoName: 'cnxCount', displayName: 'Connections', type: PropertyType.NUMBER },
   ],
+  rdoCommands: {
+    'MaxPrice': { command: 'RDOSetInputMaxPrice' },
+    'minK': { command: 'RDOSetInputMinK' },
+    'RDOConnectInput': { command: 'RDOConnectInput' },
+    'RDODisconnectInput': { command: 'RDODisconnectInput' },
+    'RDOSetInputOverPrice': { command: 'RDOSetInputOverPrice' },
+    'RDOSetInputSortMode': { command: 'RDOSetInputSortMode' },
+    'RDOSelSelected': { command: 'RDOSelSelected' },
+    'RDOSetBuyingStatus': { command: 'RDOSetBuyingStatus' },
+  },
 };
 
 export const SERVICES_GROUP: PropertyGroup = {
@@ -422,6 +436,11 @@ export const PRODUCTS_GROUP: PropertyGroup = {
     { rdoName: 'MarketPrice', displayName: 'Market Price', type: PropertyType.CURRENCY },
     { rdoName: 'cnxCount', displayName: 'Clients', type: PropertyType.NUMBER },
   ],
+  rdoCommands: {
+    'PricePc': { command: 'RDOSetOutputPrice' },
+    'RDOConnectOutput': { command: 'RDOConnectOutput' },
+    'RDODisconnectOutput': { command: 'RDODisconnectOutput' },
+  },
 };
 
 export const ADVERTISEMENT_GROUP: PropertyGroup = {
@@ -453,6 +472,10 @@ export const UPGRADE_GROUP: PropertyGroup = {
     { rdoName: 'Pending', displayName: 'Pending', type: PropertyType.NUMBER, hideEmpty: true },
     { rdoName: 'UpgradeActions', displayName: 'Actions', type: PropertyType.UPGRADE_ACTIONS },
   ],
+  rdoCommands: {
+    'RDOAcceptCloning': { command: 'RDOAcceptCloning' },
+    'CloneFacility': { command: 'CloneFacility' },
+  },
 };
 
 export const FINANCES_GROUP: PropertyGroup = {

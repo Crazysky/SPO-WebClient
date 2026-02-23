@@ -14,12 +14,27 @@ import {
   TableColumn,
 } from '../../../shared/building-details';
 
+/** Callback for property changes from within supply/product tables */
+export type TablePropertyChangeCallback = (
+  propertyName: string,
+  value: string,
+  additionalParams?: Record<string, string>
+) => Promise<void>;
+
+/** Callback for disconnecting a connection */
+export type DisconnectCallback = (
+  fluidId: string,
+  connectionX: number,
+  connectionY: number
+) => Promise<void>;
+
 /**
  * Render a connections table for a supply
  */
 export function renderConnectionsTable(
   supply: BuildingSupplyData,
-  onConnectionClick?: (x: number, y: number) => void
+  onConnectionClick?: (x: number, y: number) => void,
+  onDisconnect?: DisconnectCallback
 ): HTMLElement {
   const container = document.createElement('div');
   container.className = 'property-table-container';
@@ -66,7 +81,10 @@ export function renderConnectionsTable(
   // Table body
   const tbody = document.createElement('tbody');
   for (const conn of supply.connections) {
-    const row = createConnectionRow(conn, onConnectionClick);
+    const disconnectHandler = onDisconnect
+      ? () => onDisconnect(supply.metaFluid, conn.x, conn.y)
+      : undefined;
+    const row = createConnectionRow(conn, onConnectionClick, disconnectHandler);
     tbody.appendChild(row);
   }
   table.appendChild(tbody);
@@ -80,7 +98,8 @@ export function renderConnectionsTable(
  */
 function createConnectionRow(
   conn: BuildingConnectionData,
-  onConnectionClick?: (x: number, y: number) => void
+  onConnectionClick?: (x: number, y: number) => void,
+  onDisconnect?: () => void
 ): HTMLElement {
   const tr = document.createElement('tr');
   tr.className = conn.connected ? 'connection-active' : 'connection-inactive';
@@ -127,13 +146,25 @@ function createConnectionRow(
   tdLast.textContent = conn.lastValue || '-';
   tr.appendChild(tdLast);
 
-  // Status
+  // Status + Disconnect button
   const tdStatus = document.createElement('td');
   tdStatus.className = 'cell-status';
   const statusSpan = document.createElement('span');
   statusSpan.className = conn.connected ? 'status-connected' : 'status-disconnected';
   statusSpan.textContent = conn.connected ? 'Active' : 'Off';
   tdStatus.appendChild(statusSpan);
+
+  if (onDisconnect && conn.x > 0 && conn.y > 0) {
+    const disconnectBtn = document.createElement('button');
+    disconnectBtn.className = 'disconnect-btn';
+    disconnectBtn.textContent = 'X';
+    disconnectBtn.title = 'Disconnect';
+    disconnectBtn.onclick = (e) => {
+      e.stopPropagation();
+      onDisconnect();
+    };
+    tdStatus.appendChild(disconnectBtn);
+  }
   tr.appendChild(tdStatus);
 
   return tr;
@@ -144,7 +175,8 @@ function createConnectionRow(
  */
 export function renderSuppliesWithTabs(
   supplies: BuildingSupplyData[],
-  onConnectionClick?: (x: number, y: number) => void
+  onConnectionClick?: (x: number, y: number) => void,
+  onDisconnect?: DisconnectCallback
 ): HTMLElement {
   const container = document.createElement('div');
   container.className = 'supplies-container';
@@ -159,7 +191,7 @@ export function renderSuppliesWithTabs(
 
   if (supplies.length === 1) {
     // Single supply - no tabs needed
-    container.appendChild(renderConnectionsTable(supplies[0], onConnectionClick));
+    container.appendChild(renderConnectionsTable(supplies[0], onConnectionClick, onDisconnect));
     return container;
   }
 
@@ -181,7 +213,7 @@ export function renderSuppliesWithTabs(
     const tabPane = document.createElement('div');
     tabPane.className = 'nested-tab-pane' + (index === 0 ? ' active' : '');
     tabPane.dataset.index = index.toString();
-    tabPane.appendChild(renderConnectionsTable(supply, onConnectionClick));
+    tabPane.appendChild(renderConnectionsTable(supply, onConnectionClick, onDisconnect));
 
     // Click handler
     tabBtn.onclick = () => {
@@ -209,7 +241,9 @@ export function renderSuppliesWithTabs(
  */
 function renderProductGateTable(
   product: BuildingProductData,
-  onConnectionClick?: (x: number, y: number) => void
+  onConnectionClick?: (x: number, y: number) => void,
+  onPriceChange?: TablePropertyChangeCallback,
+  onDisconnect?: DisconnectCallback
 ): HTMLElement {
   const container = document.createElement('div');
   container.className = 'property-table-container';
@@ -235,6 +269,45 @@ function renderProductGateTable(
     </div>
   `;
   container.appendChild(header);
+
+  // Price slider (owner-only, rendered when callback provided)
+  if (onPriceChange) {
+    const sliderContainer = document.createElement('div');
+    sliderContainer.className = 'product-price-slider';
+
+    const label = document.createElement('label');
+    label.textContent = 'Sell Price: ';
+    label.className = 'slider-label';
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '0';
+    slider.max = '300';
+    slider.step = '5';
+    slider.value = isNaN(pricePc) ? '100' : pricePc.toString();
+    slider.className = 'property-slider';
+
+    const valueDisplay = document.createElement('span');
+    valueDisplay.className = 'slider-value';
+    valueDisplay.textContent = `${slider.value}%`;
+
+    slider.oninput = () => {
+      valueDisplay.textContent = `${slider.value}%`;
+    };
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    slider.onchange = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        onPriceChange('RDOSetOutputPrice', slider.value, { fluidId: product.metaFluid });
+      }, 300);
+    };
+
+    sliderContainer.appendChild(label);
+    sliderContainer.appendChild(slider);
+    sliderContainer.appendChild(valueDisplay);
+    container.appendChild(sliderContainer);
+  }
 
   if (product.connections.length === 0) {
     const empty = document.createElement('div');
@@ -262,7 +335,10 @@ function renderProductGateTable(
 
   const tbody = document.createElement('tbody');
   for (const conn of product.connections) {
-    const row = createConnectionRow(conn, onConnectionClick);
+    const disconnectHandler = onDisconnect
+      ? () => onDisconnect(product.metaFluid, conn.x, conn.y)
+      : undefined;
+    const row = createConnectionRow(conn, onConnectionClick, disconnectHandler);
     tbody.appendChild(row);
   }
   table.appendChild(tbody);
@@ -277,7 +353,9 @@ function renderProductGateTable(
  */
 export function renderProductsWithTabs(
   products: BuildingProductData[],
-  onConnectionClick?: (x: number, y: number) => void
+  onConnectionClick?: (x: number, y: number) => void,
+  onPriceChange?: TablePropertyChangeCallback,
+  onDisconnect?: DisconnectCallback
 ): HTMLElement {
   const container = document.createElement('div');
   container.className = 'supplies-container';
@@ -291,7 +369,7 @@ export function renderProductsWithTabs(
   }
 
   if (products.length === 1) {
-    container.appendChild(renderProductGateTable(products[0], onConnectionClick));
+    container.appendChild(renderProductGateTable(products[0], onConnectionClick, onPriceChange, onDisconnect));
     return container;
   }
 
@@ -311,7 +389,7 @@ export function renderProductsWithTabs(
     const tabPane = document.createElement('div');
     tabPane.className = 'nested-tab-pane' + (index === 0 ? ' active' : '');
     tabPane.dataset.index = index.toString();
-    tabPane.appendChild(renderProductGateTable(product, onConnectionClick));
+    tabPane.appendChild(renderProductGateTable(product, onConnectionClick, onPriceChange, onDisconnect));
 
     tabBtn.onclick = () => {
       tabsNav.querySelectorAll('.nested-tab-btn').forEach(btn => btn.classList.remove('active'));

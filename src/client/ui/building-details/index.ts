@@ -6,5 +6,6 @@
 
 export { BuildingDetailsPanel, BuildingDetailsPanelOptions } from './building-details-panel';
 export { renderPropertyRow, renderPropertyGroup, renderSliderProperty } from './property-renderers';
-export { renderConnectionsTable, renderSuppliesWithTabs } from './property-table';
+export { renderConnectionsTable, renderSuppliesWithTabs, renderProductsWithTabs } from './property-table';
+export type { TablePropertyChangeCallback, DisconnectCallback } from './property-table';
 export { renderSparklineGraph, renderBarChart, GraphOptions } from './property-graph';
