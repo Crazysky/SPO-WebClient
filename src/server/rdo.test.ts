@@ -619,4 +619,35 @@ describe('RdoProtocol.format()', () => {
       expect(formatted).toBe('C 1234 sel 456 get srvName;');
     });
   });
+
+  describe('sel 0 validation (null pointer guard)', () => {
+    it('should reject targetId "0" for SEL verb', () => {
+      expect(() => RdoProtocol.format({
+        raw: '', type: 'PUSH', verb: RdoVerb.SEL,
+        targetId: '0', action: RdoAction.CALL,
+        member: 'ObjectsInArea', args: ['#662', '#120', '#4', '#4']
+      })).toThrow('Invalid RDO target ID');
+    });
+
+    it('should reject missing targetId for SEL verb', () => {
+      expect(() => RdoProtocol.format({
+        raw: '', type: 'PUSH', verb: RdoVerb.SEL,
+        targetId: '', action: RdoAction.GET, member: 'ServerBusy'
+      })).toThrow('Invalid RDO target ID');
+    });
+
+    it('should allow valid targetId for SEL verb', () => {
+      expect(() => RdoProtocol.format({
+        raw: '', type: 'PUSH', verb: RdoVerb.SEL,
+        targetId: '8116248', action: RdoAction.GET, member: 'ServerBusy'
+      })).not.toThrow();
+    });
+
+    it('should not affect IDOF verb (uses string names, not numeric IDs)', () => {
+      expect(() => RdoProtocol.format({
+        raw: '', type: 'PUSH', verb: RdoVerb.IDOF,
+        targetId: 'DirectoryServer'
+      })).not.toThrow();
+    });
+  });
 });

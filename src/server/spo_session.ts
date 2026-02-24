@@ -5083,10 +5083,25 @@ private handlePush(socketName: string, packet: RdoPacket) {
       if (propertyName === 'property' && additionalParams?.propertyName) {
         // Direct property set: use SET verb
         const actualPropName = additionalParams.propertyName;
-        setCmd = `C sel ${currBlock} set ${actualPropName}=${rdoArgs};`;
+        setCmd = RdoCommand.sel(currBlock)
+          .set(actualPropName)
+          .args(...rdoArgs)
+          .build();
       } else {
-        // RDO method call: use CALL verb
-        setCmd = `C sel ${currBlock} call ${propertyName} "*" ${rdoArgs};`;
+        // RDO method call: use CALL verb, fire-and-forget (no RID).
+        // Functions (olevariant return) use "^" separator; procedures (void) use "*".
+        const RDO_FUNCTIONS: ReadonlySet<string> = new Set([
+          'RDOSetOutputPrice', 'RDOSetInputOverPrice', 'RDOSetInputMaxPrice', 'RDOSetInputMinK',
+          'RDOConnectInput', 'RDODisconnectInput', 'RDOConnectOutput', 'RDODisconnectOutput',
+          'RDOConnectToTycoon', 'RDODisconnectFromTycoon',
+        ]);
+        const builder = RdoCommand.sel(currBlock).call(propertyName);
+        if (RDO_FUNCTIONS.has(propertyName)) {
+          builder.method(); // "^" — function returning olevariant
+        } else {
+          builder.push();   // "*" — void procedure
+        }
+        setCmd = builder.args(...rdoArgs).build();
       }
       socket.write(setCmd);
       this.log.debug(`[BuildingDetails] Sent: ${setCmd}`);
@@ -5131,7 +5146,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     rdoCommand: string,
     value: string,
     additionalParams?: Record<string, string>
-  ): string {
+  ): RdoValue[] {
     const params = additionalParams || {};
     const args: RdoValue[] = [];
 
@@ -5397,8 +5412,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
         break;
     }
 
-    // Format all arguments and join with commas
-    return args.map(arg => arg.format()).join(',');
+    return args;
   }
 
   /**

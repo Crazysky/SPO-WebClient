@@ -290,6 +290,10 @@ export class RdoProtocol {
     // 2. Verb and Target
     if (packet.verb) {
       parts.push(packet.verb);
+      // Guard: reject sel 0 (null pointer on Delphi server)
+      if (packet.verb === RdoVerb.SEL && (!packet.targetId || packet.targetId === '0')) {
+        throw new Error(`Invalid RDO target ID: ${packet.targetId} (sel 0 is a null pointer on the server)`);
+      }
       // CRITICAL FIX: For idof, the targetId MUST be in quotes
       if (packet.verb === RdoVerb.IDOF && packet.targetId) {
         parts.push(`"${packet.targetId}"`);

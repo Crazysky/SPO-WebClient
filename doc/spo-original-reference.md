@@ -437,6 +437,15 @@
 | `RDOConnectToTycoon` | function | `call` | `(#tycoonId, #kind, #flag)` | olevariant | 345 | kind=button.Tag; flag=WordBool(-1) |
 | `RDODisconnectFromTycoon` | function | `call` | `(#tycoonId, #kind, #flag)` | olevariant | 357 | kind=button.Tag; flag=WordBool(-1) |
 
+### Trade / Role / Loan (TBlock / TWarehouse / TBankBlock)
+
+| Member | Kind | Verb | Signature | Return | Source Line | Notes |
+|--------|------|------|-----------|--------|-------------|-------|
+| `RDOSetTradeLevel` | procedure | `call` | `(#aTradeLevel)` | void (`*`) | Kernel.pas:6408 | TBlock published method |
+| `RDOSetRole` | procedure | `call` | `(#aRole)` | void (`*`) | Warehouses.pas:527 | TWarehouse published method |
+| `RDOSetLoanPerc` | procedure | `call` | `(#Percent)` | void (`*`) | Banks.pas:173 | TBankBlock published method |
+| `RDOSetTaxValue` | procedure | `call` | `(#TaxId, %Value)` | void (`*`) | Population.pas:1250 | TTownHall; WebClient sends as RDOSetTaxPercent |
+
 ### Facility management (ManagementSheet.pas / TClientView)
 
 | Member | Kind | Verb | Signature | Return | Source Line | Notes |
