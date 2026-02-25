@@ -390,6 +390,10 @@ const { prefix, value } = RdoParser.extract(token);
 
 ## 8. Best Practices
 
+0. **NEVER use `sendRdoRequest()` with `"*"` separator** — it adds a QueryId which
+   crashes the Delphi server on void procedures. Void push → `socket.write(RdoCommand.build())`.
+   Synchronous call → `sendRdoRequest()` with `"^"` separator.
+
 1. **Always use RdoValue for new code**
    ```typescript
    // Good

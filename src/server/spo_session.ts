@@ -309,11 +309,8 @@ export class StarpeaceSession extends EventEmitter {
       const res = parsePropertyResponseHelper(logonPacket.payload || '', 'res');
       if (res !== '0') throw new Error(`Directory Authentication failed (Code: ${res})`);
 
-      // 3. End Session & Close
-      await this.sendRdoRequest('directory_auth', {
-        verb: RdoVerb.SEL, targetId: sessionId, action: RdoAction.CALL, member: 'RDOEndSession',
-        args: [], separator: '"*"'
-      });
+      // 3. End Session & Close (fire-and-forget — void push, no RID)
+      socket.write(`C sel ${sessionId} call RDOEndSession "*";`);
       this.log.debug('[Session] Directory Authentication Success');
     } finally {
       socket.end();
@@ -348,11 +345,8 @@ export class StarpeaceSession extends EventEmitter {
         this.availableWorlds.set(w.name, w);
       }
 
-      // 3. End Session & Close
-      await this.sendRdoRequest('directory_query', {
-        verb: RdoVerb.SEL, targetId: sessionId, action: RdoAction.CALL, member: 'RDOEndSession',
-        args: [], separator: '"*"'
-      });
+      // 3. End Session & Close (fire-and-forget — void push, no RID)
+      socket.write(`C sel ${sessionId} call RDOEndSession "*";`);
       return worlds;
     } finally {
       socket.end();
@@ -640,7 +634,7 @@ public async createCompany(
       action: RdoAction.CALL,
       member: 'NewCompany',
       separator: '"^"',
-      args: [`%${username}`, `%${companyName}`, `%${cluster}`]
+      args: [RdoValue.string(username).format(), RdoValue.string(companyName).format(), RdoValue.string(cluster).format()]
     });
 
     const payload = packet.payload || '';
@@ -765,7 +759,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 		action: RdoAction.CALL,
 		member: 'SwitchFocusEx',
 		separator: '"^"',
-		args: [`#${previousBuildingId}`, `#${x}`, `#${y}`]
+		args: [RdoValue.int(parseInt(previousBuildingId, 10)).format(), RdoValue.int(x).format(), RdoValue.int(y).format()]
 	  });
 
 	  // CRITICAL: Extract the 'res' property first (format is res="%...")
@@ -2909,7 +2903,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
         targetId: buildingId,
         action: RdoAction.SET,
         member: 'Name',
-        args: [`%${newName}`]  // Pass as string with % prefix for OLEString
+        args: [RdoValue.string(newName).format()]
       });
 
       this.log.debug(`[Session] Building renamed successfully`);
@@ -2949,7 +2943,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
         action: RdoAction.CALL,
         member: 'RDODelFacility',
         separator: '"^"',  // Variant return type
-        args: [`#${x}`, `#${y}`]  // Coordinates as integers
+        args: [RdoValue.int(x).format(), RdoValue.int(y).format()]
       });
 
       this.log.debug(`[Session] Building deleted successfully, result: ${result}`);
@@ -3624,7 +3618,7 @@ private handleIncomingMessage(socketName: string, raw: string) {
     if (packet.verb === RdoVerb.IDOF && packet.targetId) {
       const objectId = this.knownObjects.get(packet.targetId);
       if (objectId) {
-        const response = `A${packet.rid} objid="${objectId}";`;
+        const response = `${RDO_CONSTANTS.CMD_PREFIX_ANSWER}${packet.rid} objid="${objectId}"${RDO_CONSTANTS.PACKET_DELIMITER}`;
         const socket = this.sockets.get(socketName);
         if (socket) {
           socket.write(response);
@@ -3913,11 +3907,12 @@ private handlePush(socketName: string, packet: RdoPacket) {
     const packet = await this.sendRdoRequest('world', {
       verb: RdoVerb.SEL,
       targetId: this.worldContextId,
-      action: RdoAction.GET,
-      member: 'GetUserList'
+      action: RdoAction.CALL,
+      member: 'GetUserList',
+      separator: '"^"'
     });
-    
-    const rawUsers = parsePropertyResponseHelper(packet.payload || '', 'GetUserList');
+
+    const rawUsers = parsePropertyResponseHelper(packet.payload || '', 'res');
     return this.parseChatUserList(rawUsers);
   }
 
@@ -3934,8 +3929,8 @@ private handlePush(socketName: string, packet: RdoPacket) {
       targetId: this.worldContextId,
       action: RdoAction.CALL,
       member: 'GetChannelList',
-      args: ['%ROOT'],
-      separator: '^'
+      args: [RdoValue.string('ROOT').format()],
+      separator: '"^"'
     });
     
     const rawChannels = parsePropertyResponseHelper(packet.payload || '', 'res');
@@ -4222,7 +4217,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       action: RdoAction.CALL,
       member: 'GetSurface',
       separator: '"^"',
-      args: [`%${surfaceType}`, `#${x1}`, `#${y1}`, `#${x2}`, `#${y2}`]
+      args: [RdoValue.string(surfaceType).format(), RdoValue.int(x1).format(), RdoValue.int(y1).format(), RdoValue.int(x2).format(), RdoValue.int(y2).format()]
     });
 
     return this.parseRLEResponse(packet.payload || '');
@@ -4554,7 +4549,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
         action: RdoAction.CALL,
         member: 'NewFacility',
         separator: '"^"',
-        args: [`%${facilityClass}`, '#28', `#${x}`, `#${y}`]
+        args: [RdoValue.string(facilityClass).format(), RdoValue.int(28).format(), RdoValue.int(x).format(), RdoValue.int(y).format()]
       });
 
       // Parse response for result code
@@ -5241,15 +5236,19 @@ private handlePush(socketName: string, packet: RdoPacket) {
           args: rdoArgs,
         });
       } else {
-        // RDO method CALL: published procedure (void, push separator)
-        await this.sendRdoRequest('construction', {
-          verb: RdoVerb.SEL,
-          targetId: currBlock,
-          action: RdoAction.CALL,
-          member: propertyName,
-          args: rdoArgs,
-          separator: '"*"',
-        });
+        // RDO method CALL: void push (fire-and-forget, no RID)
+        // CRITICAL: Void push commands MUST NOT have a request ID.
+        // The Delphi server's FIVE layer crashes when trying to generate
+        // a response for void procedures that carry an RID.
+        const socket = this.sockets.get('construction');
+        if (!socket) throw new Error('Construction socket unavailable');
+        const formattedArgs = rdoArgs.join(',');
+        const cmd = formattedArgs
+          ? `C sel ${currBlock} call ${propertyName} "*" ${formattedArgs};`
+          : `C sel ${currBlock} call ${propertyName} "*";`;
+        socket.write(cmd);
+        this.log.debug(`[BuildingDetails] Sent: ${cmd}`);
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
 
       // Read back the new value via map service to confirm the change

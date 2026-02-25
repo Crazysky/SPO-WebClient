@@ -20,6 +20,7 @@ Never read screenshot images in the main conversation context — each costs ~3-
 4. Only the text verdict returns (~100 bytes vs ~3-5MB per image)
 
 **Critical patterns & gotchas:**
+- **`sendRdoRequest()` + `"*"` separator = SERVER CRASH** — `sendRdoRequest()` adds a QueryId; void push (`"*"`) with QueryId crashes the Delphi server. Void push → `socket.write(RdoCommand.build())`. Synchronous → `sendRdoRequest()` with `"^"`.
 - Test environment is `node` (no jsdom) — mock DOM elements as plain objects
 - `FacilityDimensionsCache` is singleton — must `clear()` then `initialize()` in tests
 - TerrainLoader i/j swap: `getTextureId(j, i)` — provider uses (i,j), loader expects (x,y)

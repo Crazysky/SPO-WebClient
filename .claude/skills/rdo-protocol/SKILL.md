@@ -57,7 +57,19 @@ Frame = <C|A> [<QueryId>] <Body> ";"
 - QueryId: decimal 0–65535, present for synchronous calls only
 - Semicolons inside `"..."` are NOT terminators
 
-## RdoCommand Builder (always use this, never construct strings manually)
+### CRITICAL: QueryId ↔ Separator Contract
+
+| Sending method | QueryId | Separator | Use case |
+|----------------|---------|-----------|----------|
+| `socket.write(RdoCommand.build())` | **absent** | `"*"` | Void push (fire-and-forget) |
+| `sendRdoRequest()` | **present** (auto-added) | `"^"` | Synchronous call expecting response |
+
+**NEVER use `sendRdoRequest()` with `"*"` separator.** The Delphi server's FIVE layer
+crashes when it must generate a response for a void procedure that carries a QueryId —
+the Unassigned result cannot be serialized back through `A<QueryId> res=...;`.
+For void push commands, always use direct `socket.write(RdoCommand.build())`.
+
+## RdoCommand Builder (for fire-and-forget push commands via socket.write)
 
 ```typescript
 import { RdoValue, RdoCommand } from '@/shared/rdo-types';

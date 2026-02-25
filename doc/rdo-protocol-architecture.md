@@ -723,9 +723,25 @@ The x86 assembly dispatch pushes floating-point parameters onto the stack even w
 
 **Evidence:** `RDOObjectServer.pas:257-265`
 
-### 8.5 Fire-and-Forget Has No Query ID
+### 8.5 Fire-and-Forget Has No Query ID — NEVER MIX `"*"` WITH QueryId
 
 `Send()` omits the query ID: `C <body>;`. The server processes it but sends no response. The client cannot detect errors from fire-and-forget calls.
+
+**CRITICAL SERVER-CRASHING BUG:** Sending a `"*"` (void push) command WITH a QueryId
+(`C <QueryId> sel ... call Method "*" args;`) crashes the Delphi server's FIVE layer.
+The server records the QueryId for response routing, calls the void procedure, then
+attempts to serialize the Unassigned variant result into `A<QueryId> res=...;` — this
+corrupts server state and causes ALL subsequent queries from ALL clients to be rejected
+as "Malformed query" (errMalformedQuery).
+
+**WebClient rule:** `sendRdoRequest()` auto-adds a QueryId, so it MUST use `"^"` separator.
+Void push commands MUST use direct `socket.write(RdoCommand.build())` which omits the QueryId.
+
+| Method | QueryId | Separator | Safe |
+|--------|---------|-----------|------|
+| `socket.write(RdoCommand.build())` | absent | `"*"` | YES — fire-and-forget |
+| `sendRdoRequest()` | present | `"^"` | YES — synchronous with response |
+| `sendRdoRequest()` | present | `"*"` | **NO — CRASHES SERVER** |
 
 ### 8.6 Channel Codec Never Implemented
 
