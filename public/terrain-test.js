@@ -2236,10 +2236,33 @@
         const dy = e.clientY - this.lastMouseY;
         const config = ZOOM_LEVELS[this.zoomLevel];
         const u = config.u;
-        const mapDeltaI = (dy / u + dx / (2 * u)) * 0.5;
-        const mapDeltaJ = (dy / u - dx / (2 * u)) * 0.5;
-        this.cameraI += mapDeltaI;
-        this.cameraJ -= mapDeltaJ;
+        const a = (dx + 2 * dy) / (2 * u);
+        const b = (2 * dy - dx) / (2 * u);
+        let deltaI;
+        let deltaJ;
+        switch (this.rotation) {
+          case 0 /* NORTH */:
+            deltaI = a;
+            deltaJ = b;
+            break;
+          case 1 /* EAST */:
+            deltaI = -b;
+            deltaJ = a;
+            break;
+          case 2 /* SOUTH */:
+            deltaI = -a;
+            deltaJ = -b;
+            break;
+          case 3 /* WEST */:
+            deltaI = b;
+            deltaJ = -a;
+            break;
+          default:
+            deltaI = a;
+            deltaJ = b;
+        }
+        this.cameraI += deltaI;
+        this.cameraJ += deltaJ;
         const dims = this.terrainLoader.getDimensions();
         this.cameraI = Math.max(0, Math.min(dims.height - 1, this.cameraI));
         this.cameraJ = Math.max(0, Math.min(dims.width - 1, this.cameraJ));

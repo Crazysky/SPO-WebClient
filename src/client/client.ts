@@ -103,6 +103,95 @@ import { SoundManager } from './audio/sound-manager';
 import { CompanyCreationDialog } from './ui/company-creation-dialog';
 import { KeyBindingRegistry } from './input/key-binding-registry';
 
+// [E2E-DEBUG] Wire-level debug tracker exposed on window.__spoDebug
+// To remove all E2E debug code: search for "[E2E-DEBUG]" and delete those lines/blocks
+interface SpoDebugWire {
+  sent: number;
+  received: number;
+  errors: number;
+  lastSent: string;
+  lastReceived: string;
+  history: Array<{ dir: '→' | '←'; type: string; ts: number; reqId?: string }>;
+  maxHistory: number;
+  getState: (() => SpoDebugState) | null;
+}
+
+interface SpoDebugState {
+  session: {
+    connected: boolean;
+    worldName: string;
+    companyName: string;
+    worldSize: { x: number | null; y: number | null };
+  };
+  renderer: {
+    mapLoaded: boolean;
+    zoom: number;
+    rotation: string;
+    cameraPosition: { x: number; y: number };
+    buildingCount: number;
+    segmentCount: number;
+    mapDimensions: { width: number; height: number };
+    debugMode: boolean;
+    canvasSize: { width: number; height: number };
+    canvasHasContent: boolean;
+  } | null;
+  panels: Record<string, boolean>;
+  tycoonStats: Record<string, string>;
+  chat: {
+    visible: boolean;
+    messageCount: number;
+    lastMessage: string;
+  };
+  buildingDetails: {
+    buildingName: string;
+    ownerName: string;
+    templateName: string;
+    currentTab: string;
+    tabs: Array<{ id: string; name: string }>;
+    isOwner: boolean;
+    coords: { x: number; y: number };
+  } | null;
+  settings: {
+    hideVegetationOnMove: boolean;
+    vehicleAnimations: boolean;
+    edgeScrollEnabled: boolean;
+    soundEnabled: boolean;
+    soundVolume: number;
+    debugOverlay: boolean;
+  } | null;
+  wire: {
+    sent: number;
+    received: number;
+    errors: number;
+    lastSent: string;
+    lastReceived: string;
+  };
+}
+
+function initSpoDebug(): SpoDebugWire {
+  const debug: SpoDebugWire = {
+    sent: 0,
+    received: 0,
+    errors: 0,
+    lastSent: '',
+    lastReceived: '',
+    history: [],
+    maxHistory: 200,
+    getState: null, // wired by StarpeaceClient constructor
+  };
+  (window as unknown as Record<string, unknown>).__spoDebug = debug;
+  return debug;
+}
+
+function updateDebugBadge(debug: SpoDebugWire): void {
+  const badge = document.getElementById('e2e-debug-badge');
+  if (badge) {
+    badge.textContent = `↑${debug.sent} ↓${debug.received}` + (debug.errors > 0 ? ` ✗${debug.errors}` : '');
+    badge.style.color = debug.errors > 0 ? '#f44' : '#8f8';
+  }
+}
+// [/E2E-DEBUG]
+
 export class StarpeaceClient {
   private ws: WebSocket | null = null;
   private isConnected: boolean = false;
@@ -163,10 +252,14 @@ export class StarpeaceClient {
   // Key binding registry
   private keyBindingRegistry: KeyBindingRegistry;
 
+  private debugWire: SpoDebugWire; // [E2E-DEBUG]
+
   constructor() {
     this.uiGamePanel = document.getElementById('game-panel')!;
     this.uiStatus = document.getElementById('status-indicator')!;
 
+    this.debugWire = initSpoDebug(); // [E2E-DEBUG]
+    this.debugWire.getState = () => this.getDebugState(); // [E2E-DEBUG]
     this.ui = new UIManager();
     this.soundManager = new SoundManager();
     this.keyBindingRegistry = new KeyBindingRegistry();
@@ -366,6 +459,14 @@ export class StarpeaceClient {
       const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2);
       msg.wsRequestId = requestId;
       this.pendingRequests.set(requestId, { resolve, reject });
+      // [E2E-DEBUG] Log outgoing request
+      this.debugWire.sent++;
+      this.debugWire.lastSent = msg.type || '';
+      this.debugWire.history.push({ dir: '→', type: msg.type || '?', ts: Date.now(), reqId: requestId });
+      if (this.debugWire.history.length > this.debugWire.maxHistory) this.debugWire.history.shift();
+      this.ui.log('Wire', `→ SEND ${msg.type} [${requestId.slice(-6)}]`);
+      updateDebugBadge(this.debugWire);
+      // [/E2E-DEBUG]
       this.ws.send(JSON.stringify(msg));
 
       setTimeout(() => {
@@ -385,10 +486,30 @@ export class StarpeaceClient {
       console.error('[Client] Cannot send message: WebSocket not connected');
       return;
     }
+    // [E2E-DEBUG] Log outgoing fire-and-forget message
+    this.debugWire.sent++;
+    this.debugWire.lastSent = msg.type || '';
+    this.debugWire.history.push({ dir: '→', type: msg.type || '?', ts: Date.now() });
+    if (this.debugWire.history.length > this.debugWire.maxHistory) this.debugWire.history.shift();
+    this.ui.log('Wire', `→ SEND ${msg.type}`);
+    updateDebugBadge(this.debugWire);
+    // [/E2E-DEBUG]
     this.ws.send(JSON.stringify(msg));
   }
 
   private handleMessage(msg: WsMessage) {
+    // [E2E-DEBUG] Log every incoming message
+    const isError = msg.type === WsMessageType.RESP_ERROR;
+    this.debugWire.received++;
+    if (isError) this.debugWire.errors++;
+    this.debugWire.lastReceived = msg.type;
+    const reqTag = msg.wsRequestId ? ` [${msg.wsRequestId.slice(-6)}]` : '';
+    this.debugWire.history.push({ dir: '←', type: msg.type, ts: Date.now(), reqId: msg.wsRequestId });
+    if (this.debugWire.history.length > this.debugWire.maxHistory) this.debugWire.history.shift();
+    this.ui.log('Wire', `← RECV ${msg.type}${reqTag}${isError ? ' ✗ERROR' : ''}`);
+    updateDebugBadge(this.debugWire);
+    // [/E2E-DEBUG]
+
     // 1. Pending Requests
     if (msg.wsRequestId && this.pendingRequests.has(msg.wsRequestId)) {
       const { resolve, reject } = this.pendingRequests.get(msg.wsRequestId)!;
@@ -2382,6 +2503,116 @@ export class StarpeaceClient {
       // Ignore errors during page unload
     }
   }
+
+  // [E2E-DEBUG] Expose full game state for programmatic E2E verification
+  private getDebugState(): SpoDebugState {
+    const renderer = this.ui.mapNavigationUI?.getRenderer() ?? null;
+    const canvas = document.getElementById('game-canvas') as HTMLCanvasElement | null;
+
+    let canvasHasContent = false;
+    if (canvas) {
+      try {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const sample = ctx.getImageData(
+            Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1
+          );
+          canvasHasContent = sample.data[3] > 0; // alpha > 0 means drawn
+        }
+      } catch (_) { /* security or empty canvas */ }
+    }
+
+    // Panel visibility — query each panel's isVisible() or DOM display
+    const panels: Record<string, boolean> = {
+      login: document.getElementById('login-panel')?.style.display !== 'none',
+      chat: document.getElementById('chat-panel')?.style.display !== 'none',
+      mail: this.ui.mailPanel?.isVisible() ?? false,
+      profile: this.ui.profilePanel?.isVisible() ?? false,
+      politics: this.ui.politicsPanel?.isVisible() ?? false,
+      settings: this.ui.settingsPanel?.isVisible() ?? false,
+      transport: this.ui.transportPanel?.isVisible() ?? false,
+      minimap: this.ui.minimapUI?.isVisible() ?? false,
+      buildMenu: document.getElementById('build-menu')?.style.display !== 'none',
+      buildingDetails: this.ui.buildingDetailsPanel?.isVisible() ?? false,
+      searchMenu: !!document.querySelector('.search-menu-panel'),
+    };
+
+    // Tycoon stats from DOM data attributes
+    const statTypes = ['ranking', 'buildings', 'cash', 'income', 'prestige', 'area', 'debt'];
+    const tycoonStats: Record<string, string> = {};
+    for (const t of statTypes) {
+      const el = document.querySelector(`[data-type="${t}"] .stat-value`);
+      tycoonStats[t] = el?.textContent?.trim() ?? '';
+    }
+
+    // Chat info from DOM
+    const chatMessages = document.querySelectorAll('#chat-panel .chat-message, #chat-panel [class*="message"]');
+    const lastMsg = chatMessages.length > 0
+      ? (chatMessages[chatMessages.length - 1] as HTMLElement).textContent?.trim() ?? ''
+      : '';
+
+    // Access private renderer internals via cast (debug-only, not for production)
+    const rendererAny = renderer as unknown as Record<string, unknown> | null;
+    const terrainRenderer = rendererAny?.terrainRenderer as Record<string, unknown> | undefined;
+    const rotation = typeof terrainRenderer?.getRotation === 'function'
+      ? String(terrainRenderer.getRotation()) : 'UNKNOWN';
+
+    // Building details panel introspection
+    const bdPanel = this.ui.buildingDetailsPanel as unknown as Record<string, unknown> | null;
+    const bdDetails = bdPanel?.currentDetails as Record<string, unknown> | undefined;
+    const buildingDetails = panels.buildingDetails && bdDetails ? {
+      buildingName: String(bdDetails.buildingName ?? ''),
+      ownerName: String(bdDetails.ownerName ?? ''),
+      templateName: String(bdDetails.templateName ?? ''),
+      currentTab: String(bdPanel?.currentTab ?? ''),
+      tabs: Array.isArray(bdDetails.tabs)
+        ? (bdDetails.tabs as Array<Record<string, unknown>>).map(t => ({ id: String(t.id), name: String(t.name) }))
+        : [],
+      isOwner: String(bdDetails.ownerName ?? '') === this.currentCompanyName,
+      coords: { x: Number(bdDetails.x ?? 0), y: Number(bdDetails.y ?? 0) },
+    } : null;
+
+    // Settings values
+    const settingsValues = this.ui.settingsPanel?.getSettings() ?? null;
+
+    return {
+      session: {
+        connected: this.isConnected,
+        worldName: this.currentWorldName,
+        companyName: this.currentCompanyName,
+        worldSize: { x: this.worldXSize, y: this.worldYSize },
+      },
+      renderer: renderer ? {
+        mapLoaded: renderer.getAllBuildings().length > 0 || renderer.getAllSegments().length > 0,
+        zoom: renderer.getZoom(),
+        rotation,
+        cameraPosition: renderer.getCameraPosition(),
+        buildingCount: renderer.getAllBuildings().length,
+        segmentCount: renderer.getAllSegments().length,
+        mapDimensions: renderer.getMapDimensions(),
+        debugMode: rendererAny?.debugMode === true,
+        canvasSize: canvas ? { width: canvas.width, height: canvas.height } : { width: 0, height: 0 },
+        canvasHasContent,
+      } : null,
+      panels,
+      tycoonStats,
+      chat: {
+        visible: panels.chat,
+        messageCount: chatMessages.length,
+        lastMessage: lastMsg,
+      },
+      buildingDetails,
+      settings: settingsValues,
+      wire: {
+        sent: this.debugWire.sent,
+        received: this.debugWire.received,
+        errors: this.debugWire.errors,
+        lastSent: this.debugWire.lastSent,
+        lastReceived: this.debugWire.lastReceived,
+      },
+    };
+  }
+  // [/E2E-DEBUG]
 }
 
 window.addEventListener('DOMContentLoaded', () => {

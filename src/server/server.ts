@@ -41,6 +41,7 @@ import {
   WsReqChatSendMessage,
   WsReqChatTypingStatus,
   WsReqGmChatSend,
+  WsEventChatMsg,
   WsRespChatUserList,
   WsRespChatChannelList,
   WsRespChatChannelInfo,
