@@ -44,6 +44,7 @@ export class MockTcpSocket extends EventEmitter {
   private pushTriggers: PushTrigger[] = [];
   private fallbackResponses: FallbackResponse[] = [];
   private serverRequestRidCounter = 50000;
+  private pendingTimers: ReturnType<typeof setTimeout>[] = [];
 
   writable = true;
   readable = true;
@@ -106,11 +107,12 @@ export class MockTcpSocket extends EventEmitter {
 
       // Emit any push commands from the match
       if (match.pushes && match.pushes.length > 0) {
-        setTimeout(() => {
+        const timer = setTimeout(() => {
           for (const push of match.pushes) {
             this.emitRaw(push);
           }
-        }, 15);
+        }, 15).unref();
+        this.pendingTimers.push(timer);
       }
     } else if (parsed.member) {
       // Try fallback responses
@@ -132,19 +134,21 @@ export class MockTcpSocket extends EventEmitter {
   /** Simulates socket.connect() — resolves immediately */
   connect(port: number, host: string, callback?: () => void): this {
     if (callback) {
-      setImmediate(callback);
+      setImmediate(callback).unref();
     }
     return this;
   }
 
   end(): void {
+    this.clearPendingTimers();
     this.destroyed = true;
-    setImmediate(() => this.emit('close'));
+    setImmediate(() => this.emit('close')).unref();
   }
 
   destroy(): this {
+    this.clearPendingTimers();
     this.destroyed = true;
-    setImmediate(() => this.emit('close'));
+    setImmediate(() => this.emit('close')).unref();
     return this;
   }
 
@@ -197,9 +201,18 @@ export class MockTcpSocket extends EventEmitter {
   reset(): void {
     this.capturedCommands = [];
     this.capturedWrites = [];
+    this.clearPendingTimers();
   }
 
   // === Internal helpers ===
+
+  /** Cancel all pending setTimeout timers to prevent worker leaks */
+  private clearPendingTimers(): void {
+    for (const timer of this.pendingTimers) {
+      clearTimeout(timer);
+    }
+    this.pendingTimers = [];
+  }
 
   /** Emit a response with RID rewriting */
   private emitResponse(response: string, actualRid?: number): void {
@@ -216,7 +229,7 @@ export class MockTcpSocket extends EventEmitter {
       if (!this.destroyed) {
         this.emit('data', Buffer.from(withDelimiter, 'latin1'));
       }
-    });
+    }).unref();
   }
 
   /** Check and fire push triggers for a matched member */
@@ -226,11 +239,12 @@ export class MockTcpSocket extends EventEmitter {
     for (const trigger of this.pushTriggers) {
       if (trigger.triggerOnMember === member) {
         const delay = trigger.delayMs ?? 5;
-        setTimeout(() => {
+        const timer = setTimeout(() => {
           for (const pushData of trigger.pushData) {
             this.emitRaw(pushData);
           }
-        }, delay);
+        }, delay).unref();
+        this.pendingTimers.push(timer);
       }
     }
   }

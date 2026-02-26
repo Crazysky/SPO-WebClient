@@ -50,7 +50,7 @@ export class MockWebSocketClient {
 
     // Apply delay if specified
     if (result.delayMs > 0) {
-      await new Promise<void>(resolve => setTimeout(resolve, result.delayMs));
+      await new Promise<void>(resolve => setTimeout(resolve, result.delayMs).unref());
     }
 
     // Log all responses
@@ -183,12 +183,12 @@ export class MockWebSocketClient {
         this.emitEvent(scheduled.event);
 
         if (count < maxCount) {
-          const timer = setTimeout(emitRepeat, interval);
+          const timer = setTimeout(emitRepeat, interval).unref();
           this.scheduledTimers.push(timer);
         }
       };
 
-      const firstTimer = setTimeout(emitRepeat, scheduled.afterMs);
+      const firstTimer = setTimeout(emitRepeat, scheduled.afterMs).unref();
       this.scheduledTimers.push(firstTimer);
     } else {
       const timer = setTimeout(() => {
@@ -198,7 +198,7 @@ export class MockWebSocketClient {
           timestamp: Date.now(),
         });
         this.emitEvent(scheduled.event);
-      }, scheduled.afterMs);
+      }, scheduled.afterMs).unref();
       this.scheduledTimers.push(timer);
     }
   }

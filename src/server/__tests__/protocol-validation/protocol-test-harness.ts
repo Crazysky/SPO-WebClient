@@ -272,6 +272,7 @@ export function createProtocolTestHarness(config: HarnessConfig): ProtocolTestHa
 
     cleanup(): void {
       for (const socket of createdSockets) {
+        socket.destroy();
         socket.removeAllListeners();
       }
       createdSockets.length = 0;
