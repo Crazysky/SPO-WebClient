@@ -5224,32 +5224,39 @@ private handlePush(socketName: string, packet: RdoPacket) {
       // Build the RDO command arguments based on the command type
       const rdoArgs = this.buildRdoCommandArgs(propertyName, value, additionalParams);
 
-      // Send SetProperty command via construction service using sendRdoRequest
+      // Send SetProperty command via construction service
+      // The sel on CurrBlock is persistent (no closure needed)
+      let setCmd: string;
       if (propertyName === 'property' && additionalParams?.propertyName) {
-        // Direct property SET: published property assignment
+        // Direct property set: use SET verb
         const actualPropName = additionalParams.propertyName;
-        await this.sendRdoRequest('construction', {
-          verb: RdoVerb.SEL,
-          targetId: currBlock,
-          action: RdoAction.SET,
-          member: actualPropName,
-          args: rdoArgs,
-        });
+        setCmd = RdoCommand.sel(currBlock)
+          .set(actualPropName)
+          .args(...rdoArgs)
+          .build();
       } else {
-        // RDO method CALL: void push (fire-and-forget, no RID)
-        // CRITICAL: Void push commands MUST NOT have a request ID.
-        // The Delphi server's FIVE layer crashes when trying to generate
-        // a response for void procedures that carry an RID.
-        const socket = this.sockets.get('construction');
-        if (!socket) throw new Error('Construction socket unavailable');
-        const formattedArgs = rdoArgs.join(',');
-        const cmd = formattedArgs
-          ? `C sel ${currBlock} call ${propertyName} "*" ${formattedArgs};`
-          : `C sel ${currBlock} call ${propertyName} "*";`;
-        socket.write(cmd);
-        this.log.debug(`[BuildingDetails] Sent: ${cmd}`);
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // RDO method call: use CALL verb, fire-and-forget (no RID).
+        // Functions (olevariant return) use "^" separator; procedures (void) use "*".
+        const RDO_FUNCTIONS: ReadonlySet<string> = new Set([
+          'RDOSetOutputPrice', 'RDOSetInputOverPrice', 'RDOSetInputMaxPrice', 'RDOSetInputMinK',
+          'RDOConnectInput', 'RDODisconnectInput', 'RDOConnectOutput', 'RDODisconnectOutput',
+          'RDOConnectToTycoon', 'RDODisconnectFromTycoon',
+        ]);
+        const builder = RdoCommand.sel(currBlock).call(propertyName);
+        if (RDO_FUNCTIONS.has(propertyName)) {
+          builder.method(); // "^" — function returning olevariant
+        } else {
+          builder.push();   // "*" — void procedure
+        }
+        setCmd = builder.args(...rdoArgs).build();
       }
+      const socket = this.sockets.get('construction');
+      if (!socket) throw new Error('Construction socket unavailable');
+      socket.write(setCmd);
+      this.log.debug(`[BuildingDetails] Sent: ${setCmd}`);
+
+      // Wait for server to process the command
+      await new Promise(resolve => setTimeout(resolve, 200));
 
       // Read back the new value via map service to confirm the change
       const verifyObjectId = await this.cacherCreateObject();
@@ -5288,7 +5295,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     rdoCommand: string,
     value: string,
     additionalParams?: Record<string, string>
-  ): string[] {
+  ): RdoValue[] {
     const params = additionalParams || {};
     const args: RdoValue[] = [];
 
@@ -5585,8 +5592,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
         break;
     }
 
-    // Return pre-formatted tokens for sendRdoRequest args
-    return args.map(arg => arg.format());
+    return args;
   }
 
   /**

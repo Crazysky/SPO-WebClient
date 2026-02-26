@@ -8,7 +8,7 @@
 
 import { describe, it, expect, beforeEach } from '@jest/globals';
 import { MockRdoSession } from '../../__mocks__/mock-rdo-session';
-import { RdoValue } from '../../../shared/rdo-types';
+import { RdoCommand, RdoValue } from '../../../shared/rdo-types';
 
 describe('RDO Building Operations', () => {
   let mockSession: MockRdoSession;
@@ -400,6 +400,39 @@ describe('RDO Building Operations', () => {
 
       expect(cmd).toMatch(/set Stopped ?=/);
       expect(cmd).not.toMatch(/call Stopped/);
+    });
+  });
+
+  describe('Separator conformity (function "^" vs procedure "*")', () => {
+    // Functions returning olevariant must use "^" separator.
+    // Procedures (void) must use "*" separator.
+    // Verified against SPO-Original Delphi source declarations.
+
+    const RDO_FUNCTIONS = [
+      'RDOSetOutputPrice', 'RDOSetInputOverPrice', 'RDOSetInputMaxPrice', 'RDOSetInputMinK',
+      'RDOConnectInput', 'RDODisconnectInput', 'RDOConnectOutput', 'RDODisconnectOutput',
+      'RDOConnectToTycoon', 'RDODisconnectFromTycoon',
+    ];
+    const RDO_PROCEDURES = [
+      'RDOAutoProduce', 'RDOAutoRelease', 'RDOSetTradeLevel', 'RDOSetRole', 'RDOSetLoanPerc',
+    ];
+
+    it.each(RDO_FUNCTIONS)('%s should use "^" separator (function returning olevariant)', (method) => {
+      const builder = RdoCommand.sel(100).call(method);
+      // Production code uses .method() for functions
+      builder.method();
+      const cmd = builder.args(RdoValue.int(1)).build();
+      expect(cmd).toContain('"^"');
+      expect(cmd).not.toContain('"*"');
+    });
+
+    it.each(RDO_PROCEDURES)('%s should use "*" separator (void procedure)', (method) => {
+      const builder = RdoCommand.sel(100).call(method);
+      // Production code uses .push() for procedures
+      builder.push();
+      const cmd = builder.args(RdoValue.int(1)).build();
+      expect(cmd).toContain('"*"');
+      expect(cmd).not.toContain('"^"');
     });
   });
 

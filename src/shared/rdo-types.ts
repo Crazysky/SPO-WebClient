@@ -305,10 +305,15 @@ export class RdoCommand {
 
   /**
    * Start building a command with 'sel' verb
+   * @throws Error if targetId is 0 or empty (would produce invalid 'sel 0' on the wire)
    */
   static sel(targetId: string | number): RdoCommand {
+    const id = targetId.toString();
+    if (!id || id === '0') {
+      throw new Error(`Invalid RDO target ID: ${targetId} (sel 0 is a null pointer on the server)`);
+    }
     const cmd = new RdoCommand();
-    cmd.targetId = targetId.toString();
+    cmd.targetId = id;
     return cmd;
   }
 
@@ -397,24 +402,25 @@ export class RdoCommand {
     // Add action
     parts.push(this.actionType);
 
-    // Add member (method/property name)
-    if (this.member) {
-      parts.push(this.member);
-    }
-
-    // For call actions, add separator and args
-    if (this.actionType === 'call') {
-      parts.push(this.separator);
-
-      if (this.rdoArgs.length > 0) {
-        const formattedArgs = this.rdoArgs.map(arg => arg.format()).join(',');
-        parts.push(formattedArgs);
+    // Add member (method/property name) and action-specific parts
+    if (this.actionType === 'set' && this.member) {
+      // SET format: "set PropName=value" (no space around =)
+      const value = this.rdoArgs.length > 0 ? this.rdoArgs[0].format() : '';
+      parts.push(`${this.member}=${value}`);
+    } else {
+      if (this.member) {
+        parts.push(this.member);
       }
-    }
 
-    // For set actions, add value
-    if (this.actionType === 'set' && this.rdoArgs.length > 0) {
-      parts.push(`=${this.rdoArgs[0].format()}`);
+      // For call actions, add separator and args
+      if (this.actionType === 'call') {
+        parts.push(this.separator);
+
+        if (this.rdoArgs.length > 0) {
+          const formattedArgs = this.rdoArgs.map(arg => arg.format()).join(',');
+          parts.push(formattedArgs);
+        }
+      }
     }
 
     return parts.join(' ') + ';';

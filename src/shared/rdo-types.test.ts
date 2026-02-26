@@ -411,7 +411,7 @@ describe('RdoCommand', () => {
 
     it('should build set command', () => {
       const cmd = RdoCommand.sel(789).set('Value').args(RdoValue.int(100)).build();
-      expect(cmd).toBe('C sel 789 set Value ="#100";');
+      expect(cmd).toBe('C sel 789 set Value="#100";');
     });
   });
 
@@ -573,6 +573,28 @@ describe('RdoCommand', () => {
 
       expect(cmd).toContain('sel 100');
       expect(cmd2).toContain('sel 200');
+    });
+  });
+
+  describe('sel 0 validation (null pointer guard)', () => {
+    it('should reject numeric 0', () => {
+      expect(() => RdoCommand.sel(0)).toThrow('Invalid RDO target ID');
+    });
+
+    it('should reject string "0"', () => {
+      expect(() => RdoCommand.sel('0')).toThrow('Invalid RDO target ID');
+    });
+
+    it('should reject empty string', () => {
+      expect(() => RdoCommand.sel('')).toThrow('Invalid RDO target ID');
+    });
+
+    it('should accept valid numeric ID', () => {
+      expect(() => RdoCommand.sel(8116248)).not.toThrow();
+    });
+
+    it('should accept valid string ID', () => {
+      expect(() => RdoCommand.sel('100575368')).not.toThrow();
     });
   });
 });
