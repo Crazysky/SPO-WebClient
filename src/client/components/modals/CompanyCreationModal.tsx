@@ -9,6 +9,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { useUiStore } from '../../store/ui-store';
 import { useGameStore } from '../../store/game-store';
+import { useLegacyBridge } from '../../context';
 import styles from './CompanyCreationModal.module.css';
 
 const MAX_NAME_LENGTH = 50;
@@ -22,6 +23,7 @@ export function CompanyCreationModal() {
   const [cluster, setCluster] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const bridge = useLegacyBridge();
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Reset form when modal opens
@@ -62,9 +64,8 @@ export function CompanyCreationModal() {
     setLoading(true);
 
     try {
-      const bridge = window.__spoReactCallbacks;
-      if (bridge?.onCreateCompanySubmit) {
-        await (bridge.onCreateCompanySubmit as (name: string, cluster: string) => Promise<void>)(trimmed, cluster);
+      if (bridge.current?.onCreateCompanySubmit) {
+        await bridge.current.onCreateCompanySubmit(trimmed, cluster);
       }
       closeModal();
     } catch (err: unknown) {

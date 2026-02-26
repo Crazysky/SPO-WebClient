@@ -7,12 +7,11 @@
 
 import { Compass, ZoomIn, ZoomOut, Map, Layers, RefreshCw } from 'lucide-react';
 import { IconButton } from '../common';
+import { useLegacyBridge } from '../../context';
 import styles from './RightRail.module.css';
 
 export function RightRail() {
-  // Bridge callbacks for map controls
-  const getBridge = () =>
-    (window.__spoReactCallbacks ?? {}) as Record<string, (...args: unknown[]) => void>;
+  const bridge = useLegacyBridge();
 
   return (
     <nav className={styles.rail} aria-label="Map controls">
@@ -65,7 +64,7 @@ export function RightRail() {
           label="Refresh (R)"
           size="md"
           variant="glass"
-          onClick={() => getBridge().onRefreshMap?.()}
+          onClick={() => bridge.current?.onRefreshMap()}
         />
       </div>
     </nav>

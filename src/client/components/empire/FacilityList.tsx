@@ -4,6 +4,7 @@
  */
 
 import { useUiStore } from '../../store/ui-store';
+import { useLegacyBridge } from '../../context';
 import type { OwnedFacility } from '../../store/empire-store';
 import styles from './FacilityList.module.css';
 
@@ -20,16 +21,11 @@ const STATUS_ICONS: Record<string, string> = {
 
 export function FacilityList({ facilities }: FacilityListProps) {
   const openRightPanel = useUiStore((s) => s.openRightPanel);
+  const bridge = useLegacyBridge();
 
   const handleClick = (facility: OwnedFacility) => {
-    // Open building inspector
     openRightPanel('building');
-    // Tell legacy client to focus on this building
-    const bridge = (window.__spoReactCallbacks ?? {}) as Record<
-      string,
-      (...args: unknown[]) => void
-    >;
-    bridge.onBuildingFocus?.(facility.x, facility.y);
+    bridge.current?.onNavigateToBuilding(facility.x, facility.y);
   };
 
   if (facilities.length === 0) {

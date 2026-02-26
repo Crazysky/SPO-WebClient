@@ -48,6 +48,171 @@ Motion should communicate, not decorate:
 --spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* Overshoot - playful */
 ```
 
+## Quick Start: Button Microinteraction
+
+```tsx
+import { motion } from "framer-motion";
+
+export function InteractiveButton({ children, onClick }) {
+  return (
+    <motion.button
+      onClick={onClick}
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 400, damping: 17 }}
+      className="px-4 py-2 bg-blue-600 text-white rounded-lg"
+    >
+      {children}
+    </motion.button>
+  );
+}
+```
+
+## Interaction Patterns
+
+### 1. Loading States
+
+**Skeleton Screens**: Preserve layout while loading
+
+```tsx
+function CardSkeleton() {
+  return (
+    <div className="animate-pulse">
+      <div className="h-48 bg-gray-200 rounded-lg" />
+      <div className="mt-4 h-4 bg-gray-200 rounded w-3/4" />
+      <div className="mt-2 h-4 bg-gray-200 rounded w-1/2" />
+    </div>
+  );
+}
+```
+
+**Progress Indicators**: Show determinate progress
+
+```tsx
+function ProgressBar({ progress }: { progress: number }) {
+  return (
+    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+      <motion.div
+        className="h-full bg-blue-600"
+        initial={{ width: 0 }}
+        animate={{ width: `${progress}%` }}
+        transition={{ ease: "easeOut" }}
+      />
+    </div>
+  );
+}
+```
+
+### 2. State Transitions
+
+**Toggle with smooth transition**:
+
+```tsx
+function Toggle({ checked, onChange }) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`
+        relative w-12 h-6 rounded-full transition-colors duration-200
+        ${checked ? "bg-blue-600" : "bg-gray-300"}
+      `}
+    >
+      <motion.span
+        className="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow"
+        animate={{ x: checked ? 24 : 0 }}
+        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+      />
+    </button>
+  );
+}
+```
+
+### 3. Page Transitions
+
+**Framer Motion layout animations**:
+
+```tsx
+import { AnimatePresence, motion } from "framer-motion";
+
+function PageTransition({ children, key }) {
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={key}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        transition={{ duration: 0.3 }}
+      >
+        {children}
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+```
+
+### 4. Feedback Patterns
+
+**Ripple effect on click**:
+
+```tsx
+function RippleButton({ children, onClick }) {
+  const [ripples, setRipples] = useState([]);
+
+  const handleClick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ripple = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      id: Date.now(),
+    };
+    setRipples((prev) => [...prev, ripple]);
+    setTimeout(() => {
+      setRipples((prev) => prev.filter((r) => r.id !== ripple.id));
+    }, 600);
+    onClick?.(e);
+  };
+
+  return (
+    <button onClick={handleClick} className="relative overflow-hidden">
+      {children}
+      {ripples.map((ripple) => (
+        <span
+          key={ripple.id}
+          className="absolute bg-white/30 rounded-full animate-ripple"
+          style={{ left: ripple.x, top: ripple.y }}
+        />
+      ))}
+    </button>
+  );
+}
+```
+
+### 5. Gesture Interactions
+
+**Swipe to dismiss**:
+
+```tsx
+function SwipeCard({ children, onDismiss }) {
+  return (
+    <motion.div
+      drag="x"
+      dragConstraints={{ left: 0, right: 0 }}
+      onDragEnd={(_, info) => {
+        if (Math.abs(info.offset.x) > 100) {
+          onDismiss();
+        }
+      }}
+      className="cursor-grab active:cursor-grabbing"
+    >
+      {children}
+    </motion.div>
+  );
+}
+```
+
 ## CSS Animation Patterns
 
 ### Keyframe Animations
@@ -78,6 +243,16 @@ Motion should communicate, not decorate:
   to {
     transform: rotate(360deg);
   }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+.animate-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+.animate-spin {
+  animation: spin 1s linear infinite;
 }
 ```
 
@@ -111,6 +286,21 @@ Motion should communicate, not decorate:
 }
 ```
 
+```tsx
+function AnimatedComponent() {
+  const prefersReducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+
+  return (
+    <motion.div
+      animate={{ opacity: 1 }}
+      transition={{ duration: prefersReducedMotion ? 0 : 0.3 }}
+    />
+  );
+}
+```
+
 ## Best Practices
 
 1. **Performance First**: Use `transform` and `opacity` for smooth 60fps
@@ -131,6 +321,7 @@ Motion should communicate, not decorate:
 
 ## Resources
 
+- [Framer Motion Documentation](https://www.framer.com/motion/)
 - [CSS Animation Guide](https://web.dev/animations-guide/)
 - [Material Design Motion](https://m3.material.io/styles/motion/overview)
 - [GSAP Animation Library](https://greensock.com/gsap/)

@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useMemo, useCallback } from 'react';
 import { useUiStore } from '../../store/ui-store';
+import { useLegacyBridge } from '../../context';
 import { useCommandPalette, type Command } from '../../hooks/useCommandPalette';
 import styles from './CommandPalette.module.css';
 
@@ -23,6 +24,7 @@ export function CommandPalette() {
   const toggleLeftPanel = useUiStore((s) => s.toggleLeftPanel);
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel);
 
+  const bridge = useLegacyBridge();
   const inputRef = useRef<HTMLInputElement>(null);
   const selectedRef = useRef(0);
 
@@ -93,15 +95,11 @@ export function CommandPalette() {
         shortcut: 'R',
         category: 'action',
         execute: () => {
-          const bridge = (window.__spoReactCallbacks ?? {}) as Record<
-            string,
-            (...args: unknown[]) => void
-          >;
-          bridge.onRefreshMap?.();
+          bridge.current?.onRefreshMap();
         },
       },
     ],
-    [openModal, toggleLeftPanel, toggleRightPanel],
+    [openModal, toggleLeftPanel, toggleRightPanel, bridge],
   );
 
   const { query, setQuery, filteredCommands, groupedCommands, resetQuery } =

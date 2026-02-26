@@ -1,154 +1,264 @@
 ---
-name: design-system-patterns
-description: Build scalable design systems with design tokens, theming infrastructure, and component architecture patterns. Use when creating design tokens, implementing theme switching, building component libraries, or establishing design system foundations.
+name: core-components
+description: Core component library and design system patterns. Use when building UI, using design tokens, or working with the component library.
 ---
 
-# Design System Patterns
+# Core Components
 
-Master design system architecture to create consistent, maintainable, and scalable UI foundations across web and mobile applications.
+## Design System Overview
 
-## When to Use This Skill
+Use components from your core library instead of raw platform components. This ensures consistent styling and behavior.
 
-- Creating design tokens for colors, typography, spacing, and shadows
-- Implementing light/dark theme switching with CSS custom properties
-- Building multi-brand theming systems
-- Architecting component libraries with consistent APIs
-- Establishing design-to-code workflows with Figma tokens
-- Creating semantic token hierarchies (primitive, semantic, component)
-- Setting up design system documentation and guidelines
+## Design Tokens
 
-## Core Capabilities
+**NEVER hard-code values. Always use design tokens.**
 
-### 1. Design Tokens
+### Spacing Tokens
 
-- Primitive tokens (raw values: colors, sizes, fonts)
-- Semantic tokens (contextual meaning: text-primary, surface-elevated)
-- Component tokens (specific usage: button-bg, card-border)
-- Token naming conventions and organization
-- Multi-platform token generation (CSS, iOS, Android)
+```tsx
+// CORRECT - Use tokens
+<Box padding="$4" marginBottom="$2" />
 
-### 2. Theming Infrastructure
-
-- CSS custom properties architecture
-- Theme context providers in React
-- Dynamic theme switching
-- System preference detection (prefers-color-scheme)
-- Persistent theme storage
-- Reduced motion and high contrast modes
-
-### 3. Component Architecture
-
-- Compound component patterns
-- Polymorphic components (as prop)
-- Variant and size systems
-- Slot-based composition
-- Headless UI patterns
-- Style props and responsive variants
-
-## Quick Start
-
-```typescript
-// Design tokens with CSS custom properties
-const tokens = {
-  colors: {
-    // Primitive tokens
-    gray: {
-      50: "#fafafa",
-      100: "#f5f5f5",
-      900: "#171717",
-    },
-    blue: {
-      500: "#3b82f6",
-      600: "#2563eb",
-    },
-  },
-  // Semantic tokens (reference primitives)
-  semantic: {
-    light: {
-      "text-primary": "var(--color-gray-900)",
-      "text-secondary": "var(--color-gray-600)",
-      "surface-default": "var(--color-white)",
-      "surface-elevated": "var(--color-gray-50)",
-      "border-default": "var(--color-gray-200)",
-      "interactive-primary": "var(--color-blue-500)",
-    },
-    dark: {
-      "text-primary": "var(--color-gray-50)",
-      "text-secondary": "var(--color-gray-400)",
-      "surface-default": "var(--color-gray-900)",
-      "surface-elevated": "var(--color-gray-800)",
-      "border-default": "var(--color-gray-700)",
-      "interactive-primary": "var(--color-blue-400)",
-    },
-  },
-};
+// WRONG - Hard-coded values
+<Box padding={16} marginBottom={8} />
 ```
 
-## Key Patterns
+| Token | Value |
+|-------|-------|
+| `$1` | 4px |
+| `$2` | 8px |
+| `$3` | 12px |
+| `$4` | 16px |
+| `$6` | 24px |
+| `$8` | 32px |
 
-### Pattern 1: Token Hierarchy
+### Color Tokens
 
-```css
-/* Layer 1: Primitive tokens (raw values) */
-:root {
-  --color-blue-500: #3b82f6;
-  --color-blue-600: #2563eb;
-  --color-gray-50: #fafafa;
-  --color-gray-900: #171717;
+```tsx
+// CORRECT - Semantic tokens
+<Text color="$textPrimary" />
+<Box backgroundColor="$backgroundSecondary" />
 
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-4: 1rem;
-
-  --font-size-sm: 0.875rem;
-  --font-size-base: 1rem;
-  --font-size-lg: 1.125rem;
-
-  --radius-sm: 0.25rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 1rem;
-}
-
-/* Layer 2: Semantic tokens (meaning) */
-:root {
-  --text-primary: var(--color-gray-900);
-  --text-secondary: var(--color-gray-600);
-  --surface-default: white;
-  --interactive-primary: var(--color-blue-500);
-  --interactive-primary-hover: var(--color-blue-600);
-}
-
-/* Layer 3: Component tokens (specific usage) */
-:root {
-  --button-bg: var(--interactive-primary);
-  --button-bg-hover: var(--interactive-primary-hover);
-  --button-text: white;
-  --button-radius: var(--radius-md);
-  --button-padding-x: var(--space-4);
-  --button-padding-y: var(--space-2);
-}
+// WRONG - Hard-coded colors
+<Text color="#333333" />
+<Box backgroundColor="rgb(245, 245, 245)" />
 ```
 
-## Best Practices
+| Semantic Token | Use For |
+|----------------|---------|
+| `$textPrimary` | Main text |
+| `$textSecondary` | Supporting text |
+| `$textTertiary` | Disabled/hint text |
+| `$primary500` | Brand/accent color |
+| `$statusError` | Error states |
+| `$statusSuccess` | Success states |
 
-1. **Name Tokens by Purpose**: Use semantic names (text-primary) not visual descriptions (dark-gray)
-2. **Maintain Token Hierarchy**: Primitives > Semantic > Component tokens
-3. **Document Token Usage**: Include usage guidelines with token definitions
-4. **Version Tokens**: Treat token changes as API changes with semver
-5. **Test Theme Combinations**: Verify all themes work with all components
-6. **Automate Token Pipeline**: CI/CD for Figma-to-code synchronization
-7. **Provide Migration Paths**: Deprecate tokens gradually with clear alternatives
+### Typography Tokens
 
-## Common Issues
+```tsx
+<Text fontSize="$lg" fontWeight="$semibold" />
+```
 
-- **Token Sprawl**: Too many tokens without clear hierarchy
-- **Inconsistent Naming**: Mixed conventions (camelCase vs kebab-case)
-- **Missing Dark Mode**: Tokens that don't adapt to theme changes
-- **Hardcoded Values**: Using raw values instead of tokens
-- **Circular References**: Tokens referencing each other in loops
+| Token | Size |
+|-------|------|
+| `$xs` | 12px |
+| `$sm` | 14px |
+| `$md` | 16px |
+| `$lg` | 18px |
+| `$xl` | 20px |
+| `$2xl` | 24px |
 
-## Resources
+## Core Components
 
-- [Style Dictionary Documentation](https://amzn.github.io/style-dictionary/)
-- [Design Tokens W3C Spec](https://design-tokens.github.io/community-group/format/)
-- [Radix UI Themes](https://www.radix-ui.com/themes)
+### Box
+
+Base layout component with token support:
+
+```tsx
+<Box
+  padding="$4"
+  backgroundColor="$backgroundPrimary"
+  borderRadius="$lg"
+>
+  {children}
+</Box>
+```
+
+### HStack / VStack
+
+Horizontal and vertical flex layouts:
+
+```tsx
+<HStack gap="$3" alignItems="center">
+  <Icon name="user" />
+  <Text>Username</Text>
+</HStack>
+
+<VStack gap="$4" padding="$4">
+  <Heading>Title</Heading>
+  <Text>Content</Text>
+</VStack>
+```
+
+### Text
+
+Typography with token support:
+
+```tsx
+<Text
+  fontSize="$lg"
+  fontWeight="$semibold"
+  color="$textPrimary"
+>
+  Hello World
+</Text>
+```
+
+### Button
+
+Interactive button with variants:
+
+```tsx
+<Button
+  onPress={handlePress}
+  variant="solid"
+  size="md"
+  isLoading={loading}
+  isDisabled={disabled}
+>
+  Click Me
+</Button>
+```
+
+| Variant | Use For |
+|---------|---------|
+| `solid` | Primary actions |
+| `outline` | Secondary actions |
+| `ghost` | Tertiary/subtle actions |
+| `link` | Inline actions |
+
+### Input
+
+Form input with validation:
+
+```tsx
+<Input
+  value={value}
+  onChangeText={setValue}
+  placeholder="Enter text"
+  error={touched ? errors.field : undefined}
+  label="Field Name"
+/>
+```
+
+### Card
+
+Content container:
+
+```tsx
+<Card padding="$4" gap="$3">
+  <CardHeader>
+    <Heading size="sm">Card Title</Heading>
+  </CardHeader>
+  <CardBody>
+    <Text>Card content</Text>
+  </CardBody>
+</Card>
+```
+
+## Layout Patterns
+
+### Screen Layout
+
+```tsx
+const MyScreen = () => (
+  <Screen>
+    <ScreenHeader title="Page Title" />
+    <ScreenContent padding="$4">
+      {/* Content */}
+    </ScreenContent>
+  </Screen>
+);
+```
+
+### Form Layout
+
+```tsx
+<VStack gap="$4" padding="$4">
+  <Input label="Name" {...nameProps} />
+  <Input label="Email" {...emailProps} />
+  <Button isLoading={loading}>Submit</Button>
+</VStack>
+```
+
+### List Item Layout
+
+```tsx
+<HStack
+  padding="$4"
+  gap="$3"
+  alignItems="center"
+  borderBottomWidth={1}
+  borderColor="$borderLight"
+>
+  <Avatar source={{ uri: imageUrl }} size="md" />
+  <VStack flex={1}>
+    <Text fontWeight="$semibold">{title}</Text>
+    <Text color="$textSecondary" fontSize="$sm">{subtitle}</Text>
+  </VStack>
+  <Icon name="chevron-right" color="$textTertiary" />
+</HStack>
+```
+
+## Anti-Patterns
+
+```tsx
+// WRONG - Hard-coded values
+<View style={{ padding: 16, backgroundColor: '#fff' }}>
+
+// CORRECT - Design tokens
+<Box padding="$4" backgroundColor="$backgroundPrimary">
+
+
+// WRONG - Raw platform components
+import { View, Text } from 'react-native';
+
+// CORRECT - Core components
+import { Box, Text } from 'components/core';
+
+
+// WRONG - Inline styles
+<Text style={{ fontSize: 18, fontWeight: '600' }}>
+
+// CORRECT - Token props
+<Text fontSize="$lg" fontWeight="$semibold">
+```
+
+## Component Props Pattern
+
+When creating components, use token-based props:
+
+```tsx
+interface CardProps {
+  padding?: '$2' | '$4' | '$6';
+  variant?: 'elevated' | 'outlined' | 'filled';
+  children: React.ReactNode;
+}
+
+const Card = ({ padding = '$4', variant = 'elevated', children }: CardProps) => (
+  <Box
+    padding={padding}
+    backgroundColor="$backgroundPrimary"
+    borderRadius="$lg"
+    {...variantStyles[variant]}
+  >
+    {children}
+  </Box>
+);
+```
+
+## Integration with Other Skills
+
+- **react-ui-patterns**: Use core components for UI states
+- **testing-patterns**: Mock core components in tests
+- **storybook**: Document component variants

@@ -10,88 +10,59 @@
  * Each stage is a self-contained component that receives callbacks.
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { useGameStore } from '../store';
+import { useLegacyBridge } from '../context';
 import { LoginBackground, AuthStage, WorldStage, CompanyStage } from '../components/login';
-import type { WorldInfo, CompanyInfo } from '@/shared/types';
 import styles from './LoginScreen.module.css';
-
-type LoginStage = 'auth' | 'worlds' | 'companies';
 
 export function LoginScreen() {
   const status = useGameStore((s) => s.status);
-  const [stage, setStage] = useState<LoginStage>('auth');
-  const [worlds, setWorlds] = useState<WorldInfo[]>([]);
-  const [companies, setCompanies] = useState<CompanyInfo[]>([]);
+  const stage = useGameStore((s) => s.loginStage);
+  const worlds = useGameStore((s) => s.loginWorlds);
+  const companies = useGameStore((s) => s.companies);
+  const isLoading = useGameStore((s) => s.loginLoading);
+  const setLoginStage = useGameStore((s) => s.setLoginStage);
+  const setLoginLoading = useGameStore((s) => s.setLoginLoading);
+
+  const bridge = useLegacyBridge();
   const [selectedWorld, setSelectedWorld] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-
-  // Stable ref to avoid re-registering on every render
-  const stageRef = useRef({ setStage, setWorlds, setCompanies, setIsLoading });
-  stageRef.current = { setStage, setWorlds, setCompanies, setIsLoading };
-
-  // Register bridge handlers once — the bridge calls these when server responds
-  useEffect(() => {
-    window.__spoLoginHandlers = {
-      showWorlds: (worldList: WorldInfo[]) => {
-        stageRef.current.setWorlds(worldList);
-        stageRef.current.setStage('worlds');
-        stageRef.current.setIsLoading(false);
-      },
-      showCompanies: (companyList: CompanyInfo[]) => {
-        stageRef.current.setCompanies(companyList);
-        stageRef.current.setStage('companies');
-        stageRef.current.setIsLoading(false);
-      },
-      setLoading: (loading: boolean) => {
-        stageRef.current.setIsLoading(loading);
-      },
-    };
-    return () => {
-      window.__spoLoginHandlers = undefined;
-    };
-  }, []);
-
-  // Bridge callback accessor
-  const getBridge = useCallback(() => {
-    return (window.__spoReactCallbacks ?? {}) as Record<string, (...args: unknown[]) => void>;
-  }, []);
 
   // Stage A → B: authenticate
   const handleConnect = useCallback(
     (username: string, password: string) => {
-      setIsLoading(true);
-      getBridge().onDirectoryConnect?.(username, password);
+      setLoginLoading(true);
+      bridge.current?.onDirectoryConnect(username, password);
     },
-    [getBridge],
+    [bridge, setLoginLoading],
   );
 
   // Stage B → C: select world
   const handleWorldSelect = useCallback(
     (worldName: string) => {
-      setIsLoading(true);
+      setLoginLoading(true);
       setSelectedWorld(worldName);
-      getBridge().onWorldSelect?.(worldName);
+      bridge.current?.onWorldSelect(worldName);
     },
-    [getBridge],
+    [bridge, setLoginLoading],
   );
 
   // Stage C → game: select company
   const handleCompanySelect = useCallback(
     (companyId: string) => {
-      setIsLoading(true);
-      getBridge().onCompanySelect?.(companyId);
+      setLoginLoading(true);
+      bridge.current?.onCompanySelect(companyId);
     },
-    [getBridge],
+    [bridge, setLoginLoading],
   );
 
   const handleCreateCompany = useCallback(() => {
-    getBridge().onCreateCompany?.();
-  }, [getBridge]);
+    bridge.current?.onCreateCompany();
+  }, [bridge]);
 
   const handleBackToWorlds = useCallback(() => {
-    setStage('worlds');
-  }, []);
+    setLoginStage('worlds');
+  }, [setLoginStage]);
 
   return (
     <div className={styles.screen}>

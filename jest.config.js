@@ -36,6 +36,7 @@ module.exports = {
       tsconfig: {
         module: 'commonjs',
         lib: ['ES2021', 'DOM'],
+        jsx: 'react-jsx',
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,
         types: ['jest', 'node']

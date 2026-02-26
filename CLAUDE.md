@@ -82,9 +82,30 @@ npm run test:coverage # Coverage report
 ```
 src/
 ├── client/
-│   ├── client.ts              # Main controller
+│   ├── client.ts              # Main controller (legacy, bridges to React)
+│   ├── main.tsx               # Vite entry, mounts React app
+│   ├── App.tsx                # Root router (LoginScreen vs GameScreen)
+│   ├── bridge/                # React ↔ legacy bridge (ClientBridge)
+│   ├── store/                 # Zustand stores (11 total)
+│   ├── hooks/                 # Custom hooks (usePanel, useResponsive, etc.)
+│   ├── styles/                # Design tokens, reset, typography, animations
+│   ├── layouts/               # LoginScreen, GameScreen
+│   ├── components/            # React UI (45 components, CSS Modules)
+│   │   ├── common/            # Badge, Toast, GlassCard, Skeleton, etc.
+│   │   ├── hud/               # TopBar, LeftRail, RightRail
+│   │   ├── panels/            # RightPanel, LeftPanel (slide-in)
+│   │   ├── building/          # BuildingInspector, QuickStats, PropertyGroup
+│   │   ├── empire/            # EmpireOverview, FacilityList, FinancialSummary
+│   │   ├── mail/              # MailPanel
+│   │   ├── chat/              # ChatStrip
+│   │   ├── search/            # SearchPanel
+│   │   ├── politics/          # PoliticsPanel
+│   │   ├── transport/         # TransportPanel
+│   │   ├── modals/            # BuildMenu, Settings, CompanyCreation
+│   │   ├── mobile/            # MobileShell, BottomNav, BottomSheet
+│   │   └── command-palette/   # CommandPalette (Cmd+K)
 │   ├── renderer/              # Canvas 2D isometric engine
-│   └── ui/                    # UI components (entry: map-navigation-ui.ts)
+│   └── ui/                    # Legacy canvas UI (minimap only)
 ├── server/
 │   ├── server.ts              # HTTP/WebSocket server + API endpoints
 │   ├── spo_session.ts         # RDO session manager
@@ -114,6 +135,27 @@ src/
 | `e2e-test` | E2E testing with Playwright MCP |
 | `dependency-audit` | Vulnerability scanning, license compliance |
 | `dependency-updater` | Dependency updates, outdated packages |
+
+## SkillsMP Marketplace Skills (MANDATORY)
+
+**Skill research rule:** When searching for or evaluating new skills, **always use the SkillsMP API** — never guess or web-search blindly. The project has a configured installer with authenticated API access.
+
+**Files:**
+- Installer script: [.claude/skillsmp-installer.js](.claude/skillsmp-installer.js) — main installer with `REQUIRED_SKILLS` array
+- Ad-hoc installer: [.claude/install-new-skills.js](.claude/install-new-skills.js) — for adding new skills on demand
+- Installed skills: [.claude/skills-skillsmp/](.claude/skills-skillsmp/) — all downloaded SKILL.md files
+- Manifest: [.claude/skills-skillsmp/manifest.json](.claude/skills-skillsmp/manifest.json) — full metadata (stars, authors, URLs)
+
+**API usage:**
+```
+Endpoint: https://skillsmp.com/api/v1/skills/search
+Auth:     Bearer token (in installer scripts)
+Params:   q=<search query>&limit=5&sortBy=stars
+```
+
+**When to use:** Before creating a new custom project skill, search SkillsMP first to check if a high-quality community skill already exists. Prefer skills with 1,000+ stars. Install via the API, then customize with project-specific patterns if needed.
+
+**Currently installed (30 skills):** TypeScript, Node.js backend, Jest testing, security, debugging, refactoring, React state management, Zustand store patterns, accessibility (WCAG/ARIA), design system, interaction design, web performance, PWA, and more. See [manifest.json](.claude/skills-skillsmp/manifest.json) for full list.
 
 ## RDO Protocol
 

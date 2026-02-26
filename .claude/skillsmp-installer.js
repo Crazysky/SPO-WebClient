@@ -14,6 +14,7 @@ const SKILLS_DIR = path.join(__dirname, 'skills-skillsmp');
 
 // Required skills for SPO-WebClient
 const REQUIRED_SKILLS = [
+  // Core development
   { query: 'typescript strict', name: 'typescript' },
   { query: 'nodejs backend architecture', name: 'nodejs-backend' },
   { query: 'jest testing coverage', name: 'jest-testing' },
@@ -26,7 +27,7 @@ const REQUIRED_SKILLS = [
   { query: 'e2e testing playwright', name: 'e2e-testing' },
   { query: 'refactoring SOLID patterns', name: 'refactoring' },
   { query: 'claude md improver', name: 'claude-md-improver' },
-  // New skills - Added 2026-02-16
+  // Workflow & context - Added 2026-02-16
   { query: 'claude-code-workflow ilude', name: 'claude-code-workflow' },
   { query: 'context-master josiahsiegel', name: 'context-master' },
   { query: 'agentic-jumpstart-testing webdevcody', name: 'agentic-jumpstart-testing' },
@@ -36,7 +37,23 @@ const REQUIRED_SKILLS = [
   // Game rendering & performance - Added 2026-02-16
   { query: 'r3f-performance bbeierle12', name: 'r3f-performance' },
   { query: 'web-games kjibba', name: 'web-games' },
-  { query: 'webgl-expert ronnycoding', name: 'webgl-expert' }
+  { query: 'webgl-expert ronnycoding', name: 'webgl-expert' },
+  // React UI framework - Added 2026-02-26
+  { query: 'store-data-structures lobehub zustand', name: 'store-data-structures' },
+  { query: 'react-state-management zustand', name: 'react-state-management' },
+  { query: 'accessibility-compliance WCAG aria', name: 'accessibility-compliance' },
+  { query: 'accessibility-auditor design', name: 'accessibility-auditor' },
+  { query: 'zustand-store-ts typescript', name: 'zustand-store-ts' },
+  { query: 'react-expert hooks component patterns', name: 'react-expert' },
+  { query: 'react-patterns best practices', name: 'react-patterns' },
+  { query: 'pwa-development progressive web app', name: 'pwa-development-v2' },
+  { query: 'react-best-practices skillcreatorai', name: 'react-best-practices' },
+  { query: 'design-system-patterns tokens components', name: 'design-system-patterns' },
+  { query: 'interaction-design user experience', name: 'interaction-design' },
+  { query: 'animation micro-interaction pack', name: 'animation-micro-interaction-pack' },
+  { query: 'ui-ux-pro-max design', name: 'ui-ux-pro-max' },
+  { query: 'pwa-expert service worker', name: 'pwa-expert' },
+  { query: 'web-accessibility screen reader', name: 'web-accessibility' },
 ];
 
 /**

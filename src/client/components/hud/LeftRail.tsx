@@ -12,6 +12,7 @@ import { IconButton } from '../common';
 import { useUiStore } from '../../store/ui-store';
 import { useGameStore } from '../../store/game-store';
 import { useMailStore } from '../../store/mail-store';
+import { useLegacyBridge } from '../../context';
 import styles from './LeftRail.module.css';
 
 export function LeftRail() {
@@ -24,9 +25,7 @@ export function LeftRail() {
   const isRoadBuildingMode = useGameStore((s) => s.isRoadBuildingMode);
   const isRoadDemolishMode = useGameStore((s) => s.isRoadDemolishMode);
 
-  // Bridge callbacks for road/demolish
-  const getBridge = () =>
-    (window.__spoReactCallbacks ?? {}) as Record<string, (...args: unknown[]) => void>;
+  const bridge = useLegacyBridge();
 
   return (
     <nav className={styles.rail} aria-label="Game actions">
@@ -67,7 +66,7 @@ export function LeftRail() {
           size="lg"
           variant="glass"
           active={isRoadBuildingMode}
-          onClick={() => getBridge().onBuildRoad?.()}
+          onClick={() => bridge.current?.onBuildRoad()}
         />
         <IconButton
           icon={<Trash2 size={20} />}
@@ -75,7 +74,7 @@ export function LeftRail() {
           size="lg"
           variant="glass"
           active={isRoadDemolishMode}
-          onClick={() => getBridge().onDemolishRoad?.()}
+          onClick={() => bridge.current?.onDemolishRoad()}
         />
       </div>
 

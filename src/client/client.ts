@@ -98,7 +98,7 @@ import { toErrorMessage } from '../shared/error-utils';
 import { Season } from '../shared/map-config';
 import { MapNavigationUI } from './ui/map-navigation-ui';
 import { MinimapUI } from './ui/minimap-ui';
-import { ClientBridge, registerClientCallbacks } from './bridge/client-bridge';
+import { ClientBridge, type ClientCallbacks } from './bridge/client-bridge';
 import type { GameSettings } from './store/game-store';
 import { useUiStore } from './store/ui-store';
 import { useBuildingStore } from './store/building-store';
@@ -263,7 +263,7 @@ export class StarpeaceClient {
     this.debugWire.getState = () => this.getDebugState(); // [E2E-DEBUG]
     this.soundManager = new SoundManager();
     this.keyBindingRegistry = new KeyBindingRegistry();
-    registerClientCallbacks({
+    const callbacks: Partial<ClientCallbacks> = {
       onBuildMenu: () => this.openBuildMenu(),
       onBuildRoad: () => this.toggleRoadBuildingMode(),
       onDemolishRoad: () => this.toggleRoadDemolishMode(),
@@ -372,7 +372,12 @@ export class StarpeaceClient {
           this.sendMessage({ type: msgType });
         }
       },
-    });
+    };
+
+    // Inject callbacks into React context via bridge setter
+    if (window.__spoSetBridgeCallbacks) {
+      window.__spoSetBridgeCallbacks(callbacks as ClientCallbacks);
+    }
 
     this.setupAudio();
     this.init();
@@ -969,7 +974,7 @@ export class StarpeaceClient {
       cash: '0', incomePerHour: '0', ranking: 0, buildingCount: 0, maxBuildings: 0,
     });
 
-    // Profile company switching is handled via registerClientCallbacks.onSwitchCompany
+    // Profile company switching is handled via bridge callbacks (onSwitchCompany)
 
     // Create minimap and wire to renderer
     this.minimapUI = new MinimapUI();
@@ -1122,7 +1127,7 @@ export class StarpeaceClient {
 
       // Request detailed building info using visualClass from ObjectsInArea
       const details = await this.requestBuildingDetails(x, y, visualClass || '0');
-      // Show building in React panel (callbacks registered centrally via registerClientCallbacks)
+      // Show building in React panel via ClientBridge
       const displayDetails = details ?? {
         buildingId: response.building.buildingId || '',
         buildingName: response.building.buildingName || 'Building',

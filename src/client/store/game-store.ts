@@ -4,7 +4,7 @@
  */
 
 import { create } from 'zustand';
-import type { CompanyInfo } from '@/shared/types';
+import type { CompanyInfo, WorldInfo } from '@/shared/types';
 
 /* ---- Types ---- */
 
@@ -64,6 +64,11 @@ interface GameState {
   isRoadBuildingMode: boolean;
   isRoadDemolishMode: boolean;
 
+  // Login flow (replaces window.__spoLoginHandlers)
+  loginWorlds: WorldInfo[];
+  loginStage: 'auth' | 'worlds' | 'companies';
+  loginLoading: boolean;
+
   // Company creation
   companyCreationClusters: string[];
 
@@ -80,6 +85,10 @@ interface GameState {
   setTycoonStats: (stats: TycoonStats) => void;
   setRoadBuildingMode: (active: boolean) => void;
   setRoadDemolishMode: (active: boolean) => void;
+  setLoginWorlds: (worlds: WorldInfo[]) => void;
+  setLoginCompanies: (companies: CompanyInfo[]) => void;
+  setLoginStage: (stage: 'auth' | 'worlds' | 'companies') => void;
+  setLoginLoading: (loading: boolean) => void;
   setCompanyCreationClusters: (clusters: string[]) => void;
   updateSettings: (partial: Partial<GameSettings>) => void;
   reset: () => void;
@@ -97,6 +106,9 @@ export const useGameStore = create<GameState>((set) => ({
   tycoonStats: null,
   isRoadBuildingMode: false,
   isRoadDemolishMode: false,
+  loginWorlds: [],
+  loginStage: 'auth',
+  loginLoading: false,
   companyCreationClusters: [],
   settings: { ...DEFAULT_SETTINGS },
 
@@ -112,6 +124,11 @@ export const useGameStore = create<GameState>((set) => ({
 
   setRoadBuildingMode: (active) => set({ isRoadBuildingMode: active }),
   setRoadDemolishMode: (active) => set({ isRoadDemolishMode: active }),
+
+  setLoginWorlds: (worlds) => set({ loginWorlds: worlds, loginStage: 'worlds', loginLoading: false }),
+  setLoginCompanies: (companies) => set({ companies, loginStage: 'companies', loginLoading: false }),
+  setLoginStage: (stage) => set({ loginStage: stage }),
+  setLoginLoading: (loading) => set({ loginLoading: loading }),
 
   setCompanyCreationClusters: (clusters) => set({ companyCreationClusters: clusters }),
 
@@ -132,6 +149,9 @@ export const useGameStore = create<GameState>((set) => ({
       tycoonStats: null,
       isRoadBuildingMode: false,
       isRoadDemolishMode: false,
+      loginWorlds: [],
+      loginStage: 'auth',
+      loginLoading: false,
       companyCreationClusters: [],
     }),
 }));

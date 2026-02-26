@@ -9,6 +9,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { X, Search } from 'lucide-react';
 import { useUiStore } from '../../store/ui-store';
 import { useBuildingStore } from '../../store/building-store';
+import { useLegacyBridge } from '../../context';
 import styles from './ConnectionPickerModal.module.css';
 
 /** Facility role bitmask values (from Voyager TFacilityRoleSet) */
@@ -36,6 +37,7 @@ export function ConnectionPickerModal() {
   });
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
 
+  const bridge = useLegacyBridge();
   const companyRef = useRef<HTMLInputElement>(null);
 
   // Reset form when modal opens
@@ -70,22 +72,19 @@ export function ConnectionPickerModal() {
     if (roles.buyer) rolesMask |= ROLE_BUYER;
     if (roles.exporter) rolesMask |= ROLE_EXPORTER;
 
-    const bridge = window.__spoReactCallbacks;
-    if (bridge?.onConnectionSearch) {
-      bridge.onConnectionSearch(
-        picker.buildingX,
-        picker.buildingY,
-        picker.fluidId,
-        picker.direction,
-        {
-          company: company || undefined,
-          town: town || undefined,
-          maxResults: parseInt(maxResults) || 20,
-          roles: rolesMask || 255,
-        },
-      );
-    }
-  }, [picker, company, town, maxResults, roles]);
+    bridge.current?.onConnectionSearch(
+      picker.buildingX,
+      picker.buildingY,
+      picker.fluidId,
+      picker.direction,
+      {
+        company: company || undefined,
+        town: town || undefined,
+        maxResults: parseInt(maxResults) || 20,
+        roles: rolesMask || 255,
+      },
+    );
+  }, [picker, company, town, maxResults, roles, bridge]);
 
   const toggleIndex = useCallback((index: number) => {
     setSelectedIndices((prev) => {
@@ -118,12 +117,9 @@ export function ConnectionPickerModal() {
       .filter(Boolean)
       .map((r) => ({ x: r.x, y: r.y }));
 
-    const bridge = window.__spoReactCallbacks;
-    if (bridge?.onConnectionConnect) {
-      bridge.onConnectionConnect(picker.fluidId, picker.direction, coords);
-    }
+    bridge.current?.onConnectionConnect(picker.fluidId, picker.direction, coords);
     handleClose();
-  }, [picker, selectedIndices, handleClose]);
+  }, [picker, selectedIndices, handleClose, bridge]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

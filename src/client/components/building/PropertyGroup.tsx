@@ -18,6 +18,7 @@ import {
   getTemplateForVisualClass,
 } from '@/shared/building-details';
 import { useBuildingStore } from '../../store/building-store';
+import { useLegacyBridge } from '../../context';
 import styles from './PropertyGroup.module.css';
 
 interface PropertyGroupProps {
@@ -99,24 +100,22 @@ function DefinedProperties({
   buildingX,
   buildingY,
 }: DefinedPropertiesProps) {
+  const bridge = useLegacyBridge();
   const rendered = new Set<string>();
   const elements: JSX.Element[] = [];
 
-  const getBridge = () =>
-    (window.__spoReactCallbacks ?? {}) as Record<string, (...args: unknown[]) => void>;
-
   const handlePropertyChange = useCallback(
     (propertyName: string, value: number) => {
-      getBridge().onSetBuildingProperty?.(buildingX, buildingY, propertyName, String(value));
+      bridge.current?.onSetBuildingProperty(buildingX, buildingY, propertyName, String(value));
     },
-    [buildingX, buildingY],
+    [buildingX, buildingY, bridge],
   );
 
   const handleActionButton = useCallback(
     (actionId: string) => {
-      getBridge().onBuildingAction?.(actionId);
+      bridge.current?.onBuildingAction(actionId);
     },
-    [],
+    [bridge],
   );
 
   for (const def of definitions) {
@@ -553,12 +552,10 @@ function UpgradeActions({
   buildingX: number;
   buildingY: number;
 }) {
+  const bridge = useLegacyBridge();
   const [qty, setQty] = useState(1);
   const vm = new Map<string, string>();
   for (const p of properties) vm.set(p.name, p.value);
-
-  const getBridge = () =>
-    (window.__spoReactCallbacks ?? {}) as Record<string, (...args: unknown[]) => void>;
 
   const isUpgrading = vm.get('Upgrading') === '1' || vm.get('Upgrading')?.toLowerCase() === 'yes';
   const currentLevel = parseInt(vm.get('UpgradeLevel') ?? '0');
@@ -579,7 +576,7 @@ function UpgradeActions({
           {isUpgrading && pending > 0 ? (
             <button
               className={styles.upgradeStopBtn}
-              onClick={() => getBridge().onUpgradeBuilding?.(buildingX, buildingY, 'STOP_UPGRADE')}
+              onClick={() => bridge.current?.onUpgradeBuilding(buildingX, buildingY, 'STOP_UPGRADE')}
             >
               STOP
             </button>
@@ -599,7 +596,7 @@ function UpgradeActions({
                 <button className={styles.upgradeBtn} onClick={() => setQty((q) => Math.min(remaining, q + 1))}>+</button>
                 <button
                   className={styles.upgradeOkBtn}
-                  onClick={() => getBridge().onUpgradeBuilding?.(buildingX, buildingY, 'START_UPGRADE', qty)}
+                  onClick={() => bridge.current?.onUpgradeBuilding(buildingX, buildingY, 'START_UPGRADE', qty)}
                 >
                   OK
                 </button>
@@ -610,7 +607,7 @@ function UpgradeActions({
           {currentLevel > 0 && (
             <button
               className={styles.downgradeBtn}
-              onClick={() => getBridge().onUpgradeBuilding?.(buildingX, buildingY, 'DOWNGRADE')}
+              onClick={() => bridge.current?.onUpgradeBuilding(buildingX, buildingY, 'DOWNGRADE')}
             >
               Downgrade
             </button>

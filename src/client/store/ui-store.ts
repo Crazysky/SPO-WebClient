@@ -4,6 +4,7 @@
  */
 
 import { create } from 'zustand';
+import type { BuildingCategory, BuildingInfo } from '@/shared/types';
 
 export type RightPanelType = 'building' | 'mail' | 'search' | 'politics' | 'transport';
 export type LeftPanelType = 'empire';
@@ -19,6 +20,10 @@ interface UiState {
   modal: ModalType | null;
   /** Payload for confirmation dialogs */
   confirmPayload: { title: string; message: string; onConfirm: () => void } | null;
+
+  // Build menu data (replaces window.__spoBuildMenuHandlers)
+  buildMenuCategories: BuildingCategory[];
+  buildMenuFacilities: BuildingInfo[];
 
   // Command palette
   commandPaletteOpen: boolean;
@@ -40,6 +45,11 @@ interface UiState {
   closeModal: () => void;
   requestConfirm: (title: string, message: string, onConfirm: () => void) => void;
 
+  // Actions — Build menu data
+  setBuildMenuCategories: (cats: BuildingCategory[]) => void;
+  setBuildMenuFacilities: (facs: BuildingInfo[]) => void;
+  clearBuildMenuData: () => void;
+
   // Actions — Command palette
   openCommandPalette: () => void;
   closeCommandPalette: () => void;
@@ -57,6 +67,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   leftPanel: null,
   modal: null,
   confirmPayload: null,
+  buildMenuCategories: [],
+  buildMenuFacilities: [],
   commandPaletteOpen: false,
   mobileTab: 'empire',
 
@@ -82,6 +94,11 @@ export const useUiStore = create<UiState>((set, get) => ({
   closeModal: () => set({ modal: null, confirmPayload: null }),
   requestConfirm: (title, message, onConfirm) =>
     set({ modal: 'confirm', confirmPayload: { title, message, onConfirm } }),
+
+  // Build menu data
+  setBuildMenuCategories: (cats) => set({ buildMenuCategories: cats }),
+  setBuildMenuFacilities: (facs) => set({ buildMenuFacilities: facs }),
+  clearBuildMenuData: () => set({ buildMenuCategories: [], buildMenuFacilities: [] }),
 
   // Command palette
   openCommandPalette: () => set({ commandPaletteOpen: true }),

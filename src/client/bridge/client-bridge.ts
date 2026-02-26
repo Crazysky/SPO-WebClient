@@ -1,12 +1,12 @@
 /**
  * ClientBridge — Adapter between legacy client.ts and React/Zustand.
  *
- * Phase 1: Thin bridge using window globals for bidirectional communication.
- * - Legacy client.ts calls bridge methods to push state into Zustand stores.
- * - React components read from stores and call bridge callbacks to trigger client.ts actions.
+ * Legacy client.ts calls bridge methods to push state into Zustand stores.
+ * React components read from stores and call bridge callbacks (via
+ * LegacyBridgeContext) to trigger client.ts actions.
  *
- * Phase 2+: This will be replaced by a proper React context provider
- * that directly wraps the WebSocket client.
+ * The ClientCallbacks interface is the type contract for the bridge —
+ * consumed by LegacyBridgeContext.tsx.
  */
 
 import { useGameStore, type GameSettings } from '../store/game-store';
@@ -119,29 +119,6 @@ export interface ClientCallbacks {
   onProfileRequestTab: (tab: string) => void;
 }
 
-declare global {
-  interface Window {
-    __spoReactCallbacks?: Partial<ClientCallbacks>;
-    __spoLoginHandlers?: {
-      showWorlds: (worlds: WorldInfo[]) => void;
-      showCompanies: (companies: CompanyInfo[]) => void;
-      setLoading: (loading: boolean) => void;
-    };
-    __spoBuildMenuHandlers?: {
-      setCategories: (cats: BuildingCategory[]) => void;
-      setFacilities: (facs: BuildingInfo[]) => void;
-    };
-  }
-}
-
-/**
- * Register callbacks from the legacy client so React components can invoke them.
- * Called once during client.ts initialization.
- */
-export function registerClientCallbacks(callbacks: Partial<ClientCallbacks>): void {
-  window.__spoReactCallbacks = callbacks;
-}
-
 /**
  * Store-pushing methods — called by the legacy client.ts message handler
  * to sync game state into Zustand stores for React consumption.
@@ -221,16 +198,15 @@ export const ClientBridge = {
   // ---- Login flow ----
 
   showWorlds(worlds: WorldInfo[]): void {
-    window.__spoLoginHandlers?.showWorlds(worlds);
+    useGameStore.getState().setLoginWorlds(worlds);
   },
 
   showCompanies(companies: CompanyInfo[]): void {
-    useGameStore.getState().setCompanies(companies);
-    window.__spoLoginHandlers?.showCompanies(companies);
+    useGameStore.getState().setLoginCompanies(companies);
   },
 
   setLoginLoading(loading: boolean): void {
-    window.__spoLoginHandlers?.setLoading(loading);
+    useGameStore.getState().setLoginLoading(loading);
   },
 
   // ---- Tycoon stats ----
@@ -254,11 +230,11 @@ export const ClientBridge = {
   // ---- Build menu ----
 
   setBuildMenuCategories(categories: BuildingCategory[]): void {
-    window.__spoBuildMenuHandlers?.setCategories(categories);
+    useUiStore.getState().setBuildMenuCategories(categories);
   },
 
   setBuildMenuFacilities(facilities: BuildingInfo[]): void {
-    window.__spoBuildMenuHandlers?.setFacilities(facilities);
+    useUiStore.getState().setBuildMenuFacilities(facilities);
   },
 
   // ---- Building ----
@@ -401,7 +377,7 @@ export const ClientBridge = {
         const resp = msg as WsRespMailDraftSaved;
         if (resp.success) {
           mail.clearCompose();
-          mail.setFolder('Drafts');
+          mail.setFolder('Draft');
           showToast('Draft saved', 'info');
         }
         break;

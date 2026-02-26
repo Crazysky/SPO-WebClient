@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "installedAt": "2026-02-16T14:46:34.470Z",
+  "installedAt": "2026-02-26T19:17:47.008Z",
   "source": "skillsmp.com",
   "skills": [
     {
@@ -130,6 +130,126 @@
       "stars": 34,
       "path": "c:\\Users\\RobinALEMAN\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\mobile-ux-optimizer\\SKILL.md",
       "githubUrl": "https://github.com/erichowens/some_claude_skills/tree/main/.claude/skills/mobile-ux-optimizer"
+    },
+    {
+      "name": "store-data-structures",
+      "skillName": "store-data-structures",
+      "author": "lobehub",
+      "stars": 72619,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\store-data-structures\\SKILL.md",
+      "githubUrl": "https://github.com/lobehub/lobehub/tree/canary/.agents/skills/store-data-structures"
+    },
+    {
+      "name": "react-state-management",
+      "skillName": "react-state-management",
+      "author": "wshobson",
+      "stars": 29339,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\react-state-management\\SKILL.md",
+      "githubUrl": "https://github.com/wshobson/agents/tree/main/plugins/frontend-mobile-development/skills/react-state-management"
+    },
+    {
+      "name": "accessibility-compliance",
+      "skillName": "accessibility-compliance",
+      "author": "wshobson",
+      "stars": 29339,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\accessibility-compliance\\SKILL.md",
+      "githubUrl": "https://github.com/wshobson/agents/tree/main/plugins/ui-design/skills/accessibility-compliance"
+    },
+    {
+      "name": "accessibility-auditor",
+      "skillName": "accessibility-auditor",
+      "author": "davila7",
+      "stars": 21281,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\accessibility-auditor\\SKILL.md",
+      "githubUrl": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/creative-design/accessibility-auditor"
+    },
+    {
+      "name": "zustand-store-ts",
+      "skillName": "zustand-store-ts",
+      "author": "sickn33",
+      "stars": 15291,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\zustand-store-ts\\SKILL.md",
+      "githubUrl": "https://github.com/sickn33/antigravity-awesome-skills/tree/main/web-app/public/skills/zustand-store-ts"
+    },
+    {
+      "name": "react-expert",
+      "skillName": "react-expert",
+      "author": "Jeffallan",
+      "stars": 3719,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\react-expert\\SKILL.md",
+      "githubUrl": "https://github.com/Jeffallan/claude-skills/tree/main/skills/react-expert"
+    },
+    {
+      "name": "react-patterns",
+      "skillName": "cache-components",
+      "author": "vercel",
+      "stars": 137971,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\react-patterns\\SKILL.md",
+      "githubUrl": "https://github.com/vercel/next.js/tree/canary/.claude-plugin/plugins/cache-components/skills/cache-components"
+    },
+    {
+      "name": "pwa-development-v2",
+      "skillName": "pwa-development",
+      "author": "alinaqi",
+      "stars": 509,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\pwa-development-v2\\SKILL.md",
+      "githubUrl": "https://github.com/alinaqi/claude-bootstrap/tree/main/skills/pwa-development"
+    },
+    {
+      "name": "react-best-practices",
+      "skillName": "react-best-practices",
+      "author": "skillcreatorai",
+      "stars": 842,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\react-best-practices\\SKILL.md",
+      "githubUrl": "https://github.com/skillcreatorai/Ai-Agent-Skills/tree/main/skills/react-best-practices"
+    },
+    {
+      "name": "design-system-patterns",
+      "skillName": "core-components",
+      "author": "davila7",
+      "stars": 21281,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\design-system-patterns\\SKILL.md",
+      "githubUrl": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/development/core-components"
+    },
+    {
+      "name": "interaction-design",
+      "skillName": "interaction-design",
+      "author": "wshobson",
+      "stars": 29339,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\interaction-design\\SKILL.md",
+      "githubUrl": "https://github.com/wshobson/agents/tree/main/plugins/ui-design/skills/interaction-design"
+    },
+    {
+      "name": "animation-micro-interaction-pack",
+      "skillName": "animation-micro-interaction-pack",
+      "author": "patricio0312rev",
+      "stars": 10,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\animation-micro-interaction-pack\\SKILL.md",
+      "githubUrl": "https://github.com/patricio0312rev/skills/tree/main/frontend/animation-micro-interaction-pack"
+    },
+    {
+      "name": "ui-ux-pro-max",
+      "skillName": "ui-ux-pro-max",
+      "author": "davila7",
+      "stars": 21281,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\ui-ux-pro-max\\SKILL.md",
+      "githubUrl": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/creative-design/ui-ux-pro-max"
+    },
+    {
+      "name": "pwa-expert",
+      "skillName": "pwa-expert",
+      "author": "curiositech",
+      "stars": 40,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\pwa-expert\\SKILL.md",
+      "githubUrl": "https://github.com/curiositech/some_claude_skills/tree/main/.claude/skills/pwa-expert"
+    },
+    {
+      "name": "web-accessibility",
+      "skillName": "screen-reader-testing",
+      "author": "wshobson",
+      "stars": 29339,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills-skillsmp\\web-accessibility\\SKILL.md",
+      "githubUrl": "https://github.com/wshobson/agents/tree/main/plugins/accessibility-compliance/skills/screen-reader-testing"
     }
   ]
 }

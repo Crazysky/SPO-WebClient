@@ -15,26 +15,27 @@ Create polished, performant animations and micro-interactions.
 **Loading**: Pulse, skeleton waves, progress bars
 **Gestures**: Ripple on click, drag feedback, swipe indicators
 
-## CSS Animations
+## Tailwind Animations
 
 ```css
-/* Custom animations */
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-@keyframes scaleIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-@keyframes ripple { to { transform: scale(4); opacity: 0; } }
+/* tailwind.config.js */
+animation: {
+  'fade-in': 'fadeIn 0.5s ease-out',
+  'slide-up': 'slideUp 0.3s ease-out',
+  'scale-in': 'scaleIn 0.2s ease-out',
+}
+```
 
-.animate-fadeIn { animation: fadeIn 0.5s ease-out; }
-.animate-slideUp { animation: slideUp 0.3s ease-out; }
-.animate-scaleIn { animation: scaleIn 0.2s ease-out; }
+## Framer Motion Examples
+
+```tsx
+<motion.div
+  initial={{ opacity: 0, y: 20 }}
+  animate={{ opacity: 1, y: 0 }}
+  transition={{ duration: 0.3 }}
+/>
 ```
 
 ## Best Practices
 
-- Use 200-300ms for micro-interactions
-- Respect prefers-reduced-motion
-- Animate transform/opacity for performance (GPU-accelerated)
-- Add easing functions (avoid linear)
-- Stagger list items for entrance animations
-- Provide hover/active/focus states for all interactive elements
-- Use will-change sparingly
+Use 200-300ms for micro-interactions, respect prefers-reduced-motion, animate transform/opacity for performance, add easing functions, stagger list items, provide hover/active states.

@@ -11,8 +11,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, ArrowLeft } from 'lucide-react';
 import { useUiStore } from '../../store/ui-store';
+import { useLegacyBridge } from '../../context';
 import { GlassCard, Skeleton } from '../common';
-import type { BuildingCategory, BuildingInfo } from '@/shared/types';
+import type { BuildingCategory } from '@/shared/types';
 import styles from './BuildMenu.module.css';
 
 type Phase = 'categories' | 'facilities';
@@ -20,60 +21,47 @@ type Phase = 'categories' | 'facilities';
 export function BuildMenu() {
   const modal = useUiStore((s) => s.modal);
   const closeModal = useUiStore((s) => s.closeModal);
+  const categories = useUiStore((s) => s.buildMenuCategories);
+  const facilities = useUiStore((s) => s.buildMenuFacilities);
 
+  const bridge = useLegacyBridge();
   const [phase, setPhase] = useState<Phase>('categories');
-  const [categories, setCategories] = useState<BuildingCategory[]>([]);
-  const [facilities, setFacilities] = useState<BuildingInfo[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-
-  const getBridge = useCallback(
-    () => (window.__spoReactCallbacks ?? {}) as Record<string, (...args: unknown[]) => void>,
-    [],
-  );
 
   // Load categories when opened
   useEffect(() => {
     if (modal !== 'buildMenu') return;
     setPhase('categories');
     setIsLoading(true);
-    // Request categories from bridge
-    getBridge().onRequestBuildingCategories?.();
-  }, [modal, getBridge]);
+    bridge.current?.onRequestBuildingCategories();
+  }, [modal, bridge]);
 
-  // Register handlers for receiving data from bridge
+  // Stop loading when store receives data
   useEffect(() => {
-    window.__spoBuildMenuHandlers = {
-      setCategories: (cats: BuildingCategory[]) => {
-        setCategories(cats);
-        setIsLoading(false);
-      },
-      setFacilities: (facs: BuildingInfo[]) => {
-        setFacilities(facs);
-        setIsLoading(false);
-      },
-    };
-    return () => {
-      window.__spoBuildMenuHandlers = undefined;
-    };
-  }, []);
+    if (categories.length > 0) setIsLoading(false);
+  }, [categories]);
+
+  useEffect(() => {
+    if (facilities.length > 0) setIsLoading(false);
+  }, [facilities]);
 
   const handleCategorySelect = useCallback(
     (category: BuildingCategory) => {
       setSelectedCategory(category.kindName);
       setPhase('facilities');
       setIsLoading(true);
-      getBridge().onRequestBuildingFacilities?.(category.kind, category.cluster);
+      bridge.current?.onRequestBuildingFacilities(category.kind, category.cluster);
     },
-    [getBridge],
+    [bridge],
   );
 
   const handleFacilitySelect = useCallback(
-    (facility: BuildingInfo) => {
+    (facility: { facilityClass: string; visualClassId: number; available: boolean }) => {
       closeModal();
-      getBridge().onPlaceBuilding?.(facility.facilityClass, facility.visualClassId);
+      bridge.current?.onPlaceBuilding(facility.facilityClass, facility.visualClassId);
     },
-    [closeModal, getBridge],
+    [closeModal, bridge],
   );
 
   if (modal !== 'buildMenu') return null;

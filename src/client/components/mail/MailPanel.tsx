@@ -8,6 +8,7 @@
 import { useState, useCallback } from 'react';
 import { Send, Trash2, Reply, PenSquare } from 'lucide-react';
 import { useMailStore } from '../../store/mail-store';
+import { useLegacyBridge } from '../../context';
 import { TabBar, Skeleton } from '../common';
 import type { MailFolder, MailMessageHeader } from '@/shared/types';
 import styles from './MailPanel.module.css';
@@ -39,30 +40,26 @@ export function MailPanel() {
   const [localSubject, setLocalSubject] = useState(composeSubject);
   const [localBody, setLocalBody] = useState(composeBody);
 
-  // Bridge callbacks
-  const getBridge = useCallback(
-    () => (window.__spoReactCallbacks ?? {}) as Record<string, (...args: unknown[]) => void>,
-    [],
-  );
+  const bridge = useLegacyBridge();
 
   const handleReadMessage = useCallback(
     (msg: MailMessageHeader) => {
-      getBridge().onMailReadMessage?.(msg.messageId);
+      bridge.current?.onMailReadMessage(msg.messageId);
     },
-    [getBridge],
+    [bridge],
   );
 
   const handleSend = useCallback(() => {
-    getBridge().onMailSend?.(localTo, localSubject, localBody);
+    bridge.current?.onMailSend(localTo, localSubject, localBody);
     clearCompose();
-  }, [localTo, localSubject, localBody, clearCompose, getBridge]);
+  }, [localTo, localSubject, localBody, clearCompose, bridge]);
 
   const handleDelete = useCallback(() => {
     if (currentMessage) {
-      getBridge().onMailDelete?.(currentMessage.messageId);
+      bridge.current?.onMailDelete(currentMessage.messageId);
       setView('list');
     }
-  }, [currentMessage, getBridge, setView]);
+  }, [currentMessage, bridge, setView]);
 
   const folderTabs = FOLDERS.map((f) => ({
     id: f.id,
