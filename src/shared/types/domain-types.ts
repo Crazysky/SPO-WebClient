@@ -501,8 +501,17 @@ export interface TycoonProfileFull {
  * Uses existing TycoonProfileFull fields + level progression constants from TycoonLevels.pas.
  */
 export interface CurriculumData {
+  tycoonName: string;
   currentLevel: number;
   currentLevelName: string;
+  currentLevelDescription: string;
+  nextLevelName: string;
+  nextLevelDescription: string;
+  nextLevelRequirements: string;
+  canUpgrade: boolean;
+  isUpgradeRequested: boolean;
+  fortune: string;
+  averageProfit: string;
   prestige: number;
   facPrestige: number;
   researchPrestige: number;
@@ -512,7 +521,21 @@ export interface CurriculumData {
   facMax: number;
   area: number;
   nobPoints: number;
+  rankings: CurriculumRanking[];
+  curriculumItems: CurriculumItem[];
 }
+
+export interface CurriculumRanking {
+  category: string;
+  rank: number | null;
+}
+
+export interface CurriculumItem {
+  item: string;
+  prestige: number;
+}
+
+export type CurriculumActionType = 'resetAccount' | 'abandonRole' | 'upgradeLevel' | 'rebuildLinks';
 
 // =============================================================================
 // PROFILE TABS - BANK ACCOUNT
@@ -531,6 +554,9 @@ export interface LoanInfo {
 export interface BankAccountData {
   balance: string;
   maxLoan: string;
+  totalLoans: string;
+  maxTransfer: string;
+  totalNextPayment: string;
   loans: LoanInfo[];
   defaultInterest: number;
   defaultTerm: number;
@@ -576,6 +602,7 @@ export interface CompanyListItem {
 export interface CompaniesData {
   companies: CompanyListItem[];
   currentCompany: string;
+  worldName: string;
 }
 
 // =============================================================================

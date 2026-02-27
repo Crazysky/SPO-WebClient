@@ -32,6 +32,7 @@ import type {
   CompaniesData,
   AutoConnectionsData,
   AutoConnectionActionType,
+  CurriculumActionType,
   PolicyData,
   PoliticsData,
   TransportData,
@@ -197,6 +198,8 @@ export enum WsMessageType {
   RESP_PROFILE_POLICY = 'RESP_PROFILE_POLICY',
   REQ_PROFILE_POLICY_SET = 'REQ_PROFILE_POLICY_SET',
   RESP_PROFILE_POLICY_SET = 'RESP_PROFILE_POLICY_SET',
+  REQ_PROFILE_CURRICULUM_ACTION = 'REQ_PROFILE_CURRICULUM_ACTION',
+  RESP_PROFILE_CURRICULUM_ACTION = 'RESP_PROFILE_CURRICULUM_ACTION',
 
   // Politics
   REQ_POLITICS_DATA = 'REQ_POLITICS_DATA',
@@ -939,6 +942,19 @@ export interface WsReqProfilePolicySet extends WsMessage {
 
 export interface WsRespProfilePolicySet extends WsMessage {
   type: WsMessageType.RESP_PROFILE_POLICY_SET;
+  success: boolean;
+  message?: string;
+}
+
+// --- Curriculum Action ---
+export interface WsReqProfileCurriculumAction extends WsMessage {
+  type: WsMessageType.REQ_PROFILE_CURRICULUM_ACTION;
+  action: CurriculumActionType;
+  value?: boolean;
+}
+
+export interface WsRespProfileCurriculumAction extends WsMessage {
+  type: WsMessageType.RESP_PROFILE_CURRICULUM_ACTION;
   success: boolean;
   message?: string;
 }

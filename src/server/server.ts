@@ -134,6 +134,8 @@ import {
   WsRespProfilePolicy,
   WsReqProfilePolicySet,
   WsRespProfilePolicySet,
+  WsReqProfileCurriculumAction,
+  WsRespProfileCurriculumAction,
   WsReqPoliticsData,
   WsRespPoliticsData,
   WsReqPoliticsVote,
@@ -146,6 +148,7 @@ import {
   WsRespCreateCompany,
   BankActionType,
   AutoConnectionActionType,
+  CurriculumActionType,
 } from '../shared/types';
 import { toErrorMessage } from '../shared/error-utils';
 
@@ -2336,6 +2339,20 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
         const result = await session.setPolicyStatus(polReq.tycoonName, polReq.status);
         const response: WsRespProfilePolicySet = {
           type: WsMessageType.RESP_PROFILE_POLICY_SET,
+          wsRequestId: msg.wsRequestId,
+          success: result.success,
+          message: result.message,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_PROFILE_CURRICULUM_ACTION: {
+        const cvReq = msg as WsReqProfileCurriculumAction;
+        console.log(`[Gateway] Curriculum action: ${cvReq.action}`);
+        const result = await session.executeCurriculumAction(cvReq.action as CurriculumActionType, cvReq.value);
+        const response: WsRespProfileCurriculumAction = {
+          type: WsMessageType.RESP_PROFILE_CURRICULUM_ACTION,
           wsRequestId: msg.wsRequestId,
           success: result.success,
           message: result.message,

@@ -29,6 +29,7 @@ import type {
   ConnectionSearchResult,
   BankActionType,
   AutoConnectionActionType,
+  CurriculumActionType,
 } from '@/shared/types';
 import {
   WsMessageType,
@@ -48,6 +49,7 @@ import {
   type WsRespProfileAutoConnectionAction,
   type WsRespProfilePolicy,
   type WsRespProfilePolicySet,
+  type WsRespProfileCurriculumAction,
   type WsRespSearchMenuHome,
   type WsRespSearchMenuTowns,
   type WsRespSearchMenuTycoonProfile,
@@ -133,6 +135,8 @@ export interface ClientCallbacks {
   onProfileBankAction: (action: BankActionType, amount?: string, toTycoon?: string, reason?: string, loanIndex?: number) => void;
   onProfileAutoConnectionAction: (action: AutoConnectionActionType, fluidId: string, suppliers?: string) => void;
   onProfilePolicySet: (tycoonName: string, status: number) => void;
+  onProfileCurriculumAction: (action: CurriculumActionType, value?: boolean) => void;
+  onProfileSwitchCompany: (companyId: number, companyName: string, ownerRole: string) => void;
 
   // Politics
   onLaunchCampaign: (buildingX: number, buildingY: number) => void;
@@ -483,6 +487,12 @@ export const ClientBridge = {
       case WsMessageType.RESP_PROFILE_POLICY_SET: {
         const resp = msg as WsRespProfilePolicySet;
         showToast(resp.message || 'Policy updated', resp.success ? 'success' : 'error');
+        if (resp.success) profile.incrementRefresh();
+        break;
+      }
+      case WsMessageType.RESP_PROFILE_CURRICULUM_ACTION: {
+        const resp = msg as WsRespProfileCurriculumAction;
+        showToast(resp.message || 'Action completed', resp.success ? 'success' : 'error');
         if (resp.success) profile.incrementRefresh();
         break;
       }

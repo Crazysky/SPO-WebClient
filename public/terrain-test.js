@@ -123,6 +123,23 @@
     const hex = "0x" + landId.toString(16).toUpperCase().padStart(2, "0");
     return `${hex} (${landClassName(decoded.landClass)}, ${landTypeName(decoded.landType)}, var=${decoded.landVar})`;
   }
+  var LAND_TYPE_ROTATION = [
+    // NORTH (identity)
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+    // EAST (90° CW): N→E, E→S, S→W, W→N, NEo→SEo, SEo→SWo, SWo→NWo, NWo→NEo, same inner
+    [0, 2, 3, 4, 1, 6, 7, 8, 5, 10, 11, 12, 9, 13],
+    // SOUTH (180°): N→S, E→W, S→N, W→E, NEo→SWo, SEo→NWo, SWo→NEo, NWo→SEo, same inner
+    [0, 3, 4, 1, 2, 7, 8, 5, 6, 11, 12, 9, 10, 13],
+    // WEST (270° CW): N→W, E→N, S→E, W→S, NEo→NWo, SEo→NEo, SWo→SEo, NWo→SWo, same inner
+    [0, 4, 1, 2, 3, 8, 5, 6, 7, 12, 9, 10, 11, 13]
+  ];
+  function rotateLandId(landId, rotation) {
+    if (rotation === 0) return landId;
+    const landType = landTypeOf(landId);
+    if (landType >= LAND_TYPE_ROTATION[rotation].length) return landId;
+    const rotatedType = LAND_TYPE_ROTATION[rotation][landType];
+    return landId & LND_CLASS_MASK | rotatedType << LND_TYPE_SHIFT | landId & LND_VAR_MASK;
+  }
 
   // src/client/renderer/terrain-loader.ts
   var TerrainLoader = class {
@@ -2081,6 +2098,9 @@
           if (isSpecialTile(textureId)) {
             textureId = textureId & FLAT_MASK2;
           }
+          if (this.rotation !== 0 /* NORTH */) {
+            textureId = rotateLandId(textureId, this.rotation);
+          }
           const screenPos = this.coordMapper.mapToScreen(
             i,
             j,
@@ -2125,6 +2145,9 @@
           let textureId = this.terrainLoader.getTextureId(j, i);
           if (isSpecialTile(textureId)) {
             textureId = textureId & FLAT_MASK2;
+          }
+          if (this.rotation !== 0 /* NORTH */) {
+            textureId = rotateLandId(textureId, this.rotation);
           }
           const screenPos = this.coordMapper.mapToScreen(
             i,

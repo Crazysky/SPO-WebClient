@@ -1660,16 +1660,137 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
   // ===========================================================================
 
   /**
-   * Fetch curriculum data — reuses fetchTycoonProfile() since curriculum
-   * displays the same TTycoon properties (level, prestige, etc.).
+   * Fetch curriculum data — fetches TycoonCurriculum.asp and parses all sections:
+   * summary stats, level progression, rankings, and curriculum items.
    */
   public async fetchCurriculumData(): Promise<CurriculumData> {
     const profile = await this.fetchTycoonProfile();
     const levelNames = ['Apprentice', 'Entrepreneur', 'Tycoon', 'Master', 'Paradigm', 'Legend', 'BeyondLegend'];
     const level = Math.min(profile.licenceLevel, levelNames.length - 1);
+
+    // Fetch the raw HTML again for detailed curriculum-specific parsing
+    let html = '';
+    try {
+      html = await this.fetchAspPage('NewTycoon/TycoonCurriculum.asp', { RIWS: '' });
+    } catch {
+      this.log.warn('[Profile] TycoonCurriculum.asp re-fetch for curriculum details failed');
+    }
+
+    return this.parseCurriculumDetails(html, profile, level, levelNames);
+  }
+
+  /**
+   * Parse full curriculum details from TycoonCurriculum.asp HTML.
+   * Extracts: fortune, average profit, level descriptions, rankings, curriculum items.
+   */
+  private parseCurriculumDetails(
+    html: string,
+    profile: TycoonProfileFull,
+    level: number,
+    levelNames: string[]
+  ): CurriculumData {
+    // Fortune & Average Profit — from label/value spans
+    let fortune = profile.budget;
+    let averageProfit = '';
+    const fortuneMatch = /Personal\s+Fortune:\s*(?:<[^>]*>\s*)*\$([^<]+)/i.exec(html);
+    if (fortuneMatch) fortune = fortuneMatch[1].trim().replace(/,/g, '');
+    const profitMatch = /Average\s+Profit[^:]*:\s*(?:<[^>]*>\s*)*\$([^<]+)/i.exec(html);
+    if (profitMatch) averageProfit = '$' + profitMatch[1].trim();
+
+    // Current level description — the <div class=label> text after the level image section
+    let currentLevelDescription = '';
+    // Find the first level description block (after first level image, in the first td)
+    const levelDescMatch = /<td[^>]*valign="top"[^>]*align="left"[^>]*width=190>[\s\S]*?<div\s+class=label>\s*([\s\S]*?)\s*<\/div>\s*(?:<div|$)/i.exec(html);
+    if (levelDescMatch) {
+      // Clean HTML: remove tags, normalize whitespace
+      currentLevelDescription = levelDescMatch[1]
+        .replace(/<[^>]*>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    // Next level name — second <div class=header1>
+    let nextLevelName = '';
+    const headerMatches = html.match(/<div\s+class=header1>\s*([^<]+)/gi);
+    if (headerMatches && headerMatches.length >= 2) {
+      const nextMatch = /<div\s+class=header1>\s*([^<]+)/i.exec(headerMatches[1]);
+      if (nextMatch) nextLevelName = nextMatch[1].trim();
+    }
+
+    // Next level description — label div in the second (right) level td
+    let nextLevelDescription = '';
+    // Split by the header1 divs to find the next level section
+    const nextLevelSectionIdx = html.indexOf(nextLevelName, html.indexOf('Next Level'));
+    if (nextLevelSectionIdx > -1) {
+      const afterNext = html.substring(nextLevelSectionIdx);
+      const descMatch = /<div\s+class=label>\s*([\s\S]*?)\s*<\/div>/i.exec(afterNext);
+      if (descMatch) {
+        nextLevelDescription = descMatch[1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+      }
+    }
+
+    // Next level requirements — after "Requires:" heading
+    let nextLevelRequirements = '';
+    const reqHeaderIdx = html.indexOf('Requires:');
+    if (reqHeaderIdx > -1) {
+      const afterReq = html.substring(reqHeaderIdx);
+      const reqMatch = /<div\s+class=label[^>]*>\s*([\s\S]*?)\s*<\/div>/i.exec(afterReq);
+      if (reqMatch) {
+        nextLevelRequirements = reqMatch[1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+      }
+    }
+
+    // Can upgrade — presence of onAdvanceClick checkbox
+    const canUpgrade = /onAdvanceClick/i.test(html);
+    // Is upgrade requested — checkbox is checked
+    const isUpgradeRequested = canUpgrade && /type="checkbox"[^>]*checked/i.test(html);
+
+    // Rankings — 3-column grid: <td class=label>Category</td><td ... class=value>N</td>
+    const rankings: Array<{ category: string; rank: number | null }> = [];
+    const rankSectionMatch = /in\s+the\s+rankings[\s\S]*?<table[^>]*>([\s\S]*?)<\/table>/i.exec(html);
+    if (rankSectionMatch) {
+      const rankTable = rankSectionMatch[1];
+      const rankCellRegex = /<td\s+class=label>\s*([^<]+)<\/td>\s*<td[^>]*class=value[^>]*>\s*([^<]*)/gi;
+      let rankMatch;
+      while ((rankMatch = rankCellRegex.exec(rankTable)) !== null) {
+        const category = rankMatch[1].trim();
+        const val = rankMatch[2].trim();
+        rankings.push({
+          category,
+          rank: val === '-' || val === '' ? null : parseInt(val, 10) || null,
+        });
+      }
+    }
+
+    // Curriculum Items — table after "Curriculum items" header
+    const curriculumItems: Array<{ item: string; prestige: number }> = [];
+    const currItemsMatch = /Curriculum\s+items[\s\S]*?<table[^>]*>([\s\S]*?)<\/table>/i.exec(html);
+    if (currItemsMatch) {
+      const itemTable = currItemsMatch[1];
+      // Each item row: <td class=value>Item text</td> <td class=value>+/-N</td>
+      const itemRowRegex = /<td[^>]*class=value[^>]*>\s*([\s\S]*?)\s*<\/td>\s*<td[^>]*class=value[^>]*>\s*([^<]+)/gi;
+      let itemMatch;
+      while ((itemMatch = itemRowRegex.exec(itemTable)) !== null) {
+        const item = itemMatch[1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+        const prestige = parseInt(itemMatch[2].trim().replace(/[+,\s]/g, ''), 10) || 0;
+        if (item) {
+          curriculumItems.push({ item, prestige });
+        }
+      }
+    }
+
     return {
+      tycoonName: profile.name,
       currentLevel: level,
       currentLevelName: profile.levelName || levelNames[level] || 'Unknown',
+      currentLevelDescription,
+      nextLevelName,
+      nextLevelDescription,
+      nextLevelRequirements,
+      canUpgrade,
+      isUpgradeRequested,
+      fortune,
+      averageProfit,
       prestige: profile.prestige,
       facPrestige: profile.facPrestige,
       researchPrestige: profile.researchPrestige,
@@ -1679,6 +1800,8 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       facMax: profile.facMax,
       area: profile.area,
       nobPoints: profile.nobPoints,
+      rankings,
+      curriculumItems,
     };
   }
 
@@ -1694,7 +1817,9 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
   /**
    * Parse TycoonBankAccount.asp HTML response.
    * Budget: `var budget = <number>;` in script block.
-   * Loans: TR rows with `lid` attribute containing bank, date, amount, interest, term, slice.
+   * MaxLoan: `var maxVal = new Number(NNN)` in script block.
+   * TotalLoans: `var loans = new Number(NNN)` in script block.
+   * Loan rows: `<tr id="rN" lid="N">` with cells: Bank, Date, Amount, Interest, Term, Next payment.
    */
   private parseBankAccountHtml(html: string): BankAccountData {
     // Extract budget from JS variable
@@ -1704,23 +1829,39 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       balance = budgetMatch[1];
     }
 
-    // Max loan: 2,500,000,000 (hardcoded in original ASP)
-    const maxLoan = '2500000000';
+    // Extract max loan from JS: var maxVal = new Number(NNN)
+    let maxLoan = '2500000000';
+    const maxValMatch = /var\s+maxVal\s*=\s*new\s+Number\((\d+)\)/i.exec(html);
+    if (maxValMatch) {
+      maxLoan = maxValMatch[1];
+    }
 
-    // Parse loan rows
+    // Extract total loans from JS: var loans = new Number(NNN)
+    let totalLoans = '0';
+    const totalLoansMatch = /var\s+loans\s*=\s*new\s+Number\((\d+)\)/i.exec(html);
+    if (totalLoansMatch) {
+      totalLoans = totalLoansMatch[1];
+    }
+
+    // Extract max transfer from "You can transfer up to $X"
+    let maxTransfer = '0';
+    const maxTransferMatch = /You can transfer up to \$([0-9,]+)/i.exec(html);
+    if (maxTransferMatch) {
+      maxTransfer = maxTransferMatch[1].replace(/,/g, '');
+    }
+
+    // Parse loan rows — actual HTML format: <tr id="r0" lid="0">
     const loans: LoanInfo[] = [];
-    // Loan table rows: <tr id="loanN" lid=N> with cells: Bank, Date, Amount, Int, Term, Slice
-    const loanRowRegex = /<tr[^>]*\bid\s*=\s*"?loan(\d+)"?[^>]*\blid\s*=\s*"?(\d+)"?/gi;
+    const loanRowRegex = /<tr[^>]*\bid\s*=\s*"?r(\d+)"?[^>]*\blid\s*=\s*"?(\d+)"?/gi;
     let loanMatch;
     while ((loanMatch = loanRowRegex.exec(html)) !== null) {
       const loanIndex = parseInt(loanMatch[2], 10);
-      // Extract cell values after this row
       const rowStart = loanMatch.index;
       const nextRowIdx = html.indexOf('</tr>', rowStart);
       if (nextRowIdx === -1) continue;
       const rowHtml = html.substring(rowStart, nextRowIdx);
 
-      // Extract TD values in order: Bank, Date, Amount, Interest, Term, Slice
+      // Extract TD values in order: Bank, Date, Amount, Interest, Term, Next payment
       const cellValues: string[] = [];
       const cellRegex = /<td[^>]*>\s*(?:<[^>]*>\s*)*([^<]*)/gi;
       let cellMatch;
@@ -1742,15 +1883,24 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       }
     }
 
-    // Compute interest/term defaults from total existing loans
-    const existingLoanTotal = loans.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
-    const defaultInterest = Math.round((existingLoanTotal + 2_500_000_000) / 100_000_000);
-    let defaultTerm = 200 - Math.round((existingLoanTotal + 2_500_000_000) / 10_000_000);
+    // Total next payment — sum of all loan slices
+    const totalNextPayment = String(
+      loans.reduce((sum, l) => sum + (parseFloat(l.slice) || 0), 0)
+    );
+
+    // Compute interest/term defaults using server-provided totalLoans
+    const existingLoanTotal = parseFloat(totalLoans) || 0;
+    const defaultMaxLoan = parseFloat(maxLoan) || 0;
+    const defaultInterest = Math.round((existingLoanTotal + defaultMaxLoan) / 100_000_000);
+    let defaultTerm = 200 - Math.round((existingLoanTotal + defaultMaxLoan) / 10_000_000);
     if (defaultTerm < 5) defaultTerm = 5;
 
     return {
       balance,
       maxLoan,
+      totalLoans,
+      maxTransfer,
+      totalNextPayment,
       loans,
       defaultInterest,
       defaultTerm,
@@ -1933,10 +2083,12 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
         RIWS: '',
       });
       const companies = this.parseCompaniesHtml(html);
-      return { companies, currentCompany };
+      const worldName = this.currentWorldInfo?.name || '';
+      return { companies, currentCompany, worldName };
     } catch (e) {
       this.log.warn('[Companies] ASP fetch failed:', e);
-      return { companies: [], currentCompany };
+      const worldName = this.currentWorldInfo?.name || '';
+      return { companies: [], currentCompany, worldName };
     }
   }
 
@@ -2240,6 +2392,88 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       });
 
       return { success: true };
+    } catch (e) {
+      return { success: false, message: toErrorMessage(e) };
+    }
+  }
+
+  // ===========================================================================
+  // PROFILE CURRICULUM ACTIONS
+  // ===========================================================================
+
+  /**
+   * Execute a curriculum action: reset account, abandon role, upgrade level, or rebuild links.
+   */
+  public async executeCurriculumAction(
+    action: string,
+    value?: boolean
+  ): Promise<{ success: boolean; message?: string }> {
+    const worldIp = this.currentWorldInfo?.ip;
+    if (!worldIp) return { success: false, message: 'World IP not available' };
+
+    try {
+      let url: string;
+      switch (action) {
+        case 'resetAccount': {
+          const params = new URLSearchParams({
+            Tycoon: this.cachedUsername || '',
+            WorldName: this.currentWorldInfo?.name || '',
+            DAAddr: this.daAddr || config.rdo.directoryHost,
+            DAPort: String(this.daPort || config.rdo.ports.directory),
+            TycoonId: '',
+            Password: this.cachedPassword || '',
+          });
+          url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/resetTycoon.asp?${params.toString().replace(/\+/g, '%20')}`;
+          break;
+        }
+        case 'abandonRole': {
+          const params = new URLSearchParams({
+            Tycoon: this.cachedUsername || '',
+            WorldName: this.currentWorldInfo?.name || '',
+            DAAddr: this.daAddr || config.rdo.directoryHost,
+            DAPort: String(this.daPort || config.rdo.ports.directory),
+            TycoonId: '',
+            Password: this.cachedPassword || '',
+          });
+          url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/abandonRole.asp?${params.toString().replace(/\+/g, '%20')}`;
+          break;
+        }
+        case 'upgradeLevel': {
+          const params = new URLSearchParams({
+            TycoonId: this.tycoonId || '',
+            Password: this.cachedPassword || '',
+            Value: String(value ?? true),
+            WorldName: this.currentWorldInfo?.name || '',
+            DAAddr: this.daAddr || config.rdo.directoryHost,
+            DAPort: String(this.daPort || config.rdo.ports.directory),
+            Tycoon: this.cachedUsername || '',
+          });
+          url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/rdoSetAdvanceLevel.asp?${params.toString().replace(/\+/g, '%20')}`;
+          break;
+        }
+        case 'rebuildLinks': {
+          const params = new URLSearchParams({
+            Tycoon: this.cachedUsername || '',
+            Password: this.cachedPassword || '',
+            Company: this.currentCompany?.name || '',
+            WorldName: this.currentWorldInfo?.name || '',
+            DAAddr: this.daAddr || config.rdo.directoryHost,
+            DAPort: String(this.daPort || config.rdo.ports.directory),
+            ISAddr: worldIp,
+            ISPort: '8000',
+            ClientViewId: String(this.interfaceServerId || ''),
+            RIWS: '',
+          });
+          url = `http://${worldIp}/Five/0/visual/voyager/util/links.asp?${params.toString().replace(/\+/g, '%20')}`;
+          break;
+        }
+        default:
+          return { success: false, message: `Unknown curriculum action: ${action}` };
+      }
+
+      this.log.debug(`[Curriculum] Executing ${action}: ${url}`);
+      await fetch(url, { redirect: 'follow' });
+      return { success: true, message: `${action} completed successfully` };
     } catch (e) {
       return { success: false, message: toErrorMessage(e) };
     }

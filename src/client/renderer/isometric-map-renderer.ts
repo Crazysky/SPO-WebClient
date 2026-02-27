@@ -388,6 +388,7 @@ export class IsometricMapRenderer {
 
   // Mouse state
   private isDragging: boolean = false;
+  private rightClickDragged: boolean = false;
   private lastMouseX: number = 0;
   private lastMouseY: number = 0;
   private hoveredBuilding: MapBuilding | null = null;
@@ -402,6 +403,7 @@ export class IsometricMapRenderer {
   private onLoadZone: ((x: number, y: number, w: number, h: number) => void) | null = null;
   private onBuildingClick: ((x: number, y: number, visualClass?: string) => void) | null = null;
   private onCancelPlacement: (() => void) | null = null;
+  private onPlacementConfirm: ((x: number, y: number) => void) | null = null;
   private onFetchFacilityDimensions: ((visualClass: string) => Promise<FacilityDimensions | null>) | null = null;
   private onRoadSegmentComplete: ((x1: number, y1: number, x2: number, y2: number) => void) | null = null;
   private onCancelRoadDrawing: (() => void) | null = null;
@@ -1396,6 +1398,10 @@ export class IsometricMapRenderer {
 
   public setCancelPlacementCallback(callback: () => void) {
     this.onCancelPlacement = callback;
+  }
+
+  public setPlacementConfirmCallback(callback: (x: number, y: number) => void) {
+    this.onPlacementConfirm = callback;
   }
 
   public setFetchFacilityDimensionsCallback(callback: (visualClass: string) => Promise<FacilityDimensions | null>) {
@@ -2905,6 +2911,50 @@ export class IsometricMapRenderer {
     }
   }
 
+  // Zone color → overlay value mapping
+  private static readonly ZONE_COLOR_MAP: Record<string, number> = {
+    red: 3000,       // Residential
+    blue: 4000,      // Commercial
+    yellow: 5000,    // Industrial
+    green: 6000,     // Agricultural
+    orange: 7000,    // Mixed
+    purple: 8000,    // Special
+  };
+
+  // Zone color → display name mapping
+  private static readonly ZONE_NAME_MAP: Record<string, string> = {
+    red: 'RESIDENTIAL',
+    blue: 'COMMERCE',
+    yellow: 'INDUSTRIAL',
+    green: 'AGRICULTURAL',
+    orange: 'MIXED',
+    purple: 'SPECIAL',
+  };
+
+  /**
+   * Parse zone requirement text into a zone overlay value.
+   * Input: "Building must be located in blue zone or no zone at all."
+   * Output: 4000 (Commercial), or 0 if no zone requirement
+   */
+  private parseZoneRequirementValue(zoneRequirement: string): number {
+    if (!zoneRequirement) return 0;
+    const match = /(red|blue|yellow|green|orange|purple)\s+zone/i.exec(zoneRequirement);
+    if (!match) return 0;
+    return IsometricMapRenderer.ZONE_COLOR_MAP[match[1].toLowerCase()] || 0;
+  }
+
+  /**
+   * Parse zone requirement text into a clean display name.
+   * Input: "Building must be located in blue zone or no zone at all."
+   * Output: "COMMERCE", or null if no zone requirement
+   */
+  private parseZoneDisplayName(zoneRequirement: string): string | null {
+    if (!zoneRequirement) return null;
+    const match = /(red|blue|yellow|green|orange|purple)\s+zone/i.exec(zoneRequirement);
+    if (!match) return null;
+    return IsometricMapRenderer.ZONE_NAME_MAP[match[1].toLowerCase()] || null;
+  }
+
   /**
    * Draw building placement preview
    */
@@ -2919,8 +2969,14 @@ export class IsometricMapRenderer {
     const halfHeight = config.tileHeight / 2;
     const preview = this.placementPreview;
 
-    // Check for collisions
+    // Check for collisions and zone requirements
     let hasCollision = false;
+    let hasZoneMismatch = false;
+
+    // Parse required zone value from zone requirement text
+    // Text format: "Building must be located in blue zone or no zone at all."
+    const requiredZoneValue = this.parseZoneRequirementValue(preview.zoneRequirement);
+
     for (let dy = 0; dy < preview.ysize && !hasCollision; dy++) {
       for (let dx = 0; dx < preview.xsize && !hasCollision; dx++) {
         const checkX = preview.j + dx;
@@ -2952,11 +3008,26 @@ export class IsometricMapRenderer {
             break;
           }
         }
+
+        // Check zone requirement (only if we have overlay data and a required zone)
+        if (!hasZoneMismatch && requiredZoneValue > 0 && this.zoneOverlayData) {
+          const row = checkY - this.zoneOverlayY1;
+          const col = checkX - this.zoneOverlayX1;
+          if (row >= 0 && row < this.zoneOverlayData.rows.length &&
+              col >= 0 && col < this.zoneOverlayData.rows[row].length) {
+            const tileZone = this.zoneOverlayData.rows[row][col];
+            // Zone mismatch: tile is not the required zone AND not "no zone" (0 = allowed per "or no zone at all")
+            if (tileZone !== requiredZoneValue && tileZone !== 0) {
+              hasZoneMismatch = true;
+            }
+          }
+        }
       }
     }
 
-    const fillColor = hasCollision ? 'rgba(255, 100, 100, 0.5)' : 'rgba(100, 255, 100, 0.5)';
-    const strokeColor = hasCollision ? '#ff4444' : '#44ff44';
+    const isInvalid = hasCollision || hasZoneMismatch;
+    const fillColor = isInvalid ? 'rgba(255, 100, 100, 0.5)' : 'rgba(100, 255, 100, 0.5)';
+    const strokeColor = isInvalid ? '#ff4444' : '#44ff44';
 
     // Draw diamond overlay tiles (collision feedback)
     for (let dy = 0; dy < preview.ysize; dy++) {
@@ -3007,8 +3078,8 @@ export class IsometricMapRenderer {
         const drawX = Math.round(southCorner.x - scaledWidth / 2);
         const drawY = Math.round(southCorner.y + config.tileHeight - scaledHeight);
 
-        // Draw semi-transparent, tinted red on collision
-        ctx.globalAlpha = hasCollision ? 0.4 : 0.7;
+        // Draw semi-transparent, tinted red on invalid placement
+        ctx.globalAlpha = isInvalid ? 0.4 : 0.7;
         ctx.drawImage(texture, drawX, drawY, scaledWidth, scaledHeight);
         ctx.globalAlpha = 1.0;
       }
@@ -3025,7 +3096,11 @@ export class IsometricMapRenderer {
     ctx.fillText(preview.buildingName, centerPos.x + 30, centerPos.y - 42);
     ctx.fillText(`Cost: $${preview.cost.toLocaleString()}`, centerPos.x + 30, centerPos.y - 24);
     ctx.fillText(`Size: ${preview.xsize}×${preview.ysize}`, centerPos.x + 30, centerPos.y - 6);
-    ctx.fillText(`Zone: ${preview.zoneRequirement}`, centerPos.x + 30, centerPos.y + 12);
+    // Show clean zone name (extracted from full requirement text)
+    const zoneName = this.parseZoneDisplayName(preview.zoneRequirement);
+    if (zoneName) {
+      ctx.fillText(`Zone: ${zoneName}`, centerPos.x + 30, centerPos.y + 12);
+    }
   }
 
   /**
@@ -3878,18 +3953,14 @@ export class IsometricMapRenderer {
     if (e.button === 2) { // Right click
       e.preventDefault();
 
-      if (this.placementMode && this.onCancelPlacement) {
-        this.onCancelPlacement();
-        return;
-      }
-
       if (this.roadDrawingMode && this.onCancelRoadDrawing) {
         this.onCancelRoadDrawing();
         return;
       }
 
-      // Start drag
+      // Start drag (even in placement mode — cancel only on release without drag)
       this.isDragging = true;
+      this.rightClickDragged = false;
       this.lastMouseX = e.clientX;
       this.lastMouseY = e.clientY;
       this.canvas.style.cursor = 'grabbing';
@@ -3903,8 +3974,11 @@ export class IsometricMapRenderer {
         this.roadDrawingState.endX = mapPos.j;
         this.roadDrawingState.endY = mapPos.i;
         this.requestRender();
-      } else if (this.placementMode) {
-        // Building placement handled by client
+      } else if (this.placementMode && this.placementPreview) {
+        // Confirm building placement at current preview coordinates
+        if (this.onPlacementConfirm) {
+          this.onPlacementConfirm(this.placementPreview.j, this.placementPreview.i);
+        }
       } else if (this.onRoadDemolishClick) {
         // Road demolish mode — only fire if a road tile exists at click location
         const key = `${mapPos.j},${mapPos.i}`;
@@ -3930,6 +4004,11 @@ export class IsometricMapRenderer {
     if (this.isDragging) {
       const dx = e.clientX - this.lastMouseX;
       const dy = e.clientY - this.lastMouseY;
+
+      // Mark as actual drag if moved more than a few pixels
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        this.rightClickDragged = true;
+      }
 
       const { deltaI, deltaJ } = this.screenDeltaToMapDelta(dx, dy);
       this.terrainRenderer.pan(deltaI, deltaJ);
@@ -3967,6 +4046,12 @@ export class IsometricMapRenderer {
     if (e.button === 2 && this.isDragging) {
       this.isDragging = false;
       this.updateCursor();
+
+      // Right-click release without drag in placement mode → cancel placement
+      if (!this.rightClickDragged && this.placementMode && this.onCancelPlacement) {
+        this.onCancelPlacement();
+        return;
+      }
 
       // Mark movement stopped and trigger delayed zone loading
       if (this.zoneRequestManager) {
@@ -4160,6 +4245,7 @@ export class IsometricMapRenderer {
     this.onLoadZone = null;
     this.onBuildingClick = null;
     this.onCancelPlacement = null;
+    this.onPlacementConfirm = null;
     this.onFetchFacilityDimensions = null;
     this.onRoadSegmentComplete = null;
     this.onCancelRoadDrawing = null;

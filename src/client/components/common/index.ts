@@ -8,3 +8,4 @@ export { SliderInput } from './SliderInput';
 export { TabBar } from './TabBar';
 export { ProgressBar } from './ProgressBar';
 export { IconButton } from './IconButton';
+export { ConfirmDialog } from './ConfirmDialog';

@@ -5,14 +5,17 @@
  * Each tab fetches data from the server on activation via ClientCallbacks.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   GraduationCap, Landmark, TrendingUp, Factory, Link, Flag, X, Plus,
+  RotateCcw, LogOut, Wrench, ChevronUp,
 } from 'lucide-react';
-import { Skeleton, SkeletonLines } from '../common';
+import { Skeleton, SkeletonLines, ConfirmDialog } from '../common';
 import { useProfileStore, type ProfileTab } from '../../store/profile-store';
+import { useGameStore } from '../../store/game-store';
+import { useUiStore } from '../../store/ui-store';
 import { useClient } from '../../context';
-import type { AutoConnectionActionType } from '@/shared/types';
+import type { AutoConnectionActionType, CurriculumActionType } from '@/shared/types';
 import styles from './ProfilePanel.module.css';
 
 const TABS: Array<{ id: ProfileTab; icon: typeof GraduationCap; label: string }> = [
@@ -129,30 +132,186 @@ function TabContent({ tab }: { tab: ProfileTab }) {
 }
 
 // ---------------------------------------------------------------------------
-// Tab sub-components
+// Curriculum Tab — full legacy layout
 // ---------------------------------------------------------------------------
 
 function CurriculumTab() {
   const data = useProfileStore((s) => s.curriculum);
+  const client = useClient();
+  const [confirmAction, setConfirmAction] = useState<CurriculumActionType | null>(null);
+
+  const handleAction = useCallback((action: CurriculumActionType) => {
+    if (action === 'resetAccount' || action === 'abandonRole') {
+      setConfirmAction(action);
+    } else if (action === 'upgradeLevel') {
+      client.onProfileCurriculumAction('upgradeLevel', !data?.isUpgradeRequested);
+    } else {
+      client.onProfileCurriculumAction(action);
+    }
+  }, [client, data?.isUpgradeRequested]);
+
+  const handleConfirm = useCallback(() => {
+    if (confirmAction) {
+      client.onProfileCurriculumAction(confirmAction);
+      setConfirmAction(null);
+    }
+  }, [client, confirmAction]);
+
   if (!data) return <EmptyState message="No curriculum data" />;
 
   return (
     <div className={styles.tabBody}>
+      {/* Section 1: Summary Stats */}
       <div className={styles.statGrid}>
-        <StatCard label="Level" value={data.currentLevelName} />
-        <StatCard label="Ranking" value={`#${data.ranking}`} />
-        <StatCard label="Prestige" value={String(data.prestige)} />
-        <StatCard label="Budget" value={`$${data.budget}`} />
+        <StatCard label="Fortune" value={data.fortune || `$${data.budget}`} />
+        <StatCard label="Avg. Profit" value={data.averageProfit || '-'} />
+        <StatCard label="Prestige" value={`${data.prestige} pts`} />
+        <StatCard label="Nobility" value={`${data.nobPoints} pts`} />
       </div>
-      <div className={styles.statGrid}>
-        <StatCard label="Facilities" value={`${data.facCount} / ${data.facMax}`} />
-        <StatCard label="Area" value={String(data.area)} />
-        <StatCard label="Fac. Prestige" value={String(data.facPrestige)} />
-        <StatCard label="Research" value={String(data.researchPrestige)} />
+
+      {/* Section 2: Action Buttons */}
+      <div className={styles.cvActions}>
+        <button className={styles.dangerBtn} onClick={() => handleAction('resetAccount')}>
+          <RotateCcw size={12} />
+          Reset Account
+        </button>
+        <button className={styles.dangerBtn} onClick={() => handleAction('abandonRole')}>
+          <LogOut size={12} />
+          Abandon Role
+        </button>
+        <button className={styles.utilityBtn} onClick={() => handleAction('rebuildLinks')}>
+          <Wrench size={12} />
+          Rebuild Links
+        </button>
       </div>
+
+      {/* Section 3: Level Progression */}
+      <div className={styles.levelSection}>
+        <div className={styles.levelCard}>
+          <div className={styles.levelHeader}>Current Level</div>
+          <div className={styles.levelName}>{data.currentLevelName}</div>
+          {data.currentLevelDescription && (
+            <div className={styles.levelDesc}>{data.currentLevelDescription}</div>
+          )}
+          {data.canUpgrade && (
+            <label className={styles.upgradeCheck}>
+              <input
+                type="checkbox"
+                checked={data.isUpgradeRequested}
+                onChange={() => handleAction('upgradeLevel')}
+              />
+              <ChevronUp size={12} />
+              Upgrade to next level
+            </label>
+          )}
+        </div>
+        {data.nextLevelName && (
+          <div className={styles.levelCard}>
+            <div className={styles.levelHeader}>Next Level</div>
+            <div className={styles.levelName}>{data.nextLevelName}</div>
+            {data.nextLevelDescription && (
+              <div className={styles.levelDesc}>{data.nextLevelDescription}</div>
+            )}
+            {data.nextLevelRequirements && (
+              <div className={styles.levelReqs}>
+                <strong>Requires:</strong> {data.nextLevelRequirements}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Section 4: Quick Stats */}
+      <div className={styles.section}>
+        <h4 className={styles.sectionTitle}>Stats</h4>
+        <div className={styles.cvStatsGrid}>
+          <div className={styles.cvStatRow}>
+            <span className={styles.cvStatLabel}>Ranking</span>
+            <span className={styles.cvStatValue}>#{data.ranking}</span>
+          </div>
+          <div className={styles.cvStatRow}>
+            <span className={styles.cvStatLabel}>Facilities</span>
+            <span className={styles.cvStatValue}>{data.facCount} / {data.facMax}</span>
+          </div>
+          <div className={styles.cvStatRow}>
+            <span className={styles.cvStatLabel}>Area</span>
+            <span className={styles.cvStatValue}>{data.area}</span>
+          </div>
+          <div className={styles.cvStatRow}>
+            <span className={styles.cvStatLabel}>Fac. Prestige</span>
+            <span className={styles.cvStatValue}>{data.facPrestige}</span>
+          </div>
+          <div className={styles.cvStatRow}>
+            <span className={styles.cvStatLabel}>Research</span>
+            <span className={styles.cvStatValue}>{data.researchPrestige}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Section 5: Rankings Table */}
+      {data.rankings.length > 0 && (
+        <div className={styles.section}>
+          <h4 className={styles.sectionTitle}>{data.tycoonName} in the rankings</h4>
+          <div className={styles.rankingsGrid}>
+            {data.rankings.map((r, i) => (
+              <div key={i} className={styles.rankingRow}>
+                <span className={styles.rankingCategory}>{r.category}</span>
+                <span className={styles.rankingValue}>
+                  {r.rank !== null ? `#${r.rank}` : '-'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Section 6: Curriculum Items */}
+      {data.curriculumItems.length > 0 && (
+        <div className={styles.section}>
+          <h4 className={styles.sectionTitle}>Curriculum Items</h4>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Prestige</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.curriculumItems.map((item, i) => (
+                  <tr key={i}>
+                    <td>{item.item}</td>
+                    <td className={`${styles.numCell} ${item.prestige >= 0 ? styles.positiveValue : styles.negativeValue}`}>
+                      {item.prestige >= 0 ? '+' : ''}{item.prestige}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Dialog */}
+      {confirmAction && (
+        <ConfirmDialog
+          title={confirmAction === 'resetAccount' ? 'Reset Account' : 'Abandon Role'}
+          message={
+            confirmAction === 'resetAccount'
+              ? 'This will permanently reset your tycoon account. All progress will be lost. This action cannot be undone.'
+              : 'This will abandon your current role. You will lose all associated privileges. This action cannot be undone.'
+          }
+          onConfirm={handleConfirm}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Bank Tab — with date column, pay off, total row, dynamic calc
+// ---------------------------------------------------------------------------
 
 function BankTab() {
   const data = useProfileStore((s) => s.bankAccount);
@@ -163,6 +322,17 @@ function BankTab() {
   const [reason, setReason] = useState('');
 
   if (!data) return <EmptyState message="No bank data" />;
+
+  // Dynamic interest/term calculation based on borrow amount
+  const dynamicCalc = useMemo(() => {
+    const numAmount = parseFloat(amount.replace(/,/g, ''));
+    if (!numAmount || isNaN(numAmount)) return null;
+    const totalLoansNum = parseFloat((data.totalLoans || '0').replace(/,/g, ''));
+    const combined = totalLoansNum + numAmount;
+    const interest = Math.round(combined / 100_000_000);
+    const term = Math.max(5, 200 - Math.round(combined / 10_000_000));
+    return { interest, term };
+  }, [amount, data.totalLoans]);
 
   const handleBorrow = () => {
     if (!amount) return;
@@ -206,10 +376,11 @@ function BankTab() {
               <thead>
                 <tr>
                   <th>Bank</th>
+                  <th>Date</th>
                   <th>Amount</th>
                   <th>Rate</th>
                   <th>Term</th>
-                  <th>Slice</th>
+                  <th>Next payment</th>
                   <th></th>
                 </tr>
               </thead>
@@ -217,6 +388,7 @@ function BankTab() {
                 {data.loans.map((loan) => (
                   <tr key={loan.loanIndex}>
                     <td>{loan.bank}</td>
+                    <td>{loan.date || '-'}</td>
                     <td className={styles.numCell}>${loan.amount}</td>
                     <td className={styles.numCell}>{loan.interest}%</td>
                     <td className={styles.numCell}>{loan.term}y</td>
@@ -226,11 +398,18 @@ function BankTab() {
                         className={styles.payoffBtn}
                         onClick={() => handlePayoff(loan.loanIndex)}
                       >
-                        Reimburse
+                        Pay Off
                       </button>
                     </td>
                   </tr>
                 ))}
+                {data.totalNextPayment && (
+                  <tr className={styles.totalRow}>
+                    <td colSpan={5}><strong>Total</strong></td>
+                    <td className={styles.numCell}><strong>${data.totalNextPayment}</strong></td>
+                    <td></td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -267,7 +446,13 @@ function BankTab() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
-          <p className={styles.hint}>Max loan: ${data.maxLoan} &middot; Rate: {data.defaultInterest}% &middot; Term: {data.defaultTerm}y</p>
+          <p className={styles.hint}>
+            Max loan: ${data.maxLoan}
+            {dynamicCalc
+              ? <> &middot; Rate: {dynamicCalc.interest}% &middot; Term: {dynamicCalc.term}y</>
+              : <> &middot; Rate: {data.defaultInterest}% &middot; Term: {data.defaultTerm}y</>
+            }
+          </p>
           <div className={styles.formActions}>
             <button className={styles.formSubmit} onClick={handleBorrow} disabled={!amount}>Borrow</button>
             <button className={styles.formCancel} onClick={cancelAction}>Cancel</button>
@@ -292,6 +477,9 @@ function BankTab() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
+          {data.maxTransfer && (
+            <p className={styles.hint}>You can transfer up to ${data.maxTransfer}</p>
+          )}
           <label className={styles.formLabel}>Reason (optional)</label>
           <input
             className={styles.formInput}
@@ -309,6 +497,10 @@ function BankTab() {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// P&L Tab — unchanged
+// ---------------------------------------------------------------------------
 
 function ProfitLossTab() {
   const data = useProfileStore((s) => s.profitLoss);
@@ -339,31 +531,68 @@ function ProfitLossNode({ node }: { node: { label: string; amount: string; level
   );
 }
 
+// ---------------------------------------------------------------------------
+// Companies Tab — with switch + create
+// ---------------------------------------------------------------------------
+
 function CompaniesTab() {
   const data = useProfileStore((s) => s.companies);
+  const client = useClient();
+  const currentCompanyName = useGameStore((s) => s.companyName);
+
   if (!data) return <EmptyState message="No companies data" />;
+
+  const handleSwitch = (co: { companyId: number; name: string; ownerRole: string }) => {
+    if (co.name === (data.currentCompany || currentCompanyName)) return;
+    client.onProfileSwitchCompany(co.companyId, co.name, co.ownerRole);
+  };
+
+  const handleCreate = () => {
+    useUiStore.getState().openModal('createCompany');
+    client.onCreateCompany();
+  };
 
   return (
     <div className={styles.tabBody}>
-      {data.companies.map((co) => (
-        <div
-          key={co.companyId}
-          className={`${styles.listRow} ${co.name === data.currentCompany ? styles.activeRow : ''}`}
-        >
-          <div className={styles.rowMain}>
-            <span className={styles.rowName}>{co.name}</span>
-            <span className={styles.rowSub}>{co.cluster} &middot; {co.companyType}</span>
+      <p className={styles.companyInstructions}>
+        You have registered the following companies in {data.worldName || 'this world'}. Choose one or create a new one.
+      </p>
+      {data.companies.map((co) => {
+        const isActive = co.name === (data.currentCompany || currentCompanyName);
+        return (
+          <div
+            key={co.companyId}
+            className={`${styles.listRow} ${isActive ? styles.activeRow : styles.clickableRow}`}
+            onClick={() => handleSwitch(co)}
+            role={isActive ? undefined : 'button'}
+            tabIndex={isActive ? undefined : 0}
+          >
+            <div className={styles.rowMain}>
+              <span className={styles.rowName}>
+                {co.name}
+                {isActive && <span className={styles.activeBadge}>Active</span>}
+              </span>
+              <span className={styles.rowSub}>{co.cluster} &middot; {co.companyType}</span>
+            </div>
+            <div className={styles.rowMeta}>
+              <span className={styles.rowValue}>{co.facilityCount} facilities</span>
+              <span className={styles.rowSub}>{co.ownerRole}</span>
+            </div>
           </div>
-          <div className={styles.rowMeta}>
-            <span className={styles.rowValue}>{co.facilityCount} facilities</span>
-            <span className={styles.rowSub}>{co.ownerRole}</span>
-          </div>
-        </div>
-      ))}
+        );
+      })}
+      <button className={styles.createCompanyBtn} onClick={handleCreate}>
+        <Plus size={14} />
+        Create New Company
+      </button>
       {data.companies.length === 0 && <EmptyState message="No companies" />}
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Auto-Connections Tab — with updated labels
+// ---------------------------------------------------------------------------
 
 function AutoConnectionsTab() {
   const data = useProfileStore((s) => s.autoConnections);
@@ -390,6 +619,12 @@ function AutoConnectionsTab() {
 
   return (
     <div className={styles.tabBody}>
+      <div className={styles.section}>
+        <h4 className={styles.sectionTitle}>Initial Suppliers</h4>
+        <p className={styles.sectionDesc}>
+          Initial Suppliers are merely placed on the list of suppliers when you first create a facility. They do not prevent other suppliers from connecting to your buildings.
+        </p>
+      </div>
       {data.fluids.map((fluid) => (
         <div key={fluid.fluidId} className={styles.section}>
           <h4 className={styles.sectionTitle}>{fluid.fluidName}</h4>
@@ -400,7 +635,7 @@ function AutoConnectionsTab() {
               className={styles.toggleRow}
               onClick={() => toggleOption(fluid.fluidId, fluid.hireTradeCenter, 'hireTradeCenter', 'dontHireTradeCenter')}
             >
-              <span className={styles.toggleLabel}>Trade Center</span>
+              <span className={styles.toggleLabel}>Also hire a Trade Center</span>
               <div className={`${styles.toggle} ${fluid.hireTradeCenter ? styles.toggleOn : ''}`}>
                 <div className={styles.toggleThumb} />
               </div>
@@ -409,7 +644,7 @@ function AutoConnectionsTab() {
               className={styles.toggleRow}
               onClick={() => toggleOption(fluid.fluidId, fluid.onlyWarehouses, 'onlyWarehouses', 'dontOnlyWarehouses')}
             >
-              <span className={styles.toggleLabel}>Warehouses Only</span>
+              <span className={styles.toggleLabel}>Auto-include only warehouses</span>
               <div className={`${styles.toggle} ${fluid.onlyWarehouses ? styles.toggleOn : ''}`}>
                 <div className={styles.toggleThumb} />
               </div>
@@ -464,10 +699,14 @@ function AutoConnectionsTab() {
           )}
         </div>
       ))}
-      {data.fluids.length === 0 && <EmptyState message="No auto-connections configured" />}
+      {data.fluids.length === 0 && <EmptyState message="No initial suppliers configured" />}
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Policy Tab — unchanged
+// ---------------------------------------------------------------------------
 
 function PolicyTab() {
   const data = useProfileStore((s) => s.policy);

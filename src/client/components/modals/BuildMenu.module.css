@@ -94,6 +94,13 @@
   transform: translateY(-1px);
 }
 
+.categoryIcon {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
 .categoryName {
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
@@ -140,6 +147,15 @@
 .unavailable {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.facilityIcon {
+  width: 60px;
+  height: 40px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  flex-shrink: 0;
+  margin-right: var(--space-3);
 }
 
 .facilityInfo {

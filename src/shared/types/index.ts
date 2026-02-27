@@ -60,6 +60,8 @@ export type {
   TycoonProfileFull,
   // Profile tab types
   CurriculumData,
+  CurriculumRanking,
+  CurriculumItem,
   LoanInfo,
   BankAccountData,
   BankActionResult,
@@ -81,7 +83,7 @@ export type {
   TransportData,
 } from './domain-types';
 
-export type { MailFolder, BankActionType, AutoConnectionActionType, TrainStatus } from './domain-types';
+export type { MailFolder, BankActionType, AutoConnectionActionType, CurriculumActionType, TrainStatus } from './domain-types';
 
 // Message types (WebSocket protocol)
 export {
@@ -218,6 +220,8 @@ export type {
   WsRespProfilePolicy,
   WsReqProfilePolicySet,
   WsRespProfilePolicySet,
+  WsReqProfileCurriculumAction,
+  WsRespProfileCurriculumAction,
   // Politics
   WsReqPoliticsData,
   WsRespPoliticsData,

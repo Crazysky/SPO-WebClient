@@ -381,6 +381,21 @@ export class StarpeaceClient {
       onProfilePolicySet: (tycoonName, status) => this.sendMessage({
         type: WsMessageType.REQ_PROFILE_POLICY_SET, tycoonName, status,
       }),
+      onProfileCurriculumAction: (action, value) => this.sendMessage({
+        type: WsMessageType.REQ_PROFILE_CURRICULUM_ACTION, action, value,
+      }),
+      onProfileSwitchCompany: (companyId, companyName, ownerRole) => {
+        const company: CompanyInfo = { id: String(companyId), name: companyName, ownerRole, cluster: '' };
+        this.sendRequest({
+          type: WsMessageType.REQ_SWITCH_COMPANY,
+          company,
+        } as WsReqSwitchCompany).then(() => {
+          ClientBridge.setCompany(companyName, String(companyId));
+          ClientBridge.showSuccess(`Switched to ${companyName}`);
+        }).catch((err: unknown) => {
+          ClientBridge.showError(`Failed to switch company: ${toErrorMessage(err)}`);
+        });
+      },
 
       // Politics
       onLaunchCampaign: (buildingX, buildingY) => this.sendMessage({
@@ -705,6 +720,7 @@ export class StarpeaceClient {
       case WsMessageType.RESP_PROFILE_AUTOCONNECTION_ACTION:
       case WsMessageType.RESP_PROFILE_POLICY:
       case WsMessageType.RESP_PROFILE_POLICY_SET:
+      case WsMessageType.RESP_PROFILE_CURRICULUM_ACTION:
         ClientBridge.handleProfileResponse(msg);
         break;
 
@@ -2089,10 +2105,13 @@ export class StarpeaceClient {
       );
     }
 
-    // Set cancel placement callback for right-click
-    const cancelRenderer = this.mapNavigationUI?.getRenderer();
-    if (cancelRenderer) {
-      cancelRenderer.setCancelPlacementCallback(() => {
+    // Set placement callbacks
+    const callbackRenderer = this.mapNavigationUI?.getRenderer();
+    if (callbackRenderer) {
+      callbackRenderer.setPlacementConfirmCallback((x, y) => {
+        this.placeBuilding(x, y);
+      });
+      callbackRenderer.setCancelPlacementCallback(() => {
         this.cancelBuildingPlacement();
       });
     }

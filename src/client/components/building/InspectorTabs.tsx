@@ -1,9 +1,10 @@
 /**
- * InspectorTabs — Tab navigation driven by server-sent BuildingDetailsTab config.
+ * InspectorTabs — Pill grid tab selector driven by server-sent BuildingDetailsTab config.
+ * Matches ProfilePanel's vertical pill layout for consistency in narrow side panels.
  */
 
-import { TabBar } from '../common';
 import type { BuildingDetailsTab } from '@/shared/types';
+import styles from './BuildingInspector.module.css';
 
 interface InspectorTabsProps {
   tabs: BuildingDetailsTab[];
@@ -14,16 +15,20 @@ interface InspectorTabsProps {
 export function InspectorTabs({ tabs, activeTab, onTabChange }: InspectorTabsProps) {
   const sorted = [...tabs].sort((a, b) => a.order - b.order);
 
-  const tabItems = sorted.map((tab) => ({
-    id: tab.id,
-    label: tab.name,
-  }));
-
   return (
-    <TabBar
-      tabs={tabItems}
-      activeTab={activeTab}
-      onTabChange={onTabChange}
-    />
+    <div className={styles.pillGrid} role="tablist">
+      {sorted.map((tab) => (
+        <button
+          key={tab.id}
+          role="tab"
+          aria-selected={tab.id === activeTab}
+          className={`${styles.pill} ${tab.id === activeTab ? styles.pillActive : ''}`}
+          onClick={() => onTabChange(tab.id)}
+        >
+          <span className={styles.pillIcon}>{tab.icon || tab.name.charAt(0)}</span>
+          <span className={styles.pillLabel}>{tab.name}</span>
+        </button>
+      ))}
+    </div>
   );
 }

@@ -183,7 +183,7 @@
   padding: var(--space-3) !important;
 }
 
-/* Simple list (people results) */
+/* Simple list (people/tycoon results) */
 .simpleList {
   display: flex;
   flex-direction: column;
@@ -198,6 +198,30 @@
 }
 
 .simpleListItem:last-child {
+  border-bottom: none;
+}
+
+/* Clickable list item (tycoon/people search results) */
+.clickableListItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  border-bottom: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
+}
+
+.clickableListItem:hover {
+  background: rgba(16, 185, 129, 0.08);
+  color: var(--accent-gold);
+}
+
+.clickableListItem:last-child {
   border-bottom: none;
 }
 
@@ -258,6 +282,46 @@
 .rankingValue {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* Ranking tree items (flattened hierarchy) */
+.rankingItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-fast) var(--ease-default);
+}
+
+.rankingItem:hover {
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.rankingCategoryItem {
+  font-weight: var(--font-semibold);
+  color: var(--accent-gold);
+  margin-top: var(--space-2);
+}
+
+.rankingCategoryItem:first-child {
+  margin-top: 0;
+}
+
+.rankingLeafItem {
+  color: var(--text-primary);
+}
+
+.rankingLeafItem:hover {
+  color: var(--accent-gold);
+}
+
+.rankingChevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 /* Empty state */

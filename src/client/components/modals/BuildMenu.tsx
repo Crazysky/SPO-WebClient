@@ -105,6 +105,13 @@ export function BuildMenu() {
                   className={styles.categoryCard}
                   onClick={() => handleCategorySelect(cat)}
                 >
+                  {cat.iconPath && (
+                    <img
+                      src={cat.iconPath}
+                      alt={cat.kindName}
+                      className={styles.categoryIcon}
+                    />
+                  )}
                   <span className={styles.categoryName}>{cat.kindName}</span>
                   {cat.tycoonLevel > 0 && (
                     <span className={styles.levelBadge}>Lv.{cat.tycoonLevel}</span>
@@ -123,6 +130,13 @@ export function BuildMenu() {
                   onClick={() => fac.available && handleFacilitySelect(fac)}
                   disabled={!fac.available}
                 >
+                  {fac.iconPath && (
+                    <img
+                      src={fac.iconPath}
+                      alt={fac.name}
+                      className={styles.facilityIcon}
+                    />
+                  )}
                   <div className={styles.facilityInfo}>
                     <span className={styles.facilityName}>{fac.name}</span>
                     <span className={styles.facilityDesc}>{fac.description}</span>
