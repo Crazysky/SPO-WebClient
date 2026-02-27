@@ -104,6 +104,7 @@ import type { GameSettings } from './store/game-store';
 import { useUiStore } from './store/ui-store';
 import { useChatStore } from './store/chat-store';
 import { useBuildingStore } from './store/building-store';
+import { useMailStore } from './store/mail-store';
 import { getFacilityDimensionsCache } from './facility-dimensions-cache';
 import { SoundManager } from './audio/sound-manager';
 
@@ -158,7 +159,6 @@ interface SpoDebugState {
   settings: {
     hideVegetationOnMove: boolean;
     vehicleAnimations: boolean;
-    edgeScrollEnabled: boolean;
     soundEnabled: boolean;
     soundVolume: number;
     debugOverlay: boolean;
@@ -334,7 +334,7 @@ export class StarpeaceClient {
       onMailGetFolder: (folder) => this.sendMessage({ type: WsMessageType.REQ_MAIL_GET_FOLDER, folder }),
       onMailReadMessage: (messageId) => this.sendMessage({
         type: WsMessageType.REQ_MAIL_READ_MESSAGE,
-        folder: 'Inbox' as MailFolder,
+        folder: useMailStore.getState().currentFolder,
         messageId,
       }),
       onMailSend: (to, subject, body) => this.sendMessage({
@@ -343,12 +343,33 @@ export class StarpeaceClient {
       }),
       onMailDelete: (messageId) => this.sendMessage({
         type: WsMessageType.REQ_MAIL_DELETE,
-        folder: 'Inbox' as MailFolder,
+        folder: useMailStore.getState().currentFolder,
         messageId,
       }),
 
       // Search menu
       onSearchMenuHome: () => this.sendMessage({ type: WsMessageType.REQ_SEARCH_MENU_HOME }),
+      onSearchMenuTowns: () => this.sendMessage({ type: WsMessageType.REQ_SEARCH_MENU_TOWNS }),
+      onSearchMenuTycoonProfile: (tycoonName) => this.sendMessage({
+        type: WsMessageType.REQ_SEARCH_MENU_TYCOON_PROFILE, tycoonName,
+      }),
+      onSearchMenuPeople: () => this.sendMessage({ type: WsMessageType.REQ_SEARCH_MENU_PEOPLE }),
+      onSearchMenuPeopleSearch: (searchStr) => this.sendMessage({
+        type: WsMessageType.REQ_SEARCH_MENU_PEOPLE_SEARCH, searchStr,
+      }),
+      onSearchMenuRankings: () => this.sendMessage({ type: WsMessageType.REQ_SEARCH_MENU_RANKINGS }),
+      onSearchMenuRankingDetail: (rankingPath) => this.sendMessage({
+        type: WsMessageType.REQ_SEARCH_MENU_RANKING_DETAIL, rankingPath,
+      }),
+      onSearchMenuBanks: () => this.sendMessage({ type: WsMessageType.REQ_SEARCH_MENU_BANKS }),
+
+      // Profile tabs
+      onProfileCurriculum: () => this.sendMessage({ type: WsMessageType.REQ_PROFILE_CURRICULUM }),
+      onProfileBank: () => this.sendMessage({ type: WsMessageType.REQ_PROFILE_BANK }),
+      onProfileProfitLoss: () => this.sendMessage({ type: WsMessageType.REQ_PROFILE_PROFITLOSS }),
+      onProfileCompanies: () => this.sendMessage({ type: WsMessageType.REQ_PROFILE_COMPANIES }),
+      onProfileAutoConnections: () => this.sendMessage({ type: WsMessageType.REQ_PROFILE_AUTOCONNECTIONS }),
+      onProfilePolicy: () => this.sendMessage({ type: WsMessageType.REQ_PROFILE_POLICY }),
 
       // Politics
       onLaunchCampaign: (buildingX, buildingY) => this.sendMessage({
@@ -387,7 +408,6 @@ export class StarpeaceClient {
         renderer.setHideVegetationOnMove(settings.hideVegetationOnMove);
         renderer.setDebugMode(settings.debugOverlay);
         renderer.setVehicleAnimationsEnabled(settings.vehicleAnimations);
-        renderer.setEdgeScrollEnabled(settings.edgeScrollEnabled);
       }
     }
 
@@ -1141,7 +1161,7 @@ export class StarpeaceClient {
         timestamp: Date.now()
       } as BuildingDetailsResponse;
 
-      ClientBridge.showBuildingPanel(displayDetails, this.currentCompanyName);
+      ClientBridge.showBuildingPanel(displayDetails, this.currentCompanyName, response.building);
 
       ClientBridge.log('Building', `Focused: ${response.building.buildingName}`);
 

@@ -40,6 +40,7 @@ interface SearchState {
   setPeopleData: (data: WsRespSearchMenuPeopleSearch) => void;
   setRankingsData: (data: WsRespSearchMenuRankings) => void;
   setRankingDetailData: (data: WsRespSearchMenuRankingDetail) => void;
+  clearRankingDetail: () => void;
   setBanksData: (data: WsRespSearchMenuBanks) => void;
   reset: () => void;
 }
@@ -81,6 +82,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   setPeopleData: (data) => set({ peopleData: data, isLoading: false }),
   setRankingsData: (data) => set({ rankingsData: data, isLoading: false }),
   setRankingDetailData: (data) => set({ rankingDetailData: data, isLoading: false }),
+  clearRankingDetail: () => set({ rankingDetailData: null }),
   setBanksData: (data) => set({ banksData: data, isLoading: false }),
 
   reset: () =>

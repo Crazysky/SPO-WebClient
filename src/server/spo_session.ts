@@ -3330,7 +3330,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
    * Delphi reference (World.pas:4311-4354):
    *   function RDOBreakCircuitAt(CircuitId, TycoonId, x, y: integer): OleVariant;
    *   CircuitId: 1=Roads, 2=Rail
-   *   Returns: 0=success, 1=unknown, 2=invalidSegment, 3=accessDenied
+   *   Returns: 0=success (also returned if no segment at location), 1=unknown, 15=accessDenied, 21=unknownCircuit
    *
    * Uses worldContextId (same as road building)
    */
@@ -3365,12 +3365,15 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
         return { success: true };
       }
 
+      // Delphi return codes (World.pas / Protocol.pas):
+      //   0 = NOERROR (success OR no segment found — ambiguous)
+      //   1 = ERROR_Unknown
+      //  15 = ERROR_AccessDenied
+      //  21 = ERROR_UnknownCircuit
       const errorMessages: Record<number, string> = {
         1: 'Road demolition failed — please try a different location',
-        2: 'No road segment found at this location',
-        3: 'Permission denied — you do not have rights to demolish roads here',
-        4: 'Insufficient funds for road demolition',
-        23: 'Cannot remove this road segment — it may be protected',
+        15: 'Permission denied — you do not have rights to demolish roads here',
+        21: 'Invalid circuit type',
       };
 
       const message = errorMessages[resultCode] || `Failed with code ${resultCode}`;

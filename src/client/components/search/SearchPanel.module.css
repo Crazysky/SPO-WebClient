@@ -86,7 +86,182 @@
   scrollbar-color: var(--glass-border) transparent;
 }
 
-.placeholder {
+/* List components */
+.listContainer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.listItem {
+  cursor: pointer;
+  padding: var(--space-3) !important;
+  transition: border-color var(--duration-fast) var(--ease-default);
+}
+
+.listItem:hover {
+  border-color: var(--accent-gold);
+}
+
+.listItemHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.listItemIcon {
+  color: var(--accent-gold);
+  flex-shrink: 0;
+}
+
+.listItemTitle {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.listItemDetails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* Search row (tycoon / people) */
+.searchRow {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.searchInput {
+  flex: 1;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  outline: none;
+  transition: border-color var(--duration-fast) var(--ease-default);
+}
+
+.searchInput:focus {
+  border-color: var(--accent-gold);
+}
+
+.searchInput::placeholder {
+  color: var(--text-disabled);
+}
+
+.searchBtn {
+  background: var(--accent-gold);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  color: var(--glass-bg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: opacity var(--duration-fast) var(--ease-default);
+}
+
+.searchBtn:hover {
+  opacity: 0.85;
+}
+
+.searchBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Profile card */
+.profileCard {
+  padding: var(--space-3) !important;
+}
+
+/* Simple list (people results) */
+.simpleList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.simpleListItem {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.simpleListItem:last-child {
+  border-bottom: none;
+}
+
+/* Rankings table */
+.sectionTitle {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-3) 0;
+}
+
+.backLink {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: var(--space-3);
+  font-family: var(--font-sans);
+  transition: color var(--duration-fast) var(--ease-default);
+}
+
+.backLink:hover {
+  color: var(--accent-gold);
+}
+
+.rankingTable {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.rankingRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--glass-border);
+  font-size: var(--text-sm);
+}
+
+.rankingRow:last-child {
+  border-bottom: none;
+}
+
+.rankingRank {
+  color: var(--accent-gold);
+  font-weight: var(--font-semibold);
+  min-width: 2rem;
+}
+
+.rankingName {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+.rankingValue {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Empty state */
+.emptyState {
   padding: var(--space-6);
   text-align: center;
   color: var(--text-disabled);

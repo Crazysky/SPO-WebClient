@@ -7,7 +7,7 @@
  * Tertiary: Mail (with badge), Settings
  */
 
-import { Hammer, Search, Briefcase, Route, Trash2, Mail, Settings } from 'lucide-react';
+import { Hammer, Search, User, Route, Trash2, Mail, Settings } from 'lucide-react';
 import { IconButton } from '../common';
 import { useUiStore } from '../../store/ui-store';
 import { useGameStore } from '../../store/game-store';
@@ -47,8 +47,8 @@ export function LeftRail() {
           onClick={() => toggleRightPanel('search')}
         />
         <IconButton
-          icon={<Briefcase size={22} />}
-          label="Empire (E)"
+          icon={<User size={22} />}
+          label="Profile (E)"
           size="lg"
           variant="glass"
           active={leftPanel === 'empire'}

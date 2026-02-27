@@ -111,6 +111,21 @@ export interface ClientCallbacks {
 
   // Search menu
   onSearchMenuHome: () => void;
+  onSearchMenuTowns: () => void;
+  onSearchMenuTycoonProfile: (tycoonName: string) => void;
+  onSearchMenuPeople: () => void;
+  onSearchMenuPeopleSearch: (searchStr: string) => void;
+  onSearchMenuRankings: () => void;
+  onSearchMenuRankingDetail: (rankingPath: string) => void;
+  onSearchMenuBanks: () => void;
+
+  // Profile tabs
+  onProfileCurriculum: () => void;
+  onProfileBank: () => void;
+  onProfileProfitLoss: () => void;
+  onProfileCompanies: () => void;
+  onProfileAutoConnections: () => void;
+  onProfilePolicy: () => void;
 
   // Politics
   onLaunchCampaign: (buildingX: number, buildingY: number) => void;
@@ -254,9 +269,12 @@ export const ClientBridge = {
   },
 
   /** Show the building panel in the right panel with ownership context. */
-  showBuildingPanel(details: BuildingDetailsResponse, currentCompanyName: string): void {
+  showBuildingPanel(details: BuildingDetailsResponse, currentCompanyName: string, focusInfo?: BuildingFocusInfo): void {
     const bld = useBuildingStore.getState();
     bld.setCurrentCompanyName(currentCompanyName);
+    if (focusInfo) {
+      bld.setFocus(focusInfo);
+    }
     bld.setDetails(details);
     useUiStore.getState().openRightPanel('building');
   },

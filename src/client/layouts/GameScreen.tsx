@@ -18,7 +18,7 @@ import { TopBar, LeftRail, RightRail } from '../components/hud';
 import { RightPanel, LeftPanel } from '../components/panels';
 import { ChatStrip } from '../components/chat';
 import { BuildingInspector } from '../components/building';
-import { EmpireOverview } from '../components/empire';
+import { ProfilePanel } from '../components/empire';
 import { MailPanel } from '../components/mail';
 import { SearchPanel } from '../components/search';
 import { PoliticsPanel } from '../components/politics';
@@ -26,7 +26,7 @@ import { TransportPanel } from '../components/transport';
 import { BuildMenu, CompanyCreationModal, ConnectionPickerModal, SettingsDialog } from '../components/modals';
 import { CommandPalette } from '../components/command-palette';
 import { MobileShell } from '../components/mobile';
-import { Briefcase } from 'lucide-react';
+import { User } from 'lucide-react';
 import styles from './GameScreen.module.css';
 
 /** Title labels for each right panel type */
@@ -87,14 +87,14 @@ export function GameScreen() {
         <RightPanelContent type={rightPanel} />
       </RightPanel>
 
-      {/* Left Panel — Empire Overview */}
+      {/* Left Panel — Profile */}
       <LeftPanel
         open={leftPanel !== null}
         onClose={closeLeftPanel}
-        title="Empire Overview"
-        icon={<Briefcase size={18} />}
+        title="Profile"
+        icon={<User size={18} />}
       >
-        <EmpireOverview />
+        <ProfilePanel />
       </LeftPanel>
 
       {/* Modals — z-400 */}

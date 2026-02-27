@@ -63,11 +63,6 @@ export function SettingsDialog() {
               onChange={(v) => handleSettingChange({ vehicleAnimations: v })}
             />
             <ToggleRow
-              label="Edge scroll"
-              checked={settings.edgeScrollEnabled}
-              onChange={(v) => handleSettingChange({ edgeScrollEnabled: v })}
-            />
-            <ToggleRow
               label="Debug overlay"
               checked={settings.debugOverlay}
               onChange={(v) => handleSettingChange({ debugOverlay: v })}

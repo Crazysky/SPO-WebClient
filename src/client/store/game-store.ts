@@ -28,7 +28,6 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 export interface GameSettings {
   hideVegetationOnMove: boolean;
   vehicleAnimations: boolean;
-  edgeScrollEnabled: boolean;
   soundEnabled: boolean;
   soundVolume: number;
   debugOverlay: boolean;
@@ -37,7 +36,6 @@ export interface GameSettings {
 const DEFAULT_SETTINGS: GameSettings = {
   hideVegetationOnMove: false,
   vehicleAnimations: true,
-  edgeScrollEnabled: true,
   soundEnabled: true,
   soundVolume: 0.5,
   debugOverlay: false,

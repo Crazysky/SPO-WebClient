@@ -73,7 +73,6 @@ import {
 // painter-algorithm's (i+j) sort is NORTH-only; we use screenY-based sort instead
 import { CarClassManager } from './car-class-system';
 import { VehicleAnimationSystem } from './vehicle-animation-system';
-import { EdgeScrollController } from './edge-scroll-controller';
 
 interface CachedZone {
   x: number;
@@ -476,7 +475,6 @@ export class IsometricMapRenderer {
   private vehicleSystemReady: boolean = false;
   private animationLoopRunning: boolean = false;
   private lastRenderTime: number = 0;
-  private edgeScrollController: EdgeScrollController | null = null;
 
   constructor(canvasId: string) {
     const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
@@ -3808,12 +3806,6 @@ export class IsometricMapRenderer {
     }
   }
 
-  public setEdgeScrollEnabled(enabled: boolean): void {
-    if (this.edgeScrollController) {
-      this.edgeScrollController.setEnabled(enabled);
-    }
-  }
-
   // =========================================================================
   // MOUSE CONTROLS
   // =========================================================================
@@ -3845,27 +3837,6 @@ export class IsometricMapRenderer {
     this.canvas.addEventListener('wheel', (e) => this.onWheel(e));
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // Edge-scrolling: auto-pan when mouse is near screen edges
-    this.edgeScrollController = new EdgeScrollController({
-      onPan: (screenDx, screenDy) => {
-        const { deltaI, deltaJ } = this.screenDeltaToMapDelta(screenDx, screenDy);
-        this.terrainRenderer.pan(deltaI, deltaJ);
-        this.markCameraMoving();
-        if (this.zoneRequestManager) {
-          this.zoneRequestManager.markMoving();
-        }
-        this.requestRender();
-      },
-      onScrollStart: () => {
-        // markCameraMoving handles debouncing
-      },
-      onScrollStop: () => {
-        if (this.zoneRequestManager) {
-          this.zoneRequestManager.markStopped(this.terrainRenderer.getZoomLevel());
-        }
-        this.checkVisibleZones();
-      },
-    });
   }
 
   private onMouseDown(e: MouseEvent) {
@@ -3904,8 +3875,11 @@ export class IsometricMapRenderer {
       } else if (this.placementMode) {
         // Building placement handled by client
       } else if (this.onRoadDemolishClick) {
-        // Road demolish mode — send tile coordinates on click
-        this.onRoadDemolishClick(mapPos.j, mapPos.i);
+        // Road demolish mode — only fire if a road tile exists at click location
+        const key = `${mapPos.j},${mapPos.i}`;
+        if (this.roadTilesMap.has(key)) {
+          this.onRoadDemolishClick(mapPos.j, mapPos.i);
+        }
       } else {
         // Check building click
         const building = this.getBuildingAt(mapPos.j, mapPos.i);
@@ -3939,17 +3913,6 @@ export class IsometricMapRenderer {
       if (this.zoneRequestManager) {
         this.zoneRequestManager.markMoving();
       }
-    }
-
-    // Edge-scroll: update position when not dragging
-    if (!this.isDragging && this.edgeScrollController) {
-      const rect = this.canvas.getBoundingClientRect();
-      this.edgeScrollController.updateMousePosition(
-        e.clientX - rect.left,
-        e.clientY - rect.top,
-        rect.width,
-        rect.height
-      );
     }
 
     if (this.roadDrawingMode && this.roadDrawingState.isDrawing) {
@@ -4013,10 +3976,6 @@ export class IsometricMapRenderer {
       this.checkVisibleZones();
     }
 
-    // Stop edge-scrolling when mouse leaves canvas
-    if (this.edgeScrollController) {
-      this.edgeScrollController.stop();
-    }
   }
 
   private onWheel(e: WheelEvent) {
@@ -4144,12 +4103,6 @@ export class IsometricMapRenderer {
     if (this.touchHandler) {
       this.touchHandler.destroy();
       this.touchHandler = null;
-    }
-
-    // Destroy edge-scroll controller
-    if (this.edgeScrollController) {
-      this.edgeScrollController.destroy();
-      this.edgeScrollController = null;
     }
 
     // Destroy terrain renderer (cancels its own RAF, clears caches)

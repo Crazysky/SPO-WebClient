@@ -5,7 +5,7 @@
  * Folder tabs at top, message list scrollable, compose form.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Send, Trash2, Reply, PenSquare } from 'lucide-react';
 import { useMailStore } from '../../store/mail-store';
 import { useClient } from '../../context';
@@ -41,6 +41,13 @@ export function MailPanel() {
   const [localBody, setLocalBody] = useState(composeBody);
 
   const client = useClient();
+  const setLoading = useMailStore((s) => s.setLoading);
+
+  // Fetch folder contents on mount and when folder changes
+  useEffect(() => {
+    setLoading(true);
+    client.onMailGetFolder(currentFolder);
+  }, [currentFolder, client, setLoading]);
 
   const handleReadMessage = useCallback(
     (msg: MailMessageHeader) => {
