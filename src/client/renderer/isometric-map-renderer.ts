@@ -94,6 +94,7 @@ interface PlacementPreview {
   zoneRequirement: string;
   xsize: number;
   ysize: number;
+  visualClass: string;  // For loading the building texture preview
 }
 
 /**
@@ -1540,7 +1541,8 @@ export class IsometricMapRenderer {
     area: number = 0,
     zoneRequirement: string = '',
     xsize: number = 1,
-    ysize: number = 1
+    ysize: number = 1,
+    visualClass: string = ''
   ) {
     this.placementMode = enabled;
     if (enabled && buildingName) {
@@ -1552,7 +1554,8 @@ export class IsometricMapRenderer {
         area,
         zoneRequirement,
         xsize,
-        ysize
+        ysize,
+        visualClass
       };
       this.canvas.style.cursor = 'crosshair';
     } else {
@@ -2959,7 +2962,7 @@ export class IsometricMapRenderer {
     const fillColor = hasCollision ? 'rgba(255, 100, 100, 0.5)' : 'rgba(100, 255, 100, 0.5)';
     const strokeColor = hasCollision ? '#ff4444' : '#44ff44';
 
-    // Draw preview tiles
+    // Draw diamond overlay tiles (collision feedback)
     for (let dy = 0; dy < preview.ysize; dy++) {
       for (let dx = 0; dx < preview.xsize; dx++) {
         const tileJ = preview.j + dx;
@@ -2980,6 +2983,38 @@ export class IsometricMapRenderer {
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = 2;
         ctx.stroke();
+      }
+    }
+
+    // Draw building sprite preview (semi-transparent) on top of diamonds
+    if (preview.visualClass) {
+      const textureFilename = GameObjectTextureCache.getBuildingTextureFilename(preview.visualClass);
+      const texture = this.gameObjectTextureCache.getTextureSync('BuildingImages', textureFilename);
+
+      if (texture) {
+        const scaleFactor = config.tileWidth / 64;
+        const scaledWidth = texture.width * scaleFactor;
+        const scaledHeight = texture.height * scaleFactor;
+
+        // Anchor at the south corner of the footprint (same logic as drawBuildings)
+        const rotation = this.terrainRenderer.getRotation();
+        let anchorI: number, anchorJ: number;
+        switch (rotation) {
+          case Rotation.NORTH: anchorI = preview.i;                       anchorJ = preview.j;                       break;
+          case Rotation.EAST:  anchorI = preview.i + preview.ysize - 1;   anchorJ = preview.j;                       break;
+          case Rotation.SOUTH: anchorI = preview.i + preview.ysize - 1;   anchorJ = preview.j + preview.xsize - 1;   break;
+          case Rotation.WEST:  anchorI = preview.i;                       anchorJ = preview.j + preview.xsize - 1;   break;
+          default:             anchorI = preview.i;                       anchorJ = preview.j;                       break;
+        }
+        const southCorner = this.terrainRenderer.mapToScreen(anchorI, anchorJ);
+
+        const drawX = Math.round(southCorner.x - scaledWidth / 2);
+        const drawY = Math.round(southCorner.y + config.tileHeight - scaledHeight);
+
+        // Draw semi-transparent, tinted red on collision
+        ctx.globalAlpha = hasCollision ? 0.4 : 0.7;
+        ctx.drawImage(texture, drawX, drawY, scaledWidth, scaledHeight);
+        ctx.globalAlpha = 1.0;
       }
     }
 

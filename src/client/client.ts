@@ -1435,7 +1435,7 @@ export class StarpeaceClient {
 
     const renderer = this.mapNavigationUI?.getRenderer();
     if (renderer) {
-      renderer.setPlacementMode(true, `Clone: ${buildingDetails.buildingName}`, 0, 0, '', xsize, ysize);
+      renderer.setPlacementMode(true, `Clone: ${buildingDetails.buildingName}`, 0, 0, '', xsize, ysize, buildingDetails.visualClass);
     }
 
     this.setupCloneKeyboardHandler();
@@ -2073,7 +2073,8 @@ export class StarpeaceClient {
         building.area,
         building.zoneRequirement,
         xsize,
-        ysize
+        ysize,
+        building.visualClassId
       );
     }
 
