@@ -29,6 +29,9 @@ interface ProfileState {
   autoConnections: AutoConnectionsData | null;
   policy: PolicyData | null;
 
+  // Refresh counter — incremented after successful actions to trigger re-fetch
+  refreshCounter: number;
+
   // Actions
   setProfile: (profile: TycoonProfileFull) => void;
   setCurrentTab: (tab: ProfileTab) => void;
@@ -39,6 +42,7 @@ interface ProfileState {
   setCompanies: (data: CompaniesData) => void;
   setAutoConnections: (data: AutoConnectionsData) => void;
   setPolicy: (data: PolicyData) => void;
+  incrementRefresh: () => void;
   reset: () => void;
 }
 
@@ -52,6 +56,7 @@ export const useProfileStore = create<ProfileState>((set) => ({
   companies: null,
   autoConnections: null,
   policy: null,
+  refreshCounter: 0,
 
   setProfile: (profile) => set({ profile, isLoading: false }),
   setCurrentTab: (tab) => set({ currentTab: tab }),
@@ -62,6 +67,7 @@ export const useProfileStore = create<ProfileState>((set) => ({
   setCompanies: (data) => set({ companies: data, isLoading: false }),
   setAutoConnections: (data) => set({ autoConnections: data, isLoading: false }),
   setPolicy: (data) => set({ policy: data, isLoading: false }),
+  incrementRefresh: () => set((s) => ({ refreshCounter: s.refreshCounter + 1 })),
 
   reset: () =>
     set({
@@ -74,5 +80,6 @@ export const useProfileStore = create<ProfileState>((set) => ({
       companies: null,
       autoConnections: null,
       policy: null,
+      refreshCounter: 0,
     }),
 }));

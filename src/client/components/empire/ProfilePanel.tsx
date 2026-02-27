@@ -5,39 +5,40 @@
  * Each tab fetches data from the server on activation via ClientCallbacks.
  */
 
-import { useEffect } from 'react';
-import { TabBar, Skeleton, SkeletonLines } from '../common';
+import { useEffect, useState } from 'react';
+import {
+  GraduationCap, Landmark, TrendingUp, Factory, Link, Flag, X, Plus,
+} from 'lucide-react';
+import { Skeleton, SkeletonLines } from '../common';
 import { useProfileStore, type ProfileTab } from '../../store/profile-store';
 import { useClient } from '../../context';
+import type { AutoConnectionActionType } from '@/shared/types';
 import styles from './ProfilePanel.module.css';
 
-const TABS: Array<{ id: ProfileTab; label: string }> = [
-  { id: 'curriculum', label: 'Curriculum' },
-  { id: 'bank', label: 'Bank' },
-  { id: 'profitloss', label: 'P&L' },
-  { id: 'companies', label: 'Companies' },
-  { id: 'autoconnections', label: 'Connections' },
-  { id: 'policy', label: 'Policy' },
+const TABS: Array<{ id: ProfileTab; icon: typeof GraduationCap; label: string }> = [
+  { id: 'curriculum', icon: GraduationCap, label: 'CV' },
+  { id: 'bank', icon: Landmark, label: 'Bank' },
+  { id: 'profitloss', icon: TrendingUp, label: 'P&L' },
+  { id: 'companies', icon: Factory, label: 'Co.' },
+  { id: 'autoconnections', icon: Link, label: 'Connect' },
+  { id: 'policy', icon: Flag, label: 'Policy' },
 ];
 
 export function ProfilePanel() {
   const currentTab = useProfileStore((s) => s.currentTab);
   const isLoading = useProfileStore((s) => s.isLoading);
+  const refreshCounter = useProfileStore((s) => s.refreshCounter);
   const setCurrentTab = useProfileStore((s) => s.setCurrentTab);
   const client = useClient();
 
-  // Fetch data when tab changes
+  // Fetch data when tab changes or after a successful action
   useEffect(() => {
     requestTabData(currentTab, client);
-  }, [currentTab, client]);
-
-  const handleTabChange = (tabId: string) => {
-    setCurrentTab(tabId as ProfileTab);
-  };
+  }, [currentTab, client, refreshCounter]);
 
   return (
     <div className={styles.panel}>
-      <TabBar tabs={TABS} activeTab={currentTab} onTabChange={handleTabChange} />
+      <PillGrid activeTab={currentTab} onTabChange={setCurrentTab} />
       <div className={styles.content}>
         {isLoading ? (
           <div className={styles.loading}>
@@ -51,6 +52,36 @@ export function ProfilePanel() {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Pill Grid — compact 3x2 tab selector
+// ---------------------------------------------------------------------------
+
+function PillGrid({ activeTab, onTabChange }: { activeTab: ProfileTab; onTabChange: (id: ProfileTab) => void }) {
+  return (
+    <div className={styles.pillGrid} role="tablist">
+      {TABS.map((tab) => {
+        const Icon = tab.icon;
+        return (
+          <button
+            key={tab.id}
+            role="tab"
+            aria-selected={tab.id === activeTab}
+            className={`${styles.pill} ${tab.id === activeTab ? styles.pillActive : ''}`}
+            onClick={() => onTabChange(tab.id)}
+          >
+            <Icon size={14} className={styles.pillIcon} />
+            <span className={styles.pillLabel}>{tab.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Internals
+// ---------------------------------------------------------------------------
 
 function requestTabData(tab: ProfileTab, client: ReturnType<typeof useClient>) {
   const setLoading = useProfileStore.getState().setLoading;
@@ -125,7 +156,40 @@ function CurriculumTab() {
 
 function BankTab() {
   const data = useProfileStore((s) => s.bankAccount);
+  const client = useClient();
+  const [action, setAction] = useState<'borrow' | 'send' | null>(null);
+  const [amount, setAmount] = useState('');
+  const [toTycoon, setToTycoon] = useState('');
+  const [reason, setReason] = useState('');
+
   if (!data) return <EmptyState message="No bank data" />;
+
+  const handleBorrow = () => {
+    if (!amount) return;
+    client.onProfileBankAction('borrow', amount);
+    setAction(null);
+    setAmount('');
+  };
+
+  const handleSend = () => {
+    if (!amount || !toTycoon) return;
+    client.onProfileBankAction('send', amount, toTycoon, reason || undefined);
+    setAction(null);
+    setAmount('');
+    setToTycoon('');
+    setReason('');
+  };
+
+  const handlePayoff = (loanIndex: number) => {
+    client.onProfileBankAction('payoff', undefined, undefined, undefined, loanIndex);
+  };
+
+  const cancelAction = () => {
+    setAction(null);
+    setAmount('');
+    setToTycoon('');
+    setReason('');
+  };
 
   return (
     <div className={styles.tabBody}>
@@ -133,6 +197,7 @@ function BankTab() {
         <StatCard label="Balance" value={`$${data.balance}`} />
         <StatCard label="Max Loan" value={`$${data.maxLoan}`} />
       </div>
+
       {data.loans.length > 0 && (
         <div className={styles.section}>
           <h4 className={styles.sectionTitle}>Active Loans</h4>
@@ -145,6 +210,7 @@ function BankTab() {
                   <th>Rate</th>
                   <th>Term</th>
                   <th>Slice</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -155,6 +221,14 @@ function BankTab() {
                     <td className={styles.numCell}>{loan.interest}%</td>
                     <td className={styles.numCell}>{loan.term}y</td>
                     <td className={styles.numCell}>${loan.slice}</td>
+                    <td>
+                      <button
+                        className={styles.payoffBtn}
+                        onClick={() => handlePayoff(loan.loanIndex)}
+                      >
+                        Reimburse
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -164,6 +238,73 @@ function BankTab() {
       )}
       {data.loans.length === 0 && (
         <p className={styles.hint}>No active loans</p>
+      )}
+
+      {/* Action buttons */}
+      <div className={styles.actionBar}>
+        <button
+          className={`${styles.actionPill} ${action === 'borrow' ? styles.actionPillActive : ''}`}
+          onClick={() => setAction(action === 'borrow' ? null : 'borrow')}
+        >
+          Request Loan
+        </button>
+        <button
+          className={`${styles.actionPill} ${action === 'send' ? styles.actionPillActive : ''}`}
+          onClick={() => setAction(action === 'send' ? null : 'send')}
+        >
+          Send Money
+        </button>
+      </div>
+
+      {/* Inline forms */}
+      {action === 'borrow' && (
+        <div className={styles.inlineForm}>
+          <label className={styles.formLabel}>Amount</label>
+          <input
+            className={styles.formInput}
+            type="text"
+            placeholder="Enter amount..."
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          <p className={styles.hint}>Max loan: ${data.maxLoan} &middot; Rate: {data.defaultInterest}% &middot; Term: {data.defaultTerm}y</p>
+          <div className={styles.formActions}>
+            <button className={styles.formSubmit} onClick={handleBorrow} disabled={!amount}>Borrow</button>
+            <button className={styles.formCancel} onClick={cancelAction}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {action === 'send' && (
+        <div className={styles.inlineForm}>
+          <label className={styles.formLabel}>Recipient</label>
+          <input
+            className={styles.formInput}
+            type="text"
+            placeholder="Tycoon name..."
+            value={toTycoon}
+            onChange={(e) => setToTycoon(e.target.value)}
+          />
+          <label className={styles.formLabel}>Amount</label>
+          <input
+            className={styles.formInput}
+            type="text"
+            placeholder="Enter amount..."
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          <label className={styles.formLabel}>Reason (optional)</label>
+          <input
+            className={styles.formInput}
+            type="text"
+            placeholder="Reason..."
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+          <div className={styles.formActions}>
+            <button className={styles.formSubmit} onClick={handleSend} disabled={!amount || !toTycoon}>Send</button>
+            <button className={styles.formCancel} onClick={cancelAction}>Cancel</button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -226,26 +367,100 @@ function CompaniesTab() {
 
 function AutoConnectionsTab() {
   const data = useProfileStore((s) => s.autoConnections);
+  const client = useClient();
+  const [addingFluid, setAddingFluid] = useState<string | null>(null);
+  const [supplierInput, setSupplierInput] = useState('');
+
   if (!data) return <EmptyState message="No connections data" />;
+
+  const toggleOption = (fluidId: string, current: boolean, onAction: AutoConnectionActionType, offAction: AutoConnectionActionType) => {
+    client.onProfileAutoConnectionAction(current ? offAction : onAction, fluidId);
+  };
+
+  const handleDeleteSupplier = (fluidId: string, facilityId: string) => {
+    client.onProfileAutoConnectionAction('delete', fluidId, facilityId);
+  };
+
+  const handleAddSupplier = (fluidId: string) => {
+    if (!supplierInput) return;
+    client.onProfileAutoConnectionAction('add', fluidId, supplierInput);
+    setAddingFluid(null);
+    setSupplierInput('');
+  };
 
   return (
     <div className={styles.tabBody}>
       {data.fluids.map((fluid) => (
         <div key={fluid.fluidId} className={styles.section}>
-          <h4 className={styles.sectionTitle}>
-            {fluid.fluidName}
-            {fluid.hireTradeCenter && <span className={styles.tag}>Trade Center</span>}
-            {fluid.onlyWarehouses && <span className={styles.tag}>Warehouses</span>}
-          </h4>
+          <h4 className={styles.sectionTitle}>{fluid.fluidName}</h4>
+
+          {/* Toggle switches */}
+          <div className={styles.toggleGroup}>
+            <div
+              className={styles.toggleRow}
+              onClick={() => toggleOption(fluid.fluidId, fluid.hireTradeCenter, 'hireTradeCenter', 'dontHireTradeCenter')}
+            >
+              <span className={styles.toggleLabel}>Trade Center</span>
+              <div className={`${styles.toggle} ${fluid.hireTradeCenter ? styles.toggleOn : ''}`}>
+                <div className={styles.toggleThumb} />
+              </div>
+            </div>
+            <div
+              className={styles.toggleRow}
+              onClick={() => toggleOption(fluid.fluidId, fluid.onlyWarehouses, 'onlyWarehouses', 'dontOnlyWarehouses')}
+            >
+              <span className={styles.toggleLabel}>Warehouses Only</span>
+              <div className={`${styles.toggle} ${fluid.onlyWarehouses ? styles.toggleOn : ''}`}>
+                <div className={styles.toggleThumb} />
+              </div>
+            </div>
+          </div>
+
+          {/* Supplier list */}
           {fluid.suppliers.length > 0 ? (
             fluid.suppliers.map((s, i) => (
               <div key={i} className={styles.listRow}>
-                <span className={styles.rowName}>{s.facilityName}</span>
-                <span className={styles.rowSub}>{s.companyName}</span>
+                <div className={styles.rowMain}>
+                  <span className={styles.rowName}>{s.facilityName}</span>
+                  <span className={styles.rowSub}>{s.companyName}</span>
+                </div>
+                <button
+                  className={styles.deleteBtn}
+                  onClick={() => handleDeleteSupplier(fluid.fluidId, s.facilityId)}
+                  aria-label={`Remove ${s.facilityName}`}
+                >
+                  <X size={12} />
+                </button>
               </div>
             ))
           ) : (
             <p className={styles.hint}>No suppliers</p>
+          )}
+
+          {/* Add supplier */}
+          {addingFluid === fluid.fluidId ? (
+            <div className={styles.inlineForm}>
+              <label className={styles.formLabel}>Supplier Facility ID</label>
+              <input
+                className={styles.formInput}
+                type="text"
+                placeholder="Facility ID..."
+                value={supplierInput}
+                onChange={(e) => setSupplierInput(e.target.value)}
+              />
+              <div className={styles.formActions}>
+                <button className={styles.formSubmit} onClick={() => handleAddSupplier(fluid.fluidId)} disabled={!supplierInput}>Add</button>
+                <button className={styles.formCancel} onClick={() => { setAddingFluid(null); setSupplierInput(''); }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button
+              className={styles.addBtn}
+              onClick={() => setAddingFluid(fluid.fluidId)}
+            >
+              <Plus size={12} />
+              <span>Add Supplier</span>
+            </button>
           )}
         </div>
       ))}
@@ -256,6 +471,7 @@ function AutoConnectionsTab() {
 
 function PolicyTab() {
   const data = useProfileStore((s) => s.policy);
+  const client = useClient();
   if (!data) return <EmptyState message="No policy data" />;
 
   const policyLabel = (val: number) => {
@@ -280,7 +496,28 @@ function PolicyTab() {
               {data.policies.map((p) => (
                 <tr key={p.tycoonName}>
                   <td>{p.tycoonName}</td>
-                  <td>{policyLabel(p.yourPolicy)}</td>
+                  <td>
+                    <div className={styles.policyBtnGroup}>
+                      <button
+                        className={`${styles.policyBtn} ${p.yourPolicy < 0 ? styles.policyEnemy : ''}`}
+                        onClick={() => client.onProfilePolicySet(p.tycoonName, -1)}
+                      >
+                        Enemy
+                      </button>
+                      <button
+                        className={`${styles.policyBtn} ${p.yourPolicy === 0 ? styles.policyNeutral : ''}`}
+                        onClick={() => client.onProfilePolicySet(p.tycoonName, 0)}
+                      >
+                        Neutral
+                      </button>
+                      <button
+                        className={`${styles.policyBtn} ${p.yourPolicy > 0 ? styles.policyAlly : ''}`}
+                        onClick={() => client.onProfilePolicySet(p.tycoonName, 1)}
+                      >
+                        Ally
+                      </button>
+                    </div>
+                  </td>
                   <td>{policyLabel(p.theirPolicy)}</td>
                 </tr>
               ))}

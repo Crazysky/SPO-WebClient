@@ -27,6 +27,8 @@ import type {
   BuildingInfo,
   MailFolder,
   ConnectionSearchResult,
+  BankActionType,
+  AutoConnectionActionType,
 } from '@/shared/types';
 import {
   WsMessageType,
@@ -126,6 +128,11 @@ export interface ClientCallbacks {
   onProfileCompanies: () => void;
   onProfileAutoConnections: () => void;
   onProfilePolicy: () => void;
+
+  // Profile actions
+  onProfileBankAction: (action: BankActionType, amount?: string, toTycoon?: string, reason?: string, loanIndex?: number) => void;
+  onProfileAutoConnectionAction: (action: AutoConnectionActionType, fluidId: string, suppliers?: string) => void;
+  onProfilePolicySet: (tycoonName: string, status: number) => void;
 
   // Politics
   onLaunchCampaign: (buildingX: number, buildingY: number) => void;
@@ -452,6 +459,7 @@ export const ClientBridge = {
       case WsMessageType.RESP_PROFILE_BANK_ACTION: {
         const resp = msg as WsRespProfileBankAction;
         showToast(resp.result.message || 'Bank action completed', resp.result.success ? 'success' : 'error');
+        if (resp.result.success) profile.incrementRefresh();
         break;
       }
       case WsMessageType.RESP_PROFILE_PROFITLOSS:
@@ -466,6 +474,7 @@ export const ClientBridge = {
       case WsMessageType.RESP_PROFILE_AUTOCONNECTION_ACTION: {
         const resp = msg as WsRespProfileAutoConnectionAction;
         showToast(resp.message || 'Connection updated', resp.success ? 'success' : 'error');
+        if (resp.success) profile.incrementRefresh();
         break;
       }
       case WsMessageType.RESP_PROFILE_POLICY:
@@ -474,6 +483,7 @@ export const ClientBridge = {
       case WsMessageType.RESP_PROFILE_POLICY_SET: {
         const resp = msg as WsRespProfilePolicySet;
         showToast(resp.message || 'Policy updated', resp.success ? 'success' : 'error');
+        if (resp.success) profile.incrementRefresh();
         break;
       }
     }

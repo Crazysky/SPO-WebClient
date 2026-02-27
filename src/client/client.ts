@@ -371,6 +371,17 @@ export class StarpeaceClient {
       onProfileAutoConnections: () => this.sendMessage({ type: WsMessageType.REQ_PROFILE_AUTOCONNECTIONS }),
       onProfilePolicy: () => this.sendMessage({ type: WsMessageType.REQ_PROFILE_POLICY }),
 
+      // Profile actions
+      onProfileBankAction: (action, amount, toTycoon, reason, loanIndex) => this.sendMessage({
+        type: WsMessageType.REQ_PROFILE_BANK_ACTION, action, amount, toTycoon, reason, loanIndex,
+      }),
+      onProfileAutoConnectionAction: (action, fluidId, suppliers) => this.sendMessage({
+        type: WsMessageType.REQ_PROFILE_AUTOCONNECTION_ACTION, action, fluidId, suppliers,
+      }),
+      onProfilePolicySet: (tycoonName, status) => this.sendMessage({
+        type: WsMessageType.REQ_PROFILE_POLICY_SET, tycoonName, status,
+      }),
+
       // Politics
       onLaunchCampaign: (buildingX, buildingY) => this.sendMessage({
         type: WsMessageType.REQ_POLITICS_LAUNCH_CAMPAIGN,
