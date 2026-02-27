@@ -553,45 +553,46 @@ export class IsometricMapRenderer {
   }
 
   /**
-   * Setup keyboard controls for debug mode
+   * Setup keyboard controls for map rotation, zoom, and debug overlays.
+   * Skips when focus is in a text input or when a UI modal/panel is active
+   * (those keys are handled by useKeyboardShortcuts).
    */
   private setupKeyboardControls() {
     document.addEventListener('keydown', (e) => {
+      // Skip when typing in form fields
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if ((e.target as HTMLElement)?.isContentEditable) return;
+
       // 'Q' rotates counter-clockwise (NORTH→WEST→SOUTH→EAST→NORTH)
       if (e.key === 'q' || e.key === 'Q') {
         this.rotateCounterClockwise();
       }
-      // 'E' rotates clockwise (NORTH→EAST→SOUTH→WEST→NORTH)
-      if (e.key === 'e' || e.key === 'E') {
-        this.rotateClockwise();
+      // '+' or '=' zooms in
+      if (e.key === '+' || e.key === '=') {
+        this.zoomIn();
       }
-      // 'D' key toggles debug mode
-      if (e.key === 'd' || e.key === 'D') {
-        this.debugMode = !this.debugMode;
-        console.log(`[IsometricMapRenderer] Debug mode: ${this.debugMode ? 'ON' : 'OFF'}`);
-        this.requestRender();
+      // '-' zooms out
+      if (e.key === '-') {
+        this.zoomOut();
       }
-      // '1' toggles tile info in debug mode
+      // Debug sub-overlays (only active when debug mode is on)
       if (e.key === '1' && this.debugMode) {
         this.debugShowTileInfo = !this.debugShowTileInfo;
         this.requestRender();
       }
-      // '2' toggles building info in debug mode
       if (e.key === '2' && this.debugMode) {
         this.debugShowBuildingInfo = !this.debugShowBuildingInfo;
         this.requestRender();
       }
-      // '3' toggles concrete info in debug mode
       if (e.key === '3' && this.debugMode) {
         this.debugShowConcreteInfo = !this.debugShowConcreteInfo;
         this.requestRender();
       }
-      // '4' toggles water concrete grid in debug mode
       if (e.key === '4' && this.debugMode) {
         this.debugShowWaterGrid = !this.debugShowWaterGrid;
         this.requestRender();
       }
-      // '5' toggles road info in debug mode
       if (e.key === '5' && this.debugMode) {
         this.debugShowRoadInfo = !this.debugShowRoadInfo;
         this.requestRender();
@@ -644,6 +645,22 @@ export class IsometricMapRenderer {
     this.checkVisibleZones();
 
     console.log(`[IsometricMapRenderer] Rotation: ${Rotation[next]}`);
+    this.requestRender();
+  }
+
+  public zoomIn(): void {
+    this.terrainRenderer.setZoomLevel(this.terrainRenderer.getZoomLevel() + 1);
+    if (this.zoneRequestManager) {
+      this.zoneRequestManager.markStopped(this.terrainRenderer.getZoomLevel());
+    }
+    this.requestRender();
+  }
+
+  public zoomOut(): void {
+    this.terrainRenderer.setZoomLevel(this.terrainRenderer.getZoomLevel() - 1);
+    if (this.zoneRequestManager) {
+      this.zoneRequestManager.markStopped(this.terrainRenderer.getZoomLevel());
+    }
     this.requestRender();
   }
 

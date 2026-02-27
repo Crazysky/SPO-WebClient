@@ -99,12 +99,13 @@ import { Season } from '../shared/map-config';
 import { MapNavigationUI } from './ui/map-navigation-ui';
 import { MinimapUI } from './ui/minimap-ui';
 import { ClientBridge, type ClientCallbacks } from './bridge/client-bridge';
+import { useGameStore } from './store/game-store';
 import type { GameSettings } from './store/game-store';
 import { useUiStore } from './store/ui-store';
+import { useChatStore } from './store/chat-store';
 import { useBuildingStore } from './store/building-store';
 import { getFacilityDimensionsCache } from './facility-dimensions-cache';
 import { SoundManager } from './audio/sound-manager';
-import { KeyBindingRegistry } from './input/key-binding-registry';
 
 // [E2E-DEBUG] Wire-level debug tracker exposed on window.__spoDebug
 // To remove all E2E debug code: search for "[E2E-DEBUG]" and delete those lines/blocks
@@ -193,9 +194,21 @@ function updateDebugBadge(debug: SpoDebugWire): void {
     badge.style.color = debug.errors > 0 ? '#f44' : '#8f8';
   }
 }
+
+function appendConsoleEntry(dir: '→' | '←', type: string): void {
+  const output = document.getElementById('console-output');
+  if (!output) return;
+  const el = document.createElement('div');
+  el.textContent = `${dir} ${type}`;
+  el.style.cssText = 'font-family:var(--font-mono);font-size:0.7rem;padding:1px 6px;color:#aaa;';
+  output.appendChild(el);
+  while (output.children.length > 200) output.removeChild(output.firstChild!);
+}
 // [/E2E-DEBUG]
 
 export class StarpeaceClient {
+  public readonly callbacks!: ClientCallbacks;
+
   private ws: WebSocket | null = null;
   private isConnected: boolean = false;
   private pendingRequests = new Map<string, { resolve: (msg: WsMessage) => void, reject: (err: unknown) => void }>();
@@ -206,7 +219,6 @@ export class StarpeaceClient {
 
   // UI Elements (kept for status only)
   private uiGamePanel: HTMLElement;
-  private uiStatus: HTMLElement;
 
   // Session state
   private storedUsername = '';
@@ -250,27 +262,31 @@ export class StarpeaceClient {
   // Audio
   private soundManager: SoundManager;
 
-  // Key binding registry
-  private keyBindingRegistry: KeyBindingRegistry;
 
   private debugWire: SpoDebugWire; // [E2E-DEBUG]
 
   constructor() {
     this.uiGamePanel = document.getElementById('game-panel')!;
-    this.uiStatus = document.getElementById('status-indicator')!;
 
     this.debugWire = initSpoDebug(); // [E2E-DEBUG]
     this.debugWire.getState = () => this.getDebugState(); // [E2E-DEBUG]
     this.soundManager = new SoundManager();
-    this.keyBindingRegistry = new KeyBindingRegistry();
     const callbacks: Partial<ClientCallbacks> = {
-      onBuildMenu: () => this.openBuildMenu(),
       onBuildRoad: () => this.toggleRoadBuildingMode(),
       onDemolishRoad: () => this.toggleRoadDemolishMode(),
       onRefreshMap: () => this.refreshMapData(),
+      onZoomIn: () => this.mapNavigationUI?.getRenderer()?.zoomIn(),
+      onZoomOut: () => this.mapNavigationUI?.getRenderer()?.zoomOut(),
+      onToggleMinimap: () => this.minimapUI?.toggle(),
+      onToggleDebugOverlay: () => {
+        const renderer = this.mapNavigationUI?.getRenderer();
+        if (renderer) {
+          renderer.debugMode = !renderer.debugMode;
+          renderer.requestRender();
+        }
+      },
       onLogout: () => this.logout(),
       onSendChatMessage: (message: string) => this.sendChatMessage(message),
-      onJoinChannel: (channelName: string) => this.joinChannel(channelName),
       onDirectoryConnect: (username: string, password: string, zonePath?: string) =>
         this.performDirectoryLogin(username, password, zonePath),
       onWorldSelect: (worldName: string) => this.login(worldName),
@@ -330,54 +346,18 @@ export class StarpeaceClient {
         folder: 'Inbox' as MailFolder,
         messageId,
       }),
-      onMailSaveDraft: (to, subject, body) => this.sendMessage({
-        type: WsMessageType.REQ_MAIL_SAVE_DRAFT,
-        to, subject, body: [body],
-      }),
 
       // Search menu
       onSearchMenuHome: () => this.sendMessage({ type: WsMessageType.REQ_SEARCH_MENU_HOME }),
-      onSearchMenuNavigate: (page) => {
-        const pageTypeMap: Record<string, WsMessageType> = {
-          towns: WsMessageType.REQ_SEARCH_MENU_TOWNS,
-          rankings: WsMessageType.REQ_SEARCH_MENU_RANKINGS,
-          banks: WsMessageType.REQ_SEARCH_MENU_BANKS,
-          people: WsMessageType.REQ_SEARCH_MENU_PEOPLE,
-        };
-        const msgType = pageTypeMap[page];
-        if (msgType) {
-          this.sendMessage({ type: msgType });
-        }
-      },
 
-      // Profile
-      onSwitchCompany: (companyName) => {
-        const company = this.availableCompanies.find(c => c.name === companyName);
-        if (company) {
-          ClientBridge.log('Profile', `Switching to company: ${companyName}`);
-          this.selectCompanyAndStart(company.id);
-        }
-      },
-      onProfileRequestTab: (tab) => {
-        const tabTypeMap: Record<string, WsMessageType> = {
-          curriculum: WsMessageType.REQ_PROFILE_CURRICULUM,
-          bank: WsMessageType.REQ_PROFILE_BANK,
-          profitloss: WsMessageType.REQ_PROFILE_PROFITLOSS,
-          companies: WsMessageType.REQ_PROFILE_COMPANIES,
-          autoconnections: WsMessageType.REQ_PROFILE_AUTOCONNECTIONS,
-          policy: WsMessageType.REQ_PROFILE_POLICY,
-        };
-        const msgType = tabTypeMap[tab];
-        if (msgType) {
-          this.sendMessage({ type: msgType });
-        }
-      },
+      // Politics
+      onLaunchCampaign: (buildingX, buildingY) => this.sendMessage({
+        type: WsMessageType.REQ_POLITICS_LAUNCH_CAMPAIGN,
+        buildingX, buildingY,
+      }),
     };
 
-    // Inject callbacks into React context via bridge setter
-    if (window.__spoSetBridgeCallbacks) {
-      window.__spoSetBridgeCallbacks(callbacks as ClientCallbacks);
-    }
+    this.callbacks = callbacks as ClientCallbacks;
 
     this.setupAudio();
     this.init();
@@ -453,8 +433,6 @@ export class StarpeaceClient {
 
     this.ws.onopen = () => {
       this.isConnected = true;
-      this.uiStatus.textContent = "● Online";
-      this.uiStatus.style.color = "#0f0";
       ClientBridge.log('System', 'Gateway Connected.');
     };
 
@@ -469,8 +447,6 @@ export class StarpeaceClient {
 
     this.ws.onclose = () => {
       this.isConnected = false;
-      this.uiStatus.textContent = "● Offline";
-      this.uiStatus.style.color = "#f00";
       ClientBridge.log('System', 'Gateway Disconnected.');
     };
 
@@ -494,6 +470,7 @@ export class StarpeaceClient {
       if (this.debugWire.history.length > this.debugWire.maxHistory) this.debugWire.history.shift();
       ClientBridge.log('Wire', `→ SEND ${msg.type} [${requestId.slice(-6)}]`);
       updateDebugBadge(this.debugWire);
+      appendConsoleEntry('→', msg.type || '?');
       // [/E2E-DEBUG]
       this.ws.send(JSON.stringify(msg));
 
@@ -521,6 +498,7 @@ export class StarpeaceClient {
     if (this.debugWire.history.length > this.debugWire.maxHistory) this.debugWire.history.shift();
     ClientBridge.log('Wire', `→ SEND ${msg.type}`);
     updateDebugBadge(this.debugWire);
+    appendConsoleEntry('→', msg.type || '?');
     // [/E2E-DEBUG]
     this.ws.send(JSON.stringify(msg));
   }
@@ -536,6 +514,7 @@ export class StarpeaceClient {
     if (this.debugWire.history.length > this.debugWire.maxHistory) this.debugWire.history.shift();
     ClientBridge.log('Wire', `← RECV ${msg.type}${reqTag}${isError ? ' ✗ERROR' : ''}`);
     updateDebugBadge(this.debugWire);
+    appendConsoleEntry('←', msg.type + (isError ? ' ✗' : ''));
     // [/E2E-DEBUG]
 
     // 1. Pending Requests
@@ -874,7 +853,11 @@ export class StarpeaceClient {
       // Preload all facility dimensions (one-time, ~15KB)
       await this.preloadFacilityDimensions();
 
-      // Switch to game view
+      // Switch to game view — set React status to 'connected' so App.tsx
+      // routes from LoginScreen to GameScreen
+      ClientBridge.setConnected();
+      ClientBridge.setWorld(this.currentWorldName);
+      ClientBridge.setCompany(company.name, company.id);
       this.switchToGameView();
 
       // Apply server WorldSeason to renderer (overrides default SUMMER)
@@ -901,6 +884,11 @@ export class StarpeaceClient {
       // Fetch extended tycoon profile (non-blocking)
       this.getProfile().catch(err => {
         ClientBridge.log('Profile', `Profile fetch failed: ${toErrorMessage(err)}`);
+      });
+
+      // Initialize chat channels after login (non-blocking)
+      this.initChatChannels().catch(err => {
+        ClientBridge.log('Chat', `Chat init failed: ${toErrorMessage(err)}`);
       });
 
       // NOTE: Initial map area is loaded by the zone system via triggerZoneCheck()
@@ -964,7 +952,7 @@ export class StarpeaceClient {
     this.uiGamePanel.style.flexDirection = 'column';
 
     // Initialize Map & Navigation
-    this.mapNavigationUI = new MapNavigationUI(this.uiGamePanel);
+    this.mapNavigationUI = new MapNavigationUI(this.uiGamePanel, this.currentWorldName);
     this.mapNavigationUI.init();
     this.setupGameUICallbacks();
 
@@ -973,8 +961,6 @@ export class StarpeaceClient {
       username: this.storedUsername,
       cash: '0', incomePerHour: '0', ranking: 0, buildingCount: 0, maxBuildings: 0,
     });
-
-    // Profile company switching is handled via bridge callbacks (onSwitchCompany)
 
     // Create minimap and wire to renderer
     this.minimapUI = new MinimapUI();
@@ -1044,6 +1030,14 @@ export class StarpeaceClient {
       ClientBridge.setChatUsers(resp.users);
     } catch (err: unknown) {
       ClientBridge.log('Error', `Failed to get user list: ${toErrorMessage(err)}`);
+    }
+  }
+
+  private async initChatChannels(): Promise<void> {
+    await this.requestChannelList();
+    const { channels } = useChatStore.getState();
+    if (channels.length > 0) {
+      await this.joinChannel(channels[0]);
     }
   }
 
@@ -2395,8 +2389,8 @@ export class StarpeaceClient {
     // Panel visibility — query React ui-store for panel state
     const uiState = useUiStore.getState();
     const panels: Record<string, boolean> = {
-      login: document.getElementById('login-panel')?.style.display !== 'none',
-      chat: document.getElementById('chat-panel')?.style.display !== 'none',
+      login: useGameStore.getState().status !== 'connected',
+      chat: useChatStore.getState().isExpanded,
       mail: uiState.rightPanel === 'mail',
       profile: uiState.leftPanel === 'empire',
       politics: uiState.rightPanel === 'politics',
@@ -2408,25 +2402,29 @@ export class StarpeaceClient {
       searchMenu: uiState.rightPanel === 'search',
     };
 
-    // Tycoon stats from DOM data attributes
-    const statTypes = ['ranking', 'buildings', 'cash', 'income', 'prestige', 'area', 'debt'];
-    const tycoonStats: Record<string, string> = {};
-    for (const t of statTypes) {
-      const el = document.querySelector(`[data-type="${t}"] .stat-value`);
-      tycoonStats[t] = el?.textContent?.trim() ?? '';
-    }
+    // Tycoon stats from Zustand game store
+    const rawStats = useGameStore.getState().tycoonStats;
+    const tycoonStats: Record<string, string> = {
+      ranking:  rawStats ? `#${rawStats.ranking}` : '',
+      buildings: rawStats ? `${rawStats.buildingCount}/${rawStats.maxBuildings}` : '',
+      cash:     rawStats?.cash ?? '',
+      income:   rawStats ? `${rawStats.incomePerHour}/h` : '',
+      prestige: rawStats?.prestige !== undefined ? String(rawStats.prestige) : '',
+      area:     rawStats?.area !== undefined ? String(rawStats.area) : '',
+      debt:     '',
+    };
 
-    // Chat info from DOM
-    const chatMessages = document.querySelectorAll('#chat-panel .chat-message, #chat-panel [class*="message"]');
-    const lastMsg = chatMessages.length > 0
-      ? (chatMessages[chatMessages.length - 1] as HTMLElement).textContent?.trim() ?? ''
-      : '';
+    // Chat info from Zustand chat store
+    const chatStoreState = useChatStore.getState();
+    const channelMsgs = chatStoreState.messages[chatStoreState.currentChannel] ?? [];
+    const lastMsg = channelMsgs[channelMsgs.length - 1]?.text ?? '';
 
     // Access private renderer internals via cast (debug-only, not for production)
     const rendererAny = renderer as unknown as Record<string, unknown> | null;
     const terrainRenderer = rendererAny?.terrainRenderer as Record<string, unknown> | undefined;
+    const ROTATION_NAMES = ['NORTH', 'EAST', 'SOUTH', 'WEST'];
     const rotation = typeof terrainRenderer?.getRotation === 'function'
-      ? String(terrainRenderer.getRotation()) : 'UNKNOWN';
+      ? (ROTATION_NAMES[terrainRenderer.getRotation() as number] ?? 'UNKNOWN') : 'UNKNOWN';
 
     // Building details panel introspection (from Zustand store)
     const bldState = useBuildingStore.getState();
@@ -2466,8 +2464,8 @@ export class StarpeaceClient {
       panels,
       tycoonStats,
       chat: {
-        visible: panels.chat,
-        messageCount: chatMessages.length,
+        visible: chatStoreState.isExpanded,
+        messageCount: channelMsgs.length,
         lastMessage: lastMsg,
       },
       buildingDetails,
@@ -2484,6 +2482,3 @@ export class StarpeaceClient {
   // [/E2E-DEBUG]
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  new StarpeaceClient();
-});

@@ -13,7 +13,6 @@ import styles from './TopBar.module.css';
 export function TopBar() {
   const companyName = useGameStore((s) => s.companyName);
   const tycoonStats = useGameStore((s) => s.tycoonStats);
-  const gameDate = useGameStore((s) => s.gameDate);
   const toggleLeftPanel = useUiStore((s) => s.toggleLeftPanel);
 
   const failureLevel = tycoonStats?.failureLevel ?? 0;
@@ -32,13 +31,6 @@ export function TopBar() {
           {companyName || 'No Company'}
         </button>
       </div>
-
-      {/* Center — game date */}
-      {gameDate && (
-        <div className={styles.center}>
-          <span className={styles.date}>{gameDate}</span>
-        </div>
-      )}
 
       {/* Right section — tycoon stats */}
       <div className={styles.right}>

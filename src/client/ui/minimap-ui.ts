@@ -32,10 +32,10 @@ export class MinimapUI {
   private renderer: MinimapRendererAPI | null = null;
   private visible = false;
   private updateTimer: ReturnType<typeof setInterval> | null = null;
-  private keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor() {
-    this.setupKeyboardToggle();
+    // Keyboard toggle removed — M key is handled by useKeyboardShortcuts (mail panel).
+    // Minimap toggle is via the RightRail button → client.onToggleMinimap().
   }
 
   /**
@@ -94,10 +94,6 @@ export class MinimapUI {
   public destroy(): void {
     this.visible = false;
     this.stopUpdating();
-    if (this.keyHandler) {
-      document.removeEventListener('keydown', this.keyHandler);
-      this.keyHandler = null;
-    }
     if (this.container && this.container.parentElement) {
       this.container.parentElement.removeChild(this.container);
     }
@@ -147,22 +143,6 @@ export class MinimapUI {
       e.stopPropagation();
       this.handleClick(e.offsetX, e.offsetY);
     };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Keyboard toggle ('M')
-  // ---------------------------------------------------------------------------
-
-  private setupKeyboardToggle(): void {
-    this.keyHandler = (e: KeyboardEvent) => {
-      // Don't intercept when typing in inputs
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (e.key === 'm' || e.key === 'M') {
-        this.toggle();
-      }
-    };
-    document.addEventListener('keydown', this.keyHandler);
   }
 
   // ---------------------------------------------------------------------------

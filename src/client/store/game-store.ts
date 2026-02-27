@@ -54,7 +54,6 @@ interface GameState {
   companyId: string;
 
   // World data
-  gameDate: string;
   companies: CompanyInfo[];
 
   // Tycoon stats (updated by EVENT_TYCOON_UPDATE)
@@ -64,9 +63,9 @@ interface GameState {
   isRoadBuildingMode: boolean;
   isRoadDemolishMode: boolean;
 
-  // Login flow (replaces window.__spoLoginHandlers)
+  // Login flow
   loginWorlds: WorldInfo[];
-  loginStage: 'auth' | 'worlds' | 'companies';
+  loginStage: 'auth' | 'zones' | 'worlds' | 'companies';
   loginLoading: boolean;
 
   // Company creation
@@ -80,14 +79,13 @@ interface GameState {
   setCredentials: (username: string) => void;
   setWorld: (worldName: string) => void;
   setCompany: (name: string, id: string) => void;
-  setGameDate: (date: string) => void;
   setCompanies: (companies: CompanyInfo[]) => void;
   setTycoonStats: (stats: TycoonStats) => void;
   setRoadBuildingMode: (active: boolean) => void;
   setRoadDemolishMode: (active: boolean) => void;
   setLoginWorlds: (worlds: WorldInfo[]) => void;
   setLoginCompanies: (companies: CompanyInfo[]) => void;
-  setLoginStage: (stage: 'auth' | 'worlds' | 'companies') => void;
+  setLoginStage: (stage: 'auth' | 'zones' | 'worlds' | 'companies') => void;
   setLoginLoading: (loading: boolean) => void;
   setCompanyCreationClusters: (clusters: string[]) => void;
   updateSettings: (partial: Partial<GameSettings>) => void;
@@ -101,7 +99,6 @@ export const useGameStore = create<GameState>((set) => ({
   worldName: '',
   companyName: '',
   companyId: '',
-  gameDate: '',
   companies: [],
   tycoonStats: null,
   isRoadBuildingMode: false,
@@ -117,7 +114,6 @@ export const useGameStore = create<GameState>((set) => ({
   setCredentials: (username) => set({ username }),
   setWorld: (worldName) => set({ worldName }),
   setCompany: (name, id) => set({ companyName: name, companyId: id }),
-  setGameDate: (date) => set({ gameDate: date }),
   setCompanies: (companies) => set({ companies }),
 
   setTycoonStats: (stats) => set({ tycoonStats: stats }),
@@ -144,7 +140,6 @@ export const useGameStore = create<GameState>((set) => ({
       worldName: '',
       companyName: '',
       companyId: '',
-      gameDate: '',
       companies: [],
       tycoonStats: null,
       isRoadBuildingMode: false,

@@ -2,31 +2,19 @@
  * RightRail — Map controls on the right edge.
  *
  * Bottom-right corner, z-200.
- * Compass, zoom in/out, minimap toggle, overlay toggles, refresh.
+ * Zoom in/out, minimap toggle, overlay toggle, refresh.
  */
 
-import { Compass, ZoomIn, ZoomOut, Map, Layers, RefreshCw } from 'lucide-react';
+import { ZoomIn, ZoomOut, Map, Layers, RefreshCw } from 'lucide-react';
 import { IconButton } from '../common';
-import { useLegacyBridge } from '../../context';
+import { useClient } from '../../context';
 import styles from './RightRail.module.css';
 
 export function RightRail() {
-  const bridge = useLegacyBridge();
+  const client = useClient();
 
   return (
     <nav className={styles.rail} aria-label="Map controls">
-      {/* Compass */}
-      <div className={styles.group}>
-        <IconButton
-          icon={<Compass size={22} />}
-          label="Compass"
-          size="lg"
-          variant="glass"
-        />
-      </div>
-
-      <div className={styles.divider} />
-
       {/* Zoom controls */}
       <div className={styles.group}>
         <IconButton
@@ -34,12 +22,14 @@ export function RightRail() {
           label="Zoom In (+)"
           size="md"
           variant="glass"
+          onClick={() => client.onZoomIn()}
         />
         <IconButton
           icon={<ZoomOut size={18} />}
           label="Zoom Out (-)"
           size="md"
           variant="glass"
+          onClick={() => client.onZoomOut()}
         />
       </div>
 
@@ -52,19 +42,21 @@ export function RightRail() {
           label="Minimap"
           size="md"
           variant="glass"
+          onClick={() => client.onToggleMinimap()}
         />
         <IconButton
           icon={<Layers size={18} />}
-          label="Overlays"
+          label="Overlays (D)"
           size="md"
           variant="glass"
+          onClick={() => client.onToggleDebugOverlay()}
         />
         <IconButton
           icon={<RefreshCw size={18} />}
           label="Refresh (R)"
           size="md"
           variant="glass"
-          onClick={() => bridge.current?.onRefreshMap()}
+          onClick={() => client.onRefreshMap()}
         />
       </div>
     </nav>

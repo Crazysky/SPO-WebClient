@@ -1,11 +1,12 @@
 /**
  * useKeyboardShortcuts — Global keyboard shortcut handler.
- * Registers game-wide shortcuts (B=Build, E=Empire, M=Mail, Escape, Cmd+K, etc.)
+ * Registers game-wide shortcuts (B=Build, E=Empire, M=Mail, R=Refresh, Escape, Cmd+K, etc.)
  * Ignores shortcuts when focus is in a text input or textarea.
  */
 
 import { useEffect } from 'react';
 import { useUiStore } from '../store/ui-store';
+import type { ClientCallbacks } from '../bridge/client-bridge';
 
 function isTextInput(target: EventTarget | null): boolean {
   if (!target || !(target instanceof HTMLElement)) return false;
@@ -15,7 +16,7 @@ function isTextInput(target: EventTarget | null): boolean {
   return false;
 }
 
-export function useKeyboardShortcuts(): void {
+export function useKeyboardShortcuts(client: ClientCallbacks | null): void {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const store = useUiStore.getState();
@@ -54,15 +55,17 @@ export function useKeyboardShortcuts(): void {
           store.toggleRightPanel('mail');
           break;
         case 'r':
-          // Refresh map — handled by bridge callback, not store
+          e.preventDefault();
+          client?.onRefreshMap();
           break;
         case 'd':
-          // Debug overlay — handled by game settings
+          e.preventDefault();
+          client?.onToggleDebugOverlay();
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [client]);
 }

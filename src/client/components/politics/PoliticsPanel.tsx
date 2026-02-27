@@ -3,12 +3,16 @@
  */
 
 import { usePoliticsStore } from '../../store/politics-store';
+import { useClient } from '../../context';
 import { ProgressBar, Skeleton } from '../common';
 import styles from './PoliticsPanel.module.css';
 
 export function PoliticsPanel() {
+  const client = useClient();
   const data = usePoliticsStore((s) => s.data);
   const townName = usePoliticsStore((s) => s.townName);
+  const buildingX = usePoliticsStore((s) => s.buildingX);
+  const buildingY = usePoliticsStore((s) => s.buildingY);
   const isLoading = usePoliticsStore((s) => s.isLoading);
 
   if (isLoading) {
@@ -87,7 +91,12 @@ export function PoliticsPanel() {
 
       {data.canLaunchCampaign && (
         <div className={styles.section}>
-          <button className={styles.launchBtn}>Launch Campaign</button>
+          <button
+            className={styles.launchBtn}
+            onClick={() => client.onLaunchCampaign(buildingX, buildingY)}
+          >
+            Launch Campaign
+          </button>
         </div>
       )}
     </div>

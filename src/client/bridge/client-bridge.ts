@@ -1,12 +1,9 @@
 /**
- * ClientBridge — Adapter between legacy client.ts and React/Zustand.
+ * ClientBridge — Adapter between client.ts and React/Zustand.
  *
- * Legacy client.ts calls bridge methods to push state into Zustand stores.
- * React components read from stores and call bridge callbacks (via
- * LegacyBridgeContext) to trigger client.ts actions.
- *
- * The ClientCallbacks interface is the type contract for the bridge —
- * consumed by LegacyBridgeContext.tsx.
+ * client.ts calls bridge methods to push state into Zustand stores.
+ * React components read from stores and call ClientCallbacks (via
+ * ClientContext) to trigger client.ts actions.
  */
 
 import { useGameStore, type GameSettings } from '../store/game-store';
@@ -61,8 +58,8 @@ import {
 } from '@/shared/types';
 
 /**
- * Callbacks that React UI can invoke on the legacy client.
- * Registered by client.ts during initialization.
+ * Callbacks that React UI can invoke on client.ts.
+ * Registered during initialization.
  */
 export interface ClientCallbacks {
   // Login flow
@@ -73,10 +70,13 @@ export interface ClientCallbacks {
   onCreateCompanySubmit: (companyName: string, cluster: string) => Promise<void>;
 
   // Game actions
-  onBuildMenu: () => void;
   onBuildRoad: () => void;
   onDemolishRoad: () => void;
   onRefreshMap: () => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onToggleMinimap: () => void;
+  onToggleDebugOverlay: () => void;
   onLogout: () => void;
 
   // Chat
@@ -108,19 +108,16 @@ export interface ClientCallbacks {
   onMailReadMessage: (messageId: string) => void;
   onMailSend: (to: string, subject: string, body: string) => void;
   onMailDelete: (messageId: string) => void;
-  onMailSaveDraft: (to: string, subject: string, body: string) => void;
 
   // Search menu
   onSearchMenuHome: () => void;
-  onSearchMenuNavigate: (page: string) => void;
 
-  // Profile
-  onSwitchCompany: (companyName: string, companyId: number) => void;
-  onProfileRequestTab: (tab: string) => void;
+  // Politics
+  onLaunchCampaign: (buildingX: number, buildingY: number) => void;
 }
 
 /**
- * Store-pushing methods — called by the legacy client.ts message handler
+ * Store-pushing methods — called by client.ts message handler
  * to sync game state into Zustand stores for React consumption.
  */
 export const ClientBridge = {

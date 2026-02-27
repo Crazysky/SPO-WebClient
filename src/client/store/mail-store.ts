@@ -25,7 +25,6 @@ interface MailState {
   composeSubject: string;
   composeBody: string;
   composeHeaders: string;
-  editingDraftId: string | null;
 
   // Actions
   setFolder: (folder: MailFolder) => void;
@@ -37,7 +36,6 @@ interface MailState {
   startCompose: (to?: string, subject?: string, body?: string, headers?: string) => void;
   startReply: (message: MailMessageFull) => void;
   clearCompose: () => void;
-  setEditingDraft: (draftId: string | null) => void;
 }
 
 export const useMailStore = create<MailState>((set) => ({
@@ -52,7 +50,6 @@ export const useMailStore = create<MailState>((set) => ({
   composeSubject: '',
   composeBody: '',
   composeHeaders: '',
-  editingDraftId: null,
 
   setFolder: (folder) => set({ currentFolder: folder, currentView: 'list', currentMessage: null }),
   setView: (view) => set({ currentView: view }),
@@ -68,7 +65,6 @@ export const useMailStore = create<MailState>((set) => ({
       composeSubject: subject,
       composeBody: body,
       composeHeaders: headers,
-      editingDraftId: null,
     }),
 
   startReply: (message) =>
@@ -78,7 +74,6 @@ export const useMailStore = create<MailState>((set) => ({
       composeSubject: message.subject.startsWith('Re: ') ? message.subject : `Re: ${message.subject}`,
       composeBody: '',
       composeHeaders: '',
-      editingDraftId: null,
     }),
 
   clearCompose: () =>
@@ -87,9 +82,7 @@ export const useMailStore = create<MailState>((set) => ({
       composeSubject: '',
       composeBody: '',
       composeHeaders: '',
-      editingDraftId: null,
       currentView: 'list',
     }),
 
-  setEditingDraft: (draftId) => set({ editingDraftId: draftId }),
 }));

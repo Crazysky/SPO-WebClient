@@ -11,12 +11,14 @@ import { LoginScreen } from './layouts/LoginScreen';
 import { GameScreen } from './layouts/GameScreen';
 import { ToastContainer } from './components/common';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useClient } from './context';
 
 export function App() {
   const status = useGameStore((s) => s.status);
+  const client = useClient();
 
-  // Register global keyboard shortcuts (B, E, M, Escape, Cmd+K)
-  useKeyboardShortcuts();
+  // Register global keyboard shortcuts (B, E, M, R, D, Escape, Cmd+K)
+  useKeyboardShortcuts(client);
 
   // Cinematic login when not connected
   if (status !== 'connected') {

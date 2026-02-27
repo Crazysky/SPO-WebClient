@@ -1,5 +1,5 @@
 /**
- * Tests for MinimapUI — Phase 2.1 minimap component
+ * Tests for MinimapUI — canvas minimap component.
  *
  * Environment: node (no jsdom) — DOM elements mocked as plain objects.
  */
@@ -38,7 +38,6 @@ interface MockContext {
 
 let allElements: MockElement[];
 let mockCtx: MockContext;
-let keydownHandlers: ((e: unknown) => void)[];
 
 function createMockElement(): MockElement {
   const el: MockElement = {
@@ -101,19 +100,14 @@ beforeEach(() => {
   jest.useFakeTimers();
   allElements = [];
   mockCtx = createMockCtx();
-  keydownHandlers = [];
 
   const bodyEl = createMockElement();
 
   (globalThis as Record<string, unknown>).document = {
     createElement: jest.fn(() => createMockElement()),
     body: bodyEl,
-    addEventListener: jest.fn((_event: string, handler: (e: unknown) => void) => {
-      keydownHandlers.push(handler);
-    }),
-    removeEventListener: jest.fn((_event: string, handler: (e: unknown) => void) => {
-      keydownHandlers = keydownHandlers.filter(h => h !== handler);
-    }),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
   };
 });
 
@@ -202,34 +196,16 @@ describe('MinimapUI', () => {
     minimap.destroy();
   });
 
-  it('should toggle via M key press', () => {
+  it('should toggle via external toggle() call', () => {
     const minimap = new MinimapUI();
     minimap.setRenderer(createMockRenderer());
 
     expect(minimap.isVisible()).toBe(false);
 
-    // Simulate pressing 'M'
-    for (const handler of keydownHandlers) {
-      handler({ key: 'm', target: { tagName: 'DIV' } });
-    }
+    minimap.toggle();
     expect(minimap.isVisible()).toBe(true);
 
-    // Press 'M' again to hide
-    for (const handler of keydownHandlers) {
-      handler({ key: 'M', target: { tagName: 'DIV' } });
-    }
-    expect(minimap.isVisible()).toBe(false);
-
-    minimap.destroy();
-  });
-
-  it('should not toggle when typing in input field', () => {
-    const minimap = new MinimapUI();
-    minimap.setRenderer(createMockRenderer());
-
-    for (const handler of keydownHandlers) {
-      handler({ key: 'm', target: { tagName: 'INPUT' } });
-    }
+    minimap.toggle();
     expect(minimap.isVisible()).toBe(false);
 
     minimap.destroy();
