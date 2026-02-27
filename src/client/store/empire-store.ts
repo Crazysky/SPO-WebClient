@@ -1,43 +1,24 @@
 /**
- * Empire Store — Owned facilities, aggregated financial metrics.
- * The player's "command center" data: all buildings they own, with status and revenue.
+ * Empire Store — Owned facilities from the Favorites tree.
+ * Populated via RDOFavoritesGetSubItems on the InterfaceServer.
  */
 
 import { create } from 'zustand';
-
-export type FacilityStatus = 'operating' | 'alert' | 'upgrading' | 'closed';
-
-export interface OwnedFacility {
-  buildingId: string;
-  name: string;
-  visualClass: string;
-  x: number;
-  y: number;
-  revenue: string;
-  status: FacilityStatus;
-  category: string;
-  level: number;
-}
+import type { FavoritesItem } from '@/shared/types';
 
 interface EmpireState {
   // Data
-  facilities: OwnedFacility[];
-  totalRevenue: string;
-  totalExpenses: string;
-  netProfit: string;
+  facilities: FavoritesItem[];
   isLoading: boolean;
 
   // Actions
-  setFacilities: (facilities: OwnedFacility[]) => void;
+  setFacilities: (facilities: FavoritesItem[]) => void;
   setLoading: (loading: boolean) => void;
   reset: () => void;
 }
 
 export const useEmpireStore = create<EmpireState>((set) => ({
   facilities: [],
-  totalRevenue: '0',
-  totalExpenses: '0',
-  netProfit: '0',
   isLoading: false,
 
   setFacilities: (facilities) => set({ facilities, isLoading: false }),
@@ -47,9 +28,6 @@ export const useEmpireStore = create<EmpireState>((set) => ({
   reset: () =>
     set({
       facilities: [],
-      totalRevenue: '0',
-      totalExpenses: '0',
-      netProfit: '0',
       isLoading: false,
     }),
 }));

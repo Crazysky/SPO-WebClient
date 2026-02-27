@@ -26,6 +26,7 @@ import { TransportPanel } from '../components/transport';
 import { BuildMenu, CompanyCreationModal, ConnectionPickerModal, SettingsDialog } from '../components/modals';
 import { CommandPalette } from '../components/command-palette';
 import { MobileShell } from '../components/mobile';
+import { ErrorBoundary } from '../components/common';
 import { User, Heart } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -91,7 +92,9 @@ export function GameScreen() {
         onClose={closeRightPanel}
         title={rightPanel ? RIGHT_PANEL_TITLES[rightPanel] ?? rightPanel : ''}
       >
-        <RightPanelContent type={rightPanel} />
+        <ErrorBoundary>
+          <RightPanelContent type={rightPanel} />
+        </ErrorBoundary>
       </RightPanel>
 
       {/* Left Panel — Profile / Facilities */}
@@ -101,8 +104,10 @@ export function GameScreen() {
         title={leftPanel ? LEFT_PANEL_CONFIG[leftPanel]?.title ?? '' : ''}
         icon={leftPanel ? LEFT_PANEL_CONFIG[leftPanel]?.icon : undefined}
       >
-        {leftPanel === 'empire' && <ProfilePanel />}
-        {leftPanel === 'facilities' && <EmpireOverview />}
+        <ErrorBoundary>
+          {leftPanel === 'empire' && <ProfilePanel />}
+          {leftPanel === 'facilities' && <EmpireOverview />}
+        </ErrorBoundary>
       </LeftPanel>
 
       {/* Modals — z-400 */}

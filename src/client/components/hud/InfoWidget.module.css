@@ -17,7 +17,12 @@
   gap: 2px;
   font-size: var(--text-xs);
   pointer-events: auto;
-  transition: background var(--duration-base) var(--ease-default);
+  transition: background var(--duration-base) var(--ease-default),
+    right 250ms var(--ease-out);
+}
+
+.shifted {
+  right: calc(var(--panel-width-desktop) + var(--space-3));
 }
 
 /* Debt warning tint */

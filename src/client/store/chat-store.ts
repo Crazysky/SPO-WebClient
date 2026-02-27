@@ -51,7 +51,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setCurrentChannel: (channel) => set({ currentChannel: channel }),
 
-  setChannels: (channels) => set({ channels }),
+  setChannels: (channels) => set((state) => ({
+    channels,
+    currentChannel: state.currentChannel || (channels.length > 0 ? channels[0] : ''),
+  })),
 
   addMessage: (channel, message) =>
     set((state) => {

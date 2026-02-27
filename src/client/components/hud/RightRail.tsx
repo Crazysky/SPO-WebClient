@@ -7,14 +7,18 @@
 
 import { ZoomIn, ZoomOut, Layers, RefreshCw } from 'lucide-react';
 import { IconButton } from '../common';
+import { useUiStore } from '../../store/ui-store';
 import { useClient } from '../../context';
 import styles from './RightRail.module.css';
 
 export function RightRail() {
   const client = useClient();
+  const rightPanel = useUiStore((s) => s.rightPanel);
+
+  const railClass = [styles.rail, rightPanel ? styles.shifted : ''].filter(Boolean).join(' ');
 
   return (
-    <nav className={styles.rail} aria-label="Map controls">
+    <nav className={railClass} aria-label="Map controls">
       {/* Zoom controls */}
       <div className={styles.group}>
         <IconButton

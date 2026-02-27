@@ -146,6 +146,8 @@ import {
   WsRespSearchConnections,
   WsReqCreateCompany,
   WsRespCreateCompany,
+  // Empire
+  WsRespEmpireFacilities,
   BankActionType,
   AutoConnectionActionType,
   CurriculumActionType,
@@ -2415,6 +2417,22 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
           results,
           fluidId: searchReq.fluidId,
           direction: searchReq.direction,
+        };
+        ws.send(JSON.stringify(response));
+        break;
+      }
+
+      // =================================================================
+      // EMPIRE (OWNED FACILITIES)
+      // =================================================================
+
+      case WsMessageType.REQ_EMPIRE_FACILITIES: {
+        console.log('[Gateway] Fetching owned facilities (favorites)');
+        const facilities = await session.fetchOwnedFacilities();
+        const response: WsRespEmpireFacilities = {
+          type: WsMessageType.RESP_EMPIRE_FACILITIES,
+          wsRequestId: msg.wsRequestId,
+          facilities,
         };
         ws.send(JSON.stringify(response));
         break;

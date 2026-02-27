@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useSearchStore, type SearchPage } from '../../store/search-store';
 import { useClient } from '../../context';
-import { GlassCard, Skeleton } from '../common';
+import { GlassCard, Skeleton, ErrorBoundary } from '../common';
 import type {
   TownInfo, TycoonProfile, RankingCategory, RankingEntry,
 } from '@/shared/types';
@@ -458,7 +458,9 @@ export function SearchPanel() {
       {/* Drill-down pages — actual data from stores */}
       {!isLoading && currentPage !== 'home' && PageComponent && (
         <div className={styles.pageContent}>
-          <PageComponent />
+          <ErrorBoundary>
+            <PageComponent />
+          </ErrorBoundary>
         </div>
       )}
     </div>

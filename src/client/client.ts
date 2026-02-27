@@ -189,23 +189,6 @@ function initSpoDebug(): SpoDebugWire {
   return debug;
 }
 
-function updateDebugBadge(debug: SpoDebugWire): void {
-  const badge = document.getElementById('e2e-debug-badge');
-  if (badge) {
-    badge.textContent = `↑${debug.sent} ↓${debug.received}` + (debug.errors > 0 ? ` ✗${debug.errors}` : '');
-    badge.style.color = debug.errors > 0 ? '#f44' : '#8f8';
-  }
-}
-
-function appendConsoleEntry(dir: '→' | '←', type: string): void {
-  const output = document.getElementById('console-output');
-  if (!output) return;
-  const el = document.createElement('div');
-  el.textContent = `${dir} ${type}`;
-  el.style.cssText = 'font-family:var(--font-mono);font-size:0.7rem;padding:1px 6px;color:#aaa;';
-  output.appendChild(el);
-  while (output.children.length > 200) output.removeChild(output.firstChild!);
-}
 // [/E2E-DEBUG]
 
 export class StarpeaceClient {
@@ -404,6 +387,12 @@ export class StarpeaceClient {
         type: WsMessageType.REQ_POLITICS_LAUNCH_CAMPAIGN,
         buildingX, buildingY,
       }),
+
+      // Empire
+      onRequestFacilities: () => {
+        ClientBridge.setEmpireLoading(true);
+        this.sendMessage({ type: WsMessageType.REQ_EMPIRE_FACILITIES });
+      },
     };
 
     this.callbacks = callbacks as ClientCallbacks;
@@ -517,8 +506,6 @@ export class StarpeaceClient {
       this.debugWire.history.push({ dir: '→', type: msg.type || '?', ts: Date.now(), reqId: requestId });
       if (this.debugWire.history.length > this.debugWire.maxHistory) this.debugWire.history.shift();
       ClientBridge.log('Wire', `→ SEND ${msg.type} [${requestId.slice(-6)}]`);
-      updateDebugBadge(this.debugWire);
-      appendConsoleEntry('→', msg.type || '?');
       // [/E2E-DEBUG]
       this.ws.send(JSON.stringify(msg));
 
@@ -545,8 +532,6 @@ export class StarpeaceClient {
     this.debugWire.history.push({ dir: '→', type: msg.type || '?', ts: Date.now() });
     if (this.debugWire.history.length > this.debugWire.maxHistory) this.debugWire.history.shift();
     ClientBridge.log('Wire', `→ SEND ${msg.type}`);
-    updateDebugBadge(this.debugWire);
-    appendConsoleEntry('→', msg.type || '?');
     // [/E2E-DEBUG]
     this.ws.send(JSON.stringify(msg));
   }
@@ -561,8 +546,6 @@ export class StarpeaceClient {
     this.debugWire.history.push({ dir: '←', type: msg.type, ts: Date.now(), reqId: msg.wsRequestId });
     if (this.debugWire.history.length > this.debugWire.maxHistory) this.debugWire.history.shift();
     ClientBridge.log('Wire', `← RECV ${msg.type}${reqTag}${isError ? ' ✗ERROR' : ''}`);
-    updateDebugBadge(this.debugWire);
-    appendConsoleEntry('←', msg.type + (isError ? ' ✗' : ''));
     // [/E2E-DEBUG]
 
     // 1. Pending Requests
@@ -742,6 +725,11 @@ export class StarpeaceClient {
         ClientBridge.handleTransportResponse(msg);
         break;
 
+      // Empire Response
+      case WsMessageType.RESP_EMPIRE_FACILITIES:
+        ClientBridge.handleEmpireResponse(msg);
+        break;
+
       // Connection Search Response
       case WsMessageType.RESP_SEARCH_CONNECTIONS: {
         const searchResp = msg as WsRespSearchConnections;
@@ -788,6 +776,7 @@ export class StarpeaceClient {
   private async performDirectoryLogin(username: string, password: string, zonePath?: string) {
     this.storedUsername = username;
     this.storedPassword = password;
+    ClientBridge.setCredentials(username);
     const zoneDisplay = zonePath?.split('/').pop() || 'BETA';
     ClientBridge.log('Directory', `Authenticating for ${zoneDisplay}...`);
 
@@ -1119,13 +1108,13 @@ export class StarpeaceClient {
 
     try {
       ClientBridge.log('Chat', `Joining channel: ${channelName || 'Lobby'}`);
+      // Optimistically set current channel so ChatStrip shows immediately
+      ClientBridge.setCurrentChannel(channelName);
       const req: WsReqChatJoinChannel = {
         type: WsMessageType.REQ_CHAT_JOIN_CHANNEL,
         channelName
       };
       await this.sendRequest(req);
-
-      // React ChatStrip shows messages per-channel from store — no clearing needed
     } catch (err: unknown) {
       ClientBridge.log('Error', `Failed to join channel: ${toErrorMessage(err)}`);
     } finally {

@@ -241,6 +241,9 @@ export type {
   // Transport
   WsReqTransportData,
   WsRespTransportData,
+  // Empire (Owned Facilities)
+  WsReqEmpireFacilities,
+  WsRespEmpireFacilities,
 } from './message-types';
 
-export type { ConnectionSearchResult } from './message-types';
+export type { ConnectionSearchResult, FavoritesItem } from './message-types';

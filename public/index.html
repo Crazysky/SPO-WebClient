@@ -30,85 +30,6 @@
             background: transparent;
         }
 
-        /* Console Output [E2E-DEBUG] */
-        #console-wrapper {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: auto;
-            max-height: 300px;
-            background: var(--glass-bg);
-            backdrop-filter: var(--glass-blur);
-            border-top: 1px solid var(--glass-border);
-            display: flex;
-            flex-direction: column;
-            z-index: var(--z-dropdown);
-            transition: all var(--transition-base);
-        }
-
-        #console-wrapper.collapsed {
-            max-height: 40px;
-            pointer-events: none;
-        }
-
-        #console-wrapper.collapsed #console-header {
-            pointer-events: auto;
-        }
-
-        #console-header {
-            padding: var(--space-3) var(--space-4);
-            background: rgba(0, 0, 0, 0.3);
-            font-size: var(--text-sm);
-            color: var(--text-secondary);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            cursor: pointer;
-            user-select: none;
-            border-bottom: 1px solid var(--glass-border);
-        }
-
-        #console-header:hover {
-            background: rgba(0, 0, 0, 0.4);
-        }
-
-        .console-controls {
-            display: flex;
-            gap: var(--space-2);
-        }
-
-        .console-toggle {
-            color: var(--text-tertiary);
-            transition: transform var(--transition-base);
-        }
-
-        #console-wrapper.collapsed .console-toggle {
-            transform: rotate(180deg);
-        }
-
-        #console-output {
-            flex: 1;
-            overflow-y: auto;
-            padding: var(--space-4);
-            font-family: var(--font-mono);
-            font-size: var(--text-sm);
-            color: var(--success);
-            min-height: 150px;
-        }
-
-        #console-wrapper.collapsed #console-output {
-            display: none;
-        }
-
-        .console-line {
-            margin-bottom: var(--space-1);
-            opacity: 0.9;
-        }
-
-        .console-line:last-child {
-            opacity: 1;
-        }
     </style>
 </head>
 <body>
@@ -116,42 +37,11 @@
     <!-- Game panel: canvas container (populated by MapNavigationUI) -->
     <div id="game-panel"></div>
 
-    <!-- Debug Console [E2E-DEBUG] -->
-    <div id="console-wrapper" class="collapsed">
-        <div id="console-header">
-            <span>Protocol Log</span>
-            <!-- [E2E-DEBUG] Wire stats badge -->
-            <span id="e2e-debug-badge" style="font-family:var(--font-mono);font-size:0.75rem;color:#8f8;margin-left:12px;opacity:0.8" title="↑sent ↓received ✗errors">↑0 ↓0</span>
-            <!-- [/E2E-DEBUG] -->
-            <div class="console-controls">
-                <button class="btn-icon" id="btn-clear-console" title="Clear">✕</button>
-                <span class="console-toggle">▲</span>
-            </div>
-        </div>
-        <div id="console-output"></div>
-    </div>
-
     <!-- React mount point -->
     <div id="react-root"></div>
 
     <!-- Application -->
     <script type="module" src="app.js"></script>
 
-    <script>
-        // Console toggle functionality
-        const consoleWrapper = document.getElementById('console-wrapper');
-        const consoleHeader = document.getElementById('console-header');
-        const clearBtn = document.getElementById('btn-clear-console');
-
-        consoleHeader.addEventListener('click', (e) => {
-            if (e.target !== clearBtn && !clearBtn.contains(e.target)) {
-                consoleWrapper.classList.toggle('collapsed');
-            }
-        });
-
-        clearBtn.addEventListener('click', () => {
-            document.getElementById('console-output').innerHTML = '';
-        });
-    </script>
 </body>
 </html>

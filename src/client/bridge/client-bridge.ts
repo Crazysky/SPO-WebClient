@@ -15,6 +15,7 @@ import { useSearchStore } from '../store/search-store';
 import { usePoliticsStore } from '../store/politics-store';
 import { useTransportStore } from '../store/transport-store';
 import { useUiStore } from '../store/ui-store';
+import { useEmpireStore } from '../store/empire-store';
 import { useLogStore } from '../store/log-store';
 import { showToast } from '../components/common/Toast';
 import type {
@@ -59,6 +60,7 @@ import {
   type WsRespSearchMenuBanks,
   type WsRespPoliticsData,
   type WsRespTransportData,
+  type WsRespEmpireFacilities,
 } from '@/shared/types';
 
 /**
@@ -140,6 +142,9 @@ export interface ClientCallbacks {
 
   // Politics
   onLaunchCampaign: (buildingX: number, buildingY: number) => void;
+
+  // Empire
+  onRequestFacilities: () => void;
 }
 
 /**
@@ -521,6 +526,18 @@ export const ClientBridge = {
     }
   },
 
+  // ---- Empire ----
+
+  handleEmpireResponse(msg: WsMessage): void {
+    if (msg.type === WsMessageType.RESP_EMPIRE_FACILITIES) {
+      useEmpireStore.getState().setFacilities((msg as WsRespEmpireFacilities).facilities);
+    }
+  },
+
+  setEmpireLoading(loading: boolean): void {
+    useEmpireStore.getState().setLoading(loading);
+  },
+
   // ---- Connection picker ----
 
   showConnectionPicker(data: {
@@ -562,5 +579,6 @@ export const ClientBridge = {
     usePoliticsStore.getState().reset();
     useTransportStore.getState().reset();
     useProfileStore.getState().reset();
+    useEmpireStore.getState().reset();
   },
 };

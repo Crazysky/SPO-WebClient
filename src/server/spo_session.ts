@@ -54,6 +54,7 @@ import {
   PoliticsData,
   PoliticsRatingEntry,
   ConnectionSearchResult,
+  FavoritesItem,
 } from '../shared/types';
 import {
   getTemplateForVisualClass,
@@ -89,6 +90,56 @@ function parseSeasonValue(value: string): number {
   if (!isNaN(num) && num >= 0 && num <= 3) return num;
   const map: Record<string, number> = { winter: 0, spring: 1, summer: 2, autumn: 3, fall: 3 };
   return map[value.toLowerCase()] ?? 2; // default Summer
+}
+
+// Favorites protocol constants (from Delphi FavProtocol.pas)
+const FAV_PROP_SEP = '\x01';  // chrPropSeparator = char(1)
+const FAV_ITEM_SEP = '\x02';  // chrItemSeparator = char(2)
+const FAV_KIND_LINK = 1;      // fvkLink — a bookmark with coordinates
+
+/**
+ * Parse the RDOFavoritesGetSubItems response string.
+ *
+ * Wire format per item: id \x01 kind \x01 name \x01 info \x01 subFolderCount \x01
+ * Items separated by \x02.
+ * For links (kind=1): info = "displayName,x,y,select"
+ */
+export function parseFavoritesResponse(raw: string): FavoritesItem[] {
+  if (!raw) return [];
+
+  const items: FavoritesItem[] = [];
+  const entries = raw.split(FAV_ITEM_SEP);
+
+  for (const entry of entries) {
+    if (!entry) continue;
+    const fields = entry.split(FAV_PROP_SEP);
+    // fields: [id, kind, name, info, subFolderCount, '']
+    if (fields.length < 4) continue;
+
+    const kind = parseInt(fields[1], 10);
+    if (kind !== FAV_KIND_LINK) continue; // skip folders
+
+    const id = parseInt(fields[0], 10);
+    const name = fields[2];
+    const info = fields[3]; // "displayName,x,y,select"
+
+    // Parse info cookie: last 3 comma-separated values are x, y, select
+    const lastComma = info.lastIndexOf(',');
+    if (lastComma < 0) continue;
+    const beforeLast = info.lastIndexOf(',', lastComma - 1);
+    if (beforeLast < 0) continue;
+    const beforeXY = info.lastIndexOf(',', beforeLast - 1);
+    if (beforeXY < 0) continue;
+
+    const x = parseInt(info.substring(beforeXY + 1, beforeLast), 10);
+    const y = parseInt(info.substring(beforeLast + 1, lastComma), 10);
+
+    if (isNaN(id) || isNaN(x) || isNaN(y)) continue;
+
+    items.push({ id, name, x, y });
+  }
+
+  return items;
 }
 
 export class StarpeaceSession extends EventEmitter {
@@ -2480,6 +2531,36 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     }
   }
 
+  // =========================================================================
+  // EMPIRE — Owned Facilities (Favorites)
+  // =========================================================================
+
+  /**
+   * Fetch owned facilities via the Favorites tree.
+   *
+   * RDO: sel <worldContextId> call RDOFavoritesGetSubItems "^" "%";
+   *
+   * The response is a string of items separated by \x02. Each item has
+   * fields separated by \x01: id, kind, name, info, subFolderCount.
+   * For links (kind=1), info is "name,x,y,select".
+   */
+  public async fetchOwnedFacilities(): Promise<FavoritesItem[]> {
+    if (!this.worldContextId) {
+      throw new Error('Not logged in — no worldContextId');
+    }
+
+    const packet = await this.sendRdoRequest('world', {
+      verb: RdoVerb.SEL,
+      targetId: this.worldContextId,
+      action: RdoAction.CALL,
+      member: 'RDOFavoritesGetSubItems',
+      args: [RdoValue.string('').format()],
+    });
+
+    const raw = parsePropertyResponseHelper(packet.payload!, 'res');
+    return parseFavoritesResponse(raw);
+  }
+
   /**
    * Fetch politics data for a Town Hall building.
    * Fetches mayor info and ratings from the game server's politics ASP pages.
@@ -4824,10 +4905,18 @@ private handlePush(socketName: string, packet: RdoPacket) {
     // The cellRegex below only captures up to the first inner </tr> (non-greedy),
     // so we must extract VisualClassId from the full HTML before cell-level processing.
     const visualClassMap = new Map<string, string>();
+    // Strategy 1: FacilityClass before VisualClassId (standard order)
     const infoRegex = /FacilityClass=([A-Za-z0-9]+)[^"']*VisualClassId=(\d+)/gi;
     let infoMatch;
     while ((infoMatch = infoRegex.exec(html)) !== null) {
       visualClassMap.set(infoMatch[1], infoMatch[2]);
+    }
+    // Strategy 2: VisualClassId before FacilityClass (reversed order)
+    const reverseInfoRegex = /VisualClassId=(\d+)[^"']*FacilityClass=([A-Za-z0-9]+)/gi;
+    while ((infoMatch = reverseInfoRegex.exec(html)) !== null) {
+      if (!visualClassMap.has(infoMatch[2])) {
+        visualClassMap.set(infoMatch[2], infoMatch[1]);
+      }
     }
     if (visualClassMap.size > 0) {
       this.log.debug(`[BuildConstruction] Pre-scanned ${visualClassMap.size} FacilityClass→VisualClassId pairs from info attributes`);
@@ -4876,13 +4965,24 @@ private handlePush(socketName: string, packet: RdoPacket) {
       }
 
       // Look up VisualClassId from pre-scanned info attributes (handles nested-table HTML),
-      // then fall back to searching cellContent directly (handles simplified/mock HTML)
+      // then fall back to searching cellContent directly (handles simplified/mock HTML),
+      // then fall back to searching the full HTML near the Cell_N anchor.
       if (facilityClass && visualClassMap.has(facilityClass)) {
         visualClassId = visualClassMap.get(facilityClass)!;
       } else {
         const visualIdMatch = /VisualClassId[=:](\d+)/i.exec(cellContent);
         if (visualIdMatch) {
           visualClassId = visualIdMatch[1];
+        } else if (facilityClass) {
+          // Last resort: search the full HTML for VisualClassId near this Cell_N
+          const cellAnchor = html.indexOf(`Cell_${cellIndex}`);
+          if (cellAnchor >= 0) {
+            const searchWindow = html.substring(cellAnchor, cellAnchor + 2000);
+            const windowMatch = /VisualClassId[=:](\d+)/i.exec(searchWindow);
+            if (windowMatch) {
+              visualClassId = windowMatch[1];
+            }
+          }
         }
       }
 

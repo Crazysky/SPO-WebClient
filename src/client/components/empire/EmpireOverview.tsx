@@ -1,12 +1,13 @@
 /**
  * EmpireOverview — Strategic command center for the LeftPanel.
  *
- * Financial summary cards at top, facility list below,
- * collapsible sub-sections for P&L, bank, auto-connections.
+ * Fetches the player's owned facilities via RDOFavoritesGetSubItems
+ * on mount, then displays a searchable/sortable facility list.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useEmpireStore } from '../../store/empire-store';
+import { useClient } from '../../context';
 import { FinancialSummary } from './FinancialSummary';
 import { FacilityList } from './FacilityList';
 import { Skeleton, SkeletonLines } from '../common';
@@ -14,13 +15,16 @@ import styles from './EmpireOverview.module.css';
 
 export function EmpireOverview() {
   const facilities = useEmpireStore((s) => s.facilities);
-  const totalRevenue = useEmpireStore((s) => s.totalRevenue);
-  const totalExpenses = useEmpireStore((s) => s.totalExpenses);
-  const netProfit = useEmpireStore((s) => s.netProfit);
   const isLoading = useEmpireStore((s) => s.isLoading);
+  const client = useClient();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'name' | 'revenue' | 'status'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'x'>('name');
+
+  // Fetch owned facilities on mount
+  useEffect(() => {
+    client.onRequestFacilities();
+  }, [client]);
 
   const filteredFacilities = useMemo(() => {
     let list = [...facilities];
@@ -28,7 +32,7 @@ export function EmpireOverview() {
     // Filter by search
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      list = list.filter((f) => f.name.toLowerCase().includes(q) || f.category.toLowerCase().includes(q));
+      list = list.filter((f) => f.name.toLowerCase().includes(q));
     }
 
     // Sort
@@ -36,10 +40,8 @@ export function EmpireOverview() {
       switch (sortBy) {
         case 'name':
           return a.name.localeCompare(b.name);
-        case 'revenue':
-          return parseFloat(b.revenue) - parseFloat(a.revenue);
-        case 'status':
-          return a.status.localeCompare(b.status);
+        case 'x':
+          return a.x - b.x || a.y - b.y;
         default:
           return 0;
       }
@@ -63,9 +65,9 @@ export function EmpireOverview() {
     <div className={styles.overview}>
       {/* Financial summary cards */}
       <FinancialSummary
-        revenue={totalRevenue}
-        expenses={totalExpenses}
-        profit={netProfit}
+        revenue="0"
+        expenses="0"
+        profit="0"
         facilityCount={facilities.length}
       />
 
@@ -81,11 +83,10 @@ export function EmpireOverview() {
         <select
           className={styles.sortSelect}
           value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as 'name' | 'revenue' | 'status')}
+          onChange={(e) => setSortBy(e.target.value as 'name' | 'x')}
         >
           <option value="name">Name</option>
-          <option value="revenue">Revenue</option>
-          <option value="status">Status</option>
+          <option value="x">Location</option>
         </select>
       </div>
 

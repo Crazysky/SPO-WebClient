@@ -14,8 +14,13 @@
   border-radius: var(--radius-xl);
   display: flex;
   flex-direction: column;
-  transition: height var(--duration-base) var(--ease-default);
+  transition: height var(--duration-base) var(--ease-default),
+    left 250ms var(--ease-out);
   overflow: hidden;
+}
+
+.shifted {
+  left: calc(var(--panel-width-desktop) + var(--space-2));
 }
 
 .strip.expanded {

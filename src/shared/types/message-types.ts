@@ -221,6 +221,10 @@ export enum WsMessageType {
   // Transport (Railroad/Train)
   REQ_TRANSPORT_DATA = 'REQ_TRANSPORT_DATA',
   RESP_TRANSPORT_DATA = 'RESP_TRANSPORT_DATA',
+
+  // Empire (Owned Facilities via Favorites)
+  REQ_EMPIRE_FACILITIES = 'REQ_EMPIRE_FACILITIES',
+  RESP_EMPIRE_FACILITIES = 'RESP_EMPIRE_FACILITIES',
 }
 
 // =============================================================================
@@ -1069,6 +1073,27 @@ export interface WsReqTransportData extends WsMessage {
 export interface WsRespTransportData extends WsMessage {
   type: WsMessageType.RESP_TRANSPORT_DATA;
   data: TransportData;
+}
+
+// =============================================================================
+// EMPIRE (OWNED FACILITIES) MESSAGES
+// =============================================================================
+
+/** A bookmarked facility from the Favorites tree. */
+export interface FavoritesItem {
+  id: number;
+  name: string;
+  x: number;
+  y: number;
+}
+
+export interface WsReqEmpireFacilities extends WsMessage {
+  type: WsMessageType.REQ_EMPIRE_FACILITIES;
+}
+
+export interface WsRespEmpireFacilities extends WsMessage {
+  type: WsMessageType.RESP_EMPIRE_FACILITIES;
+  facilities: FavoritesItem[];
 }
 
 // =============================================================================

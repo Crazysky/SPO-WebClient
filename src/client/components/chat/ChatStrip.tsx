@@ -9,10 +9,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { ChevronUp, ChevronDown, Send } from 'lucide-react';
 import { useChatStore } from '../../store/chat-store';
+import { useUiStore } from '../../store/ui-store';
 import { useClient } from '../../context';
 import styles from './ChatStrip.module.css';
 
 export function ChatStrip() {
+  const leftPanel = useUiStore((s) => s.leftPanel);
   const currentChannel = useChatStore((s) => s.currentChannel);
   const channels = useChatStore((s) => s.channels);
   const messages = useChatStore((s) => s.messages);
@@ -59,7 +61,7 @@ export function ChatStrip() {
     : null;
 
   return (
-    <div className={`${styles.strip} ${isExpanded ? styles.expanded : ''}`}>
+    <div className={`${styles.strip} ${isExpanded ? styles.expanded : ''} ${leftPanel ? styles.shifted : ''}`}>
       {/* Header row — channel tabs + expand toggle */}
       <div className={styles.header}>
         <div className={styles.channelTabs}>

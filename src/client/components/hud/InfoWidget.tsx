@@ -26,12 +26,14 @@ export function InfoWidget() {
   const tycoonStats = useGameStore((s) => s.tycoonStats);
   const gameDate = useGameStore((s) => s.gameDate);
   const toggleLeftPanel = useUiStore((s) => s.toggleLeftPanel);
+  const rightPanel = useUiStore((s) => s.rightPanel);
 
   const failureLevel = tycoonStats?.failureLevel ?? 0;
 
   const widgetClass = [
     styles.widget,
     failureLevel >= 2 ? styles.alertPulse : failureLevel >= 1 ? styles.debtTint : '',
+    rightPanel ? styles.shifted : '',
   ]
     .filter(Boolean)
     .join(' ');

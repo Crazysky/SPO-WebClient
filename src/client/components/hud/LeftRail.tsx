@@ -27,8 +27,10 @@ export function LeftRail() {
 
   const client = useClient();
 
+  const railClass = [styles.rail, leftPanel ? styles.shifted : ''].filter(Boolean).join(' ');
+
   return (
-    <nav className={styles.rail} aria-label="Game actions">
+    <nav className={railClass} aria-label="Game actions">
       {/* Primary actions */}
       <div className={styles.group}>
         <IconButton

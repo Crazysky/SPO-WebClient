@@ -9,7 +9,6 @@ export { useUiStore } from './ui-store';
 export type { RightPanelType, LeftPanelType, ModalType, MobileTab } from './ui-store';
 
 export { useEmpireStore } from './empire-store';
-export type { OwnedFacility, FacilityStatus } from './empire-store';
 
 export { useBuildingStore } from './building-store';
 

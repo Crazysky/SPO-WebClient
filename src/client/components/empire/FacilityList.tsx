@@ -5,25 +5,18 @@
 
 import { useUiStore } from '../../store/ui-store';
 import { useClient } from '../../context';
-import type { OwnedFacility } from '../../store/empire-store';
+import type { FavoritesItem } from '@/shared/types';
 import styles from './FacilityList.module.css';
 
 interface FacilityListProps {
-  facilities: OwnedFacility[];
+  facilities: FavoritesItem[];
 }
-
-const STATUS_ICONS: Record<string, string> = {
-  operating: '\u25CF', // ●
-  alert: '\u26A0',     // ⚠
-  upgrading: '\u2191',  // ↑
-  closed: '\u2715',     // ✕
-};
 
 export function FacilityList({ facilities }: FacilityListProps) {
   const openRightPanel = useUiStore((s) => s.openRightPanel);
   const client = useClient();
 
-  const handleClick = (facility: OwnedFacility) => {
+  const handleClick = (facility: FavoritesItem) => {
     openRightPanel('building');
     client.onNavigateToBuilding(facility.x, facility.y);
   };
@@ -40,19 +33,13 @@ export function FacilityList({ facilities }: FacilityListProps) {
     <div className={styles.list}>
       {facilities.map((f) => (
         <button
-          key={f.buildingId}
+          key={f.id}
           className={styles.row}
           onClick={() => handleClick(f)}
         >
           <div className={styles.rowLeft}>
             <span className={styles.name}>{f.name}</span>
-            <span className={styles.category}>{f.category}</span>
-          </div>
-          <div className={styles.rowRight}>
-            <span className={styles.revenue}>${f.revenue}/h</span>
-            <span className={`${styles.status} ${styles[f.status]}`}>
-              {STATUS_ICONS[f.status] ?? ''} {f.status}
-            </span>
+            <span className={styles.category}>{f.x}, {f.y}</span>
           </div>
         </button>
       ))}
