@@ -1946,8 +1946,7 @@ export class IsometricMapRenderer {
       this.drawDebugOverlay(bounds);
     }
 
-    // Draw additional info (game-specific overlay)
-    this.drawGameInfo();
+    // Game info overlay removed — stats available via debug mode (D key)
   }
 
   /**
@@ -3780,118 +3779,6 @@ export class IsometricMapRenderer {
     }
   }
 
-  /**
-   * Draw game-specific info overlay
-   */
-  private drawGameInfo() {
-    const ctx = this.ctx;
-    const pos = this.terrainRenderer.getCameraPosition();
-
-    // Draw small info panel
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(10, this.canvas.height - 50, 260, 40);
-
-    ctx.fillStyle = '#fff';
-    ctx.font = '11px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(`Buildings: ${this.allBuildings.length} | Segments: ${this.allSegments.length} | Road tiles: ${this.roadTilesMap.size}`, 20, this.canvas.height - 32);
-    ctx.fillText(`Zones: ${this.cachedZones.size} | Mouse: (${this.mouseMapJ}, ${this.mouseMapI})`, 20, this.canvas.height - 16);
-
-    // Draw compass indicator
-    this.drawCompass(ctx);
-  }
-
-  /**
-   * Draw compass indicator showing cardinal directions in ISOMETRIC orientation.
-   * Rotates with the current map rotation so labels always reflect correct screen positions.
-   *
-   * At NORTH rotation: N=top-right, E=bottom-right, S=bottom-left, W=top-left
-   * Each 90° CW rotation shifts all labels one position clockwise.
-   */
-  private drawCompass(ctx: CanvasRenderingContext2D) {
-    const compassX = this.canvas.width - 55;
-    const compassY = this.canvas.height - 55;
-    const radius = 35;
-    const rotation = this.terrainRenderer.getRotation();
-
-    // Background rounded rectangle
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.beginPath();
-    ctx.roundRect(compassX - radius - 12, compassY - radius - 12, (radius + 12) * 2, (radius + 12) * 2, 8);
-    ctx.fill();
-
-    // Draw isometric tile shape in center
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.lineWidth = 1;
-    const tileW = radius * 0.6;
-    const tileH = radius * 0.3;
-    ctx.beginPath();
-    ctx.moveTo(compassX, compassY - tileH);
-    ctx.lineTo(compassX + tileW, compassY);
-    ctx.lineTo(compassX, compassY + tileH);
-    ctx.lineTo(compassX - tileW, compassY);
-    ctx.closePath();
-    ctx.stroke();
-
-    // Four compass positions: top-right, bottom-right, bottom-left, top-left
-    const positions = [
-      { dx: 0.65, dy: -0.65 },
-      { dx: 0.65, dy: 0.65 },
-      { dx: -0.65, dy: 0.65 },
-      { dx: -0.65, dy: -0.65 }
-    ];
-
-    // Directions and colors (N, E, S, W)
-    const dirs = [
-      { label: 'N', color: '#ff6666' },
-      { label: 'E', color: '#6699ff' },
-      { label: 'S', color: '#ffcc44' },
-      { label: 'W', color: '#66cc66' }
-    ];
-
-    // Draw direction labels — at rotation R, direction d appears at position (d + R) % 4
-    ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    for (let d = 0; d < 4; d++) {
-      const pos = positions[(d + rotation) % 4];
-      ctx.fillStyle = dirs[d].color;
-      ctx.fillText(dirs[d].label, compassX + radius * pos.dx, compassY + radius * pos.dy);
-    }
-
-    // North arrow — points to N's current screen position
-    const nPos = positions[rotation % 4];
-    const arrowLen = 0.4;
-    const arrowEndX = compassX + radius * nPos.dx * arrowLen / 0.65;
-    const arrowEndY = compassY + radius * nPos.dy * arrowLen / 0.65;
-
-    ctx.strokeStyle = '#ff6666';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(compassX, compassY);
-    ctx.lineTo(arrowEndX, arrowEndY);
-    ctx.stroke();
-
-    // Arrow head triangle
-    const tipX = compassX + radius * nPos.dx * 0.5 / 0.65;
-    const tipY = compassY + radius * nPos.dy * 0.5 / 0.65;
-    const perpX = -nPos.dy * 0.15;
-    const perpY = nPos.dx * 0.15;
-    ctx.fillStyle = '#ff6666';
-    ctx.beginPath();
-    ctx.moveTo(tipX, tipY);
-    ctx.lineTo(tipX - radius * (nPos.dx * 0.25 / 0.65 - perpX), tipY - radius * (nPos.dy * 0.25 / 0.65 - perpY));
-    ctx.lineTo(tipX - radius * (nPos.dx * 0.25 / 0.65 + perpX), tipY - radius * (nPos.dy * 0.25 / 0.65 + perpY));
-    ctx.closePath();
-    ctx.fill();
-
-    // Center dot
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(compassX, compassY, 2, 0, Math.PI * 2);
-    ctx.fill();
-  }
 
   // =========================================================================
   // MOUSE CONTROLS

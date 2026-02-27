@@ -7,7 +7,7 @@
   transform: translateX(-50%);
   z-index: 150;
   width: var(--chat-box-width);
-  max-width: calc(100vw - 140px); /* leave room for rails on both sides */
+  max-width: calc(100vw - 140px);
   height: var(--chatstrip-collapsed);
   background: var(--topbar-bg);
   backdrop-filter: blur(12px);
@@ -16,16 +16,19 @@
   border-radius: var(--radius-xl);
   display: flex;
   flex-direction: column;
-  transition: height var(--duration-base) var(--ease-default);
-  overflow: hidden;
+  transition: height var(--duration-base) var(--ease-default),
+    width var(--duration-base) var(--ease-default);
+  overflow: visible;
 }
 
 .strip.expanded {
   height: var(--chatstrip-expanded);
+  width: 620px;
+  max-width: calc(100vw - 60px);
 }
 
 /* ========================================================================= */
-/* HEADER — channel dropdown + tab switcher + collapse (expanded only)       */
+/* HEADER — channel dropdown + title + collapse (expanded only)              */
 /* ========================================================================= */
 
 .header {
@@ -38,9 +41,17 @@
   border-bottom: 1px solid var(--glass-border);
 }
 
-/* Channel dropdown (unobtrusive) */
+.headerTitle {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+/* Channel dropdown */
 .channelSelect {
   position: relative;
+  z-index: 200;
 }
 
 .channelBtn {
@@ -68,13 +79,14 @@
   position: absolute;
   bottom: calc(100% + 4px);
   left: 0;
-  min-width: 140px;
-  background: var(--bg-secondary);
+  min-width: 160px;
+  background: rgba(15, 30, 30, 0.95);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   padding: var(--space-1) 0;
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.5);
-  z-index: 10;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.6);
+  z-index: 300;
+  backdrop-filter: blur(12px);
 }
 
 .channelOption {
@@ -82,8 +94,8 @@
   width: 100%;
   background: none;
   border: none;
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
   font-family: var(--font-sans);
   color: var(--text-secondary);
   cursor: pointer;
@@ -99,38 +111,7 @@
 
 .channelOptionActive {
   color: var(--accent-gold);
-}
-
-/* Tab switcher */
-.tabGroup {
-  display: flex;
-  gap: 2px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  padding: 2px;
-}
-
-.tab {
-  background: none;
-  border: none;
-  padding: 2px var(--space-3);
-  font-size: var(--text-xs);
-  font-family: var(--font-sans);
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: color var(--duration-fast) var(--ease-default),
-    background var(--duration-fast) var(--ease-default);
-}
-
-.tab:hover {
-  color: var(--text-primary);
-}
-
-.tabActive {
-  composes: tab;
-  color: var(--accent-gold);
-  background: var(--accent-gold-subtle);
+  font-weight: var(--font-semibold);
 }
 
 .collapseBtn {
@@ -150,7 +131,18 @@
 }
 
 /* ========================================================================= */
-/* REDUCED ROW — online badge + last message + input (collapsed only)        */
+/* CONTENT AREA — messages on left, users on right                           */
+/* ========================================================================= */
+
+.contentArea {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ========================================================================= */
+/* REDUCED ROW — online badge + last message + expand (collapsed only)       */
 /* ========================================================================= */
 
 .reducedRow {
@@ -180,7 +172,7 @@
 }
 
 /* ========================================================================= */
-/* ONLINE BADGE — always visible                                              */
+/* ONLINE BADGE — collapsed mode                                             */
 /* ========================================================================= */
 
 .onlineBadge {
@@ -212,7 +204,7 @@
 }
 
 /* ========================================================================= */
-/* PREVIEW — last message (collapsed)                                         */
+/* PREVIEW — last message (collapsed)                                        */
 /* ========================================================================= */
 
 .preview {
@@ -248,7 +240,7 @@
 }
 
 /* ========================================================================= */
-/* MESSAGE AREA — expanded, chat tab                                          */
+/* MESSAGE AREA — expanded, left side                                        */
 /* ========================================================================= */
 
 .messageArea {
@@ -257,20 +249,23 @@
   padding: var(--space-2) var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
   scrollbar-width: thin;
   scrollbar-color: var(--glass-border) transparent;
+  min-width: 0;
 }
 
 .message {
-  font-size: var(--text-xs);
-  line-height: 1.4;
+  font-size: var(--text-sm);
+  line-height: 1.5;
   color: var(--text-secondary);
+  padding: 2px 0;
 }
 
 .system {
   color: var(--text-muted);
   font-style: italic;
+  font-size: var(--text-xs);
 }
 
 .gm {
@@ -279,7 +274,12 @@
 
 .sender {
   font-weight: var(--font-semibold);
-  color: var(--text-primary);
+  color: var(--accent-gold);
+  margin-right: var(--space-1);
+}
+
+.sender::after {
+  content: ':';
 }
 
 .text {
@@ -287,16 +287,39 @@
 }
 
 /* ========================================================================= */
-/* USER LIST — expanded, online tab                                           */
+/* USER SIDEBAR — expanded, right side                                       */
 /* ========================================================================= */
+
+.userSidebar {
+  width: 130px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--glass-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.userSidebarHeader {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-1) var(--space-2);
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
 
 .userList {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1);
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 1px;
   scrollbar-width: thin;
   scrollbar-color: var(--glass-border) transparent;
 }
@@ -304,8 +327,8 @@
 .userRow {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
+  gap: var(--space-1);
+  padding: 2px var(--space-1);
   border-radius: var(--radius-sm);
   transition: background var(--duration-fast) var(--ease-default);
 }
@@ -315,8 +338,8 @@
 }
 
 .statusDot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #22c55e;
   flex-shrink: 0;
@@ -332,27 +355,24 @@
 }
 
 .userName {
-  font-size: var(--text-xs);
+  font-size: 11px;
   color: var(--text-primary);
   flex: 1;
-}
-
-.typingLabel {
-  font-size: 10px;
-  color: var(--text-muted);
-  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .emptyUsers {
-  font-size: var(--text-xs);
+  font-size: 10px;
   color: var(--text-muted);
   text-align: center;
-  padding: var(--space-4);
+  padding: var(--space-2);
   font-style: italic;
 }
 
 /* ========================================================================= */
-/* INPUT ROW — always visible in both modes                                   */
+/* INPUT ROW — always visible                                                */
 /* ========================================================================= */
 
 .inputRow {
@@ -380,7 +400,7 @@
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-full);
   color: var(--text-primary);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-family: var(--font-sans);
   outline: none;
   min-width: 0;
@@ -418,7 +438,7 @@
 }
 
 /* ========================================================================= */
-/* MOBILE — hidden (chat on mobile is via "More" tab)                         */
+/* MOBILE — hidden (chat on mobile is via "More" tab)                        */
 /* ========================================================================= */
 
 @media (max-width: 767px) {

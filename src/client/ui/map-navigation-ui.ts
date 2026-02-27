@@ -77,9 +77,6 @@ export class MapNavigationUI {
     this.renderer = new IsometricMapRenderer('game-canvas');
     this.setupRendererCallbacks();
 
-    // Create vegetation control UI
-    this.createVegetationControls();
-
     // Load map
     this.renderer.loadMap(this.worldName).then(() => {
       console.log('[MapNavigationUI] Terrain loaded successfully');
@@ -120,32 +117,6 @@ export class MapNavigationUI {
    */
   public getRenderer(): IsometricMapRenderer | null {
     return this.renderer;
-  }
-
-  /**
-   * Create vegetation display controls
-   */
-  private createVegetationControls(): void {
-    if (!this.renderer) return;
-
-    const panel = document.createElement('div');
-    panel.id = 'vegetation-controls';
-    panel.style.cssText = 'position:absolute;bottom:10px;right:10px;background:rgba(0,0,0,0.7);padding:8px 12px;border-radius:6px;color:#fff;font:12px monospace;z-index:10;display:flex;flex-direction:column;gap:4px;';
-
-    // Checkbox: hide vegetation on camera move
-    const moveLabel = document.createElement('label');
-    moveLabel.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;';
-    const moveCheckbox = document.createElement('input');
-    moveCheckbox.type = 'checkbox';
-    moveCheckbox.checked = false;
-    moveCheckbox.addEventListener('change', () => {
-      this.renderer?.setHideVegetationOnMove(moveCheckbox.checked);
-    });
-    moveLabel.appendChild(moveCheckbox);
-    moveLabel.appendChild(document.createTextNode('Hide vegetation on move'));
-    panel.appendChild(moveLabel);
-
-    this.gamePanel.appendChild(panel);
   }
 
   /**

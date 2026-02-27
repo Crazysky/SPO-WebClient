@@ -2,7 +2,7 @@
  * ChatStrip — Bottom-center persistent chat hub.
  *
  * Reduced (44px): online badge + last message preview + input + expand toggle.
- * Expanded (280px): header with channel dropdown + Chat/Online tabs, content area, input.
+ * Expanded (300px): header with channel dropdown, chat messages on left, online users on right, input.
  * z-150, centered at bottom of viewport.
  */
 
@@ -10,7 +10,6 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { ChevronUp, ChevronDown, ChevronUp as ChevronUpIcon, Send, Users } from 'lucide-react';
 import { useChatStore } from '../../store/chat-store';
 import { useClient } from '../../context';
-import type { ChatTab } from '../../store/chat-store';
 import styles from './ChatStrip.module.css';
 
 export function ChatStrip() {
@@ -20,36 +19,43 @@ export function ChatStrip() {
   const users = useChatStore((s) => s.users);
   const typingUsers = useChatStore((s) => s.typingUsers);
   const isExpanded = useChatStore((s) => s.isExpanded);
-  const activeTab = useChatStore((s) => s.activeTab);
   const toggleExpanded = useChatStore((s) => s.toggleExpanded);
   const setCurrentChannel = useChatStore((s) => s.setCurrentChannel);
-  const setActiveTab = useChatStore((s) => s.setActiveTab);
 
   const client = useClient();
   const [input, setInput] = useState('');
   const [channelDropdownOpen, setChannelDropdownOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const channelMessages = messages[currentChannel] ?? [];
   const lastMessage = channelMessages[channelMessages.length - 1];
-  const visibleMessages = channelMessages.slice(-10);
+  const visibleMessages = channelMessages.slice(-50);
   const onlineCount = Object.keys(users).length;
   const userList = Object.values(users);
 
-  // Auto-scroll on new messages when expanded in chat tab
+  // Auto-scroll on new messages when expanded
   useEffect(() => {
-    if (isExpanded && activeTab === 'chat') {
+    if (isExpanded) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [channelMessages.length, isExpanded, activeTab]);
+  }, [channelMessages.length, isExpanded]);
 
   // Close channel dropdown on outside click
   useEffect(() => {
     if (!channelDropdownOpen) return;
-    const close = () => setChannelDropdownOpen(false);
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
+    const close = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setChannelDropdownOpen(false);
+      }
+    };
+    // Use setTimeout to avoid the same click event closing it immediately
+    const timer = setTimeout(() => document.addEventListener('click', close), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('click', close);
+    };
   }, [channelDropdownOpen]);
 
   const handleSend = useCallback(() => {
@@ -69,17 +75,6 @@ export function ChatStrip() {
     [handleSend],
   );
 
-  const handleTabClick = useCallback((tab: ChatTab) => {
-    setActiveTab(tab);
-  }, [setActiveTab]);
-
-  const handleOnlineBadgeClick = useCallback(() => {
-    if (!isExpanded) {
-      toggleExpanded();
-    }
-    setActiveTab('online');
-  }, [isExpanded, toggleExpanded, setActiveTab]);
-
   // Typing indicator text
   const typingText = typingUsers.size > 0
     ? Array.from(typingUsers).slice(0, 3).join(', ') + (typingUsers.size > 3 ? '...' : '') + ' typing...'
@@ -90,8 +85,8 @@ export function ChatStrip() {
       {/* ================= EXPANDED: Header ================= */}
       {isExpanded && (
         <div className={styles.header}>
-          {/* Channel dropdown (small, opens upward) */}
-          <div className={styles.channelSelect}>
+          {/* Channel dropdown */}
+          <div className={styles.channelSelect} ref={dropdownRef}>
             <button
               className={styles.channelBtn}
               onClick={(e) => {
@@ -108,7 +103,8 @@ export function ChatStrip() {
                   <button
                     key={ch}
                     className={`${styles.channelOption} ${ch === currentChannel ? styles.channelOptionActive : ''}`}
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       setCurrentChannel(ch);
                       setChannelDropdownOpen(false);
                     }}
@@ -120,22 +116,8 @@ export function ChatStrip() {
             )}
           </div>
 
-          {/* Tab switcher */}
-          <div className={styles.tabGroup}>
-            <button
-              className={activeTab === 'chat' ? styles.tabActive : styles.tab}
-              onClick={() => handleTabClick('chat')}
-            >
-              Chat
-            </button>
-            <button
-              className={activeTab === 'online' ? styles.tabActive : styles.tab}
-              onClick={() => handleTabClick('online')}
-            >
-              <Users size={11} style={{ marginRight: 3, verticalAlign: 'middle' }} />
-              Online ({onlineCount})
-            </button>
-          </div>
+          {/* Title */}
+          <span className={styles.headerTitle}>Chat</span>
 
           {/* Collapse */}
           <button
@@ -148,38 +130,44 @@ export function ChatStrip() {
         </div>
       )}
 
-      {/* ================= EXPANDED: Chat messages ================= */}
-      {isExpanded && activeTab === 'chat' && (
-        <div className={styles.messageArea}>
-          {visibleMessages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`${styles.message} ${msg.isSystem ? styles.system : ''} ${msg.isGM ? styles.gm : ''}`}
-            >
-              {!msg.isSystem && (
-                <span className={styles.sender}>{msg.from}: </span>
-              )}
-              <span className={styles.text}>{msg.text}</span>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-      )}
-
-      {/* ================= EXPANDED: Online user list ================= */}
-      {isExpanded && activeTab === 'online' && (
-        <div className={styles.userList}>
-          {userList.length > 0 ? (
-            userList.map((user) => (
-              <div key={user.id} className={styles.userRow}>
-                <span className={`${styles.statusDot} ${user.status === 1 ? styles.statusDotTyping : ''}`} />
-                <span className={styles.userName}>{user.name}</span>
-                {user.status === 1 && <span className={styles.typingLabel}>typing...</span>}
+      {/* ================= EXPANDED: Content (messages left + users right) ================= */}
+      {isExpanded && (
+        <div className={styles.contentArea}>
+          {/* Chat messages (left) */}
+          <div className={styles.messageArea}>
+            {visibleMessages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`${styles.message} ${msg.isSystem ? styles.system : ''} ${msg.isGM ? styles.gm : ''}`}
+              >
+                {!msg.isSystem && (
+                  <span className={styles.sender}>{msg.from}</span>
+                )}
+                <span className={styles.text}>{msg.text}</span>
               </div>
-            ))
-          ) : (
-            <div className={styles.emptyUsers}>No users online</div>
-          )}
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Online users (right sidebar) */}
+          <div className={styles.userSidebar}>
+            <div className={styles.userSidebarHeader}>
+              <Users size={11} />
+              <span>Online ({onlineCount})</span>
+            </div>
+            <div className={styles.userList}>
+              {userList.length > 0 ? (
+                userList.map((user) => (
+                  <div key={user.id} className={styles.userRow}>
+                    <span className={`${styles.statusDot} ${user.status === 1 ? styles.statusDotTyping : ''}`} />
+                    <span className={styles.userName}>{user.name}</span>
+                  </div>
+                ))
+              ) : (
+                <div className={styles.emptyUsers}>No users</div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -189,7 +177,7 @@ export function ChatStrip() {
           {/* Online badge */}
           <div
             className={styles.onlineBadge}
-            onClick={handleOnlineBadgeClick}
+            onClick={toggleExpanded}
             title="View online users"
           >
             <span className={styles.onlineDot} />
@@ -222,14 +210,6 @@ export function ChatStrip() {
       {/* ================= INPUT ROW (always visible) ================= */}
       <div className={styles.inputRow}>
         {typingText && <span className={styles.typing}>{typingText}</span>}
-
-        {/* Online badge in expanded mode */}
-        {isExpanded && (
-          <div className={styles.onlineBadge} onClick={() => handleTabClick('online')}>
-            <span className={styles.onlineDot} />
-            <span>{onlineCount}</span>
-          </div>
-        )}
 
         <input
           ref={inputRef}

@@ -401,4 +401,43 @@ describe('Protocol Validation: buildRoad() + placeBuilding()', () => {
       expect(parsedRoad.targetId).toBe(parsedBuilding.targetId);
     });
   });
+
+  describe('NewFacility company ID requirement', () => {
+    it('should include company ID as second argument (not hardcoded)', () => {
+      // The Delphi server expects: NewFacility(%FacilityId, #CompanyId, #x, #y)
+      // CompanyId must match the current company — a hardcoded value would fail
+      // for any user whose company ID differs.
+      const testCompanyId = '42';
+      const command = RdoProtocol.format({
+        raw: '',
+        type: 'REQUEST',
+        rid: 200,
+        verb: RdoVerb.SEL,
+        targetId: DEFAULT_VARIABLES.clientViewId,
+        action: RdoAction.CALL,
+        member: 'NewFacility',
+        separator: '"^"',
+        args: [`%${CAPTURED_BUILD_SUCCESS.facilityClass}`, `#${testCompanyId}`, `#${CAPTURED_BUILD_SUCCESS.x}`, `#${CAPTURED_BUILD_SUCCESS.y}`],
+      });
+
+      expect(command).toContain(`#${testCompanyId}`);
+      expect(command).not.toContain('#28');
+    });
+
+    it('should format company ID with integer prefix', () => {
+      const command = RdoProtocol.format({
+        raw: '',
+        type: 'REQUEST',
+        rid: 300,
+        verb: RdoVerb.SEL,
+        targetId: DEFAULT_VARIABLES.clientViewId,
+        action: RdoAction.CALL,
+        member: 'NewFacility',
+        separator: '"^"',
+        args: ['%PGIFoodStore', '#55', '#100', '#200'],
+      });
+      const parsed = RdoProtocol.parse(command);
+      expect(parsed.args).toContain('#55');
+    });
+  });
 });

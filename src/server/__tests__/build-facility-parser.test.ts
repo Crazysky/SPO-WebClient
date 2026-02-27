@@ -24,8 +24,11 @@ const cellRegex = /<tr[^>]*\sid\s*=\s*["']?Cell_(\d+)["']?[^>]*>([\s\S]*?)<\/tr>
 /** Extract icon src from cell content */
 const iconRegex = /src\s*=\s*["']?([^"'\s>]+)["']?/i;
 
-/** Extract facilityClass from icon filename */
+/** Extract facilityClass from icon filename (fallback only) */
 const facilityClassRegex = /Map([A-Z][a-zA-Z0-9]+?)(?:\d+x\d+x\d+)?\.gif/i;
+
+/** Extract FacilityClass from info attribute (primary source) */
+const infoFacilityClassRegex = /FacilityClass=([A-Za-z0-9]+)/i;
 
 /** VisualClassId fallback: direct search within cell content */
 const visualIdRegex = /VisualClassId[=:](\d+)/i;
@@ -215,7 +218,7 @@ describe('FacilityList.asp HTML parsing', () => {
     });
   });
 
-  describe('Icon → facilityClass extraction', () => {
+  describe('Icon → facilityClass extraction (fallback path)', () => {
     it('should extract facilityClass from real server icon path (no dimensions)', () => {
       const m = facilityClassRegex.exec('MapPGIHQ1.gif');
       expect(m).not.toBeNull();
@@ -272,7 +275,7 @@ describe('FacilityList.asp HTML parsing', () => {
   });
 
   describe('End-to-end: full parse flow simulation', () => {
-    it('should correctly resolve VisualClassId for all buildings using pre-scan', () => {
+    it('should extract FacilityClass from info attribute and resolve VisualClassId for all buildings', () => {
       // Step 1: Pre-scan
       const visualClassMap = new Map<string, string>();
       let im;
@@ -296,11 +299,26 @@ describe('FacilityList.asp HTML parsing', () => {
         if (!linkMatch) continue;
         const name = linkMatch[2].trim();
 
-        // Icon → facilityClass
-        const icoMatch = iconRegex.exec(cellContent);
-        const iconPath = icoMatch?.[1] || '';
-        const fcMatch = facilityClassRegex.exec(iconPath);
-        const facilityClass = fcMatch?.[1] || '';
+        // PRIMARY: Extract FacilityClass from info attribute near this Cell_N
+        let facilityClass = '';
+        const cellAnchor = REAL_SERVER_HTML.indexOf(`Cell_${cellIndex}`);
+        if (cellAnchor >= 0) {
+          const nextCellPos = REAL_SERVER_HTML.indexOf('Cell_', cellAnchor + 5);
+          const searchEnd = nextCellPos >= 0 ? nextCellPos : cellAnchor + 3000;
+          const searchWindow = REAL_SERVER_HTML.substring(cellAnchor, searchEnd);
+          const fcMatch = infoFacilityClassRegex.exec(searchWindow);
+          if (fcMatch) {
+            facilityClass = fcMatch[1];
+          }
+        }
+
+        // FALLBACK: Extract from icon filename
+        if (!facilityClass) {
+          const icoMatch = iconRegex.exec(cellContent);
+          const iconPath = icoMatch?.[1] || '';
+          const fcMatch = facilityClassRegex.exec(iconPath);
+          facilityClass = fcMatch?.[1] || '';
+        }
 
         // VisualClassId: pre-scan map first, then fallback to cell content
         let visualClassId = '';
@@ -316,13 +334,14 @@ describe('FacilityList.asp HTML parsing', () => {
 
       expect(results).toHaveLength(2);
 
-      // PGIHQ1 (icon filename without dimensions) → VisualClassId not in pre-scan map
-      // because the info attribute uses FacilityClass=PGIGeneralHeadquarterSTA,
-      // while the icon extracts PGIHQ1. These are different identifiers.
-      // The icon-based name (PGIHQ1) won't match the info URL name (PGIGeneralHeadquarterSTA).
-      // This is expected — the icon filename and FacilityClass can differ for some buildings.
+      // Cell_0: HQ — info attribute has the real RDO class (PGIGeneralHeadquarterSTA),
+      // NOT the icon name (PGIHQ1). VisualClassId now resolves via pre-scan map.
+      const hq = results.find(r => r.facilityClass === 'PGIGeneralHeadquarterSTA');
+      expect(hq).toBeDefined();
+      expect(hq!.visualClassId).toBe('602');
+      expect(hq!.name).toBe('Company Headquarters');
 
-      // PGISupermarketC → VisualClassId 4722
+      // Cell_1: Supermarket — icon name matches info attribute (PGISupermarketC)
       const supermarket = results.find(r => r.facilityClass === 'PGISupermarketC');
       expect(supermarket).toBeDefined();
       expect(supermarket!.visualClassId).toBe('4722');
@@ -360,23 +379,77 @@ describe('FacilityList.asp HTML parsing', () => {
 
       expect(visualClassMap.get('PGIFoodStore')).toBe('4602');
 
-      // Parse cell
-      const cRegex = new RegExp(cellRegex.source, cellRegex.flags);
-      const cm = cRegex.exec(commerceHtml);
-      expect(cm).not.toBeNull();
-
-      const cellContent = cm![2];
-
-      // Icon is captured
-      const icoMatch = iconRegex.exec(cellContent);
-      const fcMatch = facilityClassRegex.exec(icoMatch![1]);
+      // Parse cell — info attribute gives the correct FacilityClass
+      const cellAnchor = commerceHtml.indexOf('Cell_0');
+      expect(cellAnchor).toBeGreaterThan(-1);
+      const searchWindow = commerceHtml.substring(cellAnchor, cellAnchor + 3000);
+      const fcMatch = infoFacilityClassRegex.exec(searchWindow);
+      expect(fcMatch).not.toBeNull();
       expect(fcMatch![1]).toBe('PGIFoodStore');
 
-      // VisualClassId NOT in cell content (nested <tr> issue)
-      expect(visualIdRegex.test(cellContent)).toBe(false);
-
-      // But IS in pre-scan map
+      // VisualClassId resolved via pre-scan map
       expect(visualClassMap.get('PGIFoodStore')).toBe('4602');
+    });
+
+    it('should prefer FacilityClass from info attribute over icon filename', () => {
+      // When icon name differs from FacilityClass in info attribute,
+      // the info attribute (RDO kernel class) must win over the icon (visual asset name).
+      // This is the bug that caused MoabGasStation and similar buildings to fail.
+      const mismatchHtml = `
+<table>
+  <tr>
+    <td id="LinkFrame_0"><div id="LinkText_0" class=listItem available="1">Gas Station</div></td>
+  </tr>
+  <tr id="Cell_0" style="display:none">
+    <td><table><tr>
+      <td><img src=/five/icons/MapMoabGasStation128x64x0.gif border="0"></td>
+      <td><div class=comment>$200K<br><nobr>200 m.</nobr></div></td>
+    </tr>
+    <tr><td colspan="2"><table><tr>
+      <td info="http://local.asp?frame_Id=MapIsoView&frame_Action=Build&FacilityClass=PGIMoabGasStation&VisualClassId=700" command="build">Build now</td>
+    </tr></table></td></tr>
+    </table></td>
+  </tr>
+</table>`;
+
+      // Info attribute has the REAL RDO class name
+      const cellAnchor = mismatchHtml.indexOf('Cell_0');
+      const searchWindow = mismatchHtml.substring(cellAnchor, cellAnchor + 3000);
+      const fcMatch = infoFacilityClassRegex.exec(searchWindow);
+      expect(fcMatch).not.toBeNull();
+      expect(fcMatch![1]).toBe('PGIMoabGasStation'); // correct RDO class
+
+      // Icon filename gives a different (wrong for RDO) name
+      const iconMatch = facilityClassRegex.exec('MapMoabGasStation128x64x0.gif');
+      expect(iconMatch).not.toBeNull();
+      expect(iconMatch![1]).toBe('MoabGasStation'); // visual name, NOT the RDO class
+    });
+
+    it('should fall back to icon filename when no info attribute exists', () => {
+      // Some simplified HTML (e.g., old format) may not have info attributes
+      const noInfoHtml = `
+<table>
+  <tr>
+    <td id="LinkFrame_0"><div id="LinkText_0" class=listItem available="1">Small Shop</div></td>
+  </tr>
+  <tr id="Cell_0" style="display:none">
+    <td><table><tr>
+      <td><img src=/five/icons/MapPGISmallShop64x32x0.gif border="0"></td>
+      <td><div class=comment>$50K<br><nobr>50 m.</nobr></div></td>
+    </tr></table></td>
+  </tr>
+</table>`;
+
+      // No FacilityClass in info attribute
+      const cellAnchor = noInfoHtml.indexOf('Cell_0');
+      const searchWindow = noInfoHtml.substring(cellAnchor, cellAnchor + 3000);
+      const fcMatch = infoFacilityClassRegex.exec(searchWindow);
+      expect(fcMatch).toBeNull(); // no info attribute
+
+      // Fallback to icon filename
+      const iconMatch = facilityClassRegex.exec('MapPGISmallShop64x32x0.gif');
+      expect(iconMatch).not.toBeNull();
+      expect(iconMatch![1]).toBe('PGISmallShop');
     });
   });
 });

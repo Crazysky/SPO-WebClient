@@ -4950,17 +4950,32 @@ private handlePush(socketName: string, packet: RdoPacket) {
       const iconMatch = /src\s*=\s*["']?([^"'\s>]+)["']?/i.exec(cellContent);
       const iconPath = iconMatch?.[1] || '';
 
-      // Extract FacilityClass from icon filename
-      // Real server format: /five/icons/MapPGIFoodStore64x32x0.gif -> PGIFoodStore
-      // Icon filename pattern: Map{FacilityClass}{width}x{height}x{variant}.gif
+      // Extract FacilityClass from info attribute (authoritative RDO class name).
+      // Icon filenames use visual asset names that may differ from the kernel class
+      // (e.g., icon "MapPGIHQ1.gif" → "PGIHQ1", but real class is "PGIGeneralHeadquarterSTA").
+      // The info attribute on the "Build now" button has the correct FacilityClass.
       let facilityClass = '';
       let visualClassId = '';
 
-      if (iconPath) {
+      // PRIMARY: Extract FacilityClass from info attribute near this Cell_N
+      const cellAnchor = html.indexOf(`Cell_${cellIndex}`);
+      if (cellAnchor >= 0) {
+        const nextCellPos = html.indexOf('Cell_', cellAnchor + 5);
+        const searchEnd = nextCellPos >= 0 ? nextCellPos : cellAnchor + 3000;
+        const searchWindow = html.substring(cellAnchor, searchEnd);
+        const fcMatch = /FacilityClass=([A-Za-z0-9]+)/i.exec(searchWindow);
+        if (fcMatch) {
+          facilityClass = fcMatch[1];
+          this.log.debug(`[BuildConstruction] Extracted facilityClass "${facilityClass}" from info attribute`);
+        }
+      }
+
+      // FALLBACK: Extract from icon filename (for HTML without info attributes)
+      if (!facilityClass && iconPath) {
         const iconFilenameMatch = /Map([A-Z][a-zA-Z0-9]+?)(?:\d+x\d+x\d+)?\.gif/i.exec(iconPath);
         if (iconFilenameMatch) {
-          facilityClass = iconFilenameMatch[1]; // e.g., "PGIFoodStore"
-          this.log.debug(`[BuildConstruction] Extracted facilityClass "${facilityClass}" from icon: ${iconPath}`);
+          facilityClass = iconFilenameMatch[1];
+          this.log.warn(`[BuildConstruction] FacilityClass from icon fallback: "${facilityClass}" (may differ from kernel class)`);
         }
       }
 
@@ -5046,8 +5061,16 @@ private handlePush(socketName: string, packet: RdoPacket) {
     if (!this.worldContextId) {
       throw new Error('Not logged into world - cannot place building');
     }
+    if (!this.currentCompany) {
+      throw new Error('No company selected - cannot place building');
+    }
 
-    this.log.debug(`[BuildConstruction] Placing ${facilityClass} at (${x}, ${y})`);
+    const companyId = parseInt(this.currentCompany.id, 10);
+    if (isNaN(companyId)) {
+      throw new Error(`Invalid company ID: ${this.currentCompany.id}`);
+    }
+
+    this.log.debug(`[BuildConstruction] Placing ${facilityClass} at (${x}, ${y}) for company ${companyId}`);
 
     try {
       const packet = await this.sendRdoRequest('world', {
@@ -5056,7 +5079,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
         action: RdoAction.CALL,
         member: 'NewFacility',
         separator: '"^"',
-        args: [RdoValue.string(facilityClass).format(), RdoValue.int(28).format(), RdoValue.int(x).format(), RdoValue.int(y).format()]
+        args: [RdoValue.string(facilityClass).format(), RdoValue.int(companyId).format(), RdoValue.int(x).format(), RdoValue.int(y).format()]
       });
 
       // Parse response for result code
