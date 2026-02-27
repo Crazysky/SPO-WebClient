@@ -1,11 +1,13 @@
-/* ChatStrip — bottom-left chat box */
+/* ChatStrip — bottom-center social chat hub */
 
 .strip {
   position: absolute;
   bottom: var(--space-2);
-  left: var(--space-2);
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 150;
   width: var(--chat-box-width);
+  max-width: calc(100vw - 140px); /* leave room for rails on both sides */
   height: var(--chatstrip-collapsed);
   background: var(--topbar-bg);
   backdrop-filter: blur(12px);
@@ -14,64 +16,124 @@
   border-radius: var(--radius-xl);
   display: flex;
   flex-direction: column;
-  transition: height var(--duration-base) var(--ease-default),
-    left 250ms var(--ease-out);
+  transition: height var(--duration-base) var(--ease-default);
   overflow: hidden;
-}
-
-.shifted {
-  left: calc(var(--panel-width-desktop) + var(--space-2));
 }
 
 .strip.expanded {
   height: var(--chatstrip-expanded);
 }
 
-/* Header — channel tabs + toggle */
+/* ========================================================================= */
+/* HEADER — channel dropdown + tab switcher + collapse (expanded only)       */
+/* ========================================================================= */
+
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--space-3);
-  min-height: 28px;
+  padding: var(--space-1) var(--space-3);
+  min-height: 32px;
   flex-shrink: 0;
+  border-bottom: 1px solid var(--glass-border);
 }
 
-.channelTabs {
-  display: flex;
-  gap: var(--space-1);
-  overflow-x: auto;
-  scrollbar-width: none;
+/* Channel dropdown (unobtrusive) */
+.channelSelect {
+  position: relative;
 }
 
-.channelTabs::-webkit-scrollbar {
-  display: none;
-}
-
-.channelTab {
+.channelBtn {
   background: none;
-  border: none;
-  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  padding: 2px var(--space-2);
   font-size: var(--text-xs);
   font-family: var(--font-sans);
   color: var(--text-muted);
   cursor: pointer;
   border-radius: var(--radius-sm);
-  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: color var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default);
+}
+
+.channelBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--glass-border);
+}
+
+.channelDropdown {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  min-width: 140px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-1) 0;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 10;
+}
+
+.channelOption {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--duration-fast) var(--ease-default),
+    color var(--duration-fast) var(--ease-default);
+}
+
+.channelOption:hover {
+  background: var(--accent-gold-subtle);
+  color: var(--text-primary);
+}
+
+.channelOptionActive {
+  color: var(--accent-gold);
+}
+
+/* Tab switcher */
+.tabGroup {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: 2px;
+}
+
+.tab {
+  background: none;
+  border: none;
+  padding: 2px var(--space-3);
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
   transition: color var(--duration-fast) var(--ease-default),
     background var(--duration-fast) var(--ease-default);
 }
 
-.channelTab:hover {
+.tab:hover {
   color: var(--text-primary);
 }
 
-.activeTab {
+.tabActive {
+  composes: tab;
   color: var(--accent-gold);
   background: var(--accent-gold-subtle);
 }
 
-.expandBtn {
+.collapseBtn {
   background: none;
   border: none;
   color: var(--text-muted);
@@ -83,11 +145,112 @@
   transition: color var(--duration-fast) var(--ease-default);
 }
 
+.collapseBtn:hover {
+  color: var(--text-primary);
+}
+
+/* ========================================================================= */
+/* REDUCED ROW — online badge + last message + input (collapsed only)        */
+/* ========================================================================= */
+
+.reducedRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  flex: 1;
+  min-height: 0;
+}
+
+.expandBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: var(--space-1);
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  transition: color var(--duration-fast) var(--ease-default);
+}
+
 .expandBtn:hover {
   color: var(--text-primary);
 }
 
-/* Message area — expanded only */
+/* ========================================================================= */
+/* ONLINE BADGE — always visible                                              */
+/* ========================================================================= */
+
+.onlineBadge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--space-2);
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-default);
+}
+
+.onlineBadge:hover {
+  background: rgba(34, 197, 94, 0.18);
+}
+
+.onlineDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.6);
+  flex-shrink: 0;
+}
+
+/* ========================================================================= */
+/* PREVIEW — last message (collapsed)                                         */
+/* ========================================================================= */
+
+.preview {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  overflow: hidden;
+  min-width: 0;
+  cursor: pointer;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-fast) var(--ease-default);
+}
+
+.preview:hover {
+  background: var(--bg-tertiary);
+}
+
+.previewSender {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.previewText {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ========================================================================= */
+/* MESSAGE AREA — expanded, chat tab                                          */
+/* ========================================================================= */
+
 .messageArea {
   flex: 1;
   overflow-y: auto;
@@ -123,33 +286,75 @@
   word-break: break-word;
 }
 
-/* Preview — collapsed, last message only */
-.preview {
+/* ========================================================================= */
+/* USER LIST — expanded, online tab                                           */
+/* ========================================================================= */
+
+.userList {
   flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  scrollbar-width: thin;
+  scrollbar-color: var(--glass-border) transparent;
+}
+
+.userRow {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 0 var(--space-3);
-  overflow: hidden;
-  min-height: 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-fast) var(--ease-default);
 }
 
-.previewSender {
-  font-size: var(--text-xs);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
+.userRow:hover {
+  background: var(--bg-tertiary);
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
   flex-shrink: 0;
 }
 
-.previewText {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.statusDotTyping {
+  animation: pulse 1.2s ease-in-out infinite;
 }
 
-/* Input row */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.userName {
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.typingLabel {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.emptyUsers {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-align: center;
+  padding: var(--space-4);
+  font-style: italic;
+}
+
+/* ========================================================================= */
+/* INPUT ROW — always visible in both modes                                   */
+/* ========================================================================= */
+
 .inputRow {
   display: flex;
   align-items: center;
@@ -178,6 +383,7 @@
   font-size: var(--text-xs);
   font-family: var(--font-sans);
   outline: none;
+  min-width: 0;
   transition: border-color var(--duration-fast) var(--ease-default);
 }
 
@@ -198,6 +404,7 @@
   display: flex;
   align-items: center;
   border-radius: var(--radius-sm);
+  flex-shrink: 0;
   transition: color var(--duration-fast) var(--ease-default);
 }
 
@@ -210,9 +417,12 @@
   cursor: default;
 }
 
-/* Mobile — full-width, smaller */
+/* ========================================================================= */
+/* MOBILE — hidden (chat on mobile is via "More" tab)                         */
+/* ========================================================================= */
+
 @media (max-width: 767px) {
   .strip {
-    display: none; /* Chat on mobile is via "More" tab, not strip */
+    display: none;
   }
 }

@@ -2956,6 +2956,61 @@ export class IsometricMapRenderer {
   }
 
   /**
+   * Compute the canonical NW corner (min x, min y) from the cursor tile.
+   * The cursor is always the visual "top" corner of the footprint; the server
+   * expects the NW corner regardless of rotation.
+   *
+   * Derived from Delphi Voyager: Map.pas MouseClick coordinate adjustment.
+   */
+  private placementNWCorner(
+    cursorI: number, cursorJ: number, xsize: number, ysize: number
+  ): { nwI: number; nwJ: number } {
+    const rotation = this.terrainRenderer.getRotation();
+    switch (rotation) {
+      case Rotation.NORTH: return { nwI: cursorI,                nwJ: cursorJ };
+      case Rotation.EAST:  return { nwI: cursorI - (ysize - 1),  nwJ: cursorJ };
+      case Rotation.SOUTH: return { nwI: cursorI - (ysize - 1),  nwJ: cursorJ - (xsize - 1) };
+      case Rotation.WEST:  return { nwI: cursorI,                nwJ: cursorJ - (xsize - 1) };
+      default:             return { nwI: cursorI,                nwJ: cursorJ };
+    }
+  }
+
+  /**
+   * Return all footprint tiles for a building placed at the cursor tile,
+   * accounting for the current view rotation.
+   *
+   * Uses the Delphi iinc/jinc pattern (Map.pas BuildCheck):
+   *   NORTH: i++ j++    EAST: i-- j++    SOUTH: i-- j--    WEST: i++ j--
+   *
+   * The cursor tile is the visual "top" corner. The footprint extends
+   * xsize tiles along the iinc axis and ysize tiles along the jinc axis.
+   */
+  private getFootprintTiles(
+    cursorI: number, cursorJ: number, xsize: number, ysize: number
+  ): Array<{ tileI: number; tileJ: number }> {
+    const rotation = this.terrainRenderer.getRotation();
+    let iinc: number, jinc: number;
+    switch (rotation) {
+      case Rotation.NORTH: iinc = 1;  jinc = 1;  break;
+      case Rotation.EAST:  iinc = -1; jinc = 1;  break;
+      case Rotation.SOUTH: iinc = -1; jinc = -1; break;
+      case Rotation.WEST:  iinc = 1;  jinc = -1; break;
+      default:             iinc = 1;  jinc = 1;  break;
+    }
+
+    const tiles: Array<{ tileI: number; tileJ: number }> = [];
+    for (let dy = 0; dy < ysize; dy++) {
+      for (let dx = 0; dx < xsize; dx++) {
+        tiles.push({
+          tileI: cursorI + dy * iinc,
+          tileJ: cursorJ + dx * jinc,
+        });
+      }
+    }
+    return tiles;
+  }
+
+  /**
    * Draw building placement preview
    */
   private drawPlacementPreview() {
@@ -2969,6 +3024,9 @@ export class IsometricMapRenderer {
     const halfHeight = config.tileHeight / 2;
     const preview = this.placementPreview;
 
+    // Get rotation-aware footprint tiles (cursor = visual top corner)
+    const footprint = this.getFootprintTiles(preview.i, preview.j, preview.xsize, preview.ysize);
+
     // Check for collisions and zone requirements
     let hasCollision = false;
     let hasZoneMismatch = false;
@@ -2977,25 +3035,26 @@ export class IsometricMapRenderer {
     // Text format: "Building must be located in blue zone or no zone at all."
     const requiredZoneValue = this.parseZoneRequirementValue(preview.zoneRequirement);
 
-    for (let dy = 0; dy < preview.ysize && !hasCollision; dy++) {
-      for (let dx = 0; dx < preview.xsize && !hasCollision; dx++) {
-        const checkX = preview.j + dx;
-        const checkY = preview.i + dy;
+    for (const tile of footprint) {
+      if (hasCollision) break;
+      const checkX = tile.tileJ;
+      const checkY = tile.tileI;
 
-        // Check building collision
-        for (const building of this.allBuildings) {
-          const dims = this.facilityDimensionsCache.get(building.visualClass);
-          const bw = dims?.xsize || 1;
-          const bh = dims?.ysize || 1;
+      // Check building collision
+      for (const building of this.allBuildings) {
+        const dims = this.facilityDimensionsCache.get(building.visualClass);
+        const bw = dims?.xsize || 1;
+        const bh = dims?.ysize || 1;
 
-          if (checkX >= building.x && checkX < building.x + bw &&
-              checkY >= building.y && checkY < building.y + bh) {
-            hasCollision = true;
-            break;
-          }
+        if (checkX >= building.x && checkX < building.x + bw &&
+            checkY >= building.y && checkY < building.y + bh) {
+          hasCollision = true;
+          break;
         }
+      }
 
-        // Check road collision
+      // Check road collision
+      if (!hasCollision) {
         for (const seg of this.allSegments) {
           const minX = Math.min(seg.x1, seg.x2);
           const maxX = Math.max(seg.x1, seg.x2);
@@ -3008,18 +3067,18 @@ export class IsometricMapRenderer {
             break;
           }
         }
+      }
 
-        // Check zone requirement (only if we have overlay data and a required zone)
-        if (!hasZoneMismatch && requiredZoneValue > 0 && this.zoneOverlayData) {
-          const row = checkY - this.zoneOverlayY1;
-          const col = checkX - this.zoneOverlayX1;
-          if (row >= 0 && row < this.zoneOverlayData.rows.length &&
-              col >= 0 && col < this.zoneOverlayData.rows[row].length) {
-            const tileZone = this.zoneOverlayData.rows[row][col];
-            // Zone mismatch: tile is not the required zone AND not "no zone" (0 = allowed per "or no zone at all")
-            if (tileZone !== requiredZoneValue && tileZone !== 0) {
-              hasZoneMismatch = true;
-            }
+      // Check zone requirement (only if we have overlay data and a required zone)
+      if (!hasZoneMismatch && requiredZoneValue > 0 && this.zoneOverlayData) {
+        const row = checkY - this.zoneOverlayY1;
+        const col = checkX - this.zoneOverlayX1;
+        if (row >= 0 && row < this.zoneOverlayData.rows.length &&
+            col >= 0 && col < this.zoneOverlayData.rows[row].length) {
+          const tileZone = this.zoneOverlayData.rows[row][col];
+          // Zone mismatch: tile is not the required zone AND not "no zone" (0 = allowed per "or no zone at all")
+          if (tileZone !== requiredZoneValue && tileZone !== 0) {
+            hasZoneMismatch = true;
           }
         }
       }
@@ -3029,28 +3088,23 @@ export class IsometricMapRenderer {
     const fillColor = isInvalid ? 'rgba(255, 100, 100, 0.5)' : 'rgba(100, 255, 100, 0.5)';
     const strokeColor = isInvalid ? '#ff4444' : '#44ff44';
 
-    // Draw diamond overlay tiles (collision feedback)
-    for (let dy = 0; dy < preview.ysize; dy++) {
-      for (let dx = 0; dx < preview.xsize; dx++) {
-        const tileJ = preview.j + dx;
-        const tileI = preview.i + dy;
+    // Draw diamond overlay tiles (collision feedback) — rotation-aware
+    for (const tile of footprint) {
+      const screenPos = this.terrainRenderer.mapToScreen(tile.tileI, tile.tileJ);
 
-        const screenPos = this.terrainRenderer.mapToScreen(tileI, tileJ);
+      ctx.beginPath();
+      ctx.moveTo(screenPos.x, screenPos.y);
+      ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
+      ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
+      ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
+      ctx.closePath();
 
-        ctx.beginPath();
-        ctx.moveTo(screenPos.x, screenPos.y);
-        ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
-        ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
-        ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
-        ctx.closePath();
+      ctx.fillStyle = fillColor;
+      ctx.fill();
 
-        ctx.fillStyle = fillColor;
-        ctx.fill();
-
-        ctx.strokeStyle = strokeColor;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
 
     // Draw building sprite preview (semi-transparent) on top of diamonds
@@ -3063,15 +3117,17 @@ export class IsometricMapRenderer {
         const scaledWidth = texture.width * scaleFactor;
         const scaledHeight = texture.height * scaleFactor;
 
-        // Anchor at the south corner of the footprint (same logic as drawBuildings)
+        // Anchor at the south corner of the NW-based footprint (same as drawBuildings).
+        // Compute NW corner from cursor, then apply the standard anchor logic.
+        const { nwI, nwJ } = this.placementNWCorner(preview.i, preview.j, preview.xsize, preview.ysize);
         const rotation = this.terrainRenderer.getRotation();
         let anchorI: number, anchorJ: number;
         switch (rotation) {
-          case Rotation.NORTH: anchorI = preview.i;                       anchorJ = preview.j;                       break;
-          case Rotation.EAST:  anchorI = preview.i + preview.ysize - 1;   anchorJ = preview.j;                       break;
-          case Rotation.SOUTH: anchorI = preview.i + preview.ysize - 1;   anchorJ = preview.j + preview.xsize - 1;   break;
-          case Rotation.WEST:  anchorI = preview.i;                       anchorJ = preview.j + preview.xsize - 1;   break;
-          default:             anchorI = preview.i;                       anchorJ = preview.j;                       break;
+          case Rotation.NORTH: anchorI = nwI;                       anchorJ = nwJ;                       break;
+          case Rotation.EAST:  anchorI = nwI + preview.ysize - 1;   anchorJ = nwJ;                       break;
+          case Rotation.SOUTH: anchorI = nwI + preview.ysize - 1;   anchorJ = nwJ + preview.xsize - 1;   break;
+          case Rotation.WEST:  anchorI = nwI;                       anchorJ = nwJ + preview.xsize - 1;   break;
+          default:             anchorI = nwI;                       anchorJ = nwJ;                       break;
         }
         const southCorner = this.terrainRenderer.mapToScreen(anchorI, anchorJ);
 
@@ -3975,9 +4031,12 @@ export class IsometricMapRenderer {
         this.roadDrawingState.endY = mapPos.i;
         this.requestRender();
       } else if (this.placementMode && this.placementPreview) {
-        // Confirm building placement at current preview coordinates
+        // Confirm building placement — normalize cursor to NW corner for the server.
+        // Server always expects (x=col, y=row) of the NW corner (min coords).
         if (this.onPlacementConfirm) {
-          this.onPlacementConfirm(this.placementPreview.j, this.placementPreview.i);
+          const p = this.placementPreview;
+          const { nwI, nwJ } = this.placementNWCorner(p.i, p.j, p.xsize, p.ysize);
+          this.onPlacementConfirm(nwJ, nwI); // j=x (col), i=y (row)
         }
       } else if (this.onRoadDemolishClick) {
         // Road demolish mode — only fire if a road tile exists at click location

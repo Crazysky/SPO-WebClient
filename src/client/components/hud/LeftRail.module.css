@@ -2,7 +2,7 @@
 
 .rail {
   position: absolute;
-  bottom: calc(var(--space-2) + var(--chatstrip-collapsed) + var(--space-2)); /* above chat box */
+  bottom: var(--space-3);
   left: var(--space-3);
   z-index: 200;
   display: flex;

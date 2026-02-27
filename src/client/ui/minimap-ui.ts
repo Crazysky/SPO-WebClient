@@ -113,13 +113,13 @@ export class MinimapUI {
   private ensureDOM(): void {
     if (this.canvas) return;
 
-    // Container — positioned bottom-right of the viewport
+    // Container — positioned top-left of the viewport
     this.container = document.createElement('div');
     this.container.id = 'minimap-container';
     this.container.style.cssText = `
       position: fixed;
-      bottom: ${MINIMAP_PADDING}px;
-      right: ${MINIMAP_PADDING}px;
+      top: ${MINIMAP_PADDING}px;
+      left: ${MINIMAP_PADDING}px;
       width: ${this.currentWidth}px;
       height: ${this.currentHeight}px;
       border: 2px solid rgba(148, 163, 184, 0.6);
@@ -140,15 +140,15 @@ export class MinimapUI {
 
     this.container.appendChild(this.canvas);
 
-    // Resize handle — SE corner
+    // Resize handle — bottom-right corner (SE)
     const handle = document.createElement('div');
     handle.style.cssText = `
       position: absolute;
-      top: 0;
-      left: 0;
+      bottom: 0;
+      right: 0;
       width: 14px;
       height: 14px;
-      cursor: nw-resize;
+      cursor: se-resize;
       z-index: 1;
     `;
     this.container.appendChild(handle);
@@ -170,9 +170,9 @@ export class MinimapUI {
     let startW = 0;
 
     const onMouseMove = (e: MouseEvent) => {
-      // Dragging NW handle: moving left/up = bigger, right/down = smaller
-      const dx = startX - e.clientX;
-      const dy = startY - e.clientY;
+      // Dragging SE handle: moving right/down = bigger, left/up = smaller
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
       const delta = Math.max(dx, dy);
       const newSize = Math.max(MIN_SIZE, Math.min(MAX_SIZE, startW + delta));
       this.currentWidth = newSize;

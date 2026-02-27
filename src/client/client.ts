@@ -225,6 +225,8 @@ export class StarpeaceClient {
   private buildingCategories: BuildingCategory[] = [];
   private lastLoadedFacilities: BuildingInfo[] = [];
   private currentBuildingToPlace: BuildingInfo | null = null;
+  private currentBuildingXSize: number = 1;
+  private currentBuildingYSize: number = 1;
 
   // Double-click prevention flags
   private isFocusingBuilding: boolean = false;
@@ -990,6 +992,46 @@ export class StarpeaceClient {
     this.ws?.send(JSON.stringify(req));
   }
 
+  /**
+   * Load map zone(s) containing the given world coordinates, aligned to 64-tile zone boundaries.
+   *
+   * The renderer caches map data in 64×64 zones keyed by aligned coordinates.
+   * Requesting unaligned coordinates would replace a zone with partial data, causing
+   * buildings/roads outside the returned area (but inside the zone) to vanish.
+   *
+   * @param x - World column coordinate
+   * @param y - World row coordinate
+   * @param margin - Extra tiles to consider (e.g. building size). If the point plus margin
+   *                 crosses a zone boundary, adjacent zones are refreshed too.
+   */
+  private loadAlignedMapArea(x: number, y: number, margin: number = 0) {
+    const zoneSize = 64;
+    const alignedX = Math.floor(x / zoneSize) * zoneSize;
+    const alignedY = Math.floor(y / zoneSize) * zoneSize;
+
+    // Always load the primary zone containing (x, y)
+    this.loadMapArea(alignedX, alignedY, zoneSize, zoneSize);
+
+    if (margin <= 0) return;
+
+    // Check if the affected area (x..x+margin) spills into adjacent zones
+    const xInZone = x - alignedX;
+    const yInZone = y - alignedY;
+
+    const needRight = xInZone + margin >= zoneSize;
+    const needBelow = yInZone + margin >= zoneSize;
+
+    if (needRight) {
+      this.loadMapArea(alignedX + zoneSize, alignedY, zoneSize, zoneSize);
+    }
+    if (needBelow) {
+      this.loadMapArea(alignedX, alignedY + zoneSize, zoneSize, zoneSize);
+    }
+    if (needRight && needBelow) {
+      this.loadMapArea(alignedX + zoneSize, alignedY + zoneSize, zoneSize, zoneSize);
+    }
+  }
+
   private switchToGameView() {
     // React App.tsx switches to GameScreen when status becomes 'connected'
     this.uiGamePanel.style.display = 'flex';
@@ -1386,8 +1428,8 @@ export class StarpeaceClient {
 
       if (response.success) {
         ClientBridge.log('Building', 'Building deleted successfully');
-        // Refresh the map to remove the deleted building (use building coordinates as center)
-        this.loadMapArea(x, y);
+        // Refresh the zone-aligned map area to remove the deleted building
+        this.loadAlignedMapArea(x, y);
         return true;
       } else {
         ClientBridge.log('Error', response.message || 'Failed to delete building');
@@ -1839,8 +1881,9 @@ export class StarpeaceClient {
 
       if (response.success) {
         ClientBridge.log('Road', `Road built: ${response.tileCount} tiles, cost $${response.cost}`);
-        // Refresh the map to show the new road (use road start as center)
-        this.loadMapArea(x1, y1);
+        // Refresh the zone-aligned map area covering the road segment
+        const roadMargin = Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1)) + 1;
+        this.loadAlignedMapArea(x1, y1, roadMargin);
       } else {
         ClientBridge.log('Error', response.message || 'Failed to build road');
       }
@@ -1927,8 +1970,8 @@ export class StarpeaceClient {
       if (response.success) {
         ClientBridge.log('Road', `Road demolished at (${x}, ${y})`);
         this.showNotification('Road demolished', 'success');
-        // Refresh the map to remove the demolished road
-        this.loadMapArea(x, y);
+        // Refresh the zone-aligned map area to remove the demolished road
+        this.loadAlignedMapArea(x, y);
       } else {
         ClientBridge.log('Error', response.message || 'Failed to demolish road');
         this.showNotification(response.message || 'Failed to demolish road', 'error');
@@ -2083,6 +2126,8 @@ export class StarpeaceClient {
     } catch (err) {
       console.error('Failed to fetch facility dimensions:', err);
     }
+    this.currentBuildingXSize = xsize;
+    this.currentBuildingYSize = ysize;
 
     // Show placement help notification
     this.showNotification(`${building.name} placement mode - Click map to place, ESC to cancel`, 'info');
@@ -2176,8 +2221,9 @@ export class StarpeaceClient {
       ClientBridge.log('Build', `✓ Successfully placed ${building.name}!`);
       this.showNotification(`${building.name} built successfully!`, 'success');
 
-      // Reload the map area to show the new building
-      this.loadMapArea(x, y);
+      // Reload the map zone(s) containing the new building (aligned to zone grid)
+      const buildingMargin = Math.max(this.currentBuildingXSize, this.currentBuildingYSize);
+      this.loadAlignedMapArea(x, y, buildingMargin);
 
       // Exit placement mode
       this.cancelBuildingPlacement();

@@ -22,6 +22,8 @@ export interface ChatUser {
 
 const MAX_MESSAGES_PER_CHANNEL = 100;
 
+export type ChatTab = 'chat' | 'online';
+
 interface ChatState {
   // State
   currentChannel: string;
@@ -30,6 +32,7 @@ interface ChatState {
   users: Record<string, ChatUser>;
   typingUsers: Set<string>;
   isExpanded: boolean;
+  activeTab: ChatTab;
 
   // Actions
   setCurrentChannel: (channel: string) => void;
@@ -39,6 +42,7 @@ interface ChatState {
   setUserTyping: (username: string, isTyping: boolean) => void;
   setExpanded: (expanded: boolean) => void;
   toggleExpanded: () => void;
+  setActiveTab: (tab: ChatTab) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -48,6 +52,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   users: {},
   typingUsers: new Set(),
   isExpanded: false,
+  activeTab: 'chat' as ChatTab,
 
   setCurrentChannel: (channel) => set({ currentChannel: channel }),
 
@@ -85,4 +90,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setExpanded: (expanded) => set({ isExpanded: expanded }),
 
   toggleExpanded: () => set((state) => ({ isExpanded: !state.isExpanded })),
+
+  setActiveTab: (tab) => set({ activeTab: tab }),
 }));

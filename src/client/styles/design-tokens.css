@@ -128,9 +128,9 @@
   --topbar-bg: rgba(10, 26, 26, 0.7);
   --rail-button-size: 48px;
   --rail-gap: 8px;
-  --chatstrip-collapsed: 40px;
-  --chatstrip-expanded: 200px;
-  --chat-box-width: 320px;
+  --chatstrip-collapsed: 44px;
+  --chatstrip-expanded: 280px;
+  --chat-box-width: 500px;
   --panel-width-desktop: 420px;
   --panel-width-tablet: 320px;
   --minimap-size: 200px;

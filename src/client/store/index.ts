@@ -13,7 +13,7 @@ export { useEmpireStore } from './empire-store';
 export { useBuildingStore } from './building-store';
 
 export { useChatStore } from './chat-store';
-export type { ChatMessage, ChatUser } from './chat-store';
+export type { ChatMessage, ChatUser, ChatTab } from './chat-store';
 
 export { useMailStore } from './mail-store';
 
