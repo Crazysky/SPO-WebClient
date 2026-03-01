@@ -56,6 +56,9 @@ import {
   PoliticsRatingEntry,
   ConnectionSearchResult,
   FavoritesItem,
+  ResearchCategoryData,
+  ResearchInventionItem,
+  ResearchInventionDetails,
 } from '../shared/types';
 import {
   getTemplateForVisualClass,
@@ -2096,7 +2099,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     action: string,
     amount?: string,
     toTycoon?: string,
-    _reason?: string,
+    reason?: string,
     loanIndex?: number
   ): Promise<BankActionResult> {
     try {
@@ -2130,7 +2133,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
           actionParams.set('Action', 'SEND');
           actionParams.set('SendValue', amount);
           actionParams.set('SendDest', toTycoon);
-          actionParams.set('SendReason', '');
+          actionParams.set('SendReason', reason || '');
           break;
         }
         case 'payoff': {
@@ -2432,6 +2435,18 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       let url: string;
 
       switch (action) {
+        case 'add': {
+          if (!suppliers) return { success: false, message: 'Supplier facility coordinates required' };
+          const params = new URLSearchParams({
+            TycoonId: tycoonId,
+            FluidId: fluidId,
+            DAAddr: this.daAddr || config.rdo.directoryHost,
+            DAPort: String(this.daPort || config.rdo.ports.directory),
+            Supplier: suppliers,
+          });
+          url = `${basePath}AddDefaultSupplier.asp?${params.toString().replace(/\+/g, '%20')}`;
+          break;
+        }
         case 'delete': {
           if (!suppliers) return { success: false, message: 'Supplier facility ID required' };
           const params = new URLSearchParams({
@@ -5353,8 +5368,9 @@ private handlePush(socketName: string, packet: RdoPacket) {
 			  // TABLE type: columns loop generates all needed property names
 			  // (skip base rdoName to avoid duplicates when a column rdoSuffix matches it)
 			  for (const col of def.columns) {
+				const colSuffix = col.indexSuffix !== undefined ? col.indexSuffix : suffix;
 				for (let idx = 0; idx < count; idx++) {
-				  indexedProps.push(`${col.rdoSuffix}${idx}${col.columnSuffix || ''}${suffix}`);
+				  indexedProps.push(`${col.rdoSuffix}${idx}${col.columnSuffix || ''}${colSuffix}`);
 				}
 			  }
 			} else {
@@ -5425,12 +5441,18 @@ private handlePush(socketName: string, packet: RdoPacket) {
 			  continue;
 			}
 
-			if (prop.type === 'TABLE' && prop.columns && prop.countProperty) {
-			  // TABLE type: include individual column values grouped by row index
+			if ((prop.type === 'TABLE' || prop.type === 'SERVICE_CARDS') && prop.columns && prop.countProperty) {
+			  // TABLE/SERVICE_CARDS type: include count + individual column values grouped by row index
 			  const count = countValues.get(prop.countProperty) || 0;
+			  // Include the count property so the client renderer knows how many rows to render
+			  const countVal = allValues.get(prop.countProperty);
+			  if (countVal) {
+				groupValues.push({ name: prop.countProperty, value: countVal });
+			  }
 			  for (let idx = 0; idx < count; idx++) {
 				for (const col of prop.columns) {
-				  const colName = `${col.rdoSuffix}${idx}${col.columnSuffix || ''}${suffix}`;
+				  const colSuffix = col.indexSuffix !== undefined ? col.indexSuffix : suffix;
+				  const colName = `${col.rdoSuffix}${idx}${col.columnSuffix || ''}${colSuffix}`;
 				  const colValue = allValues.get(colName);
 				  if (colValue) {
 					groupValues.push({
@@ -6061,7 +6083,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
         break;
       }
 
-      case 'RDOSetTaxPercent': {
+      case 'RDOSetTaxValue': {
         // Args: tax index, new percentage
         const taxIndex = parseInt(params.index || '0', 10);
         args.push(RdoValue.int(taxIndex), RdoValue.int(parseInt(value, 10)));
@@ -6288,6 +6310,65 @@ private handlePush(socketName: string, packet: RdoPacket) {
         break;
       }
 
+      case 'RDOSelectWare': {
+        // Args: index (integer), value (integer)
+        // Voyager: WHGeneralSheet.pas — Proxy.RDOSelectWare(index, value)
+        const index = parseInt(params.index || '0', 10);
+        args.push(RdoValue.int(index), RdoValue.int(parseInt(value, 10)));
+        break;
+      }
+
+      case 'RDOSetWordsOfWisdom': {
+        // Args: words (widestring)
+        // Voyager: MausoleumSheet.pas — Proxy.RDOSetWordsOfWisdom(words)
+        args.push(RdoValue.string(value));
+        break;
+      }
+
+      case 'RDOCacncelTransc': {
+        // No args (void)
+        // Voyager: MausoleumSheet.pas — Proxy.RDOCacncelTransc (note: original Delphi typo)
+        break;
+      }
+
+      case 'RDOVote': {
+        // Args: voterName (widestring), voteeName (widestring)
+        // Voyager: VotesSheet.pas — Proxy.RDOVote(voterName, voteeName)
+        const voterName = params.voterName || '';
+        args.push(RdoValue.string(voterName), RdoValue.string(value));
+        break;
+      }
+
+      case 'RDOVoteOf': {
+        // Args: voterName (widestring)
+        // Voyager: VotesSheet.pas — Proxy.RDOVoteOf(voterName)
+        args.push(RdoValue.string(value));
+        break;
+      }
+
+      case 'RDOSetTownTaxes': {
+        // Args: index (integer), value (integer)
+        // Voyager: CapitolTownsSheet.pas — Proxy.RDOSetTownTaxes(index, value)
+        const index = parseInt(params.index || '0', 10);
+        args.push(RdoValue.int(index), RdoValue.int(parseInt(value, 10)));
+        break;
+      }
+
+      case 'RDOSitMayor': {
+        // Args: townName (widestring), tycoonName (widestring)
+        // Voyager: CapitolTownsSheet.pas — Proxy.RDOSitMayor(townName, tycoonName)
+        const townName = params.townName || '';
+        args.push(RdoValue.string(townName), RdoValue.string(value));
+        break;
+      }
+
+      case 'RDOSetInputFluidPerc': {
+        // Args: perc (integer: 0-100)
+        // Voyager: AdvSheetForm.pas — Proxy.RDOSetInputFluidPerc(perc)
+        args.push(RdoValue.int(parseInt(value, 10)));
+        break;
+      }
+
       case 'property': {
         // Direct property set — format as quoted integer value
         args.push(RdoValue.int(parseInt(value, 10)));
@@ -6347,7 +6428,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
       case 'RDOSetLoanPerc':
         return 'BudgetPerc';
 
-      case 'RDOSetTaxPercent':
+      case 'RDOSetTaxValue':
         return `Tax${params.index || '0'}Percent`;
 
       case 'RDOAutoProduce':
@@ -6415,6 +6496,30 @@ private handlePush(socketName: string, packet: RdoPacket) {
       case 'RDOSitMinister':
         return `Minister${params.ministryId || '0'}`;
 
+      case 'RDOSelectWare':
+        return 'GateMap';
+
+      case 'RDOSetWordsOfWisdom':
+        return 'WordsOfWisdom';
+
+      case 'RDOCacncelTransc':
+        return 'Transcended';
+
+      case 'RDOVote':
+      case 'RDOVoteOf':
+        return 'RulerVotes';
+
+      case 'RDOSetTownTaxes': {
+        const index = params.index || '0';
+        return `TownTax${index}`;
+      }
+
+      case 'RDOSitMayor':
+        return `HasMayor${params.index || '0'}`;
+
+      case 'RDOSetInputFluidPerc':
+        return 'nfActualMaxFluidValue';
+
       case 'property':
         return params.propertyName || rdoCommand;
 
@@ -6426,5 +6531,175 @@ private handlePush(socketName: string, packet: RdoPacket) {
     }
   }
 
+  // =========================================================================
+  // RESEARCH / INVENTIONS
+  // =========================================================================
 
+  /**
+   * Fetch all invention items for a category from the building cache.
+   *
+   * Cache property naming (from ResearchCenter.pas StoreToCache):
+   *   {prefix}{cat}RsId{idx}      — invention string ID (all states)
+   *   {prefix}{cat}RsName{idx}    — display name (volatile only)
+   *   {prefix}{cat}RsDyn{idx}     — "yes" if volatile
+   *   {prefix}{cat}RsParent{idx}  — parent category name (volatile only)
+   *   avl{cat}RsEnabled{idx}      — boolean (available only)
+   *   has{cat}RsCost{idx}         — formatted cost (completed only)
+   */
+  public async getResearchInventory(
+    x: number, y: number, categoryIndex: number
+  ): Promise<ResearchCategoryData> {
+    await this.connectMapService();
+    const tempObjectId = await this.cacherCreateObject();
+
+    try {
+      await this.cacherSetObject(tempObjectId, x, y);
+      const cat = categoryIndex;
+
+      // Phase 1: Get counts
+      const countProps = [`avlCount${cat}`, `devCount${cat}`, `hasCount${cat}`];
+      const countValues = await this.cacherGetPropertyList(tempObjectId, countProps);
+      const avlCount = parseInt(countValues[0] || '0', 10);
+      const devCount = parseInt(countValues[1] || '0', 10);
+      const hasCount = parseInt(countValues[2] || '0', 10);
+
+      this.log.debug(`[Research] Counts for cat=${cat}: avl=${avlCount}, dev=${devCount}, has=${hasCount}`);
+
+      // Phase 2: Build per-item property names
+      const itemProps: string[] = [];
+
+      for (let i = 0; i < avlCount; i++) {
+        itemProps.push(
+          `avl${cat}RsId${i}`, `avl${cat}RsEnabled${i}`,
+          `avl${cat}RsName${i}`, `avl${cat}RsDyn${i}`, `avl${cat}RsParent${i}`
+        );
+      }
+      for (let i = 0; i < devCount; i++) {
+        itemProps.push(
+          `dev${cat}RsId${i}`,
+          `dev${cat}RsName${i}`, `dev${cat}RsDyn${i}`, `dev${cat}RsParent${i}`
+        );
+      }
+      for (let i = 0; i < hasCount; i++) {
+        itemProps.push(
+          `has${cat}RsId${i}`, `has${cat}RsCost${i}`,
+          `has${cat}RsName${i}`, `has${cat}RsDyn${i}`, `has${cat}RsParent${i}`
+        );
+      }
+
+      // Fetch in batches
+      const allItemValues = new Map<string, string>();
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < itemProps.length; i += BATCH_SIZE) {
+        const batch = itemProps.slice(i, i + BATCH_SIZE);
+        const values = await this.cacherGetPropertyList(tempObjectId, batch);
+        for (let j = 0; j < batch.length; j++) {
+          if (j < values.length && values[j] && values[j] !== 'error') {
+            allItemValues.set(batch[j], values[j]);
+          }
+        }
+      }
+
+      const available = parseResearchItems('avl', cat, avlCount, allItemValues, true);
+      const developing = parseResearchItems('dev', cat, devCount, allItemValues, false);
+      const completed = parseResearchItems('has', cat, hasCount, allItemValues, false);
+
+      return { categoryIndex, available, developing, completed };
+    } finally {
+      await this.cacherCloseObject(tempObjectId);
+    }
+  }
+
+  /**
+   * Fetch detailed properties + description for a single invention.
+   *
+   * Calls RDOGetInvPropsByLang (function, "^" separator) and
+   * RDOGetInvDescEx (function, "^" separator) via sendRdoRequest on the
+   * construction socket. Both are olevariant-returning functions — safe to
+   * use with sendRdoRequest (which adds a QueryId).
+   */
+  public async getResearchDetails(
+    x: number, y: number, inventionId: string
+  ): Promise<ResearchInventionDetails> {
+    await this.connectConstructionService();
+    if (!this.worldId) {
+      throw new Error('Construction service not initialized - worldId is null');
+    }
+
+    // Get CurrBlock for this building
+    await this.connectMapService();
+    const tempObjectId = await this.cacherCreateObject();
+    let currBlock: string;
+
+    try {
+      await this.cacherSetObject(tempObjectId, x, y);
+      const values = await this.cacherGetPropertyList(tempObjectId, ['CurrBlock']);
+      currBlock = values[0];
+      if (!currBlock) throw new Error(`No CurrBlock for building at (${x}, ${y})`);
+    } finally {
+      await this.cacherCloseObject(tempObjectId);
+    }
+
+    this.log.debug(`[Research] Getting details for "${inventionId}" on block ${currBlock}`);
+
+    // Call RDOGetInvPropsByLang — function (olevariant return), "^" separator
+    const propsPacket = await this.sendRdoRequest('construction', {
+      verb: RdoVerb.SEL,
+      targetId: currBlock,
+      action: RdoAction.CALL,
+      member: 'RDOGetInvPropsByLang',
+      separator: '"^"',
+      args: [RdoValue.string(inventionId).format(), RdoValue.string('0').format()],
+    });
+    const properties = parsePropertyResponseHelper(propsPacket.payload || '', 'res') || '';
+
+    // Call RDOGetInvDescEx — function (olevariant return), "^" separator
+    const descPacket = await this.sendRdoRequest('construction', {
+      verb: RdoVerb.SEL,
+      targetId: currBlock,
+      action: RdoAction.CALL,
+      member: 'RDOGetInvDescEx',
+      separator: '"^"',
+      args: [RdoValue.string(inventionId).format(), RdoValue.string('0').format()],
+    });
+    const description = parsePropertyResponseHelper(descPacket.payload || '', 'res') || '';
+
+    this.log.debug(`[Research] Details for "${inventionId}": props=${properties.length} chars, desc=${description.length} chars`);
+
+    return { inventionId, properties, description };
+  }
+
+}
+
+/**
+ * Parse invention items from cache property values.
+ * Cache naming: {prefix}{cat}RsId{idx}, {prefix}{cat}RsName{idx}, etc.
+ * @internal Exported for testing.
+ */
+export function parseResearchItems(
+  prefix: string,
+  cat: number,
+  count: number,
+  values: Map<string, string>,
+  includeEnabled: boolean
+): ResearchInventionItem[] {
+  const items: ResearchInventionItem[] = [];
+  for (let i = 0; i < count; i++) {
+    const id = values.get(`${prefix}${cat}RsId${i}`) || '';
+    if (!id) continue;
+
+    const isVolatile = values.get(`${prefix}${cat}RsDyn${i}`) === 'yes';
+    const name = values.get(`${prefix}${cat}RsName${i}`) || id;
+    const parent = values.get(`${prefix}${cat}RsParent${i}`) || undefined;
+    const cost = prefix === 'has' ? values.get(`has${cat}RsCost${i}`) || undefined : undefined;
+
+    let enabled: boolean | undefined;
+    if (includeEnabled) {
+      const enabledVal = values.get(`avl${cat}RsEnabled${i}`);
+      enabled = enabledVal === 'true' || enabledVal === '-1';
+    }
+
+    items.push({ inventionId: id, name, enabled, cost, parent, volatile: isVolatile || undefined });
+  }
+  return items;
 }

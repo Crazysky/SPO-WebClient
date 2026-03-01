@@ -20,7 +20,6 @@ import {
   WsRespChatChannelList,
   WsEventChatUserTyping,
   WsEventChatChannelChange,
-  WsEventChatUserListChange,
   WsReqBuildingFocus,
   WsReqBuildingUnfocus,
   WsRespBuildingFocus,
@@ -95,18 +94,22 @@ import {
   WsRespCreateCompany,
   // Date
   WsEventRefreshDate,
+  // Research / Inventions
+  WsRespResearchInventory,
+  WsRespResearchDetails,
 } from '../shared/types';
 import { getErrorMessage } from '../shared/error-codes';
 import { toErrorMessage } from '../shared/error-utils';
 import { Season } from '../shared/map-config';
 import { MapNavigationUI } from './ui/map-navigation-ui';
 import { MinimapUI } from './ui/minimap-ui';
-import { ClientBridge, type ClientCallbacks } from './bridge/client-bridge';
+import { ClientBridge, setWorldToScreenFn, type ClientCallbacks } from './bridge/client-bridge';
 import { useGameStore, delphiTDateTimeToJsDate } from './store/game-store';
 import type { GameSettings } from './store/game-store';
 import { useUiStore } from './store/ui-store';
 import { useChatStore } from './store/chat-store';
 import { useBuildingStore } from './store/building-store';
+import { useProfileStore } from './store/profile-store';
 import { useMailStore } from './store/mail-store';
 import { getFacilityDimensionsCache } from './facility-dimensions-cache';
 import { SoundManager } from './audio/sound-manager';
@@ -319,6 +322,12 @@ export class StarpeaceClient {
         }
       },
 
+      // Research / Inventions
+      onResearchLoadInventory: (buildingX, buildingY, categoryIndex) =>
+        this.loadResearchInventory(buildingX, buildingY, categoryIndex),
+      onResearchGetDetails: (buildingX, buildingY, inventionId) =>
+        this.getResearchDetails(buildingX, buildingY, inventionId),
+
       // Mail
       onMailGetFolder: (folder) => this.sendMessage({ type: WsMessageType.REQ_MAIL_GET_FOLDER, folder }),
       onMailReadMessage: (messageId) => this.sendMessage({
@@ -377,6 +386,10 @@ export class StarpeaceClient {
         } as WsReqSwitchCompany).then(() => {
           ClientBridge.setCompany(companyName, String(companyId));
           ClientBridge.showSuccess(`Switched to ${companyName}`);
+          // Invalidate profile cache — force re-fetch on next tab access
+          useProfileStore.getState().reset();
+          // Clear building inspector (company context changed)
+          useBuildingStore.getState().clearFocus();
         }).catch((err: unknown) => {
           ClientBridge.showError(`Failed to switch company: ${toErrorMessage(err)}`);
         });
@@ -450,6 +463,16 @@ export class StarpeaceClient {
       this.mapNavigationUI.setOnBuildingClick((x, y, visualClass) => {
         this.handleMapClick(x, y, visualClass);
       });
+
+      this.mapNavigationUI.setOnEmptyMapClick(() => {
+        this.unfocusBuilding();
+      });
+
+      // Expose world-to-screen converter for StatusOverlay positioning
+      const renderer = this.mapNavigationUI.getRenderer();
+      if (renderer) {
+        setWorldToScreenFn((worldX, worldY) => renderer.worldToScreen(worldX, worldY));
+      }
 
       this.mapNavigationUI.setOnFetchFacilityDimensions(async (visualClass) => {
         return await this.getFacilityDimensions(visualClass);
@@ -594,8 +617,7 @@ export class StarpeaceClient {
       }
 
       case WsMessageType.EVENT_CHAT_USER_LIST_CHANGE:
-        const userChange = msg as WsEventChatUserListChange;
-        // User list will be refreshed on next request
+        this.requestUserList();
         break;
 
       case WsMessageType.EVENT_MAP_DATA:
@@ -756,6 +778,18 @@ export class StarpeaceClient {
       case WsMessageType.RESP_EMPIRE_FACILITIES:
         ClientBridge.handleEmpireResponse(msg);
         break;
+
+      // Research Responses
+      case WsMessageType.RESP_RESEARCH_INVENTORY: {
+        const resInv = msg as WsRespResearchInventory;
+        useBuildingStore.getState().setResearchInventory(resInv.data);
+        break;
+      }
+      case WsMessageType.RESP_RESEARCH_DETAILS: {
+        const resDet = msg as WsRespResearchDetails;
+        useBuildingStore.getState().setResearchDetails(resDet.details);
+        break;
+      }
 
       // Connection Search Response
       case WsMessageType.RESP_SEARCH_CONNECTIONS: {
@@ -1150,6 +1184,8 @@ export class StarpeaceClient {
     // Named channels are town-specific. The Delphi server treats "" as the Lobby.
     await this.joinChannel('');
     ClientBridge.setCurrentChannel('Lobby');
+    // Fetch initial user list after joining
+    await this.requestUserList();
   }
 
   private async requestChannelList() {
@@ -1200,39 +1236,111 @@ export class StarpeaceClient {
     } else if (this.isCloneMode) {
       this.executeCloneFacility(x, y);
     } else {
-      this.focusBuilding(x, y, visualClass);
+      // Two-click flow: first click → overlay, second click → open inspector
+      const overlayBuilding = useBuildingStore.getState().focusedBuilding;
+      const isOverlay = useBuildingStore.getState().isOverlayMode;
+      if (isOverlay && overlayBuilding && overlayBuilding.x === x && overlayBuilding.y === y) {
+        this.openInspectorForFocused(x, y, visualClass);
+      } else {
+        this.showBuildingOverlay(x, y, visualClass);
+      }
     }
   }
 
-  private async focusBuilding(x: number, y: number, visualClass?: string) {
-    // Double-click prevention
-    if (this.isFocusingBuilding) {
-      return;
-    }
-
+  /**
+   * First click: focus building on server and show lightweight overlay.
+   */
+  private async showBuildingOverlay(x: number, y: number, visualClass?: string) {
+    if (this.isFocusingBuilding) return;
     this.isFocusingBuilding = true;
-    ClientBridge.log('Building', `Requesting focus at (${x}, ${y})`);
+    ClientBridge.log('Building', `Requesting overlay at (${x}, ${y})`);
 
     try {
-      // Auto-unfocus previous building
+      // Unfocus previous building on the server (lightweight — no UI panel to close)
       if (this.currentFocusedBuilding) {
-        await this.unfocusBuilding();
+        const unfocusReq: WsReqBuildingUnfocus = { type: WsMessageType.REQ_BUILDING_UNFOCUS };
+        this.ws?.send(JSON.stringify(unfocusReq));
+        this.currentFocusedBuilding = null;
+        this.currentFocusedVisualClass = null;
       }
 
-      const req: WsReqBuildingFocus = {
-        type: WsMessageType.REQ_BUILDING_FOCUS,
-        x,
-        y
-      };
-
+      const req: WsReqBuildingFocus = { type: WsMessageType.REQ_BUILDING_FOCUS, x, y };
       const response = await this.sendRequest(req) as WsRespBuildingFocus;
 
       this.currentFocusedBuilding = response.building;
       this.currentFocusedVisualClass = visualClass || null;
 
-      // Request detailed building info using visualClass from ObjectsInArea
+      ClientBridge.showBuildingOverlay(response.building);
+      ClientBridge.log('Building', `Overlay: ${response.building.buildingName}`);
+    } catch (err: unknown) {
+      ClientBridge.log('Error', `Failed to show overlay: ${toErrorMessage(err)}`);
+    } finally {
+      this.isFocusingBuilding = false;
+    }
+  }
+
+  /**
+   * Second click on overlayed building: request details and open the full inspector panel.
+   */
+  private async openInspectorForFocused(x: number, y: number, visualClass?: string) {
+    if (this.isFocusingBuilding) return;
+    this.isFocusingBuilding = true;
+    ClientBridge.log('Building', `Opening inspector at (${x}, ${y})`);
+
+    try {
+      const vc = visualClass || this.currentFocusedVisualClass || '0';
+      const details = await this.requestBuildingDetails(x, y, vc);
+      const focusInfo = this.currentFocusedBuilding;
+
+      const displayDetails = details ?? {
+        buildingId: focusInfo?.buildingId || '',
+        buildingName: focusInfo?.buildingName || 'Building',
+        ownerName: focusInfo?.ownerName || 'Unknown',
+        x,
+        y,
+        visualClass: vc,
+        templateName: 'Building',
+        securityId: '',
+        groups: {
+          generic: [
+            { name: 'Name', value: focusInfo?.buildingName },
+            { name: 'Owner', value: focusInfo?.ownerName },
+            { name: 'Revenue', value: focusInfo?.revenue },
+          ]
+        },
+        timestamp: Date.now()
+      } as BuildingDetailsResponse;
+
+      ClientBridge.showBuildingPanel(displayDetails, this.currentCompanyName, focusInfo ?? undefined);
+      ClientBridge.log('Building', `Inspector opened: ${focusInfo?.buildingName}`);
+    } catch (err: unknown) {
+      ClientBridge.log('Error', `Failed to open inspector: ${toErrorMessage(err)}`);
+    } finally {
+      this.isFocusingBuilding = false;
+    }
+  }
+
+  /**
+   * Full focus + inspector open in one step (used for programmatic navigation,
+   * e.g. clicking a building in the empire facilities list).
+   */
+  private async focusBuilding(x: number, y: number, visualClass?: string) {
+    if (this.isFocusingBuilding) return;
+    this.isFocusingBuilding = true;
+    ClientBridge.log('Building', `Requesting focus at (${x}, ${y})`);
+
+    try {
+      if (this.currentFocusedBuilding) {
+        await this.unfocusBuilding();
+      }
+
+      const req: WsReqBuildingFocus = { type: WsMessageType.REQ_BUILDING_FOCUS, x, y };
+      const response = await this.sendRequest(req) as WsRespBuildingFocus;
+
+      this.currentFocusedBuilding = response.building;
+      this.currentFocusedVisualClass = visualClass || null;
+
       const details = await this.requestBuildingDetails(x, y, visualClass || '0');
-      // Show building in React panel via ClientBridge
       const displayDetails = details ?? {
         buildingId: response.building.buildingId || '',
         buildingName: response.building.buildingName || 'Building',
@@ -1253,9 +1361,7 @@ export class StarpeaceClient {
       } as BuildingDetailsResponse;
 
       ClientBridge.showBuildingPanel(displayDetails, this.currentCompanyName, response.building);
-
       ClientBridge.log('Building', `Focused: ${response.building.buildingName}`);
-
     } catch (err: unknown) {
       ClientBridge.log('Error', `Failed to focus building: ${toErrorMessage(err)}`);
     } finally {
@@ -1742,16 +1848,63 @@ export class StarpeaceClient {
   // RESEARCH ACTIONS
   // =========================================================================
 
-  private async queueResearch(_buildingDetails: BuildingDetailsResponse): Promise<void> {
-    // Research system requires an invention selection UI that doesn't exist yet.
-    // Sending empty inventionId would silently fail on the server.
-    this.showNotification('Research queue is not yet available', 'info');
+  private loadResearchInventory(buildingX: number, buildingY: number, categoryIndex: number): void {
+    useBuildingStore.getState().setResearchLoading('inventory', true);
+    this.sendMessage({
+      type: WsMessageType.REQ_RESEARCH_INVENTORY,
+      buildingX,
+      buildingY,
+      categoryIndex,
+    });
   }
 
-  private async cancelResearch(_buildingDetails: BuildingDetailsResponse): Promise<void> {
-    // Research system requires knowing which invention to cancel.
-    // Sending empty inventionId would silently fail on the server.
-    this.showNotification('Research cancellation is not yet available', 'info');
+  private getResearchDetails(buildingX: number, buildingY: number, inventionId: string): void {
+    useBuildingStore.getState().setResearchSelectedInvention(inventionId);
+    useBuildingStore.getState().setResearchLoading('details', true);
+    this.sendMessage({
+      type: WsMessageType.REQ_RESEARCH_DETAILS,
+      buildingX,
+      buildingY,
+      inventionId,
+    });
+  }
+
+  private async queueResearch(buildingDetails: BuildingDetailsResponse): Promise<void> {
+    const inventionId = useBuildingStore.getState().research?.selectedInventionId;
+    if (!inventionId) {
+      this.showNotification('Select an invention to research first', 'info');
+      return;
+    }
+    try {
+      await this.setBuildingProperty(
+        buildingDetails.x, buildingDetails.y,
+        'RDOQueueResearch', '0',
+        { inventionId, priority: '10' },
+      );
+      this.showNotification('Research queued', 'success');
+      this.loadResearchInventory(buildingDetails.x, buildingDetails.y, 0);
+    } catch (err: unknown) {
+      this.showNotification(`Failed to queue research: ${toErrorMessage(err)}`, 'error');
+    }
+  }
+
+  private async cancelResearch(buildingDetails: BuildingDetailsResponse): Promise<void> {
+    const inventionId = useBuildingStore.getState().research?.selectedInventionId;
+    if (!inventionId) {
+      this.showNotification('Select an invention to cancel first', 'info');
+      return;
+    }
+    try {
+      await this.setBuildingProperty(
+        buildingDetails.x, buildingDetails.y,
+        'RDOCancelResearch', '0',
+        { inventionId },
+      );
+      this.showNotification('Research cancelled', 'success');
+      this.loadResearchInventory(buildingDetails.x, buildingDetails.y, 0);
+    } catch (err: unknown) {
+      this.showNotification(`Failed to cancel research: ${toErrorMessage(err)}`, 'error');
+    }
   }
 
   // =========================================================================

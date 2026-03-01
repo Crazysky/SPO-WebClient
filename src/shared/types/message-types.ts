@@ -226,6 +226,12 @@ export enum WsMessageType {
   // Empire (Owned Facilities via Favorites)
   REQ_EMPIRE_FACILITIES = 'REQ_EMPIRE_FACILITIES',
   RESP_EMPIRE_FACILITIES = 'RESP_EMPIRE_FACILITIES',
+
+  // Research / Inventions
+  REQ_RESEARCH_INVENTORY = 'REQ_RESEARCH_INVENTORY',
+  RESP_RESEARCH_INVENTORY = 'RESP_RESEARCH_INVENTORY',
+  REQ_RESEARCH_DETAILS = 'REQ_RESEARCH_DETAILS',
+  RESP_RESEARCH_DETAILS = 'RESP_RESEARCH_DETAILS',
 }
 
 // =============================================================================
@@ -1105,6 +1111,67 @@ export interface WsReqEmpireFacilities extends WsMessage {
 export interface WsRespEmpireFacilities extends WsMessage {
   type: WsMessageType.RESP_EMPIRE_FACILITIES;
   facilities: FavoritesItem[];
+}
+
+// =============================================================================
+// RESEARCH / INVENTIONS MESSAGES
+// =============================================================================
+
+/** A single invention item from the server cache. */
+export interface ResearchInventionItem {
+  /** Invention string ID (e.g., "GreenTech.Level1") */
+  inventionId: string;
+  /** Display name (from cache if volatile, falls back to ID) */
+  name: string;
+  /** Whether this invention can be researched (available items only) */
+  enabled?: boolean;
+  /** Formatted cost string (completed items only) */
+  cost?: string;
+  /** Parent category for tree grouping */
+  parent?: string;
+  /** Whether this is a volatile/dynamic invention */
+  volatile?: boolean;
+}
+
+/** Research data for a single category tab. */
+export interface ResearchCategoryData {
+  categoryIndex: number;
+  available: ResearchInventionItem[];
+  developing: ResearchInventionItem[];
+  completed: ResearchInventionItem[];
+}
+
+/** Detailed invention info from RDOGetInvPropsByLang + RDOGetInvDescEx. */
+export interface ResearchInventionDetails {
+  inventionId: string;
+  /** Multi-line properties text (Price, Licence, Implementation Cost, etc.) */
+  properties: string;
+  /** Description + prerequisites */
+  description: string;
+}
+
+export interface WsReqResearchInventory extends WsMessage {
+  type: WsMessageType.REQ_RESEARCH_INVENTORY;
+  buildingX: number;
+  buildingY: number;
+  categoryIndex: number;
+}
+
+export interface WsRespResearchInventory extends WsMessage {
+  type: WsMessageType.RESP_RESEARCH_INVENTORY;
+  data: ResearchCategoryData;
+}
+
+export interface WsReqResearchDetails extends WsMessage {
+  type: WsMessageType.REQ_RESEARCH_DETAILS;
+  buildingX: number;
+  buildingY: number;
+  inventionId: string;
+}
+
+export interface WsRespResearchDetails extends WsMessage {
+  type: WsMessageType.RESP_RESEARCH_DETAILS;
+  details: ResearchInventionDetails;
 }
 
 // =============================================================================

@@ -363,6 +363,8 @@ Retrieved from: `Root/Users/[FirstLetter]/[AliasId]/NobPoints` and `AccModifier`
 
 ### 3.4 Client-Side Profile Components
 
+> **See also**: [voyager-profile-interface.md](voyager-profile-interface.md) — detailed reference for the profile tab UI pipeline (RDO → ASP → visual), permission system (GrantAccess), and per-tab button/action endpoints.
+
 **Source**: `Voyager/` directory
 
 | File | Purpose |

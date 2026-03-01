@@ -141,7 +141,7 @@ export interface CollectedPropertyNames {
 export interface IndexedPropertyInfo {
   rdoName: string;
   maxProperty?: string;
-  columns?: { rdoSuffix: string; columnSuffix?: string }[];
+  columns?: { rdoSuffix: string; columnSuffix?: string; indexSuffix?: string }[];
   indexSuffix?: string;
 }
 
@@ -204,7 +204,7 @@ function collectGroupPropertyNamesStructured(
       indexedByCount.get(prop.countProperty)!.push({
         rdoName: prop.rdoName,
         maxProperty: prop.maxProperty,
-        columns: prop.columns,
+        columns: prop.columns?.map(c => ({ rdoSuffix: c.rdoSuffix, columnSuffix: c.columnSuffix, indexSuffix: c.indexSuffix })),
         indexSuffix: suffix,
       });
     } else if (prop.indexed && prop.indexMax !== undefined) {
@@ -227,7 +227,8 @@ function collectGroupPropertyNamesStructured(
     if (prop.columns && !prop.countProperty) {
       for (let i = 0; i < 10; i++) {
         for (const col of prop.columns) {
-          regularProperties.add(`${col.rdoSuffix}${i}${col.columnSuffix || ''}${suffix}`);
+          const colSuffix = col.indexSuffix !== undefined ? col.indexSuffix : suffix;
+          regularProperties.add(`${col.rdoSuffix}${i}${col.columnSuffix || ''}${colSuffix}`);
         }
       }
     }

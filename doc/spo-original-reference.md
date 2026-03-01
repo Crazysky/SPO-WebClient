@@ -494,6 +494,25 @@
 | `build-roads-scenario` | InterfaceServer.pas | `CreateCircuitSeg`, `BreakCircuitAt`, `WipeCircuit` |
 | `mail-scenario` | MailServer.pas | `NewMail`, `Save`, `Post`, `AddLine`, `GetLines` |
 
+## TResearchCenter (`Kernel/ResearchCenter.pas:57`)
+
+**Resolved via:** BindTo(blockObjectId) — the HQ/Research Center building block ID from the map
+
+**See also:** [Research System Reference](research-system-reference.md) for full architecture documentation.
+
+### Research operations
+
+| Member | Kind | Verb | Signature | Return | Line | Notes |
+|--------|------|------|-----------|--------|------|-------|
+| `RDOQueueResearch` | procedure | `call` | `(%inventionId, #priority)` | void (`*`) | 73 | Priority=10 from client. Validates auth + prereqs + budget |
+| `RDOCancelResearch` | procedure | `call` | `(%inventionId)` | void (`*`) | 74 | Cancels queued/active OR sells completed (cascade retirement) |
+| `RDOGetInvProps` | function | `call` | `(%inventionId)` | `%string` | 75 | Properties text in owner's language |
+| `RDOGetInvPropsByLang` | function | `call` | `(%inventionId, %lang)` | `%string` | 76 | Properties text in specified language |
+| `RDOGetInvDesc` | function | `call` | `(%inventionId)` | `%string` | 77 | Description + prerequisites in default language |
+| `RDOGetInvDescEx` | function | `call` | `(%inventionId, %langId)` | `%string` | 78 | Description in specified language |
+
+---
+
 ## Quick-Find Paths (for methods not in this index)
 
 When a method is not found above, search in this order:

@@ -64,7 +64,7 @@ function buildRdoCommandArgs(
       args.push(RdoValue.int(parseInt(value, 10)));
       break;
     }
-    case 'RDOSetTaxPercent': {
+    case 'RDOSetTaxValue': {
       const taxIndex = parseInt(params.index || '0', 10);
       args.push(RdoValue.int(taxIndex), RdoValue.int(parseInt(value, 10)));
       break;
@@ -116,6 +116,41 @@ function buildRdoCommandArgs(
       args.push(RdoValue.int(parseInt(levelIndex, 10)), RdoValue.int(parseInt(value, 10)));
       break;
     }
+    case 'RDOSelectWare': {
+      const index = parseInt(params.index || '0', 10);
+      args.push(RdoValue.int(index), RdoValue.int(parseInt(value, 10)));
+      break;
+    }
+    case 'RDOSetWordsOfWisdom': {
+      args.push(RdoValue.string(value));
+      break;
+    }
+    case 'RDOCacncelTransc': {
+      break;
+    }
+    case 'RDOVote': {
+      const voterName = params.voterName || '';
+      args.push(RdoValue.string(voterName), RdoValue.string(value));
+      break;
+    }
+    case 'RDOVoteOf': {
+      args.push(RdoValue.string(value));
+      break;
+    }
+    case 'RDOSetTownTaxes': {
+      const index = parseInt(params.index || '0', 10);
+      args.push(RdoValue.int(index), RdoValue.int(parseInt(value, 10)));
+      break;
+    }
+    case 'RDOSitMayor': {
+      const townName = params.townName || '';
+      args.push(RdoValue.string(townName), RdoValue.string(value));
+      break;
+    }
+    case 'RDOSetInputFluidPerc': {
+      args.push(RdoValue.int(parseInt(value, 10)));
+      break;
+    }
     case 'property': {
       args.push(RdoValue.int(parseInt(value, 10)));
       break;
@@ -146,9 +181,16 @@ function mapRdoCommandToPropertyName(
     case 'RDOSetTradeLevel': return 'TradeLevel';
     case 'RDOSetRole': return 'Role';
     case 'RDOSetLoanPerc': return 'BudgetPerc';
-    case 'RDOSetTaxPercent': return `Tax${params.index || '0'}Percent`;
+    case 'RDOSetTaxValue': return `Tax${params.index || '0'}Percent`;
     case 'RDOAutoProduce': return 'AutoProd';
     case 'RDOAutoRelease': return 'AutoRel';
+    case 'RDOSelectWare': return 'GateMap';
+    case 'RDOSetWordsOfWisdom': return 'WordsOfWisdom';
+    case 'RDOCacncelTransc': return 'Transcended';
+    case 'RDOVote': case 'RDOVoteOf': return 'RulerVotes';
+    case 'RDOSetTownTaxes': return `TownTax${params.index || '0'}`;
+    case 'RDOSitMayor': return `HasMayor${params.index || '0'}`;
+    case 'RDOSetInputFluidPerc': return 'nfActualMaxFluidValue';
     case 'property': return params.propertyName || rdoCommand;
     default: return rdoCommand.replace('RDOSet', 'srv');
   }
@@ -285,19 +327,19 @@ describe('Facility SET Command Format (buildRdoCommandArgs)', () => {
     });
   });
 
-  describe('RDOSetTaxPercent', () => {
+  describe('RDOSetTaxValue', () => {
     it('should format tax index and percentage as integers', () => {
-      const result = buildRdoCommandArgs('RDOSetTaxPercent', '25', { index: '0' });
+      const result = buildRdoCommandArgs('RDOSetTaxValue', '25', { index: '0' });
       expect(result).toBe('"#0","#25"');
     });
 
     it('should handle different tax indices', () => {
-      const result = buildRdoCommandArgs('RDOSetTaxPercent', '30', { index: '3' });
+      const result = buildRdoCommandArgs('RDOSetTaxValue', '30', { index: '3' });
       expect(result).toBe('"#3","#30"');
     });
 
     it('should default index to 0', () => {
-      const result = buildRdoCommandArgs('RDOSetTaxPercent', '15');
+      const result = buildRdoCommandArgs('RDOSetTaxValue', '15');
       expect(result).toBe('"#0","#15"');
     });
   });
@@ -407,6 +449,62 @@ describe('Facility SET Command Format (buildRdoCommandArgs)', () => {
     it('should format levelIndex and value as integers', () => {
       const result = buildRdoCommandArgs('RDOSetMinSalaryValue', '80', { levelIndex: '1' });
       expect(result).toBe('"#1","#80"');
+    });
+  });
+
+  describe('RDOSelectWare', () => {
+    it('should format index and value as integers', () => {
+      const result = buildRdoCommandArgs('RDOSelectWare', '5', { index: '2' });
+      expect(result).toBe('"#2","#5"');
+    });
+  });
+
+  describe('RDOSetWordsOfWisdom', () => {
+    it('should format words as string', () => {
+      const result = buildRdoCommandArgs('RDOSetWordsOfWisdom', 'Be wise');
+      expect(result).toBe('"%Be wise"');
+    });
+  });
+
+  describe('RDOCacncelTransc', () => {
+    it('should have no args (void)', () => {
+      const result = buildRdoCommandArgs('RDOCacncelTransc', '');
+      expect(result).toBe('');
+    });
+  });
+
+  describe('RDOVote', () => {
+    it('should format voterName and voteeName as strings', () => {
+      const result = buildRdoCommandArgs('RDOVote', 'CandidateA', { voterName: 'VoterX' });
+      expect(result).toBe('"%VoterX","%CandidateA"');
+    });
+  });
+
+  describe('RDOVoteOf', () => {
+    it('should format voterName as string', () => {
+      const result = buildRdoCommandArgs('RDOVoteOf', 'VoterX');
+      expect(result).toBe('"%VoterX"');
+    });
+  });
+
+  describe('RDOSetTownTaxes', () => {
+    it('should format index and value as integers', () => {
+      const result = buildRdoCommandArgs('RDOSetTownTaxes', '15', { index: '2' });
+      expect(result).toBe('"#2","#15"');
+    });
+  });
+
+  describe('RDOSitMayor', () => {
+    it('should format townName and tycoonName as strings', () => {
+      const result = buildRdoCommandArgs('RDOSitMayor', 'TycoonY', { townName: 'TownX' });
+      expect(result).toBe('"%TownX","%TycoonY"');
+    });
+  });
+
+  describe('RDOSetInputFluidPerc', () => {
+    it('should format perc as integer', () => {
+      const result = buildRdoCommandArgs('RDOSetInputFluidPerc', '75');
+      expect(result).toBe('"#75"');
     });
   });
 
@@ -521,9 +619,9 @@ describe('mapRdoCommandToPropertyName', () => {
     expect(mapRdoCommandToPropertyName('RDOSetLoanPerc')).toBe('BudgetPerc');
   });
 
-  it('should map RDOSetTaxPercent to Tax{index}Percent', () => {
-    expect(mapRdoCommandToPropertyName('RDOSetTaxPercent', { index: '0' })).toBe('Tax0Percent');
-    expect(mapRdoCommandToPropertyName('RDOSetTaxPercent', { index: '2' })).toBe('Tax2Percent');
+  it('should map RDOSetTaxValue to Tax{index}Percent', () => {
+    expect(mapRdoCommandToPropertyName('RDOSetTaxValue', { index: '0' })).toBe('Tax0Percent');
+    expect(mapRdoCommandToPropertyName('RDOSetTaxValue', { index: '2' })).toBe('Tax2Percent');
   });
 
   it('should map RDOAutoProduce to AutoProd', () => {
@@ -532,6 +630,36 @@ describe('mapRdoCommandToPropertyName', () => {
 
   it('should map RDOAutoRelease to AutoRel', () => {
     expect(mapRdoCommandToPropertyName('RDOAutoRelease')).toBe('AutoRel');
+  });
+
+  it('should map RDOSelectWare to GateMap', () => {
+    expect(mapRdoCommandToPropertyName('RDOSelectWare')).toBe('GateMap');
+  });
+
+  it('should map RDOSetWordsOfWisdom to WordsOfWisdom', () => {
+    expect(mapRdoCommandToPropertyName('RDOSetWordsOfWisdom')).toBe('WordsOfWisdom');
+  });
+
+  it('should map RDOCacncelTransc to Transcended', () => {
+    expect(mapRdoCommandToPropertyName('RDOCacncelTransc')).toBe('Transcended');
+  });
+
+  it('should map RDOVote/RDOVoteOf to RulerVotes', () => {
+    expect(mapRdoCommandToPropertyName('RDOVote')).toBe('RulerVotes');
+    expect(mapRdoCommandToPropertyName('RDOVoteOf')).toBe('RulerVotes');
+  });
+
+  it('should map RDOSetTownTaxes to TownTax{index}', () => {
+    expect(mapRdoCommandToPropertyName('RDOSetTownTaxes', { index: '0' })).toBe('TownTax0');
+    expect(mapRdoCommandToPropertyName('RDOSetTownTaxes', { index: '3' })).toBe('TownTax3');
+  });
+
+  it('should map RDOSitMayor to HasMayor{index}', () => {
+    expect(mapRdoCommandToPropertyName('RDOSitMayor', { index: '1' })).toBe('HasMayor1');
+  });
+
+  it('should map RDOSetInputFluidPerc to nfActualMaxFluidValue', () => {
+    expect(mapRdoCommandToPropertyName('RDOSetInputFluidPerc')).toBe('nfActualMaxFluidValue');
   });
 
   it('should map property to additionalParams.propertyName', () => {

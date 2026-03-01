@@ -17,7 +17,7 @@ import { useUiStore } from '../store';
 import { InfoWidget, LeftRail, RightRail } from '../components/hud';
 import { RightPanel, LeftPanel } from '../components/panels';
 import { ChatStrip } from '../components/chat';
-import { BuildingInspector } from '../components/building';
+import { BuildingInspector, StatusOverlay } from '../components/building';
 import { ProfilePanel, EmpireOverview } from '../components/empire';
 import { MailPanel } from '../components/mail';
 import { SearchPanel } from '../components/search';
@@ -73,6 +73,9 @@ export function GameScreen() {
   return (
     <div className={styles.screen}>
       {/* Canvas fills viewport — managed by client.ts outside React */}
+
+      {/* StatusOverlay — floating building preview (z-250, between map and panels) */}
+      <StatusOverlay />
 
       {/* InfoWidget — top-right stats card */}
       <InfoWidget />

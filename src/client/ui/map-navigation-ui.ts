@@ -17,6 +17,7 @@ export class MapNavigationUI {
   // Callbacks
   private onLoadZone: ((x: number, y: number, w: number, h: number) => void) | null = null;
   private onBuildingClick: ((x: number, y: number, visualClass?: string) => void) | null = null;
+  private onEmptyMapClick: (() => void) | null = null;
   private onFetchFacilityDimensions: ((visualClass: string) => Promise<FacilityDimensions | null>) | null = null;
 
   constructor(private gamePanel: HTMLElement, private worldName: string = 'Shamba') {}
@@ -42,6 +43,13 @@ export class MapNavigationUI {
    */
   public setOnBuildingClick(callback: (x: number, y: number, visualClass?: string) => void) {
     this.onBuildingClick = callback;
+  }
+
+  /**
+   * Set callback for empty map clicks (no building at click location)
+   */
+  public setOnEmptyMapClick(callback: () => void) {
+    this.onEmptyMapClick = callback;
   }
 
   /**
@@ -102,6 +110,10 @@ export class MapNavigationUI {
 
     this.renderer.setBuildingClickCallback((x, y, visualClass) => {
       if (this.onBuildingClick) this.onBuildingClick(x, y, visualClass);
+    });
+
+    this.renderer.setEmptyMapClickCallback(() => {
+      if (this.onEmptyMapClick) this.onEmptyMapClick();
     });
 
     this.renderer.setFetchFacilityDimensionsCallback(async (visualClass) => {

@@ -18,6 +18,15 @@ import { useClient } from '../../context';
 import type { AutoConnectionActionType, CurriculumActionType } from '@/shared/types';
 import styles from './ProfilePanel.module.css';
 
+/** Format a numeric string or number as $X,XXX (with thousands separators). */
+export function formatMoney(value: string | number): string {
+  const num = typeof value === 'string' ? parseFloat(value.replace(/,/g, '')) : value;
+  if (isNaN(num)) return '$0';
+  const sign = num < 0 ? '-' : '';
+  const abs = Math.abs(num);
+  return `${sign}$${abs.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+}
+
 const TABS: Array<{ id: ProfileTab; icon: typeof GraduationCap; label: string }> = [
   { id: 'curriculum', icon: GraduationCap, label: 'CV' },
   { id: 'bank', icon: Landmark, label: 'Bank' },
@@ -163,7 +172,7 @@ function CurriculumTab() {
     <div className={styles.tabBody}>
       {/* Section 1: Summary Stats */}
       <div className={styles.statGrid}>
-        <StatCard label="Fortune" value={data.fortune || `$${data.budget}`} />
+        <StatCard label="Fortune" value={data.fortune || formatMoney(data.budget)} />
         <StatCard label="Avg. Profit" value={data.averageProfit || '-'} />
         <StatCard label="Prestige" value={`${data.prestige} pts`} />
         <StatCard label="Nobility" value={`${data.nobPoints} pts`} />
@@ -364,8 +373,8 @@ function BankTab() {
   return (
     <div className={styles.tabBody}>
       <div className={styles.statGrid}>
-        <StatCard label="Balance" value={`$${data.balance}`} />
-        <StatCard label="Max Loan" value={`$${data.maxLoan}`} />
+        <StatCard label="Balance" value={formatMoney(data.balance)} />
+        <StatCard label="Max Loan" value={formatMoney(data.maxLoan)} />
       </div>
 
       {data.loans.length > 0 && (
@@ -389,10 +398,10 @@ function BankTab() {
                   <tr key={loan.loanIndex}>
                     <td>{loan.bank}</td>
                     <td>{loan.date || '-'}</td>
-                    <td className={styles.numCell}>${loan.amount}</td>
+                    <td className={styles.numCell}>{formatMoney(loan.amount)}</td>
                     <td className={styles.numCell}>{loan.interest}%</td>
                     <td className={styles.numCell}>{loan.term}y</td>
-                    <td className={styles.numCell}>${loan.slice}</td>
+                    <td className={styles.numCell}>{formatMoney(loan.slice)}</td>
                     <td>
                       <button
                         className={styles.payoffBtn}
@@ -406,7 +415,7 @@ function BankTab() {
                 {data.totalNextPayment && (
                   <tr className={styles.totalRow}>
                     <td colSpan={5}><strong>Total</strong></td>
-                    <td className={styles.numCell}><strong>${data.totalNextPayment}</strong></td>
+                    <td className={styles.numCell}><strong>{formatMoney(data.totalNextPayment)}</strong></td>
                     <td></td>
                   </tr>
                 )}
@@ -713,11 +722,9 @@ function PolicyTab() {
   const client = useClient();
   if (!data) return <EmptyState message="No policy data" />;
 
-  const policyLabel = (val: number) => {
-    if (val === 0) return 'Neutral';
-    if (val > 0) return 'Ally';
-    return 'Enemy';
-  };
+  // Delphi TPolicyStatus: 0=Ally, 1=Neutral, 2=Enemy
+  const POLICY_LABELS: Record<number, string> = { 0: 'Ally', 1: 'Neutral', 2: 'Enemy' };
+  const policyLabel = (val: number) => POLICY_LABELS[val] ?? 'Neutral';
 
   return (
     <div className={styles.tabBody}>
@@ -738,20 +745,20 @@ function PolicyTab() {
                   <td>
                     <div className={styles.policyBtnGroup}>
                       <button
-                        className={`${styles.policyBtn} ${p.yourPolicy < 0 ? styles.policyEnemy : ''}`}
-                        onClick={() => client.onProfilePolicySet(p.tycoonName, -1)}
+                        className={`${styles.policyBtn} ${p.yourPolicy === 2 ? styles.policyEnemy : ''}`}
+                        onClick={() => client.onProfilePolicySet(p.tycoonName, 2)}
                       >
                         Enemy
                       </button>
                       <button
-                        className={`${styles.policyBtn} ${p.yourPolicy === 0 ? styles.policyNeutral : ''}`}
-                        onClick={() => client.onProfilePolicySet(p.tycoonName, 0)}
+                        className={`${styles.policyBtn} ${p.yourPolicy === 1 ? styles.policyNeutral : ''}`}
+                        onClick={() => client.onProfilePolicySet(p.tycoonName, 1)}
                       >
                         Neutral
                       </button>
                       <button
-                        className={`${styles.policyBtn} ${p.yourPolicy > 0 ? styles.policyAlly : ''}`}
-                        onClick={() => client.onProfilePolicySet(p.tycoonName, 1)}
+                        className={`${styles.policyBtn} ${p.yourPolicy === 0 ? styles.policyAlly : ''}`}
+                        onClick={() => client.onProfilePolicySet(p.tycoonName, 0)}
                       >
                         Ally
                       </button>

@@ -245,6 +245,11 @@ export type {
   // Empire (Owned Facilities)
   WsReqEmpireFacilities,
   WsRespEmpireFacilities,
+  // Research / Inventions
+  WsReqResearchInventory,
+  WsRespResearchInventory,
+  WsReqResearchDetails,
+  WsRespResearchDetails,
 } from './message-types';
 
-export type { ConnectionSearchResult, FavoritesItem } from './message-types';
+export type { ConnectionSearchResult, FavoritesItem, ResearchCategoryData, ResearchInventionItem, ResearchInventionDetails } from './message-types';

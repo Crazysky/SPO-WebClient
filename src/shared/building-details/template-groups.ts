@@ -26,7 +26,6 @@ export const GENERIC_GROUP: PropertyGroup = {
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
-    { rdoName: 'Trouble', displayName: 'Trouble', type: PropertyType.NUMBER, hideEmpty: true },
   ],
 };
 
@@ -49,7 +48,6 @@ export const UNK_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
-    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
   ],
 };
 
@@ -68,15 +66,13 @@ export const IND_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
-    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
     { rdoName: 'Stopped', displayName: 'Paused', type: PropertyType.BOOLEAN, editable: true },
-    { rdoName: 'Role', displayName: 'Role', type: PropertyType.ENUM, enumLabels: { '0': 'Neutral', '1': 'Producer', '2': 'Distributor', '3': 'Buyer', '4': 'Importer', '5': 'Export', '6': 'Import' } },
-    { rdoName: 'TradeRole', displayName: 'Trade Role', type: PropertyType.ENUM, enumLabels: { '0': 'Neutral', '1': 'Producer', '2': 'Distributor', '3': 'Buyer', '4': 'Importer', '5': 'Export', '6': 'Import' } },
+    { rdoName: 'TradeRole', displayName: 'Trade Role', type: PropertyType.ENUM, editable: true, enumLabels: { '0': 'Neutral', '1': 'Producer', '2': 'Distributor', '3': 'Buyer', '4': 'Importer', '5': 'Export', '6': 'Import' } },
     { rdoName: 'TradeLevel', displayName: 'Trade Level', type: PropertyType.ENUM, editable: true, enumLabels: { '0': 'Same Owner', '1': 'Subsidiaries', '2': 'Allies', '3': 'Anyone' } },
   ],
   rdoCommands: {
     'TradeLevel': { command: 'RDOSetTradeLevel' },
-    'Role': { command: 'RDOSetRole' },
+    'TradeRole': { command: 'RDOSetRole' },
     'Stopped': { command: 'property' },
     'RDOConnectToTycoon': { command: 'RDOConnectToTycoon' },
     'RDODisconnectFromTycoon': { command: 'RDODisconnectFromTycoon' },
@@ -98,15 +94,15 @@ export const SRV_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
-    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'Stopped', displayName: 'Paused', type: PropertyType.BOOLEAN, editable: true },
     {
       rdoName: 'srvNames',
       displayName: 'Services',
-      type: PropertyType.TABLE,
+      type: PropertyType.SERVICE_CARDS,
       indexed: true,
       countProperty: 'ServiceCount',
       columns: [
-        { rdoSuffix: 'srvNames', label: 'Product', type: PropertyType.TEXT, width: '20%' },
+        { rdoSuffix: 'srvNames', label: 'Product', type: PropertyType.TEXT, width: '20%', indexSuffix: '.0' },
         { rdoSuffix: 'srvPrices', label: 'Price', type: PropertyType.SLIDER, width: '15%', editable: true, min: 0, max: 500, step: 10 },
         { rdoSuffix: 'srvSupplies', label: 'Offer', type: PropertyType.NUMBER, width: '15%' },
         { rdoSuffix: 'srvDemands', label: 'Demand', type: PropertyType.NUMBER, width: '15%' },
@@ -116,6 +112,7 @@ export const SRV_GENERAL_GROUP: PropertyGroup = {
     },
   ],
   rdoCommands: {
+    'Stopped': { command: 'property' },
     'srvPrices': { command: 'RDOSetPrice', indexed: true },
   },
 };
@@ -135,7 +132,6 @@ export const RES_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
-    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
     // Residential-specific stats (PopulatedBlock.StoreToCache)
     { rdoName: 'Occupancy', displayName: 'Occupancy', type: PropertyType.PERCENTAGE },
     { rdoName: 'Inhabitants', displayName: 'Inhabitants', type: PropertyType.NUMBER },
@@ -151,12 +147,8 @@ export const RES_GENERAL_GROUP: PropertyGroup = {
     // Editable sliders
     { rdoName: 'Rent', displayName: 'Rent', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, unit: '%' },
     { rdoName: 'Maintenance', displayName: 'Maintenance', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, unit: '%' },
-    // Repair info
-    { rdoName: 'Repair', displayName: 'Repair Status', type: PropertyType.TEXT },
-    { rdoName: 'RepairPrice', displayName: 'Repair Cost', type: PropertyType.CURRENCY },
-    // Repair actions (Voyager: IndustryGeneralSheet.pas — RdoRepair / RdoStopRepair)
-    { rdoName: 'startRepair', displayName: 'Start Repair', type: PropertyType.ACTION_BUTTON, actionId: 'startRepair', buttonLabel: 'Start Repair' },
-    { rdoName: 'stopRepair', displayName: 'Stop Repair', type: PropertyType.ACTION_BUTTON, actionId: 'stopRepair', buttonLabel: 'Stop Repair' },
+    // Repair control: progress bar + conditional start/stop (Voyager: RdoRepair / RdoStopRepair)
+    { rdoName: 'Repair', displayName: 'Repair', type: PropertyType.REPAIR_CONTROL, maxProperty: 'RepairPrice' },
   ],
   rdoCommands: {
     'Rent': { command: 'property' },
@@ -179,7 +171,6 @@ export const HQ_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
-    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
   ],
 };
 
@@ -198,48 +189,14 @@ export const HQ_INVENTIONS_GROUP: PropertyGroup = {
   icon: 'R',
   order: 15,
   properties: [
-    { rdoName: 'RsKind', displayName: 'Research Type', type: PropertyType.NUMBER, hideEmpty: true },
-    // Section 1: In Development
-    {
-      rdoName: 'devName',
-      displayName: 'In Development',
-      type: PropertyType.TABLE,
-      indexed: true,
-      countProperty: 'devCount0',
-      columns: [
-        { rdoSuffix: 'devName', label: 'Name', type: PropertyType.TEXT, width: '45%' },
-        { rdoSuffix: 'devCost', label: 'Cost', type: PropertyType.CURRENCY, width: '30%' },
-        { rdoSuffix: 'devProgress', label: 'Progress', type: PropertyType.PERCENTAGE, width: '25%' },
-      ],
-    },
-    // Section 2: Completed
-    {
-      rdoName: 'hasName',
-      displayName: 'Completed',
-      type: PropertyType.TABLE,
-      indexed: true,
-      countProperty: 'hasCount0',
-      columns: [
-        { rdoSuffix: 'hasName', label: 'Name', type: PropertyType.TEXT, width: '55%' },
-        { rdoSuffix: 'hasCost', label: 'Value', type: PropertyType.CURRENCY, width: '45%' },
-      ],
-    },
-    // Section 3: Available for Research
-    {
-      rdoName: 'avlName',
-      displayName: 'Available',
-      type: PropertyType.TABLE,
-      indexed: true,
-      countProperty: 'avlCount0',
-      columns: [
-        { rdoSuffix: 'avlName', label: 'Name', type: PropertyType.TEXT, width: '35%' },
-        { rdoSuffix: 'avlCost', label: 'Cost', type: PropertyType.CURRENCY, width: '25%' },
-        { rdoSuffix: 'avlDesc', label: 'Description', type: PropertyType.TEXT, width: '40%' },
-      ],
-    },
-    // Action buttons
-    { rdoName: 'queueResearch', displayName: 'Queue Research', type: PropertyType.ACTION_BUTTON, actionId: 'queueResearch', buttonLabel: 'Queue Research' },
-    { rdoName: 'cancelResearch', displayName: 'Cancel Research', type: PropertyType.ACTION_BUTTON, actionId: 'cancelResearch', buttonLabel: 'Cancel' },
+    { rdoName: 'RsKind', displayName: 'Research Type', type: PropertyType.TEXT, hideEmpty: true },
+    { rdoName: 'CatCount', displayName: 'Categories', type: PropertyType.NUMBER, hideEmpty: true },
+    // Counts fetched from cache — used by ResearchPanel to show section badges
+    { rdoName: 'avlCount0', displayName: 'Available', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'devCount0', displayName: 'Developing', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'hasCount0', displayName: 'Completed', type: PropertyType.NUMBER, hideEmpty: true },
+    // Custom renderer — per-item data fetched separately via REQ_RESEARCH_INVENTORY
+    { rdoName: '_researchPanel', displayName: 'Research', type: PropertyType.RESEARCH_PANEL },
   ],
   rdoCommands: {
     'RDOQueueResearch': { command: 'RDOQueueResearch' },
@@ -259,13 +216,14 @@ export const BANK_GENERAL_GROUP: PropertyGroup = {
   properties: [
     { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
     { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
-    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
     { rdoName: 'EstLoan', displayName: 'Estimated Loan', type: PropertyType.CURRENCY },
-    { rdoName: 'Interest', displayName: 'Interest Rate', type: PropertyType.PERCENTAGE },
-    { rdoName: 'Term', displayName: 'Loan Term', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'Interest', displayName: 'Interest Rate', type: PropertyType.SLIDER, editable: true, min: 0, max: 100, step: 1, unit: '%' },
+    { rdoName: 'Term', displayName: 'Loan Term', type: PropertyType.SLIDER, editable: true, min: 1, max: 20, step: 1, unit: 'years' },
     { rdoName: 'BudgetPerc', displayName: 'Budget', type: PropertyType.SLIDER, editable: true, min: 0, max: 100, unit: '%' },
   ],
   rdoCommands: {
+    'Interest': { command: 'property' },
+    'Term': { command: 'property' },
     'BudgetPerc': { command: 'RDOSetLoanPerc' },
   },
 };
@@ -284,13 +242,15 @@ export const WH_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
-    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
-    { rdoName: 'TradeRole', displayName: 'Trade Role', type: PropertyType.ENUM, enumLabels: { '0': 'Neutral', '1': 'Producer', '2': 'Distributor', '3': 'Buyer', '4': 'Importer', '5': 'Export', '6': 'Import' } },
+    { rdoName: 'Role', displayName: 'Trade Role', type: PropertyType.ENUM, enumLabels: { '0': 'Neutral', '1': 'Producer', '2': 'Distributor', '3': 'Buyer', '4': 'Importer', '5': 'Export', '6': 'Import' } },
     { rdoName: 'TradeLevel', displayName: 'Trade Level', type: PropertyType.ENUM, editable: true, enumLabels: { '0': 'Same Owner', '1': 'Subsidiaries', '2': 'Allies', '3': 'Anyone' } },
     { rdoName: 'GateMap', displayName: 'Gate Map', type: PropertyType.NUMBER, hideEmpty: true },
   ],
   rdoCommands: {
     'TradeLevel': { command: 'RDOSetTradeLevel' },
+    'RDOSelectWare': { command: 'RDOSelectWare' },
+    'RDOConnectToTycoon': { command: 'RDOConnectToTycoon' },
+    'RDODisconnectFromTycoon': { command: 'RDODisconnectFromTycoon' },
   },
 };
 
@@ -309,7 +269,6 @@ export const TV_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
-    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
     { rdoName: 'HoursOnAir', displayName: 'Hours On Air', type: PropertyType.SLIDER, editable: true, min: 0, max: 100, unit: '%' },
     { rdoName: 'Comercials', displayName: 'Commercials', type: PropertyType.SLIDER, editable: true, min: 0, max: 100, unit: '%' },
   ],
@@ -331,7 +290,6 @@ export const CAPITOL_GENERAL_GROUP: PropertyGroup = {
   properties: [
     { rdoName: 'HasRuler', displayName: 'Has Ruler', type: PropertyType.BOOLEAN },
     { rdoName: 'YearsToElections', displayName: 'Years to Elections', type: PropertyType.NUMBER },
-    { rdoName: 'RulerActualPrestige', displayName: 'Prestige', type: PropertyType.NUMBER },
     { rdoName: 'RulerRating', displayName: 'Ruler Rating', type: PropertyType.PERCENTAGE },
     { rdoName: 'TycoonsRating', displayName: 'Tycoons Rating', type: PropertyType.PERCENTAGE },
     {
@@ -368,6 +326,7 @@ export const TOWN_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'YearsToElections', displayName: 'Years to Elections', type: PropertyType.NUMBER },
     { rdoName: 'HasRuler', displayName: 'Has Ruler', type: PropertyType.BOOLEAN },
     { rdoName: 'RulerPeriods', displayName: 'Ruler Periods', type: PropertyType.NUMBER },
+    { rdoName: 'CampaignCount', displayName: 'Active Campaigns', type: PropertyType.NUMBER, hideEmpty: true },
     {
       rdoName: 'covName',
       displayName: 'Coverage',
@@ -407,6 +366,9 @@ export const WORKFORCE_GROUP: PropertyGroup = {
       type: PropertyType.WORKFORCE_TABLE,
     },
   ],
+  rdoCommands: {
+    'Salaries': { command: 'RDOSetSalaries', allSalaries: true },
+  },
 };
 
 export const SUPPLIES_GROUP: PropertyGroup = {
@@ -422,6 +384,9 @@ export const SUPPLIES_GROUP: PropertyGroup = {
     { rdoName: 'minK', displayName: 'Min Quality', type: PropertyType.NUMBER, hideEmpty: true },
     { rdoName: 'MaxPrice', displayName: 'Max Price', type: PropertyType.SLIDER, editable: true, min: 0, max: 1000 },
     { rdoName: 'QPSorted', displayName: 'Sort by Q/P', type: PropertyType.TEXT, hideEmpty: true },
+    { rdoName: 'SortMode', displayName: 'Sort Mode', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'Selected', displayName: 'Selected', type: PropertyType.BOOLEAN, hideEmpty: true },
+    { rdoName: 'ObjectId', displayName: 'Gate Object', type: PropertyType.TEXT, hideEmpty: true },
     { rdoName: 'cnxCount', displayName: 'Connections', type: PropertyType.NUMBER },
   ],
   rdoCommands: {
@@ -569,11 +534,16 @@ export const ADS_GROUP: PropertyGroup = {
     { rdoName: 'MetaFluid', displayName: 'Product', type: PropertyType.TEXT },
     { rdoName: 'FluidValue', displayName: 'Current Value', type: PropertyType.TEXT },
     { rdoName: 'LastCost', displayName: 'Last Cost', type: PropertyType.CURRENCY },
-    { rdoName: 'MaxPrice', displayName: 'Max Price', type: PropertyType.SLIDER, editable: true, min: 0, max: 1000 },
+    { rdoName: 'nfCapacity', displayName: 'Capacity', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'nfActualMaxFluidValue', displayName: 'Max Fluid', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'AdPerc', displayName: 'Ad Budget %', type: PropertyType.SLIDER, editable: true, min: 0, max: 100, step: 1, unit: '%' },
     { rdoName: 'cnxCount', displayName: 'Connections', type: PropertyType.NUMBER },
   ],
   rdoCommands: {
-    'MaxPrice': { command: 'RDOSetInputMaxPrice' },
+    'AdPerc': { command: 'RDOSetInputFluidPerc' },
+    'RDOConnectInput': { command: 'RDOConnectInput' },
+    'RDODisconnectInput': { command: 'RDODisconnectInput' },
+    'RDOSetInputOverPrice': { command: 'RDOSetInputOverPrice' },
   },
 };
 
@@ -589,6 +559,8 @@ export const UPGRADE_GROUP: PropertyGroup = {
     { rdoName: 'Upgrading', displayName: 'Upgrading', type: PropertyType.BOOLEAN, hideEmpty: true },
     { rdoName: 'Pending', displayName: 'Pending', type: PropertyType.NUMBER, hideEmpty: true },
     { rdoName: 'UpgradeActions', displayName: 'Actions', type: PropertyType.UPGRADE_ACTIONS },
+    { rdoName: 'AcceptCloning', displayName: 'Accept Cloning', type: PropertyType.BOOLEAN, editable: true },
+    { rdoName: 'CloneMenu0', displayName: 'Clone Options', type: PropertyType.TEXT, hideEmpty: true },
     { rdoName: 'cloneFacility', displayName: 'Clone Facility', type: PropertyType.ACTION_BUTTON, actionId: 'clone', buttonLabel: 'Clone Facility' },
   ],
   rdoCommands: {
@@ -708,6 +680,10 @@ export const MAUSOLEUM_GROUP: PropertyGroup = {
     { rdoName: 'OwnerName', displayName: 'Owner', type: PropertyType.TEXT },
     { rdoName: 'Transcended', displayName: 'Transcended', type: PropertyType.BOOLEAN },
   ],
+  rdoCommands: {
+    'WordsOfWisdom': { command: 'RDOSetWordsOfWisdom' },
+    'RDOCacncelTransc': { command: 'RDOCacncelTransc' },
+  },
 };
 
 /**
@@ -739,6 +715,10 @@ export const VOTES_GROUP: PropertyGroup = {
     },
     { rdoName: 'voteAction', displayName: 'Vote', type: PropertyType.ACTION_BUTTON, actionId: 'vote', buttonLabel: 'Vote for Candidate' },
   ],
+  rdoCommands: {
+    'RDOVote': { command: 'RDOVote' },
+    'RDOVoteOf': { command: 'RDOVoteOf' },
+  },
 };
 
 /**
@@ -759,17 +739,20 @@ export const CAPITOL_TOWNS_GROUP: PropertyGroup = {
       indexed: true,
       countProperty: 'TownCount',
       columns: [
-        { rdoSuffix: 'Town', label: 'Town', type: PropertyType.TEXT, width: '16%' },
-        { rdoSuffix: 'TownPopulation', label: 'Population', type: PropertyType.NUMBER, width: '12%' },
-        { rdoSuffix: 'TownRating', label: 'Rating', type: PropertyType.PERCENTAGE, width: '12%' },
-        { rdoSuffix: 'TownQOL', label: 'QoL', type: PropertyType.PERCENTAGE, width: '12%' },
-        { rdoSuffix: 'TownQOS', label: 'QoS', type: PropertyType.PERCENTAGE, width: '12%' },
-        { rdoSuffix: 'TownWealth', label: 'Wealth', type: PropertyType.CURRENCY, width: '12%' },
-        { rdoSuffix: 'TownTax', label: 'Tax', type: PropertyType.PERCENTAGE, width: '12%' },
-        { rdoSuffix: 'HasMayor', label: 'Mayor', type: PropertyType.BOOLEAN, width: '10%' },
+        { rdoSuffix: 'TownName', label: 'Town', type: PropertyType.TEXT, width: '18%' },
+        { rdoSuffix: 'TownPopulation', label: 'Population', type: PropertyType.NUMBER, width: '14%' },
+        { rdoSuffix: 'TownQOL', label: 'QoL', type: PropertyType.PERCENTAGE, width: '14%' },
+        { rdoSuffix: 'TownQOS', label: 'QoS', type: PropertyType.PERCENTAGE, width: '14%' },
+        { rdoSuffix: 'TownWealth', label: 'Wealth', type: PropertyType.CURRENCY, width: '14%' },
+        { rdoSuffix: 'TownTax', label: 'Tax', type: PropertyType.PERCENTAGE, width: '14%' },
+        { rdoSuffix: 'HasMayor', label: 'Mayor', type: PropertyType.BOOLEAN, width: '12%' },
       ],
     },
   ],
+  rdoCommands: {
+    'TownTax': { command: 'RDOSetTownTaxes', indexed: true },
+    'RDOSitMayor': { command: 'RDOSitMayor' },
+  },
 };
 
 /**
@@ -791,7 +774,7 @@ export const MINISTERIES_GROUP: PropertyGroup = {
       countProperty: 'MinisterCount',
       columns: [
         { rdoSuffix: 'MinistryId', label: 'ID', type: PropertyType.TEXT, width: '0%' },
-        { rdoSuffix: 'Ministry', label: 'Ministry', type: PropertyType.TEXT, width: '25%' },
+        { rdoSuffix: 'Ministry', label: 'Ministry', type: PropertyType.TEXT, width: '25%', indexSuffix: '.0' },
         { rdoSuffix: 'Minister', label: 'Minister', type: PropertyType.TEXT, width: '25%' },
         { rdoSuffix: 'MinisterRating', label: 'Rating', type: PropertyType.PERCENTAGE, width: '25%' },
         { rdoSuffix: 'MinisterBudget', label: 'Budget', type: PropertyType.CURRENCY, width: '25%' },
@@ -815,6 +798,23 @@ export const TOWN_JOBS_GROUP: PropertyGroup = {
   icon: 'J',
   order: 10,
   properties: [
+    // Read-only display: demand, private demand, salary, salary value, min salary per tier
+    { rdoName: 'hiWorkDemand', displayName: 'Executive Demand', type: PropertyType.NUMBER },
+    { rdoName: 'hiPrivateWorkDemand', displayName: 'Executive Private Demand', type: PropertyType.NUMBER },
+    { rdoName: 'hiSalary', displayName: 'Executive Salary', type: PropertyType.CURRENCY },
+    { rdoName: 'hiSalaryValue', displayName: 'Executive Salary Value', type: PropertyType.CURRENCY },
+    { rdoName: 'hiMinSalary', displayName: 'Executive Min Salary (Current)', type: PropertyType.CURRENCY },
+    { rdoName: 'midWorkDemand', displayName: 'Professional Demand', type: PropertyType.NUMBER },
+    { rdoName: 'midPrivateWorkDemand', displayName: 'Professional Private Demand', type: PropertyType.NUMBER },
+    { rdoName: 'midSalary', displayName: 'Professional Salary', type: PropertyType.CURRENCY },
+    { rdoName: 'midSalaryValue', displayName: 'Professional Salary Value', type: PropertyType.CURRENCY },
+    { rdoName: 'midMinSalary', displayName: 'Professional Min Salary (Current)', type: PropertyType.CURRENCY },
+    { rdoName: 'loWorkDemand', displayName: 'Worker Demand', type: PropertyType.NUMBER },
+    { rdoName: 'loPrivateWorkDemand', displayName: 'Worker Private Demand', type: PropertyType.NUMBER },
+    { rdoName: 'loSalary', displayName: 'Worker Salary', type: PropertyType.CURRENCY },
+    { rdoName: 'loSalaryValue', displayName: 'Worker Salary Value', type: PropertyType.CURRENCY },
+    { rdoName: 'loMinSalary', displayName: 'Worker Min Salary (Current)', type: PropertyType.CURRENCY },
+    // Editable min salary sliders
     { rdoName: 'hiActualMinSalary', displayName: 'Executive Min Salary', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, step: 5 },
     { rdoName: 'midActualMinSalary', displayName: 'Professional Min Salary', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, step: 5 },
     { rdoName: 'loActualMinSalary', displayName: 'Worker Min Salary', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, step: 5 },
@@ -964,7 +964,6 @@ export const OVERVIEW_GROUP: PropertyGroup = {
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'Return on Investment', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
-    { rdoName: 'Trouble', displayName: 'Status', type: PropertyType.NUMBER, hideEmpty: true },
   ],
 };
 

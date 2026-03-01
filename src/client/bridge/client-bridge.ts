@@ -63,6 +63,20 @@ import {
 } from '@/shared/types';
 
 /**
+ * World-to-screen coordinate converter — set by client.ts when renderer is ready.
+ * Used by StatusOverlay to track building position during scroll/zoom.
+ */
+let worldToScreenFn: ((worldX: number, worldY: number) => { x: number; y: number }) | null = null;
+
+export function setWorldToScreenFn(fn: (worldX: number, worldY: number) => { x: number; y: number }): void {
+  worldToScreenFn = fn;
+}
+
+export function worldToScreen(worldX: number, worldY: number): { x: number; y: number } | null {
+  return worldToScreenFn ? worldToScreenFn(worldX, worldY) : null;
+}
+
+/**
  * Callbacks that React UI can invoke on client.ts.
  * Registered during initialization.
  */
@@ -106,6 +120,10 @@ export interface ClientCallbacks {
   onBuildingAction: (actionId: string) => void;
   onSearchConnections: (x: number, y: number, fluidId: string, fluidName: string, direction: 'input' | 'output') => void;
   onConnectionSearch: (buildingX: number, buildingY: number, fluidId: string, direction: 'input' | 'output', filters: { company?: string; town?: string; maxResults?: number; roles?: number }) => void;
+
+  // Research / Inventions
+  onResearchLoadInventory: (buildingX: number, buildingY: number, categoryIndex: number) => void;
+  onResearchGetDetails: (buildingX: number, buildingY: number, inventionId: string) => void;
   onConnectionConnect: (fluidId: string, direction: 'input' | 'output', selectedCoords: Array<{ x: number; y: number }>) => void;
 
   // Mail
@@ -281,6 +299,18 @@ export const ClientBridge = {
     useBuildingStore.getState().setLoading(loading);
   },
 
+  /** Show overlay above building (first click in two-click flow). */
+  showBuildingOverlay(info: BuildingFocusInfo): void {
+    const bld = useBuildingStore.getState();
+    bld.setFocus(info);
+    bld.setOverlayMode(true);
+  },
+
+  /** Clear overlay without affecting the panel. */
+  clearOverlay(): void {
+    useBuildingStore.getState().clearOverlay();
+  },
+
   /** Show the building panel in the right panel with ownership context. */
   showBuildingPanel(details: BuildingDetailsResponse, currentCompanyName: string, focusInfo?: BuildingFocusInfo): void {
     const bld = useBuildingStore.getState();
@@ -288,6 +318,7 @@ export const ClientBridge = {
     if (focusInfo) {
       bld.setFocus(focusInfo);
     }
+    bld.setOverlayMode(false);
     bld.setDetails(details);
     useUiStore.getState().openRightPanel('building');
   },

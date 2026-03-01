@@ -1,5 +1,5 @@
 /**
- * Tests for HQ Inventions Group (Phase 3.1)
+ * Tests for HQ Inventions Group
  * Verifies template structure, handler mapping, and group lookup.
  */
 
@@ -20,50 +20,49 @@ describe('HQ_INVENTIONS_GROUP', () => {
     expect(HQ_INVENTIONS_GROUP.order).toBe(15);
   });
 
-  it('should have 3 TABLE sections plus scalar and action buttons', () => {
+  it('should have RsKind as TEXT with hideEmpty', () => {
+    const rsKind = HQ_INVENTIONS_GROUP.properties.find(p => p.rdoName === 'RsKind');
+    expect(rsKind).toBeDefined();
+    expect(rsKind!.type).toBe(PropertyType.TEXT);
+    expect(rsKind!.hideEmpty).toBe(true);
+  });
+
+  it('should have CatCount as NUMBER with hideEmpty', () => {
+    const catCount = HQ_INVENTIONS_GROUP.properties.find(p => p.rdoName === 'CatCount');
+    expect(catCount).toBeDefined();
+    expect(catCount!.type).toBe(PropertyType.NUMBER);
+    expect(catCount!.hideEmpty).toBe(true);
+  });
+
+  it('should have count properties for available, developing, completed', () => {
+    const avl = HQ_INVENTIONS_GROUP.properties.find(p => p.rdoName === 'avlCount0');
+    const dev = HQ_INVENTIONS_GROUP.properties.find(p => p.rdoName === 'devCount0');
+    const has = HQ_INVENTIONS_GROUP.properties.find(p => p.rdoName === 'hasCount0');
+
+    expect(avl).toBeDefined();
+    expect(dev).toBeDefined();
+    expect(has).toBeDefined();
+
+    expect(avl!.type).toBe(PropertyType.NUMBER);
+    expect(dev!.type).toBe(PropertyType.NUMBER);
+    expect(has!.type).toBe(PropertyType.NUMBER);
+
+    expect(avl!.hideEmpty).toBe(true);
+    expect(dev!.hideEmpty).toBe(true);
+    expect(has!.hideEmpty).toBe(true);
+  });
+
+  it('should have a RESEARCH_PANEL marker property', () => {
+    const panel = HQ_INVENTIONS_GROUP.properties.find(p => p.type === PropertyType.RESEARCH_PANEL);
+    expect(panel).toBeDefined();
+    expect(panel!.rdoName).toBe('_researchPanel');
+  });
+
+  it('should have no TABLE or ACTION_BUTTON properties', () => {
     const tables = HQ_INVENTIONS_GROUP.properties.filter(p => p.type === PropertyType.TABLE);
-    expect(tables).toHaveLength(3);
-
-    const tableNames = tables.map(t => t.displayName);
-    expect(tableNames).toContain('In Development');
-    expect(tableNames).toContain('Completed');
-    expect(tableNames).toContain('Available');
-  });
-
-  it('should have In Development table with devCount0 count property', () => {
-    const devTable = HQ_INVENTIONS_GROUP.properties.find(p => p.rdoName === 'devName');
-    expect(devTable).toBeDefined();
-    expect(devTable!.indexed).toBe(true);
-    expect(devTable!.countProperty).toBe('devCount0');
-    expect(devTable!.columns).toHaveLength(3);
-    expect(devTable!.columns![0].rdoSuffix).toBe('devName');
-    expect(devTable!.columns![1].rdoSuffix).toBe('devCost');
-    expect(devTable!.columns![2].rdoSuffix).toBe('devProgress');
-  });
-
-  it('should have Completed table with hasCount0 count property', () => {
-    const hasTable = HQ_INVENTIONS_GROUP.properties.find(p => p.rdoName === 'hasName');
-    expect(hasTable).toBeDefined();
-    expect(hasTable!.indexed).toBe(true);
-    expect(hasTable!.countProperty).toBe('hasCount0');
-    expect(hasTable!.columns).toHaveLength(2);
-  });
-
-  it('should have Available table with avlCount0 count property', () => {
-    const avlTable = HQ_INVENTIONS_GROUP.properties.find(p => p.rdoName === 'avlName');
-    expect(avlTable).toBeDefined();
-    expect(avlTable!.indexed).toBe(true);
-    expect(avlTable!.countProperty).toBe('avlCount0');
-    expect(avlTable!.columns).toHaveLength(3);
-  });
-
-  it('should have 2 ACTION_BUTTON properties', () => {
     const buttons = HQ_INVENTIONS_GROUP.properties.filter(p => p.type === PropertyType.ACTION_BUTTON);
-    expect(buttons).toHaveLength(2);
-
-    const actionIds = buttons.map(b => b.actionId);
-    expect(actionIds).toContain('queueResearch');
-    expect(actionIds).toContain('cancelResearch');
+    expect(tables).toHaveLength(0);
+    expect(buttons).toHaveLength(0);
   });
 
   it('should have rdoCommands for RDOQueueResearch and RDOCancelResearch', () => {
@@ -72,11 +71,8 @@ describe('HQ_INVENTIONS_GROUP', () => {
     expect(HQ_INVENTIONS_GROUP.rdoCommands!['RDOCancelResearch']).toBeDefined();
   });
 
-  it('should have RsKind scalar property', () => {
-    const rsKind = HQ_INVENTIONS_GROUP.properties.find(p => p.rdoName === 'RsKind');
-    expect(rsKind).toBeDefined();
-    expect(rsKind!.type).toBe(PropertyType.NUMBER);
-    expect(rsKind!.hideEmpty).toBe(true);
+  it('should have exactly 6 properties', () => {
+    expect(HQ_INVENTIONS_GROUP.properties).toHaveLength(6);
   });
 });
 

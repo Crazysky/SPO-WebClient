@@ -158,13 +158,12 @@ describe('General handler RDO properties', () => {
     expect(rdoNames).toContain('ROI');
     expect(rdoNames).toContain('TradeRole');
     expect(rdoNames).toContain('TradeLevel');
-    expect(rdoNames).toContain('Role');
   });
 
   it('IndGeneral should have rdoCommands for trade settings', () => {
     expect(IND_GENERAL_GROUP.rdoCommands).toBeDefined();
     expect(IND_GENERAL_GROUP.rdoCommands!['TradeLevel']?.command).toBe('RDOSetTradeLevel');
-    expect(IND_GENERAL_GROUP.rdoCommands!['Role']?.command).toBe('RDOSetRole');
+    expect(IND_GENERAL_GROUP.rdoCommands!['TradeRole']?.command).toBe('RDOSetRole');
   });
 
   it('ResGeneral should have Rent and Maintenance sliders', () => {
@@ -179,8 +178,8 @@ describe('General handler RDO properties', () => {
     expect(maintProp!.editable).toBe(true);
   });
 
-  it('ResGeneral should have 22 properties (PopulatedBlock stats + investment sliders + repair actions)', () => {
-    expect(RES_GENERAL_GROUP.properties).toHaveLength(22);
+  it('ResGeneral should have 18 properties (PopulatedBlock stats + investment sliders + repair control)', () => {
+    expect(RES_GENERAL_GROUP.properties).toHaveLength(18);
   });
 
   it('ResGeneral should have residential stats from PopulatedBlock.StoreToCache', () => {
@@ -216,14 +215,11 @@ describe('General handler RDO properties', () => {
     }
   });
 
-  it('ResGeneral should have repair properties', () => {
+  it('ResGeneral should have REPAIR_CONTROL with RepairPrice as maxProperty', () => {
     const repair = RES_GENERAL_GROUP.properties.find(p => p.rdoName === 'Repair');
     expect(repair).toBeDefined();
-    expect(repair!.type).toBe(PropertyType.TEXT);
-
-    const repairPrice = RES_GENERAL_GROUP.properties.find(p => p.rdoName === 'RepairPrice');
-    expect(repairPrice).toBeDefined();
-    expect(repairPrice!.type).toBe(PropertyType.CURRENCY);
+    expect(repair!.type).toBe(PropertyType.REPAIR_CONTROL);
+    expect(repair!.maxProperty).toBe('RepairPrice');
   });
 
   it('BankGeneral should have BudgetPerc slider', () => {
@@ -266,13 +262,13 @@ describe('General handler RDO properties', () => {
     expect(tableProp!.countProperty).toBe('covCount');
   });
 
-  it('SrvGeneral should have service TABLE with editable price column', () => {
-    const tableProp = SRV_GENERAL_GROUP.properties.find(p => p.type === PropertyType.TABLE);
-    expect(tableProp).toBeDefined();
-    expect(tableProp!.countProperty).toBe('ServiceCount');
-    expect(tableProp!.columns).toHaveLength(6);
+  it('SrvGeneral should have SERVICE_CARDS with editable price column', () => {
+    const cardProp = SRV_GENERAL_GROUP.properties.find(p => p.type === PropertyType.SERVICE_CARDS);
+    expect(cardProp).toBeDefined();
+    expect(cardProp!.countProperty).toBe('ServiceCount');
+    expect(cardProp!.columns).toHaveLength(6);
 
-    const priceCol = tableProp!.columns!.find(c => c.rdoSuffix === 'srvPrices');
+    const priceCol = cardProp!.columns!.find(c => c.rdoSuffix === 'srvPrices');
     expect(priceCol).toBeDefined();
     expect(priceCol!.editable).toBe(true);
     expect(priceCol!.type).toBe(PropertyType.SLIDER);
@@ -362,11 +358,14 @@ describe('Specialized handler RDO properties', () => {
     expect(tableProp!.columns!.length).toBeGreaterThanOrEqual(6);
   });
 
-  it('Ministeries should have minister TABLE without indexSuffix (Voyager uses Ministry0 not Ministry.0)', () => {
+  it('Ministeries should have minister TABLE with MLS indexSuffix on Ministry column', () => {
     const tableProp = MINISTERIES_GROUP.properties.find(p => p.type === PropertyType.TABLE);
     expect(tableProp).toBeDefined();
     expect(tableProp!.countProperty).toBe('MinisterCount');
+    // Property-level indexSuffix is undefined; column-level indexSuffix handles MLS
     expect(tableProp!.indexSuffix).toBeUndefined();
+    const ministryCol = tableProp!.columns!.find(c => c.rdoSuffix === 'Ministry');
+    expect(ministryCol!.indexSuffix).toBe('.0');
   });
 
   it('townJobs should have salary properties', () => {
@@ -430,20 +429,21 @@ describe('ENUM type properties', () => {
     expect(tradeLevel!.enumLabels!['3']).toBe('Anyone');
   });
 
-  it('WHGeneral should use ENUM type for TradeRole and TradeLevel', () => {
-    const tradeRole = WH_GENERAL_GROUP.properties.find(p => p.rdoName === 'TradeRole');
-    expect(tradeRole!.type).toBe(PropertyType.ENUM);
+  it('WHGeneral should use ENUM type for Role and TradeLevel', () => {
+    const role = WH_GENERAL_GROUP.properties.find(p => p.rdoName === 'Role');
+    expect(role!.type).toBe(PropertyType.ENUM);
 
     const tradeLevel = WH_GENERAL_GROUP.properties.find(p => p.rdoName === 'TradeLevel');
     expect(tradeLevel!.type).toBe(PropertyType.ENUM);
     expect(tradeLevel!.editable).toBe(true);
   });
 
-  it('Role should use ENUM type with facility role labels', () => {
-    const role = IND_GENERAL_GROUP.properties.find(p => p.rdoName === 'Role');
-    expect(role!.type).toBe(PropertyType.ENUM);
-    expect(role!.enumLabels!['1']).toBe('Producer');
-    expect(role!.enumLabels!['6']).toBe('Import');
+  it('IndGeneral TradeRole should use ENUM type with facility role labels', () => {
+    const tradeRole = IND_GENERAL_GROUP.properties.find(p => p.rdoName === 'TradeRole');
+    expect(tradeRole!.type).toBe(PropertyType.ENUM);
+    expect(tradeRole!.editable).toBe(true);
+    expect(tradeRole!.enumLabels!['1']).toBe('Producer');
+    expect(tradeRole!.enumLabels!['6']).toBe('Import');
   });
 });
 

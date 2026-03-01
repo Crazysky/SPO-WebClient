@@ -7,11 +7,13 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import type { BuildingPropertyValue } from '@/shared/types';
+import type { BuildingPropertyValue, BuildingSupplyData, BuildingProductData } from '@/shared/types';
 import {
   PropertyType,
   type PropertyDefinition,
+  type TableColumn,
   type PropertyGroup as PropertyGroupDef,
+  type RdoCommandMapping,
   formatCurrency,
   formatPercentage,
   formatNumber,
@@ -19,6 +21,7 @@ import {
 } from '@/shared/building-details';
 import { useBuildingStore } from '../../store/building-store';
 import { useClient } from '../../context';
+import { ResearchPanel } from './ResearchPanel';
 import styles from './PropertyGroup.module.css';
 
 interface PropertyGroupProps {
@@ -32,6 +35,46 @@ export function PropertyGroup({ properties, buildingX, buildingY }: PropertyGrou
   const isOwner = useBuildingStore((s) => s.isOwner);
   const currentTab = useBuildingStore((s) => s.currentTab);
 
+  // Get property definitions from template system.
+  // Template cache is populated by the store's setDetails action (via registerInspectorTabs)
+  // using the handlerName fields the server sends with each tab.
+  const visualClass = details?.visualClass ?? '0';
+  const template = getTemplateForVisualClass(visualClass);
+  const activeGroup = template.groups.find((g) => g.id === currentTab) ?? template.groups[0];
+  const definitions = activeGroup?.properties ?? [];
+
+  // Check if this is a town tab (mayor can edit town properties)
+  const isTownTab = activeGroup?.special === 'town';
+  const canEdit = isTownTab ? checkIsMayor(properties) : isOwner;
+
+  // Special: supplies tab — render structured supply UI from details.supplies
+  if (activeGroup?.special === 'supplies') {
+    return (
+      <div className={styles.group}>
+        <SuppliesPanel
+          supplies={details?.supplies ?? []}
+          canEdit={canEdit}
+          buildingX={buildingX}
+          buildingY={buildingY}
+        />
+      </div>
+    );
+  }
+
+  // Special: products tab — render structured product UI from details.products
+  if (activeGroup?.special === 'products') {
+    return (
+      <div className={styles.group}>
+        <ProductsPanel
+          products={details?.products ?? []}
+          canEdit={canEdit}
+          buildingX={buildingX}
+          buildingY={buildingY}
+        />
+      </div>
+    );
+  }
+
   if (properties.length === 0) {
     return <div className={styles.empty}>No data available for this tab</div>;
   }
@@ -42,21 +85,12 @@ export function PropertyGroup({ properties, buildingX, buildingY }: PropertyGrou
     valueMap.set(prop.name, prop.value);
   }
 
-  // Get property definitions from template system
-  const visualClass = details?.visualClass ?? '0';
-  const template = getTemplateForVisualClass(visualClass);
-  const activeGroup = template.groups.find((g) => g.id === currentTab) ?? template.groups[0];
-  const definitions = activeGroup?.properties ?? [];
-
-  // Check if this is a town tab (mayor can edit town properties)
-  const isTownTab = activeGroup?.special === 'town';
-  const canEdit = isTownTab ? checkIsMayor(properties) : isOwner;
-
   return (
     <div className={styles.group}>
       {definitions.length > 0 ? (
         <DefinedProperties
           definitions={definitions}
+          rdoCommands={activeGroup?.rdoCommands}
           valueMap={valueMap}
           properties={properties}
           canEdit={canEdit}
@@ -80,11 +114,58 @@ function checkIsMayor(properties: BuildingPropertyValue[]): boolean {
 }
 
 // =============================================================================
+// RDO COMMAND RESOLUTION
+// =============================================================================
+
+/**
+ * Resolve a raw property name to the correct RDO command and params.
+ * Uses the group's rdoCommands mapping to translate property names like
+ * 'srvPrices0' → { command: 'RDOSetPrice', params: { index: '0' } }
+ * 'Stopped' → { command: 'property', params: { propertyName: 'Stopped' } }
+ */
+function resolveRdoCommand(
+  propertyName: string,
+  rdoCommands?: Record<string, RdoCommandMapping>,
+): { command: string; params?: Record<string, string> } {
+  if (!rdoCommands) {
+    return { command: propertyName };
+  }
+
+  // Direct match (non-indexed): e.g., 'Stopped' → { command: 'property' }
+  if (rdoCommands[propertyName]) {
+    const mapping = rdoCommands[propertyName];
+    if (mapping.command === 'property') {
+      return { command: 'property', params: { propertyName, ...mapping.params } };
+    }
+    return { command: mapping.command, params: mapping.params };
+  }
+
+  // Indexed match: strip trailing digits to find base name.
+  // e.g., 'srvPrices0' → base='srvPrices', index='0'
+  const match = propertyName.match(/^(.+?)(\d+)$/);
+  if (match) {
+    const [, baseName, indexStr] = match;
+    const mapping = rdoCommands[baseName];
+    if (mapping?.indexed) {
+      const params: Record<string, string> = { index: indexStr, ...mapping.params };
+      if (mapping.command === 'property') {
+        return { command: 'property', params: { propertyName, ...params } };
+      }
+      return { command: mapping.command, params };
+    }
+  }
+
+  // No mapping found — pass through as-is
+  return { command: propertyName };
+}
+
+// =============================================================================
 // DEFINED PROPERTIES (template-driven rendering)
 // =============================================================================
 
 interface DefinedPropertiesProps {
   definitions: PropertyDefinition[];
+  rdoCommands?: Record<string, RdoCommandMapping>;
   valueMap: Map<string, string>;
   properties: BuildingPropertyValue[];
   canEdit: boolean;
@@ -94,6 +175,7 @@ interface DefinedPropertiesProps {
 
 function DefinedProperties({
   definitions,
+  rdoCommands,
   valueMap,
   properties,
   canEdit,
@@ -101,14 +183,23 @@ function DefinedProperties({
   buildingY,
 }: DefinedPropertiesProps) {
   const client = useClient();
+  const details = useBuildingStore((s) => s.details);
+  const currentTab = useBuildingStore((s) => s.currentTab);
   const rendered = new Set<string>();
   const elements: JSX.Element[] = [];
 
   const handlePropertyChange = useCallback(
     (propertyName: string, value: number) => {
-      client.onSetBuildingProperty(buildingX, buildingY, propertyName, String(value));
+      // Resolve raw property name to RDO command via rdoCommands mapping.
+      // e.g., 'srvPrices0' → RDOSetPrice with index=0
+      const resolved = resolveRdoCommand(propertyName, rdoCommands);
+      client.onSetBuildingProperty(
+        buildingX, buildingY,
+        resolved.command, String(value),
+        resolved.params,
+      );
     },
-    [buildingX, buildingY, client],
+    [buildingX, buildingY, client, rdoCommands],
   );
 
   const handleActionButton = useCallback(
@@ -158,6 +249,33 @@ function DefinedProperties({
       continue;
     }
 
+    // Repair control (progress bar + conditional start/stop)
+    if (def.type === PropertyType.REPAIR_CONTROL) {
+      const repairValue = valueMap.get('Repair') ?? '';
+      const repairPrice = valueMap.get('RepairPrice') ?? '0';
+      elements.push(
+        <RepairControl
+          key="repair"
+          repairValue={repairValue}
+          repairPrice={repairPrice}
+          canEdit={canEdit}
+          onAction={handleActionButton}
+        />,
+      );
+      rendered.add('Repair');
+      rendered.add('RepairPrice');
+      continue;
+    }
+
+    // Research panel (custom HQ inventions UI)
+    if (def.type === PropertyType.RESEARCH_PANEL) {
+      elements.push(
+        <ResearchPanel key="research" buildingX={buildingX} buildingY={buildingY} />,
+      );
+      rendered.add(def.rdoName);
+      continue;
+    }
+
     // Action button
     if (def.type === PropertyType.ACTION_BUTTON) {
       elements.push(
@@ -168,6 +286,86 @@ function DefinedProperties({
         />,
       );
       rendered.add(def.rdoName);
+      continue;
+    }
+
+    // SERVICE_CARDS — card-per-service layout with price slider + avg marker
+    if (def.type === PropertyType.SERVICE_CARDS && def.columns && def.columns.length > 0) {
+      const propSuffix = def.indexSuffix || '';
+
+      let rowCount = 0;
+      if (def.countProperty) {
+        rowCount = parseInt(valueMap.get(def.countProperty) ?? '0', 10) || 0;
+        rendered.add(def.countProperty);
+      }
+
+      // Mark all column keys as rendered
+      for (let i = 0; i < rowCount; i++) {
+        for (const col of def.columns) {
+          const colSuffix = col.columnSuffix || '';
+          const idxSuffix = col.indexSuffix !== undefined ? col.indexSuffix : propSuffix;
+          rendered.add(`${col.rdoSuffix}${i}${colSuffix}${idxSuffix}`);
+        }
+      }
+
+      if (rowCount > 0) {
+        elements.push(
+          <ServiceCardList
+            key={`svc-cards-${def.rdoName}`}
+            def={def}
+            rowCount={rowCount}
+            valueMap={valueMap}
+            canEdit={canEdit}
+            onPropertyChange={handlePropertyChange}
+          />,
+        );
+      }
+      continue;
+    }
+
+    // TABLE property — multi-column indexed data
+    if (def.type === PropertyType.TABLE && def.columns && def.columns.length > 0) {
+      const propSuffix = def.indexSuffix || '';
+
+      // Determine row count
+      let rowCount = 0;
+      if (def.countProperty) {
+        rowCount = parseInt(valueMap.get(def.countProperty) ?? '0', 10) || 0;
+        rendered.add(def.countProperty);
+      } else if (def.indexMax !== undefined) {
+        rowCount = def.indexMax + 1;
+      } else {
+        // Scan for first column keys to detect row count
+        const firstCol = def.columns[0];
+        const colSuffix = firstCol.columnSuffix || '';
+        const idxSuffix = firstCol.indexSuffix !== undefined ? firstCol.indexSuffix : propSuffix;
+        for (let i = 0; i < 50; i++) {
+          if (valueMap.has(`${firstCol.rdoSuffix}${i}${colSuffix}${idxSuffix}`)) rowCount = i + 1;
+          else break;
+        }
+      }
+
+      // Mark all column keys as rendered
+      for (let i = 0; i < rowCount; i++) {
+        for (const col of def.columns) {
+          const colSuffix = col.columnSuffix || '';
+          const idxSuffix = col.indexSuffix !== undefined ? col.indexSuffix : propSuffix;
+          rendered.add(`${col.rdoSuffix}${i}${colSuffix}${idxSuffix}`);
+        }
+      }
+
+      if (rowCount > 0) {
+        elements.push(
+          <DataTable
+            key={`table-${def.rdoName}`}
+            def={def}
+            rowCount={rowCount}
+            valueMap={valueMap}
+            canEdit={canEdit}
+            onPropertyChange={handlePropertyChange}
+          />,
+        );
+      }
       continue;
     }
 
@@ -190,6 +388,21 @@ function DefinedProperties({
         def={def}
         value={value}
         maxValue={def.maxProperty ? valueMap.get(def.maxProperty) : undefined}
+        canEdit={canEdit}
+        onPropertyChange={handlePropertyChange}
+      />,
+    );
+  }
+
+  // Product summary on General tab for industrial buildings
+  // Only show if we're on a General tab and products data exists
+  const isGeneralTab = currentTab?.endsWith('General') || currentTab === 'generic';
+  const products = details?.products ?? [];
+  if (isGeneralTab && products.length > 0) {
+    elements.push(
+      <ProductSummaryCards
+        key="product-summary"
+        products={products}
         canEdit={canEdit}
         onPropertyChange={handlePropertyChange}
       />,
@@ -274,6 +487,11 @@ function PropertyValue({ def, value, maxValue, canEdit, onPropertyChange }: Prop
 
     case PropertyType.RATIO:
       return <RatioValue current={num} max={maxValue ? parseFloat(maxValue) : 0} />;
+
+    case PropertyType.ENUM: {
+      const label = def.enumLabels?.[value] ?? def.enumLabels?.[String(parseInt(value, 10))] ?? value;
+      return <span className={styles.value}>{label}</span>;
+    }
 
     case PropertyType.BOOLEAN:
       return <BooleanValue value={value} canEdit={canEdit && !!def.editable} rdoName={def.rdoName} onPropertyChange={onPropertyChange} />;
@@ -619,6 +837,67 @@ function UpgradeActions({
 }
 
 // =============================================================================
+// REPAIR CONTROL (progress bar + conditional start/stop)
+// =============================================================================
+
+function RepairControl({
+  repairValue,
+  repairPrice,
+  canEdit,
+  onAction,
+}: {
+  repairValue: string;
+  repairPrice: string;
+  canEdit: boolean;
+  onAction: (id: string) => void;
+}) {
+  const progress = parseInt(repairValue, 10) || 0;
+  const isRepairing = progress > 0 && progress < 100;
+  const cost = parseFloat(repairPrice) || 0;
+
+  return (
+    <div className={styles.repairContainer}>
+      <div className={styles.repairHeader}>
+        <span className={styles.name}>Repair</span>
+        {isRepairing && (
+          <span className={styles.repairPercent}>{progress}%</span>
+        )}
+      </div>
+
+      {isRepairing && (
+        <div className={styles.repairBar}>
+          <div className={styles.repairFill} style={{ width: `${progress}%` }} />
+        </div>
+      )}
+
+      {canEdit && (
+        <div className={styles.repairActions}>
+          {isRepairing ? (
+            <button
+              className={styles.repairStopBtn}
+              onClick={() => onAction('stopRepair')}
+            >
+              Stop Repair
+            </button>
+          ) : (
+            <button
+              className={styles.repairStartBtn}
+              onClick={() => onAction('startRepair')}
+            >
+              Repair{cost > 0 ? ` (${formatCurrency(cost)})` : ''}
+            </button>
+          )}
+        </div>
+      )}
+
+      {!canEdit && !isRepairing && (
+        <span className={styles.value}>-</span>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
 // ACTION BUTTON
 // =============================================================================
 
@@ -631,6 +910,523 @@ function ActionButton({ def, onAction }: { def: PropertyDefinition; onAction: (i
       >
         {def.buttonLabel ?? def.displayName}
       </button>
+    </div>
+  );
+}
+
+// =============================================================================
+// DATA TABLE (PropertyType.TABLE)
+// =============================================================================
+
+function DataTable({
+  def,
+  rowCount,
+  valueMap,
+  canEdit,
+  onPropertyChange,
+}: {
+  def: PropertyDefinition;
+  rowCount: number;
+  valueMap: Map<string, string>;
+  canEdit: boolean;
+  onPropertyChange: (name: string, value: number) => void;
+}) {
+  const propSuffix = def.indexSuffix || '';
+  const cols = def.columns!;
+
+  return (
+    <table className={styles.dataTable}>
+      <thead>
+        <tr>
+          {cols.map((col) => (
+            <th key={col.rdoSuffix} style={col.width ? { width: col.width } : undefined}>
+              {col.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {Array.from({ length: rowCount }, (_, i) => (
+          <tr key={i} className={styles.dataRow}>
+            {cols.map((col) => {
+              const colSuffix = col.columnSuffix || '';
+              const idxSuffix = col.indexSuffix !== undefined ? col.indexSuffix : propSuffix;
+              const key = `${col.rdoSuffix}${i}${colSuffix}${idxSuffix}`;
+              const value = valueMap.get(key) ?? '';
+              return (
+                <td key={col.rdoSuffix} className={styles.tableCell}>
+                  <TableCellValue
+                    col={col}
+                    value={value}
+                    rdoName={key}
+                    canEdit={canEdit && !!col.editable}
+                    onPropertyChange={onPropertyChange}
+                  />
+                </td>
+              );
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function TableCellValue({
+  col,
+  value,
+  rdoName,
+  canEdit,
+  onPropertyChange,
+}: {
+  col: TableColumn;
+  value: string;
+  rdoName: string;
+  canEdit: boolean;
+  onPropertyChange: (name: string, value: number) => void;
+}) {
+  const num = parseFloat(value);
+  switch (col.type) {
+    case PropertyType.CURRENCY:
+      return <span className={styles.value}>{formatCurrency(num)}</span>;
+    case PropertyType.PERCENTAGE:
+      return <span className={styles.value}>{formatPercentage(num)}</span>;
+    case PropertyType.NUMBER:
+      return <span className={styles.value}>{isNaN(num) ? value || '-' : formatNumber(num)}</span>;
+    case PropertyType.BOOLEAN:
+      return <span className={styles.value}>{num !== 0 ? 'Yes' : 'No'}</span>;
+    case PropertyType.SLIDER:
+      if (canEdit) {
+        return (
+          <SliderInput
+            value={num}
+            min={col.min ?? 0}
+            max={col.max ?? 300}
+            step={col.step ?? 5}
+            rdoName={rdoName}
+            onPropertyChange={onPropertyChange}
+          />
+        );
+      }
+      return <span className={styles.value}>{isNaN(num) ? value || '-' : String(num)}</span>;
+    default:
+      return <span className={styles.value}>{value || '-'}</span>;
+  }
+}
+
+// =============================================================================
+// PRODUCT SALE CARDS (for services on General tab + product summary)
+// =============================================================================
+
+function ServiceCardList({
+  def,
+  rowCount,
+  valueMap,
+  canEdit,
+  onPropertyChange,
+}: {
+  def: PropertyDefinition;
+  rowCount: number;
+  valueMap: Map<string, string>;
+  canEdit: boolean;
+  onPropertyChange: (name: string, value: number) => void;
+}) {
+  const propSuffix = def.indexSuffix || '';
+  const cols = def.columns!;
+  const colByPrefix = new Map(cols.map((c) => [c.rdoSuffix, c]));
+
+  const getVal = (suffix: string, i: number) => {
+    const col = colByPrefix.get(suffix);
+    const colSuffix = col?.columnSuffix || '';
+    const idxSuffix = col?.indexSuffix !== undefined ? col.indexSuffix : propSuffix;
+    return valueMap.get(`${suffix}${i}${colSuffix}${idxSuffix}`) ?? '';
+  };
+
+  return (
+    <div className={styles.pscList}>
+      {Array.from({ length: rowCount }, (_, i) => {
+        const price = parseFloat(getVal('srvPrices', i)) || 0;
+        const marketPrice = parseFloat(getVal('srvMarketPrices', i)) || 0;
+        const dollarPrice = marketPrice > 0 ? (price / 100) * marketPrice : 0;
+
+        return (
+          <ProductSaleCard
+            key={i}
+            name={getVal('srvNames', i) || `Service ${i + 1}`}
+            supply={parseFloat(getVal('srvSupplies', i)) || 0}
+            demand={parseFloat(getVal('srvDemands', i)) || 0}
+            pricePc={price}
+            avgPricePc={parseFloat(getVal('srvAvgPrices', i)) || 0}
+            dollarPrice={dollarPrice}
+            priceMax={colByPrefix.get('srvPrices')?.max ?? 500}
+            priceStep={colByPrefix.get('srvPrices')?.step ?? 10}
+            canEdit={canEdit && !!colByPrefix.get('srvPrices')?.editable}
+            rdoName={`srvPrices${i}${propSuffix}`}
+            onPropertyChange={onPropertyChange}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function ProductSummaryCards({
+  products,
+  canEdit,
+  onPropertyChange,
+}: {
+  products: BuildingProductData[];
+  canEdit: boolean;
+  onPropertyChange: (name: string, value: number) => void;
+}) {
+  if (products.length === 0) return null;
+
+  return (
+    <div className={styles.pscList}>
+      <div className={styles.pscSectionLabel}>Products</div>
+      {products.map((product, i) => {
+        const pricePc = parseFloat(product.pricePc) || 0;
+        const marketPrice = parseFloat(product.marketPrice) || 0;
+        const dollarPrice = marketPrice > 0 ? (pricePc / 100) * marketPrice : 0;
+
+        return (
+          <ProductSaleCard
+            key={i}
+            name={product.name || product.metaFluid}
+            pricePc={pricePc}
+            avgPricePc={parseFloat(product.avgPrice) || 0}
+            dollarPrice={dollarPrice}
+            priceMax={300}
+            priceStep={5}
+            canEdit={canEdit}
+            rdoName={`PricePc`}
+            productPath={product.path}
+            onPropertyChange={onPropertyChange}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function ProductSaleCard({
+  name,
+  supply,
+  demand,
+  pricePc,
+  avgPricePc,
+  dollarPrice,
+  priceMax,
+  priceStep,
+  canEdit,
+  rdoName,
+  productPath: _productPath,
+  onPropertyChange,
+}: {
+  name: string;
+  supply?: number;
+  demand?: number;
+  pricePc: number;
+  avgPricePc: number;
+  dollarPrice: number;
+  priceMax: number;
+  priceStep: number;
+  canEdit: boolean;
+  rdoName: string;
+  productPath?: string;
+  onPropertyChange: (name: string, value: number) => void;
+}) {
+  const supplyColor =
+    supply === undefined
+      ? ''
+      : supply >= 100
+        ? styles.pscSupplyGood
+        : supply > 0
+          ? styles.pscSupplyWarn
+          : styles.pscSupplyBad;
+
+  return (
+    <div className={styles.pscCard}>
+      <div className={styles.pscHeader}>
+        <span className={styles.pscName}>{name}</span>
+        {supply !== undefined && (
+          <span className={`${styles.pscSupply} ${supplyColor}`}>
+            Supply {supply}%
+          </span>
+        )}
+      </div>
+
+      {demand !== undefined && (
+        <span className={styles.pscDemand}>Local Demand: {demand}%</span>
+      )}
+
+      <span className={styles.pscPrice}>
+        {dollarPrice > 0 ? `${formatCurrency(dollarPrice)} (${pricePc}%)` : `${pricePc}%`}
+      </span>
+
+      <PriceSliderWithMarker
+        value={pricePc}
+        avgPrice={avgPricePc}
+        max={priceMax}
+        step={priceStep}
+        canEdit={canEdit}
+        rdoName={rdoName}
+        onPropertyChange={onPropertyChange}
+      />
+    </div>
+  );
+}
+
+function PriceSliderWithMarker({
+  value,
+  avgPrice,
+  max,
+  step,
+  canEdit,
+  rdoName,
+  onPropertyChange,
+}: {
+  value: number;
+  avgPrice: number;
+  max: number;
+  step: number;
+  canEdit: boolean;
+  rdoName: string;
+  onPropertyChange: (name: string, value: number) => void;
+}) {
+  const [localVal, setLocalVal] = useState(isNaN(value) ? 0 : value);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const newVal = parseFloat(e.target.value);
+      setLocalVal(newVal);
+
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => {
+        onPropertyChange(rdoName, newVal);
+      }, 300);
+    },
+    [rdoName, onPropertyChange],
+  );
+
+  const markerPct = max > 0 ? Math.min(100, (avgPrice / max) * 100) : 0;
+
+  if (!canEdit) {
+    return <span className={styles.pscPriceReadonly}>{value}%</span>;
+  }
+
+  return (
+    <div className={styles.pscSlider}>
+      <div className={styles.pscSliderTrack}>
+        <input
+          type="range"
+          className={styles.slider}
+          min={0}
+          max={max}
+          step={step}
+          value={localVal}
+          onChange={handleChange}
+        />
+        <div
+          className={styles.pscAvgMarker}
+          style={{ left: `${markerPct}%` }}
+          title={`Avg: ${avgPrice}%`}
+        />
+      </div>
+      <span className={styles.sliderValue}>{localVal}%</span>
+    </div>
+  );
+}
+
+// =============================================================================
+// SUPPLIES PANEL (special === 'supplies')
+// =============================================================================
+
+function SuppliesPanel({
+  supplies,
+  canEdit,
+  buildingX,
+  buildingY,
+}: {
+  supplies: BuildingSupplyData[];
+  canEdit: boolean;
+  buildingX: number;
+  buildingY: number;
+}) {
+  if (supplies.length === 0) {
+    return <div className={styles.empty}>No supply inputs</div>;
+  }
+  return (
+    <div className={styles.supplyList}>
+      {supplies.map((supply, i) => (
+        <SupplyCard key={i} supply={supply} canEdit={canEdit} buildingX={buildingX} buildingY={buildingY} />
+      ))}
+    </div>
+  );
+}
+
+function SupplyCard({
+  supply,
+  canEdit: _canEdit,
+  buildingX: _buildingX,
+  buildingY: _buildingY,
+}: {
+  supply: BuildingSupplyData;
+  canEdit: boolean;
+  buildingX: number;
+  buildingY: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className={styles.supplyCard}>
+      <button className={styles.supplyHeader} onClick={() => setExpanded((v) => !v)}>
+        <span className={styles.supplyName}>{supply.name || supply.metaFluid}</span>
+        <span className={styles.supplyCount}>
+          {supply.connectionCount} supplier{supply.connectionCount !== 1 ? 's' : ''}
+        </span>
+        <span className={styles.supplyChevron}>{expanded ? '▲' : '▼'}</span>
+      </button>
+
+      {expanded && (
+        <div className={styles.supplyBody}>
+          {supply.fluidValue && (
+            <div className={styles.row}>
+              <span className={styles.name}>Value</span>
+              <span className={styles.value}>{supply.fluidValue}</span>
+            </div>
+          )}
+          {supply.maxPrice !== undefined && (
+            <div className={styles.row}>
+              <span className={styles.name}>Max Price</span>
+              <span className={styles.value}>{supply.maxPrice}%</span>
+            </div>
+          )}
+          {supply.minK !== undefined && (
+            <div className={styles.row}>
+              <span className={styles.name}>Min Quality</span>
+              <span className={styles.value}>{supply.minK}%</span>
+            </div>
+          )}
+
+          {supply.connections.length > 0 ? (
+            <div className={styles.connectionList}>
+              {supply.connections.map((conn, j) => (
+                <div key={j} className={styles.connectionRow}>
+                  <div className={styles.connectionName}>{conn.facilityName}</div>
+                  <div className={styles.connectionMeta}>
+                    <span className={styles.connectionCompany}>{conn.companyName}</span>
+                    {conn.price && <span className={styles.connectionStat}>{conn.price}%</span>}
+                    {conn.quality && <span className={styles.connectionStat}>Q:{conn.quality}%</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.noConnections}>No suppliers connected</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// PRODUCTS PANEL (special === 'products')
+// =============================================================================
+
+function ProductsPanel({
+  products,
+  canEdit,
+  buildingX,
+  buildingY,
+}: {
+  products: BuildingProductData[];
+  canEdit: boolean;
+  buildingX: number;
+  buildingY: number;
+}) {
+  if (products.length === 0) {
+    return <div className={styles.empty}>No product outputs</div>;
+  }
+  return (
+    <div className={styles.supplyList}>
+      {products.map((product, i) => (
+        <ProductCard key={i} product={product} canEdit={canEdit} buildingX={buildingX} buildingY={buildingY} />
+      ))}
+    </div>
+  );
+}
+
+function ProductCard({
+  product,
+  canEdit: _canEdit,
+  buildingX: _buildingX,
+  buildingY: _buildingY,
+}: {
+  product: BuildingProductData;
+  canEdit: boolean;
+  buildingX: number;
+  buildingY: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className={styles.supplyCard}>
+      <button className={styles.supplyHeader} onClick={() => setExpanded((v) => !v)}>
+        <span className={styles.supplyName}>{product.name || product.metaFluid}</span>
+        <span className={styles.supplyCount}>
+          {product.connectionCount} buyer{product.connectionCount !== 1 ? 's' : ''}
+        </span>
+        <span className={styles.supplyChevron}>{expanded ? '▲' : '▼'}</span>
+      </button>
+
+      {expanded && (
+        <div className={styles.supplyBody}>
+          {product.lastFluid && (
+            <div className={styles.row}>
+              <span className={styles.name}>Last Produced</span>
+              <span className={styles.value}>{product.lastFluid}</span>
+            </div>
+          )}
+          {product.quality && (
+            <div className={styles.row}>
+              <span className={styles.name}>Quality</span>
+              <span className={styles.value}>{product.quality}%</span>
+            </div>
+          )}
+          {product.pricePc && (
+            <div className={styles.row}>
+              <span className={styles.name}>Sell Price</span>
+              <span className={styles.value}>{product.pricePc}%</span>
+            </div>
+          )}
+          {product.marketPrice && (
+            <div className={styles.row}>
+              <span className={styles.name}>Market Price</span>
+              <span className={styles.value}>{formatCurrency(parseFloat(product.marketPrice))}</span>
+            </div>
+          )}
+
+          {product.connections.length > 0 ? (
+            <div className={styles.connectionList}>
+              {product.connections.map((conn, j) => (
+                <div key={j} className={styles.connectionRow}>
+                  <div className={styles.connectionName}>{conn.facilityName}</div>
+                  <div className={styles.connectionMeta}>
+                    <span className={styles.connectionCompany}>{conn.companyName}</span>
+                    {conn.price && <span className={styles.connectionStat}>{conn.price}%</span>}
+                    {conn.quality && <span className={styles.connectionStat}>Q:{conn.quality}%</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.noConnections}>No buyers connected</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

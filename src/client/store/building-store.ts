@@ -7,11 +7,28 @@ import type {
   BuildingFocusInfo,
   BuildingDetailsResponse,
   ConnectionSearchResult,
+  ResearchCategoryData,
+  ResearchInventionDetails,
 } from '@/shared/types';
+import { registerInspectorTabs } from '@/shared/building-details';
+
+export type ResearchSection = 'available' | 'developing' | 'completed';
+
+interface ResearchState {
+  inventory: ResearchCategoryData | null;
+  selectedInventionId: string | null;
+  selectedDetails: ResearchInventionDetails | null;
+  activeSection: ResearchSection;
+  isLoadingInventory: boolean;
+  isLoadingDetails: boolean;
+}
 
 interface BuildingState {
   // Focus
   focusedBuilding: BuildingFocusInfo | null;
+
+  // Overlay mode — first click shows overlay, second click opens panel
+  isOverlayMode: boolean;
 
   // Details panel
   details: BuildingDetailsResponse | null;
@@ -33,21 +50,44 @@ interface BuildingState {
     isSearching: boolean;
   } | null;
 
+  // Research state
+  research: ResearchState | null;
+
   // Actions
   setFocus: (info: BuildingFocusInfo) => void;
+  setOverlayMode: (mode: boolean) => void;
   setDetails: (details: BuildingDetailsResponse) => void;
   setCurrentTab: (tab: string) => void;
   setLoading: (loading: boolean) => void;
   setCurrentCompanyName: (name: string) => void;
   clearFocus: () => void;
+  clearOverlay: () => void;
   setConnectionPicker: (data: { fluidName: string; fluidId: string; direction: 'input' | 'output'; buildingX: number; buildingY: number }) => void;
   setConnectionResults: (results: ConnectionSearchResult[]) => void;
   setConnectionSearching: (searching: boolean) => void;
   clearConnectionPicker: () => void;
+
+  // Research actions
+  setResearchInventory: (data: ResearchCategoryData) => void;
+  setResearchSelectedInvention: (inventionId: string | null) => void;
+  setResearchDetails: (details: ResearchInventionDetails) => void;
+  setResearchActiveSection: (section: ResearchSection) => void;
+  setResearchLoading: (field: 'inventory' | 'details', loading: boolean) => void;
+  clearResearch: () => void;
 }
+
+const INITIAL_RESEARCH: ResearchState = {
+  inventory: null,
+  selectedInventionId: null,
+  selectedDetails: null,
+  activeSection: 'available',
+  isLoadingInventory: false,
+  isLoadingDetails: false,
+};
 
 export const useBuildingStore = create<BuildingState>((set) => ({
   focusedBuilding: null,
+  isOverlayMode: false,
   details: null,
   currentTab: 'overview',
   isLoading: false,
@@ -56,12 +96,25 @@ export const useBuildingStore = create<BuildingState>((set) => ({
 
   setFocus: (info) => set({ focusedBuilding: info }),
 
-  setDetails: (details) =>
+  setOverlayMode: (mode) => set({ isOverlayMode: mode }),
+
+  setDetails: (details) => {
+    // Lazily populate the client-side template cache from the server-sent tab config.
+    // The server sends handlerName for each tab; HANDLER_TO_GROUP maps those to property
+    // group definitions (with TABLE, SLIDER, etc. types) that the renderer needs.
+    if (details.tabs.length) {
+      registerInspectorTabs(
+        details.visualClass,
+        details.tabs.map((t) => ({ tabName: t.name, tabHandler: t.handlerName })),
+        details.templateName,
+      );
+    }
     set((state) => ({
       details,
       isLoading: false,
       isOwner: details.ownerName === state.currentCompanyName,
-    })),
+    }));
+  },
 
   setCurrentTab: (tab) => set({ currentTab: tab }),
 
@@ -76,11 +129,15 @@ export const useBuildingStore = create<BuildingState>((set) => ({
   clearFocus: () =>
     set({
       focusedBuilding: null,
+      isOverlayMode: false,
       details: null,
       currentTab: 'overview',
       isLoading: false,
       isOwner: false,
+      research: null,
     }),
+
+  clearOverlay: () => set({ isOverlayMode: false }),
 
   // Connection picker
   connectionPicker: null,
@@ -103,4 +160,54 @@ export const useBuildingStore = create<BuildingState>((set) => ({
     })),
 
   clearConnectionPicker: () => set({ connectionPicker: null }),
+
+  // Research
+  research: null,
+
+  setResearchInventory: (data) =>
+    set((state) => ({
+      research: {
+        ...(state.research ?? INITIAL_RESEARCH),
+        inventory: data,
+        isLoadingInventory: false,
+      },
+    })),
+
+  setResearchSelectedInvention: (inventionId) =>
+    set((state) => ({
+      research: {
+        ...(state.research ?? INITIAL_RESEARCH),
+        selectedInventionId: inventionId,
+        selectedDetails: null,
+      },
+    })),
+
+  setResearchDetails: (details) =>
+    set((state) => ({
+      research: {
+        ...(state.research ?? INITIAL_RESEARCH),
+        selectedDetails: details,
+        isLoadingDetails: false,
+      },
+    })),
+
+  setResearchActiveSection: (section) =>
+    set((state) => ({
+      research: {
+        ...(state.research ?? INITIAL_RESEARCH),
+        activeSection: section,
+        selectedInventionId: null,
+        selectedDetails: null,
+      },
+    })),
+
+  setResearchLoading: (field, loading) =>
+    set((state) => ({
+      research: {
+        ...(state.research ?? INITIAL_RESEARCH),
+        [field === 'inventory' ? 'isLoadingInventory' : 'isLoadingDetails']: loading,
+      },
+    })),
+
+  clearResearch: () => set({ research: null }),
 }));

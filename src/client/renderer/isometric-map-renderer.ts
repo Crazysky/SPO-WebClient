@@ -408,6 +408,7 @@ export class IsometricMapRenderer {
   private onRoadSegmentComplete: ((x1: number, y1: number, x2: number, y2: number) => void) | null = null;
   private onCancelRoadDrawing: (() => void) | null = null;
   private onRoadDemolishClick: ((x: number, y: number) => void) | null = null;
+  private onEmptyMapClick: (() => void) | null = null;
 
   // Zone overlay
   private zoneOverlayEnabled: boolean = false;
@@ -1394,6 +1395,15 @@ export class IsometricMapRenderer {
 
   public setBuildingClickCallback(callback: (x: number, y: number, visualClass?: string) => void) {
     this.onBuildingClick = callback;
+  }
+
+  public setEmptyMapClickCallback(callback: () => void) {
+    this.onEmptyMapClick = callback;
+  }
+
+  /** Convert world coordinates to screen pixel position. */
+  public worldToScreen(worldX: number, worldY: number): { x: number; y: number } {
+    return this.terrainRenderer.mapToScreen(worldY, worldX);
   }
 
   public setCancelPlacementCallback(callback: () => void) {
@@ -3936,6 +3946,8 @@ export class IsometricMapRenderer {
         const building = this.getBuildingAt(mapPos.j, mapPos.i);
         if (building && this.onBuildingClick) {
           this.onBuildingClick(building.x, building.y, building.visualClass);
+        } else if (!building && this.onEmptyMapClick) {
+          this.onEmptyMapClick();
         }
       }
     }
@@ -4190,6 +4202,7 @@ export class IsometricMapRenderer {
     // Null out callbacks
     this.onLoadZone = null;
     this.onBuildingClick = null;
+    this.onEmptyMapClick = null;
     this.onCancelPlacement = null;
     this.onPlacementConfirm = null;
     this.onFetchFacilityDimensions = null;

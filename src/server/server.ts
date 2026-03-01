@@ -147,8 +147,14 @@ import {
   BankActionType,
   AutoConnectionActionType,
   CurriculumActionType,
+  // Research / Inventions
+  WsReqResearchInventory,
+  WsRespResearchInventory,
+  WsReqResearchDetails,
+  WsRespResearchDetails,
 } from '../shared/types';
 import { toErrorMessage } from '../shared/error-utils';
+import { parseResearchDat, buildInventionIndex, type DatInventionIndex } from '../shared/research-dat-parser';
 
 /**
  * Starpeace Gateway Server
@@ -286,6 +292,52 @@ function buildIniCache(): void {
 
 // Build INI cache at startup
 buildIniCache();
+
+// =============================================================================
+// Research Invention Index (parsed from research.0.dat)
+// =============================================================================
+
+let inventionIndex: DatInventionIndex | null = null;
+let inventionIndexJson: string | null = null;
+
+function loadInventionIndex(): void {
+  const datPath = path.join(CACHE_DIR, 'Inventions', 'research.0.dat');
+  if (!fs.existsSync(datPath)) {
+    logger.warn('research.0.dat not found — research name resolution disabled');
+    return;
+  }
+  try {
+    const buffer = fs.readFileSync(datPath);
+    const parsed = parseResearchDat(buffer);
+    inventionIndex = buildInventionIndex(parsed);
+
+    // Pre-serialize the JSON response for the API endpoint
+    const serializable = {
+      inventionCount: parsed.inventionCount,
+      categoryTabs: parsed.categoryTabs,
+      inventions: parsed.inventions.map(inv => ({
+        id: inv.id,
+        name: inv.name,
+        category: inv.category,
+        description: inv.description,
+        parent: inv.parent,
+        properties: inv.properties,
+        requires: inv.requires,
+      })),
+    };
+    inventionIndexJson = JSON.stringify(serializable);
+    logger.info(`Research index loaded: ${parsed.inventionCount} inventions, ${parsed.categoryTabs.length} tabs`);
+  } catch (err: unknown) {
+    logger.error(`Failed to load research.0.dat: ${toErrorMessage(err)}`);
+  }
+}
+
+loadInventionIndex();
+
+/** Get the invention index for name enrichment. */
+export function getInventionIndex(): DatInventionIndex | null {
+  return inventionIndex;
+}
 
 /**
  * Generate a placeholder image (1x1 transparent PNG)
@@ -802,6 +854,22 @@ const server = http.createServer(async (req, res) => {
       logger.warn(`Failed to serve texture ${texturePath}: ${toErrorMessage(error)}`);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Failed to read texture file' }));
+    }
+    return;
+  }
+
+  // Research inventions endpoint: /api/research-inventions
+  // Returns parsed invention data from research.0.dat for client-side name resolution
+  if (safePath === '/api/research-inventions') {
+    if (inventionIndexJson) {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=86400',
+      });
+      res.end(inventionIndexJson);
+    } else {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'research.0.dat not loaded' }));
     }
     return;
   }
@@ -1556,6 +1624,73 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
             wsRequestId: msg.wsRequestId,
             errorMessage: toErrorMessage(err) || 'Failed to set property',
             code: ErrorCodes.ERROR_AccessDenied
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      case WsMessageType.REQ_RESEARCH_INVENTORY: {
+        const req = msg as WsReqResearchInventory;
+        console.log(`[Gateway] Research inventory request at (${req.buildingX}, ${req.buildingY}), cat=${req.categoryIndex}`);
+        try {
+          const data = await session.getResearchInventory(req.buildingX, req.buildingY, req.categoryIndex);
+
+          // Enrich items with names/descriptions from parsed research.0.dat
+          // The server cache only has names for volatile inventions — the .dat
+          // file provides display names for all 879 inventions.
+          if (inventionIndex) {
+            const enrichSection = (items: typeof data.available) => {
+              for (const item of items) {
+                const datInv = inventionIndex!.byId.get(item.inventionId);
+                if (datInv) {
+                  if (!item.name || item.name === item.inventionId) item.name = datInv.name;
+                  if (!item.parent) item.parent = datInv.parent;
+                }
+              }
+            };
+            enrichSection(data.available);
+            enrichSection(data.developing);
+            enrichSection(data.completed);
+          }
+
+          const response: WsRespResearchInventory = {
+            type: WsMessageType.RESP_RESEARCH_INVENTORY,
+            wsRequestId: msg.wsRequestId,
+            data,
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: unknown) {
+          console.error('[Gateway] Failed to fetch research inventory:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: toErrorMessage(err) || 'Failed to fetch research inventory',
+            code: ErrorCodes.ERROR_AccessDenied,
+          };
+          ws.send(JSON.stringify(errorResp));
+        }
+        break;
+      }
+
+      case WsMessageType.REQ_RESEARCH_DETAILS: {
+        const req = msg as WsReqResearchDetails;
+        console.log(`[Gateway] Research details request for "${req.inventionId}" at (${req.buildingX}, ${req.buildingY})`);
+        try {
+          const details = await session.getResearchDetails(req.buildingX, req.buildingY, req.inventionId);
+          const response: WsRespResearchDetails = {
+            type: WsMessageType.RESP_RESEARCH_DETAILS,
+            wsRequestId: msg.wsRequestId,
+            details,
+          };
+          ws.send(JSON.stringify(response));
+        } catch (err: unknown) {
+          console.error('[Gateway] Failed to fetch research details:', err);
+          const errorResp: WsRespError = {
+            type: WsMessageType.RESP_ERROR,
+            wsRequestId: msg.wsRequestId,
+            errorMessage: toErrorMessage(err) || 'Failed to fetch research details',
+            code: ErrorCodes.ERROR_AccessDenied,
           };
           ws.send(JSON.stringify(errorResp));
         }

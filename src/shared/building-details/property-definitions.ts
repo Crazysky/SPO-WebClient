@@ -37,6 +37,12 @@ export enum PropertyType {
   ENUM = 'ENUM',
   /** Clickable action button (e.g., "Visit Politics Page") */
   ACTION_BUTTON = 'ACTION_BUTTON',
+  /** Repair control: progress bar + conditional start/stop button */
+  REPAIR_CONTROL = 'REPAIR_CONTROL',
+  /** Research/Inventions panel (custom rendering for HQ inventions tab) */
+  RESEARCH_PANEL = 'RESEARCH_PANEL',
+  /** Service cards layout (card-per-service with price slider + avg marker) */
+  SERVICE_CARDS = 'SERVICE_CARDS',
 }
 
 /**
@@ -116,6 +122,8 @@ export interface TableColumn {
   max?: number;
   /** For SLIDER columns: step increment */
   step?: number;
+  /** Suffix appended AFTER the index (e.g., '.0' for MLS → srvNames0.0) */
+  indexSuffix?: string;
 }
 
 /**
