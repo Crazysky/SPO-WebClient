@@ -99,8 +99,8 @@ export class CoordinateMapper {
     const A = screenX / u;
     const B = (2 * screenY) / u;
 
-    const ri = Math.floor((2 * rows + cols - A - B) / 2);
-    const rj = Math.floor((A - B + cols) / 2);
+    const ri = Math.round((2 * rows + cols - A - B) / 2);
+    const rj = Math.round((A - B + cols) / 2);
 
     // Apply inverse rotation to get back to original map coordinates
     const original = this.rotateMapCoordinates(ri, rj, this.getInverseRotation(rotation));

@@ -2908,136 +2908,90 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 
   /**
    * Search for available suppliers or clients to connect to.
-   * Uses the game server's Five/Cache ASP search pages (same as Voyager SupplyFinder/ClientFinder).
+   * Uses RDO FindSuppliers/FindClients on the InterfaceServer (CacheServerReportForm).
+   *
+   * FindSuppliers response: x}y}FacName}Company}Town}$Price}Quality (7 fields)
+   * FindClients response:   x}y}FacName}Company}Town (5 fields)
    */
   public async searchConnections(
     buildingX: number, buildingY: number,
     fluidId: string, direction: 'input' | 'output',
     filters?: { company?: string; town?: string; maxResults?: number; roles?: number }
   ): Promise<ConnectionSearchResult[]> {
-    const worldIp = this.currentWorldInfo?.ip;
-    if (!worldIp) {
-      this.log.warn('[Connections] No world IP available for search');
+    if (!this.interfaceServerId) {
+      this.log.warn('[Connections] No interfaceServerId available for search');
+      return [];
+    }
+
+    const worldName = this.currentWorldInfo?.name || '';
+    if (!worldName) {
+      this.log.warn('[Connections] No world name available for search');
       return [];
     }
 
     try {
-      const page = direction === 'input' ? 'outputSearch' : 'inputSearch';
-      const params = new URLSearchParams({
-        Fluid: fluidId,
-        x: String(buildingX),
-        y: String(buildingY),
-        Count: String(filters?.maxResults || 20),
-        Roles: String(filters?.roles || 255),
+      const method = direction === 'input' ? 'FindSuppliers' : 'FindClients';
+      this.log.debug(`[Connections] ${method} for ${fluidId} at (${buildingX}, ${buildingY})`);
+
+      const packet = await this.sendRdoRequest('world', {
+        verb: RdoVerb.SEL,
+        targetId: this.interfaceServerId,
+        action: RdoAction.CALL,
+        member: method,
+        args: [
+          fluidId,                              // Fluid name (e.g., "Drugs")
+          worldName,                            // World (e.g., "Shamba")
+          filters?.town || '',                  // Town filter (empty = all)
+          filters?.company || '',               // Company filter (empty = all)
+          String(filters?.maxResults || 20),    // Count
+          String(buildingX),                    // XPos
+          String(buildingY),                    // YPos
+          '1',                                  // SortMode (1=quality)
+          String(filters?.roles || 31),         // Roles bitmask (31 = all 5 roles)
+        ],
       });
-      if (filters?.company) params.set('Owner', filters.company);
-      if (filters?.town) params.set('Town', filters.town);
 
-      const url = `http://${worldIp}/Five/0/Visual/Voyager/URLHandlers/${page}.asp?${params.toString().replace(/\+/g, '%20')}`;
-      this.log.debug(`[Connections] Searching: ${url}`);
-
-      const resp = await fetch(url, { redirect: 'follow' });
-      const html = await resp.text();
-      return this.parseConnectionSearchResults(html);
+      const results = this.parseRdoConnectionResults(packet.payload || '', direction);
+      this.log.debug(`[Connections] ${method} returned ${results.length} results`);
+      return results;
     } catch (e) {
-      this.log.warn(`[Connections] Search failed: ${toErrorMessage(e)}`);
+      this.log.warn(`[Connections] ${direction} search failed: ${toErrorMessage(e)}`);
       return [];
     }
   }
 
   /**
-   * Parse HTML search results from outputSearch.asp / inputSearch.asp.
-   * Results are in a table with rows containing facility data.
-   *
-   * Voyager ASP format (multiple patterns):
-   *  - <tr><td>FacilityName</td><td>Company</td>...</tr> with x=N&y=M in links
-   *  - <input type=hidden name="xPos" value="N"> inside rows
-   *  - javascript:Select(x,y) onclick handlers
-   *  - Semicolon-delimited text: "FacilityName;Company;x;y;price;quality"
+   * Parse RDO FindSuppliers/FindClients response.
+   * Format: newline-separated rows, each with } delimiters.
+   *   FindSuppliers: x}y}FacName}Company}Town}$Price}Quality (7 fields)
+   *   FindClients:   x}y}FacName}Company}Town (5 fields)
    */
-  private parseConnectionSearchResults(html: string): ConnectionSearchResult[] {
-    const results: ConnectionSearchResult[] = [];
+  private parseRdoConnectionResults(
+    payload: string, direction: 'input' | 'output'
+  ): ConnectionSearchResult[] {
+    const lines = splitMultilinePayloadHelper(payload);
+    if (lines.length === 0) return [];
 
-    if (!html || html.trim().length === 0) {
-      this.log.debug('[Connections] Empty search response');
-      return results;
-    }
+    return lines.map(line => {
+      const fields = line.split('}');
+      const x = parseInt(fields[0], 10);
+      const y = parseInt(fields[1], 10);
+      if (isNaN(x) || isNaN(y)) return null;
 
-    this.log.debug(`[Connections] Parsing search response (${html.length} chars)`);
+      const result: ConnectionSearchResult = {
+        x, y,
+        facilityName: fields[2] || 'Unknown',
+        companyName: fields[3] || '',
+        town: fields[4] || undefined,
+      };
 
-    // Strategy 1: HTML table rows
-    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-    let match: RegExpExecArray | null;
-    let rowIndex = 0;
-    while ((match = rowRegex.exec(html)) !== null) {
-      const row = match[1];
-      rowIndex++;
-
-      // Skip header rows (contain <th> elements)
-      if (/<th[\s>]/i.test(row)) continue;
-      // Skip rows with no <td> elements
-      if (!/<td[\s>]/i.test(row)) continue;
-
-      // Extract cell values
-      const cells: string[] = [];
-      const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-      let cellMatch: RegExpExecArray | null;
-      while ((cellMatch = cellRegex.exec(row)) !== null) {
-        cells.push(cellMatch[1].replace(/<[^>]+>/g, '').trim());
+      if (direction === 'input' && fields.length >= 7) {
+        result.price = fields[5] || undefined;
+        result.quality = fields[6] || undefined;
       }
 
-      // Extract coordinates — try multiple patterns
-      const xMatch = row.match(/[?&]x=(\d+)/i)
-        || row.match(/name=["']?xPos["']?\s+value=["']?(\d+)/i)
-        || row.match(/Select\s*\(\s*(\d+)/i);
-      const yMatch = row.match(/[?&]y=(\d+)/i)
-        || row.match(/name=["']?yPos["']?\s+value=["']?(\d+)/i)
-        || row.match(/Select\s*\(\s*\d+\s*,\s*(\d+)/i);
-
-      if (cells.length >= 2 && xMatch && yMatch) {
-        // When 5+ cells: FacilityName, Company, Town, Price, Quality
-        // When 4 cells: FacilityName, Company, Price, Quality (no town)
-        const hasTown = cells.length >= 5;
-        results.push({
-          facilityName: cells[0] || 'Unknown',
-          companyName: cells[1] || '',
-          x: parseInt(xMatch[1]),
-          y: parseInt(yMatch[1]),
-          town: hasTown ? (cells[2] || undefined) : undefined,
-          price: (hasTown ? cells[3] : cells[2]) || undefined,
-          quality: (hasTown ? cells[4] : cells[3]) || undefined,
-        });
-      }
-    }
-
-    // Strategy 2: Semicolon-delimited lines (fallback for non-HTML responses)
-    if (results.length === 0 && !html.includes('<table')) {
-      const lines = html.split('\n').filter(l => l.trim().length > 0);
-      for (const line of lines) {
-        const parts = line.split(';').map(s => s.trim());
-        if (parts.length >= 4) {
-          const x = parseInt(parts[2]);
-          const y = parseInt(parts[3]);
-          if (!isNaN(x) && !isNaN(y)) {
-            results.push({
-              facilityName: parts[0] || 'Unknown',
-              companyName: parts[1] || '',
-              x, y,
-              town: parts[4] || undefined,
-              price: parts[5] || undefined,
-              quality: parts[6] || undefined,
-            });
-          }
-        }
-      }
-    }
-
-    this.log.debug(`[Connections] Parsed ${results.length} results from ${rowIndex} rows`);
-    if (results.length === 0 && html.length > 0) {
-      // Log first 500 chars for debugging when no results parsed
-      this.log.debug(`[Connections] No results parsed. HTML preview: ${html.substring(0, 500)}`);
-    }
-    return results;
+      return result;
+    }).filter((r): r is ConnectionSearchResult => r !== null);
   }
 
   private getDefaultPoliticsData(townName: string): PoliticsData {

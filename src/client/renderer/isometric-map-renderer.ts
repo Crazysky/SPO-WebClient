@@ -1416,10 +1416,18 @@ export class IsometricMapRenderer {
     worldX: number, worldY: number,
     xsize: number, ysize: number
   ): { x: number; y: number; textureHeight: number } {
-    // Footprint center in tile coords
-    const centerI = worldY + ysize / 2;
-    const centerJ = worldX + xsize / 2;
-    const screenPos = this.terrainRenderer.mapToScreen(centerI, centerJ);
+    // North corner of the footprint (highest tile on screen) — rotation-aware.
+    // This positions the StatusOverlay above the building, not over it.
+    const rotation = this.terrainRenderer.getRotation();
+    let northI: number, northJ: number;
+    switch (rotation) {
+      case Rotation.NORTH: northI = worldY + ysize - 1; northJ = worldX + xsize - 1; break;
+      case Rotation.EAST:  northI = worldY + ysize - 1; northJ = worldX;              break;
+      case Rotation.SOUTH: northI = worldY;              northJ = worldX;              break;
+      case Rotation.WEST:  northI = worldY;              northJ = worldX + xsize - 1;  break;
+      default:             northI = worldY + ysize - 1; northJ = worldX + xsize - 1;  break;
+    }
+    const screenPos = this.terrainRenderer.mapToScreen(northI, northJ);
 
     // Look up texture height for dynamic offset
     const building = this.getBuildingAt(worldX, worldY);

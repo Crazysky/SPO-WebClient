@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from '@jest/globals';
 import { CoordinateMapper } from './coordinate-mapper';
-import { Rotation } from '../../shared/map-config';
+import { Rotation, ZOOM_LEVELS } from '../../shared/map-config';
 
 describe('CoordinateMapper', () => {
   const MAP_SIZE = 200;
@@ -175,6 +175,51 @@ describe('CoordinateMapper', () => {
         const back = mapper.screenToMap(screen.x, screen.y, z, Rotation.NORTH, origin);
         expect(back.x).toBe(i);
         expect(back.y).toBe(j);
+      }
+    });
+  });
+
+  describe('screenToMap diamond center accuracy', () => {
+    const origin = { x: 0, y: 0 };
+    const tile = { i: 100, j: 100 };
+
+    it('diamond center maps to correct tile for all rotations', () => {
+      const zoomLevel = 2;
+      const u = ZOOM_LEVELS[zoomLevel].u; // 16
+
+      for (const rot of [Rotation.NORTH, Rotation.EAST, Rotation.SOUTH, Rotation.WEST]) {
+        const northVertex = mapper.mapToScreen(tile.i, tile.j, zoomLevel, rot, origin);
+        // Diamond center is u/2 pixels below the north vertex
+        const result = mapper.screenToMap(northVertex.x, northVertex.y + u / 2, zoomLevel, rot, origin);
+        expect(result.x).toBe(tile.i);
+        expect(result.y).toBe(tile.j);
+      }
+    });
+
+    it('diamond center maps correctly at all zoom levels', () => {
+      for (let z = 0; z < 4; z++) {
+        const u = ZOOM_LEVELS[z].u;
+        const northVertex = mapper.mapToScreen(tile.i, tile.j, z, Rotation.NORTH, origin);
+        const result = mapper.screenToMap(northVertex.x, northVertex.y + u / 2, z, Rotation.NORTH, origin);
+        expect(result.x).toBe(tile.i);
+        expect(result.y).toBe(tile.j);
+      }
+    });
+
+    it('diamond center maps correctly for off-center tiles', () => {
+      const zoomLevel = 2;
+      const u = ZOOM_LEVELS[zoomLevel].u;
+      const offCenterTiles = [
+        { i: 10, j: 190 },
+        { i: 150, j: 30 },
+        { i: 50, j: 150 },
+      ];
+
+      for (const t of offCenterTiles) {
+        const northVertex = mapper.mapToScreen(t.i, t.j, zoomLevel, Rotation.NORTH, origin);
+        const result = mapper.screenToMap(northVertex.x, northVertex.y + u / 2, zoomLevel, Rotation.NORTH, origin);
+        expect(result.x).toBe(t.i);
+        expect(result.y).toBe(t.j);
       }
     });
   });
