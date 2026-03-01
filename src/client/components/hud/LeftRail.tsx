@@ -7,7 +7,7 @@
  * Tertiary: Mail (with badge), Settings
  */
 
-import { Hammer, Search, User, Milestone, Tractor, Mail, Settings, Globe, Heart } from 'lucide-react';
+import { Hammer, Search, User, Milestone, Tractor, Mail, Settings, Globe, Heart, Landmark, Train } from 'lucide-react';
 import { IconButton } from '../common';
 import { useUiStore } from '../../store/ui-store';
 import { useGameStore } from '../../store/game-store';
@@ -24,6 +24,7 @@ export function LeftRail() {
   const unreadCount = useMailStore((s) => s.unreadCount);
   const isRoadBuildingMode = useGameStore((s) => s.isRoadBuildingMode);
   const isRoadDemolishMode = useGameStore((s) => s.isRoadDemolishMode);
+  const requestConfirm = useUiStore((s) => s.requestConfirm);
 
   const client = useClient();
 
@@ -104,14 +105,23 @@ export function LeftRail() {
 
       <div className={styles.divider} />
 
-      {/* Quaternary — server & facilities */}
+      {/* Quaternary — panels & navigation */}
       <div className={styles.group}>
         <IconButton
-          icon={<Globe size={20} />}
-          label="Switch Server"
+          icon={<Landmark size={20} />}
+          label="Politics"
           size="lg"
           variant="glass"
-          onClick={() => openModal('connectionPicker')}
+          active={rightPanel === 'politics'}
+          onClick={() => toggleRightPanel('politics')}
+        />
+        <IconButton
+          icon={<Train size={20} />}
+          label="Transport"
+          size="lg"
+          variant="glass"
+          active={rightPanel === 'transport'}
+          onClick={() => toggleRightPanel('transport')}
         />
         <IconButton
           icon={<Heart size={20} />}
@@ -120,6 +130,17 @@ export function LeftRail() {
           variant="glass"
           active={leftPanel === 'facilities'}
           onClick={() => toggleLeftPanel('facilities')}
+        />
+        <IconButton
+          icon={<Globe size={20} />}
+          label="Switch Server"
+          size="lg"
+          variant="glass"
+          onClick={() => requestConfirm(
+            'Switch Server',
+            'You will be disconnected from the current world. Continue?',
+            () => client.onLogout()
+          )}
         />
       </div>
     </nav>

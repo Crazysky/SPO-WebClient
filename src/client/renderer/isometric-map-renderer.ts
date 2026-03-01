@@ -4119,6 +4119,19 @@ export class IsometricMapRenderer {
   }
 
   /**
+   * Get the visual class of a building at its origin coordinates.
+   * Uses exact match on building origin (x, y) — no collision check needed.
+   */
+  public getVisualClassAt(x: number, y: number): string | null {
+    for (const building of this.allBuildings) {
+      if (building.x === x && building.y === y) {
+        return building.visualClass;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Get building at map coordinates
    */
   private getBuildingAt(x: number, y: number): MapBuilding | null {

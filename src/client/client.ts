@@ -1330,8 +1330,21 @@ export class StarpeaceClient {
     ClientBridge.log('Building', `Requesting focus at (${x}, ${y})`);
 
     try {
+      // Quiet unfocus — notify server only, don't close the UI panel
       if (this.currentFocusedBuilding) {
-        await this.unfocusBuilding();
+        const unfocusReq: WsReqBuildingUnfocus = { type: WsMessageType.REQ_BUILDING_UNFOCUS };
+        this.ws?.send(JSON.stringify(unfocusReq));
+        this.currentFocusedBuilding = null;
+        this.currentFocusedVisualClass = null;
+      }
+
+      // Center the map on the building
+      const renderer = this.mapNavigationUI?.getRenderer();
+      renderer?.centerOn(x, y);
+
+      // Resolve visualClass from renderer if not provided
+      if (!visualClass && renderer) {
+        visualClass = renderer.getVisualClassAt(x, y) ?? undefined;
       }
 
       const req: WsReqBuildingFocus = { type: WsMessageType.REQ_BUILDING_FOCUS, x, y };

@@ -111,7 +111,7 @@ export class MockTcpSocket extends EventEmitter {
           for (const push of match.pushes) {
             this.emitRaw(push);
           }
-        }, 15).unref();
+        }, 15);
         this.pendingTimers.push(timer);
       }
     } else if (parsed.member) {
@@ -134,7 +134,7 @@ export class MockTcpSocket extends EventEmitter {
   /** Simulates socket.connect() — resolves immediately */
   connect(port: number, host: string, callback?: () => void): this {
     if (callback) {
-      setImmediate(callback).unref();
+      setImmediate(callback);
     }
     return this;
   }
@@ -142,13 +142,13 @@ export class MockTcpSocket extends EventEmitter {
   end(): void {
     this.clearPendingTimers();
     this.destroyed = true;
-    setImmediate(() => this.emit('close')).unref();
+    setImmediate(() => this.emit('close'));
   }
 
   destroy(): this {
     this.clearPendingTimers();
     this.destroyed = true;
-    setImmediate(() => this.emit('close')).unref();
+    setImmediate(() => this.emit('close'));
     return this;
   }
 
@@ -229,7 +229,7 @@ export class MockTcpSocket extends EventEmitter {
       if (!this.destroyed) {
         this.emit('data', Buffer.from(withDelimiter, 'latin1'));
       }
-    }).unref();
+    });
   }
 
   /** Check and fire push triggers for a matched member */
@@ -243,7 +243,7 @@ export class MockTcpSocket extends EventEmitter {
           for (const pushData of trigger.pushData) {
             this.emitRaw(pushData);
           }
-        }, delay).unref();
+        }, delay);
         this.pendingTimers.push(timer);
       }
     }

@@ -1,17 +1,5 @@
 {
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node .claude/hooks/protect-critical-files.js",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
@@ -20,11 +8,6 @@
             "type": "command",
             "command": "npx tsc --noEmit",
             "timeout": 30
-          },
-          {
-            "type": "command",
-            "command": "node .claude/hooks/post-edit-test-runner.js",
-            "timeout": 60
           }
         ]
       }

@@ -4,6 +4,7 @@
  */
 
 import { useUiStore } from '../../store/ui-store';
+import { useBuildingStore } from '../../store/building-store';
 import { useClient } from '../../context';
 import type { FavoritesItem } from '@/shared/types';
 import styles from './FacilityList.module.css';
@@ -17,6 +18,8 @@ export function FacilityList({ facilities }: FacilityListProps) {
   const client = useClient();
 
   const handleClick = (facility: FavoritesItem) => {
+    // Show loading skeletons immediately while data loads
+    useBuildingStore.getState().setLoading(true);
     openRightPanel('building');
     client.onNavigateToBuilding(facility.x, facility.y);
   };

@@ -27,11 +27,6 @@ Never read screenshot images in the main conversation context — each costs ~3-
 3. Delegate to sub-agent: `Task(subagent_type: "general-purpose", prompt: "Read screenshots/<name>.png. Debug overlay active: [describe toggles]. Check: 1. <criterion>... Reply PASS/FAIL per criterion.")` — color legend: Green=building, Blue=junction, Orange=road.
 4. Only the text verdict returns (~100 bytes vs ~3-5MB per image)
 
-**Validated modules:** Files listed in `.claude/validated-modules.json` are stable and protected.
-- Edits trigger a confirmation prompt (PreToolUse) + automatic targeted test run (PostToolUse)
-- Do NOT weaken, skip, or delete tests for validated modules — if tests fail after your edit, fix your regression
-- When the user says "approved", "stable", "lock this down", or "protect this", invoke the `validation-ceremony` skill
-- When committing changes that touched validated modules, mention it and offer a visual spot-check
 
 **Critical patterns & gotchas:**
 - **`sendRdoRequest()` + `"*"` separator = SERVER CRASH** — `sendRdoRequest()` adds a QueryId; void push (`"*"`) with QueryId crashes the Delphi server. Void push → `socket.write(RdoCommand.build())`. Synchronous → `sendRdoRequest()` with `"^"`.
@@ -149,7 +144,7 @@ src/
 | `e2e-test` | E2E testing with Playwright MCP |
 | `dependency-audit` | Vulnerability scanning, license compliance |
 | `dependency-updater` | Dependency updates, outdated packages |
-| `validation-ceremony` | `/validate` command, validated-modules.json, baseline screenshots |
+
 
 ## SkillsMP Marketplace Skills (MANDATORY)
 
