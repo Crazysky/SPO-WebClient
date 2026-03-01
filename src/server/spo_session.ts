@@ -2908,7 +2908,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 
   /**
    * Search for available suppliers or clients to connect to.
-   * Uses RDO FindSuppliers/FindClients on the InterfaceServer (CacheServerReportForm).
+   * Uses RDO FindSuppliers/FindClients on the Cache Server (port 6000, WSObjectCacher).
    *
    * FindSuppliers response: x}y}FacName}Company}Town}$Price}Quality (7 fields)
    * FindClients response:   x}y}FacName}Company}Town (5 fields)
@@ -2918,11 +2918,6 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     fluidId: string, direction: 'input' | 'output',
     filters?: { company?: string; town?: string; maxResults?: number; roles?: number }
   ): Promise<ConnectionSearchResult[]> {
-    if (!this.interfaceServerId) {
-      this.log.warn('[Connections] No interfaceServerId available for search');
-      return [];
-    }
-
     const worldName = this.currentWorldInfo?.name || '';
     if (!worldName) {
       this.log.warn('[Connections] No world name available for search');
@@ -2930,12 +2925,19 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     }
 
     try {
+      // Ensure map service is connected (port 6000)
+      await this.connectMapService();
+      if (!this.cacherId) {
+        this.log.warn('[Connections] No cacherId available for search');
+        return [];
+      }
+
       const method = direction === 'input' ? 'FindSuppliers' : 'FindClients';
       this.log.debug(`[Connections] ${method} for ${fluidId} at (${buildingX}, ${buildingY})`);
 
-      const packet = await this.sendRdoRequest('world', {
+      const packet = await this.sendRdoRequest('map', {
         verb: RdoVerb.SEL,
-        targetId: this.interfaceServerId,
+        targetId: this.cacherId,
         action: RdoAction.CALL,
         member: method,
         args: [
