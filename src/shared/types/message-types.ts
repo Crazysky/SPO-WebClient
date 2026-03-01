@@ -1052,6 +1052,7 @@ export interface ConnectionSearchResult {
   y: number;
   price?: string;
   quality?: string;
+  town?: string;
 }
 
 export interface WsRespSearchConnections extends WsMessage {

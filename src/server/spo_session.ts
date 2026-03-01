@@ -2995,13 +2995,17 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
         || row.match(/Select\s*\(\s*\d+\s*,\s*(\d+)/i);
 
       if (cells.length >= 2 && xMatch && yMatch) {
+        // When 5+ cells: FacilityName, Company, Town, Price, Quality
+        // When 4 cells: FacilityName, Company, Price, Quality (no town)
+        const hasTown = cells.length >= 5;
         results.push({
           facilityName: cells[0] || 'Unknown',
           companyName: cells[1] || '',
           x: parseInt(xMatch[1]),
           y: parseInt(yMatch[1]),
-          price: cells[2] || undefined,
-          quality: cells[3] || undefined,
+          town: hasTown ? (cells[2] || undefined) : undefined,
+          price: (hasTown ? cells[3] : cells[2]) || undefined,
+          quality: (hasTown ? cells[4] : cells[3]) || undefined,
         });
       }
     }
@@ -3019,8 +3023,9 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
               facilityName: parts[0] || 'Unknown',
               companyName: parts[1] || '',
               x, y,
-              price: parts[4] || undefined,
-              quality: parts[5] || undefined,
+              town: parts[4] || undefined,
+              price: parts[5] || undefined,
+              quality: parts[6] || undefined,
             });
           }
         }

@@ -321,6 +321,22 @@ export class StarpeaceClient {
           this.connectFacilities(picker.buildingX, picker.buildingY, fluidId, direction, selectedCoords);
         }
       },
+      onDisconnectConnection: (buildingX, buildingY, fluidId, direction, x, y) => {
+        const rdoCommand = direction === 'input' ? 'RDODisconnectInput' : 'RDODisconnectOutput';
+        this.setBuildingProperty(buildingX, buildingY, rdoCommand, '0', {
+          fluidId, connectionList: `${x},${y}`,
+        }).then(success => {
+          if (success) {
+            this.showNotification('Supplier disconnected', 'success');
+            const visualClass = this.currentFocusedVisualClass || '0';
+            this.requestBuildingDetails(buildingX, buildingY, visualClass).then(details => {
+              if (details) ClientBridge.updateBuildingDetails(details);
+            });
+          }
+        }).catch((err: unknown) => {
+          this.showNotification(`Failed to disconnect: ${toErrorMessage(err)}`, 'error');
+        });
+      },
 
       // Research / Inventions
       onResearchLoadInventory: (buildingX, buildingY, categoryIndex) =>

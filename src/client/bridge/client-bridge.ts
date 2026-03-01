@@ -150,6 +150,7 @@ export interface ClientCallbacks {
   onResearchLoadInventory: (buildingX: number, buildingY: number, categoryIndex: number) => void;
   onResearchGetDetails: (buildingX: number, buildingY: number, inventionId: string) => void;
   onConnectionConnect: (fluidId: string, direction: 'input' | 'output', selectedCoords: Array<{ x: number; y: number }>) => void;
+  onDisconnectConnection: (buildingX: number, buildingY: number, fluidId: string, direction: 'input' | 'output', x: number, y: number) => void;
 
   // Mail
   onMailGetFolder: (folder: MailFolder) => void;

@@ -622,6 +622,245 @@
   font-style: italic;
 }
 
+/* Supply slider row */
+.supplySliderRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+
+.supplySliderRow .sliderLabel {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  min-width: 72px;
+  flex-shrink: 0;
+}
+
+.supplySliderRow .slider {
+  flex: 1;
+}
+
+.supplySliderRow .sliderValue {
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  min-width: 40px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Supply connections table */
+.supplyTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+  margin: var(--space-2) 0;
+}
+
+.supplyTable th {
+  font-weight: var(--font-medium);
+  color: var(--text-muted);
+  text-align: left;
+  padding: 2px var(--space-1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+
+.supplyTableRow {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.supplyTableRow:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.supplyTableRowSelected {
+  background: rgba(212, 168, 67, 0.12);
+}
+
+.supplyTableRow td {
+  padding: 2px var(--space-1);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.supplyConnectedIcon {
+  color: #4caf50;
+  font-size: 12px;
+}
+
+/* Supply action buttons */
+.supplyActions {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) 0 0;
+  justify-content: flex-end;
+}
+
+.hireBtn,
+.modifyBtn {
+  padding: 2px 10px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  border: 1px solid;
+  transition: background 0.15s;
+}
+
+.hireBtn {
+  background: rgba(52, 89, 80, 0.8);
+  border-color: #4a7a6a;
+  color: var(--accent-gold, #d4a843);
+}
+
+.hireBtn:hover {
+  background: rgba(74, 122, 106, 0.9);
+}
+
+.modifyBtn {
+  background: rgba(60, 60, 80, 0.8);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+}
+
+.modifyBtn:hover {
+  background: rgba(80, 80, 100, 0.9);
+}
+
+.modifyBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Overpayment popover */
+.overpayBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+}
+
+.overpayPopover {
+  position: relative;
+  z-index: 51;
+  margin: var(--space-2) 0;
+  padding: var(--space-3);
+  background: var(--bg-tertiary, rgba(30, 32, 40, 0.95));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.overpayHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.overpayHeader strong {
+  color: var(--text-primary);
+}
+
+.overpaySliderRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+
+.overpaySliderRow .sliderLabel {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  min-width: 72px;
+}
+
+.overpaySliderRow .slider {
+  flex: 1;
+}
+
+.overpaySliderRow .sliderValue {
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  min-width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.overpayActions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-2);
+}
+
+.overpayDeleteBtn {
+  padding: 2px 10px;
+  height: 24px;
+  background: rgba(180, 50, 50, 0.7);
+  border: 1px solid rgba(220, 80, 80, 0.6);
+  border-radius: var(--radius-sm);
+  color: #ff8a8a;
+  cursor: pointer;
+  font-size: var(--text-xs);
+  margin-right: auto;
+}
+
+.overpayDeleteBtn:hover {
+  background: rgba(200, 60, 60, 0.85);
+}
+
+.overpayOkBtn {
+  padding: 2px 10px;
+  height: 24px;
+  background: rgba(52, 89, 80, 0.8);
+  border: 1px solid #4a7a6a;
+  border-radius: var(--radius-sm);
+  color: var(--accent-gold, #d4a843);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.overpayOkBtn:hover {
+  background: rgba(74, 122, 106, 0.9);
+}
+
+.overpayCancelBtn {
+  padding: 2px 10px;
+  height: 24px;
+  background: rgba(60, 60, 80, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.overpayCancelBtn:hover {
+  background: rgba(80, 80, 100, 0.7);
+}
+
+/* Supply stats row */
+.supplyStats {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+}
+
+.supplyStat {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.supplyStat strong {
+  color: var(--text-primary);
+}
+
 /* Action button */
 .actionBtnContainer {
   padding: var(--space-3) 0;

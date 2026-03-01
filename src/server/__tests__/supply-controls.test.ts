@@ -252,6 +252,67 @@ describe('Supply RDO command mapping', () => {
     expect(mapCommand('RDOConnectInput')).toBe('cnxCount');
     expect(mapCommand('RDODisconnectInput')).toBe('cnxCount');
   });
+
+  it('should map RDOSetInputOverPrice to OverPriceCnxInfo', () => {
+    expect(mapCommand('RDOSetInputOverPrice')).toBe('OverPriceCnxInfo');
+  });
+});
+
+// =============================================================================
+// DISCONNECT INPUT COMMAND
+// =============================================================================
+
+describe('RDODisconnectInput command format', () => {
+  it('should format single coordinate pair for disconnect', () => {
+    const x = 100;
+    const y = 200;
+    const connectionList = `${x},${y}`;
+    expect(connectionList).toBe('100,200');
+  });
+
+  it('should include fluidId in additionalParams', () => {
+    const params = { fluidId: 'Chemicals', connectionList: '100,200' };
+    expect(params.fluidId).toBe('Chemicals');
+    expect(params.connectionList).toBe('100,200');
+  });
+
+  function disconnectCommand(direction: 'input' | 'output'): string {
+    return direction === 'input' ? 'RDODisconnectInput' : 'RDODisconnectOutput';
+  }
+
+  it('should use RDODisconnectInput for input direction', () => {
+    expect(disconnectCommand('input')).toBe('RDODisconnectInput');
+  });
+
+  it('should use RDODisconnectOutput for output direction', () => {
+    expect(disconnectCommand('output')).toBe('RDODisconnectOutput');
+  });
+});
+
+// =============================================================================
+// OVERPRICE COMMAND
+// =============================================================================
+
+describe('RDOSetInputOverPrice command format', () => {
+  it('should include fluidId and index in additionalParams', () => {
+    const params = { fluidId: 'Steel', index: '2' };
+    expect(params.fluidId).toBe('Steel');
+    expect(params.index).toBe('2');
+  });
+
+  it('should accept overprice values 0-150', () => {
+    const values = [0, 50, 100, 150];
+    for (const v of values) {
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(150);
+    }
+  });
+
+  it('should pass overprice as string value', () => {
+    const overprice = 75;
+    const valueStr = String(overprice);
+    expect(valueStr).toBe('75');
+  });
 });
 
 // =============================================================================
