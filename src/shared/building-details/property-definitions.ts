@@ -43,6 +43,14 @@ export enum PropertyType {
   RESEARCH_PANEL = 'RESEARCH_PANEL',
   /** Service cards layout (card-per-service with price slider + avg marker) */
   SERVICE_CARDS = 'SERVICE_CARDS',
+  /**
+   * Close/Open toggle button for facility Stopped property.
+   * Shows "Close" when building is open (Stopped=0), "Open" when stopped (Stopped≠0).
+   * Sends: C sel <CurrBlock> set Stopped "#-1" (close) or "#0" (open)
+   * Wordbool convention: true=-1, false=0. Only visible to owner.
+   * Archaeology: TBlock.Stopped — published property, wordbool, Kernel/Kernel.pas
+   */
+  STOP_TOGGLE = 'STOP_TOGGLE',
 }
 
 /**

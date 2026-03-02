@@ -14,6 +14,7 @@ import type {
   SurfaceData,
   FacilityDimensions,
   BuildingDetailsResponse,
+  BuildingSupplyData,
   SearchMenuCategory,
   TownInfo,
   TycoonProfile,
@@ -114,6 +115,7 @@ export enum WsMessageType {
   RESP_BUILDING_DETAILS = 'RESP_BUILDING_DETAILS',
   REQ_BUILDING_SET_PROPERTY = 'REQ_BUILDING_SET_PROPERTY',
   RESP_BUILDING_SET_PROPERTY = 'RESP_BUILDING_SET_PROPERTY',
+
 
   // Building Upgrades
   REQ_BUILDING_UPGRADE = 'REQ_BUILDING_UPGRADE',

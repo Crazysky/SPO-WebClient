@@ -19,10 +19,24 @@ C 150 sel 7024008 call GetPropertyList "^" "%MetaFluid	FluidValue	LastCostPerc	m
 A150 res="%Drugs	2 kg/day	200	0	400			1	1	114554724	";
 C 151 sel 7024008 call GetSubObjectProps "^" "#0","%cnxFacilityName0	cnxCreatedBy0	cnxCompanyName0	cnxNfPrice0	OverPriceCnxInfo0	LastValueCnxInfo0	tCostCnxInfo0	cnxQuality0	ConnectedCnxInfo0	cnxXPos0	cnxYPos0	";
 A151 res="%Trade Center		PGI	80	0	2 kg/day	$0	40%	1	463	389	";
-C sel 6794932 call CloseObject "*" "#7024008";C 153 sel 6803460 call GetPropertyList "^" "%SecurityId	CurrBlock	cInputCount	";
+C sel 6794932 call CloseObject "*" "#7024008";
+
+// --- compInputs tab (TabHandler=compInputs, TabName=SERVICES) ---
+// Phase 1: fetch count
+C 153 sel 6803460 call GetPropertyList "^" "%SecurityId	CurrBlock	cInputCount	";
 A153 res="%-117360084-	114551764	1	";
+// Phase 2: batch all 7 props × 1 input (this building has 1 company input)
 C 155 sel 6803460 call GetPropertyList "^" "%cInput0.0	cInputSup0	cInputDem0	cInputRatio0	cInputMax0	cEditable0	cUnits0.0	";
 A155 res="%Advertisement	0	0	0	1680	yes	hits	";
+// Result → CompInputData: name="Advertisement", supplied=0, demanded=0, ratio=0, maxDemand=1680, editable=true, units="hits"
+//
+// NOTE: SERVICES tab name is reused for TWO different handlers:
+//   - compInputs (most factories/service buildings) → cInputCount + indexed cInput{i}.* (this block above)
+//   - Supplies (Config 6 HQ only) → GetInputNames + SetPath + per-gate GetPropertyList (see lines 12-21 above)
+//
+// Example: building with cInputCount=3 (3 company inputs), Phase 2 fetches 21 props in one batch:
+// C sel <id> call GetPropertyList "^" "%cInput0.0	cInputSup0	cInputDem0	cInputRatio0	cInputMax0	cEditable0	cUnits0.0	cInput1.0	cInputSup1	cInputDem1	cInputRatio1	cInputMax1	cEditable1	cUnits1.0	cInput2.0	cInputSup2	cInputDem2	cInputRatio2	cInputMax2	cEditable2	cUnits2.0	";
+// A res="%Advertisement	1560	1560	100	1680	yes	hits	Computer Services	1	1	100	2		hours	Legal Services	0	0	50	1680	no	hours	";
 C 161 sel 6803460 call GetPropertyList "^" "%CurrBlock	SecurityId	Salaries0	WorkForcePrice0	SalaryValues0	Workers0	WorkersK0	WorkersMax0	WorkersCap0	Salaries1	WorkForcePrice1	SalaryValues	Workers1	WorkersK1	WorkersMax1	WorkersCap1	Salaries2	WorkForcePrice2	SalaryValues2	Workers2	WorkersK2	WorkersMax2	WorkersCap2	MinSalaries0	MinSalaries1	MinSalaries2	";
 A161 res="%114551764	-117360084-								100	8		4	50	5	5	100	2	2	3	50	3	3		0	0	";
 C 165 sel 6803460 call GetPropertyList "^" "%CurrBlock	SecurityId	UpgradeLevel	MaxUpgrade	Upgrading	Pending	NextUpgCost	CloneMenu0	";
@@ -106,7 +120,7 @@ A222 res="%230	Software	0	-100	0	";
 C 223 sel 6803460 call GetPropertyList "^" "%Tax18Id	Tax18Name0	Tax18Kind	Tax18Percent	Tax18LastYear	";
 A223 res="%235	Plastics	0	-100	0	";
 C 224 sel 6803460 call GetPropertyList "^" "%Tax19Id	Tax19Name0	Tax19Kind	Tax19Percent	Tax19LastYear	";
-A224 res="%240	Legal Services	0	-100	0	";
+A224 res="%240	 Services	0	-100	0	";
 C 225 sel 6803460 call GetPropertyList "^" "%Tax20Id	Tax20Name0	Tax20Kind	Tax20Percent	Tax20LastYear	";
 A225 res="%250	Cars	0	-100	0	";
 C 226 sel 6803460 call GetPropertyList "^" "%Tax21Id	Tax21Name0	Tax21Kind	Tax21Percent	Tax21LastYear	";

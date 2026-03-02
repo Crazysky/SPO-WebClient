@@ -44,6 +44,7 @@ export type {
   BuildingConnectionData,
   BuildingSupplyData,
   BuildingProductData,
+  CompInputData,
   BuildingDetailsTab,
   BuildingDetailsResponse,
   SearchMenuCategory,

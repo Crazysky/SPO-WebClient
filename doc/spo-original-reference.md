@@ -437,6 +437,48 @@
 | `RDOConnectToTycoon` | function | `call` | `(#tycoonId, #kind, #flag)` | olevariant | 345 | kind=button.Tag; flag=WordBool(-1) |
 | `RDODisconnectFromTycoon` | function | `call` | `(#tycoonId, #kind, #flag)` | olevariant | 357 | kind=button.Tag; flag=WordBool(-1) |
 
+### Company inputs — compInputs tab (CompanyServicesSheetForm.pas)
+
+**Handler:** `compInputs` → `ADVERTISEMENT_GROUP` (special: 'compInputs') → `fetchCompInputData()`
+
+**Buildings using this tab:** Config 3 factory, Config 4 service, Config 8 HQ variant, Config 9 media.
+Tab name in CLASSES.BIN: `SERVICES` (TabName=SERVICES, TabHandler=compInputs).
+
+> **Note on SERVICES tab name reuse:** The tab name "SERVICES" appears with TWO different handlers:
+> - `compInputs` (most factories/service buildings) — uses `cInputCount` + indexed `cInput{i}.*` protocol
+> - `Supplies` (Config 6 HQ buildings only) — uses `GetInputNames` + `SetPath` + per-gate `GetPropertyList`
+> These are completely different sheets in the Delphi source. `ADVERTISEMENT_GROUP` (compInputs) is NOT the same as `SUPPLIES_GROUP` (Supplies).
+
+**RDO fetch protocol (2-phase batch):**
+
+```
+// Phase 1 — get count
+C sel <id> call GetPropertyList "^" "%SecurityId\tCurrBlock\tcInputCount\t";
+A res="%...\t...\t3\t";  // count=3
+
+// Phase 2 — batch all 7 properties per input (max 49 props per GetPropertyList call)
+C sel <id> call GetPropertyList "^" "%cInput0.0\tcInputSup0\tcInputDem0\tcInputRatio0\tcInputMax0\tcEditable0\tcUnits0.0\tcInput1.0\tcInputSup1\tcInputDem1\tcInputRatio1\tcInputMax1\tcEditable1\tcUnits1.0\tcInput2.0\tcInputSup2\tcInputDem2\tcInputRatio2\tcInputMax2\tcEditable2\tcUnits2.0\t";
+A res="%Advertisement\t0\t0\t0\t1680\tyes\thits\tComputer Services\t1\t1\t100\t2\t\thours\tLegal Services\t0\t0\t50\t1680\tno\thours\t";
+```
+
+**Property meanings (per input `i`):**
+
+| RDO property | Field | Delphi type | Notes |
+|---|---|---|---|
+| `cInput{i}.0` | name | widestring | Input name (language suffix `.0`) |
+| `cInputSup{i}` | supplied | integer | Current supply volume |
+| `cInputDem{i}` | demanded | integer | Current demand volume |
+| `cInputRatio{i}` | ratio | integer 0-100 | Demand ratio (% of max capacity) |
+| `cInputMax{i}` | maxDemand | integer | Maximum demand capacity |
+| `cEditable{i}` | editable | string `'yes'/'no'` | Whether player can adjust demand |
+| `cUnits{i}.0` | units | widestring | Unit label (e.g., 'hits', 'hours') |
+
+**SET command:**
+
+| Member | Kind | Verb | Signature | Return | Notes |
+|--------|------|------|-----------|--------|-------|
+| `RDOSetCompanyInputDemand` | procedure | `call` | `(#tabIndex, #percValue)` | void (`*`) | tabIndex = 0-based position in cInputCount list; percValue = 0-100 |
+
 ### Trade / Role / Loan (TBlock / TWarehouse / TBankBlock)
 
 | Member | Kind | Verb | Signature | Return | Source Line | Notes |
@@ -510,6 +552,74 @@
 | `RDOGetInvPropsByLang` | function | `call` | `(%inventionId, %lang)` | `%string` | 76 | Properties text in specified language |
 | `RDOGetInvDesc` | function | `call` | `(%inventionId)` | `%string` | 77 | Description + prerequisites in default language |
 | `RDOGetInvDescEx` | function | `call` | `(%inventionId, %langId)` | `%string` | 78 | Description in specified language |
+
+---
+
+## TBlock / TFacility (Kernel/Kernel.pas)
+
+**Resolved via:** `CurrBlock` object ID returned in `GetPropertyList` Phase 1 response.
+
+> `TBlock` is the base class for all placeable game objects. Facility-specific subclasses
+> (`TConnectedBlock`, `TEvaluatedBlock`, etc.) inherit these properties.
+> Target object for facility inspector SET commands is always `CurrBlock`, NOT the world ID.
+
+### Published properties (building inspector — Phase 1 fetch)
+
+| Member | Kind | Verb | Delphi Type | RDO Prefix | Notes |
+|--------|------|------|------------|------------|-------|
+| `Name` | property | `get`/`set` | `widestring` | `%` | Editable name. SET: `C sel <CurrBlock> set Name "%NewName"` |
+| `Creator` | property | `get` | `widestring` | `%` | Owner alias, read-only |
+| `Cost` | property | `get` | `currency` | `@` | Construction cost, marshaled as double |
+| `ROI` | property | `get` | `single` | `!` | Return on investment percentage |
+| `Years` | property | `get` | `integer` | `#` | Facility age in game years |
+| `CurrBlock` | property | `get` | `integer` | `#` | Object ID of the block itself (self-referential) |
+| `SecurityId` | property | `get` | `widestring` | `%` | Owner security token; used to check ownership |
+| `Stopped` | property | `get`/`set` | `wordbool` | `#` | Facility paused state. true=-1 (stopped), false=0 (running). |
+| `Trouble` | property | `get` | `integer` | `#` | Trouble/issue code. 0=none; non-zero=issue code. |
+| `ObjectId` | property | `get` | `integer` | `#` | Global object ID (same as CurrBlock for facilities) |
+
+### Stopped property — wire format (Batch 2 — G1)
+
+**Archaeology checklist result (rdo-archaeology-checklist.md):**
+1. **Server object:** `TBlock` (base class) in `Kernel/Kernel.pas`
+2. **Member kind:** `published property Stopped: wordbool read GetStopped write SetStopped` → verb: `set`
+3. **Parameter types:** Single `wordbool` value → RDO prefix `#`. Delphi wordbool: `true = -1`, `false = 0`
+4. **Separator:** N/A (property set, no separator token)
+5. **Return type:** N/A (property set returns nothing)
+6. **Push behaviors:** Server may push `RefreshObject` to nearby clients after state change
+7. **TypeScript command:**
+   ```typescript
+   // Close (stop building operations):
+   RdoCommand.sel(currBlockId).set('Stopped').args(RdoValue.int(-1)).build();
+   // Open (resume building operations):
+   RdoCommand.sel(currBlockId).set('Stopped').args(RdoValue.int(0)).build();
+   ```
+8. **Wire format verified from RDO trace:**
+   - `C sel 128629248 set Stopped="#-1"` — Close action
+   - `C sel 128629248 set Stopped="#0"` — Open action
+   - Object ID is `CurrBlock` (facility block), NOT `worldContextId`
+
+### RDODelFacility — wire format (Batch 3 — G2)
+
+**Archaeology checklist result (rdo-archaeology-checklist.md):**
+1. **Server object:** `TWorldView` (or `TClientView`) in `InterfaceServer.pas` — the **world** object, NOT the facility block
+2. **Member kind:** `published function RDODelFacility(const aX, aY: integer): OleVariant` → verb: `call`, separator: `"^"` (function, returns value)
+3. **Parameter types:** Two `integer` params → RDO prefix `#`. Args are world coordinates of the building
+4. **Separator:** `"^"` — function call that returns a value (OleVariant)
+5. **Return type:** `OleVariant` containing `integer` — `Result := 0` on success, non-zero on failure. Response: `A<id> res="#0"`
+6. **Push behaviors:** Server sends `RefreshObject` push to nearby clients after deletion; triggers map refresh
+7. **TypeScript command:**
+   ```typescript
+   // Demolish building at world coordinates (x, y):
+   RdoCommand.sel(worldContextId).call('RDODelFacility').method()
+     .args(RdoValue.int(buildingX), RdoValue.int(buildingY)).build();
+   ```
+8. **Wire format verified from RDO trace:**
+   - `C sel 109319792 call RDODelFacility "^" "#459","#389"` — request
+   - `A123 res="#0"` — success response
+   - Object ID is `worldContextId` (world view), NOT `CurrBlock` or `interfaceServerId`
+
+**Critical distinction:** `RDODelFacility` targets the **world** object (worldContextId), while all other building inspector commands (SET Stopped, RDOSetPrice, etc.) target the **facility block** (CurrBlock / interfaceServerId).
 
 ---
 

@@ -28,6 +28,7 @@ import type {
   BuildingInfo,
   MailFolder,
   ConnectionSearchResult,
+
   BankActionType,
   AutoConnectionActionType,
   CurriculumActionType,

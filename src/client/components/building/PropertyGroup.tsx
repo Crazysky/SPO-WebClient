@@ -7,7 +7,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import type { BuildingPropertyValue, BuildingSupplyData, BuildingProductData, BuildingConnectionData } from '@/shared/types';
+import type { BuildingPropertyValue, BuildingSupplyData, BuildingProductData, BuildingConnectionData, CompInputData } from '@/shared/types';
 import {
   PropertyType,
   type PropertyDefinition,
@@ -22,8 +22,7 @@ import {
 import { useBuildingStore } from '../../store/building-store';
 import { useClient } from '../../context';
 import { ResearchPanel } from './ResearchPanel';
-import { parseCompInputServices, getDemandStatus, getFulfillmentStatus } from './comp-inputs-utils';
-import type { CompInputService } from './comp-inputs-utils';
+import { getConnectionStatus } from './comp-inputs-utils';
 import styles from './PropertyGroup.module.css';
 
 interface PropertyGroupProps {
@@ -77,14 +76,12 @@ export function PropertyGroup({ properties, buildingX, buildingY }: PropertyGrou
     );
   }
 
-  // Special: compInputs tab — render structured company inputs UI (services consumed)
+  // Special: compInputs tab — eager render of company inputs (cInputCount/cInput{i}.* protocol)
   if (activeGroup?.special === 'compInputs') {
-    const ciValueMap = new Map<string, string>();
-    for (const prop of properties) ciValueMap.set(prop.name, prop.value);
     return (
       <div className={styles.group}>
         <CompInputsPanel
-          valueMap={ciValueMap}
+          compInputs={details?.compInputs ?? []}
           canEdit={canEdit}
           buildingX={buildingX}
           buildingY={buildingY}
@@ -220,6 +217,19 @@ function DefinedProperties({
     [buildingX, buildingY, client, rdoCommands],
   );
 
+  const handleStringPropertyChange = useCallback(
+    (propertyName: string, value: string) => {
+      // String variant for widestring properties like Name.
+      const resolved = resolveRdoCommand(propertyName, rdoCommands);
+      client.onSetBuildingProperty(
+        buildingX, buildingY,
+        resolved.command, value,
+        resolved.params,
+      );
+    },
+    [buildingX, buildingY, client, rdoCommands],
+  );
+
   const handleActionButton = useCallback(
     (actionId: string) => {
       client.onBuildingAction(actionId);
@@ -294,8 +304,30 @@ function DefinedProperties({
       continue;
     }
 
+    // Stop toggle button (Close/Open building) — owner only
+    if (def.type === PropertyType.STOP_TOGGLE) {
+      const stoppedValue = valueMap.get(def.rdoName) ?? '0';
+      if (canEdit) {
+        elements.push(
+          <StopToggle
+            key="stop-toggle"
+            stoppedValue={stoppedValue}
+            onPropertyChange={handlePropertyChange}
+          />,
+        );
+      }
+      rendered.add(def.rdoName);
+      continue;
+    }
+
     // Action button
     if (def.type === PropertyType.ACTION_BUTTON) {
+      // Owner-only actions (connect, demolish) hidden from non-owners
+      const ownerOnlyActions = new Set(['connect', 'demolish']);
+      if (ownerOnlyActions.has(def.actionId ?? '') && !canEdit) {
+        rendered.add(def.rdoName);
+        continue;
+      }
       elements.push(
         <ActionButton
           key={`action-${def.actionId ?? def.rdoName}`}
@@ -408,6 +440,7 @@ function DefinedProperties({
         maxValue={def.maxProperty ? valueMap.get(def.maxProperty) : undefined}
         canEdit={canEdit}
         onPropertyChange={handlePropertyChange}
+        onStringPropertyChange={handleStringPropertyChange}
       />,
     );
   }
@@ -447,9 +480,10 @@ interface DefinedPropertyRowProps {
   maxValue?: string;
   canEdit: boolean;
   onPropertyChange: (name: string, value: number) => void;
+  onStringPropertyChange?: (name: string, value: string) => void;
 }
 
-function DefinedPropertyRow({ def, value, maxValue, canEdit, onPropertyChange }: DefinedPropertyRowProps) {
+function DefinedPropertyRow({ def, value, maxValue, canEdit, onPropertyChange, onStringPropertyChange }: DefinedPropertyRowProps) {
   return (
     <div className={styles.row}>
       <span className={styles.name} title={def.tooltip}>{def.displayName}</span>
@@ -459,6 +493,7 @@ function DefinedPropertyRow({ def, value, maxValue, canEdit, onPropertyChange }:
         maxValue={maxValue}
         canEdit={canEdit}
         onPropertyChange={onPropertyChange}
+        onStringPropertyChange={onStringPropertyChange}
       />
     </div>
   );
@@ -483,9 +518,10 @@ interface PropertyValueProps {
   maxValue?: string;
   canEdit: boolean;
   onPropertyChange: (name: string, value: number) => void;
+  onStringPropertyChange?: (name: string, value: string) => void;
 }
 
-function PropertyValue({ def, value, maxValue, canEdit, onPropertyChange }: PropertyValueProps) {
+function PropertyValue({ def, value, maxValue, canEdit, onPropertyChange, onStringPropertyChange }: PropertyValueProps) {
   const num = parseFloat(value);
   const colorClass = getColorClass(num, def.colorCode);
 
@@ -529,6 +565,18 @@ function PropertyValue({ def, value, maxValue, canEdit, onPropertyChange }: Prop
         );
       }
       return <span className={styles.value}>{isNaN(num) ? value : `${num}${def.unit ?? ''}`}</span>;
+
+    case PropertyType.TEXT:
+      if (canEdit && def.editable && onStringPropertyChange) {
+        return (
+          <TextInput
+            value={value}
+            rdoName={def.rdoName}
+            onStringPropertyChange={onStringPropertyChange}
+          />
+        );
+      }
+      return <span className={styles.value}>{value || '-'}</span>;
 
     default:
       return <span className={styles.value}>{value || '-'}</span>;
@@ -597,6 +645,43 @@ function SliderInput({ value, min, max, step, unit, rdoName, onPropertyChange }:
 }
 
 // =============================================================================
+// TEXT INPUT (editable widestring property, e.g., Name)
+// =============================================================================
+
+interface TextInputProps {
+  value: string;
+  rdoName: string;
+  onStringPropertyChange: (name: string, value: string) => void;
+}
+
+function TextInput({ value, rdoName, onStringPropertyChange }: TextInputProps) {
+  const [localVal, setLocalVal] = useState(value);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const newVal = e.target.value;
+      setLocalVal(newVal);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => {
+        onStringPropertyChange(rdoName, newVal);
+      }, 500);
+    },
+    [rdoName, onStringPropertyChange],
+  );
+
+  return (
+    <input
+      type="text"
+      className={styles.textInput}
+      value={localVal}
+      onChange={handleChange}
+      maxLength={40}
+    />
+  );
+}
+
+// =============================================================================
 // RATIO VALUE (progress bar)
 // =============================================================================
 
@@ -647,6 +732,40 @@ function BooleanValue({
     <span className={`${styles.value} ${isTrue ? styles.positive : styles.muted}`}>
       {isTrue ? 'Yes' : 'No'}
     </span>
+  );
+}
+
+// =============================================================================
+// STOP TOGGLE BUTTON (Close/Open building)
+// =============================================================================
+
+/**
+ * Renders a "Close" or "Open" button based on the Stopped wordbool property.
+ * Stopped=0  → building is open   → shows "Close" (danger: will stop operations)
+ * Stopped≠0  → building is closed → shows "Open"  (safe: resumes operations)
+ * Click sends: SET Stopped "#-1" (close) or "#0" (open) on CurrBlock.
+ */
+function StopToggle({
+  stoppedValue,
+  onPropertyChange,
+}: {
+  stoppedValue: string;
+  onPropertyChange: (name: string, value: number) => void;
+}) {
+  const numVal = parseInt(stoppedValue, 10);
+  const isStopped = !isNaN(numVal) && numVal !== 0;
+  const label = isStopped ? 'Open' : 'Close';
+  const isDanger = !isStopped; // Closing an open building = destructive action
+
+  return (
+    <div className={styles.stopToggleRow}>
+      <button
+        className={`${styles.stopToggleBtn} ${isDanger ? styles.stopToggleBtnDanger : ''}`}
+        onClick={() => onPropertyChange('Stopped', isStopped ? 0 : -1)}
+      >
+        {label}
+      </button>
+    </div>
   );
 }
 
@@ -1440,7 +1559,7 @@ function SupplyCard({
                 type="range"
                 className={styles.slider}
                 min={0}
-                max={1000}
+                max={500}
                 step={10}
                 value={localMaxPrice}
                 onChange={handleMaxPriceChange}
@@ -1648,155 +1767,109 @@ function ProductCard({
 }
 
 // =============================================================================
-// COMPANY INPUTS PANEL (special === 'compInputs')
+// COMPANY INPUTS PANEL (special === 'compInputs') — Eager render from cInputCount/cInput{i}.* data
 // =============================================================================
 
 function CompInputsPanel({
-  valueMap,
+  compInputs,
   canEdit,
   buildingX,
   buildingY,
 }: {
-  valueMap: Map<string, string>;
+  compInputs: CompInputData[];
+  canEdit: boolean;
+  buildingX: number;
+  buildingY: number;
+}) {
+  if (compInputs.length === 0) {
+    return <div className={styles.empty}>No company inputs</div>;
+  }
+
+  return (
+    <div className={styles.ciAccordion}>
+      {compInputs.map((data, i) => (
+        <CompInputSection
+          key={i}
+          data={data}
+          inputIndex={i}
+          canEdit={canEdit && data.editable}
+          buildingX={buildingX}
+          buildingY={buildingY}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CompInputSection({
+  data,
+  inputIndex,
+  canEdit,
+  buildingX,
+  buildingY,
+}: {
+  data: CompInputData;
+  inputIndex: number;
   canEdit: boolean;
   buildingX: number;
   buildingY: number;
 }) {
   const client = useClient();
-  const services = parseCompInputServices(valueMap);
-  const [activeIdx, setActiveIdx] = useState(0);
+  const [localDemand, setLocalDemand] = useState(data.ratio);
+  const demandTimeout = useRef<ReturnType<typeof setTimeout>>();
 
-  if (services.length === 0) {
-    return <div className={styles.empty}>No company services</div>;
-  }
+  const fillPct = data.demanded > 0 ? Math.min(100, (data.supplied / data.demanded) * 100) : 0;
 
-  const safeIdx = Math.min(activeIdx, services.length - 1);
-  const active = services[safeIdx];
-
-  return (
-    <div className={styles.ciPanel}>
-      {services.length > 1 && (
-        <div className={styles.ciTabs}>
-          {services.map((svc, i) => {
-            const demandPerc = svc.max > 0 ? Math.round((svc.requesting / svc.max) * 100) : 0;
-            const dotStatus = getDemandStatus(demandPerc);
-            return (
-              <button
-                key={i}
-                className={`${styles.ciTab} ${i === safeIdx ? styles.ciTabActive : ''}`}
-                onClick={() => setActiveIdx(i)}
-              >
-                <span className={`${styles.ciDot} ${styles[dotStatus]}`} />
-                {svc.name}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {services.length === 1 && (
-        <div className={styles.ciHeader}>{active.name}</div>
-      )}
-
-      <CompInputServiceDetail
-        service={active}
-        canEdit={canEdit}
-        buildingX={buildingX}
-        buildingY={buildingY}
-        client={client}
-      />
-    </div>
-  );
-}
-
-function CompInputServiceDetail({
-  service,
-  canEdit,
-  buildingX,
-  buildingY,
-  client,
-}: {
-  service: CompInputService;
-  canEdit: boolean;
-  buildingX: number;
-  buildingY: number;
-  client: ReturnType<typeof useClient>;
-}) {
-  const demandPerc = service.max > 0
-    ? Math.round((service.requesting / service.max) * 100)
-    : 0;
-  const [localPerc, setLocalPerc] = useState(isNaN(demandPerc) ? 0 : demandPerc);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
-
-  const isEditable = canEdit && service.editable;
-  const demandStatus = getDemandStatus(localPerc);
-  const fulfillmentStatus = getFulfillmentStatus(service.ratio);
-  const clampedRatio = Math.min(100, Math.max(0, service.ratio));
-  const unitsLabel = service.units ? ` ${service.units}` : '';
-
-  const handleSliderChange = useCallback(
+  const handleDemandChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const newVal = parseInt(e.target.value, 10);
-      setLocalPerc(newVal);
-
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(() => {
-        client.onSetBuildingProperty(
-          buildingX, buildingY,
-          'RDOSetCompanyInputDemand', String(newVal),
-          { index: String(service.index) },
-        );
+      const val = Math.max(0, Math.min(100, parseInt(e.target.value, 10)));
+      setLocalDemand(val);
+      if (demandTimeout.current) clearTimeout(demandTimeout.current);
+      demandTimeout.current = setTimeout(() => {
+        client.onSetBuildingProperty(buildingX, buildingY, 'RDOSetCompanyInputDemand', String(val), {
+          index: String(inputIndex),
+        });
       }, 300);
     },
-    [client, buildingX, buildingY, service.index],
+    [client, buildingX, buildingY, inputIndex],
   );
 
   return (
-    <div className={styles.ciCard}>
-      {/* Demand slider — the hero element */}
-      <div className={styles.ciDemandRow}>
-        <span className={styles.ciDemandLabel}>Demand</span>
-        {isEditable ? (
-          <>
-            <input
-              type="range"
-              className={`${styles.slider} ${styles[demandStatus]}`}
-              min={0}
-              max={100}
-              step={1}
-              value={localPerc}
-              onChange={handleSliderChange}
-            />
-            <span className={`${styles.ciDemandPerc} ${styles[demandStatus]}`}>
-              {localPerc}%
-            </span>
-          </>
-        ) : (
-          <span className={styles.ciDemandPerc}>{demandPerc}%</span>
-        )}
+    <div className={styles.ciAccordionItem}>
+      <div className={styles.ciAccordionHeader}>
+        <span className={styles.ciAccordionName}>{data.name.toUpperCase()}</span>
       </div>
-
-      {/* Warning hint — only when demand < 100% */}
-      {localPerc < 100 && (
-        <div className={styles.ciWarning}>Not at full capacity</div>
-      )}
-
-      {/* Fulfillment ratio bar */}
-      <div className={styles.ciRatioHero}>
-        <div className={`${styles.ciRatioTrack} ${styles[fulfillmentStatus]}`}>
-          <div
-            className={styles.ciRatioFill}
-            style={{ width: `${clampedRatio}%` }}
+      <div className={styles.ciAccordionBody}>
+        {/* Row 1: Demand slider */}
+        <div className={styles.ciDemandRow}>
+          <span className={styles.ciDemandLabel}>Demand</span>
+          <input
+            type="range"
+            className={styles.slider}
+            min={0}
+            max={100}
+            step={1}
+            value={localDemand}
+            disabled={!canEdit}
+            onChange={handleDemandChange}
           />
+          <span className={styles.ciDemandPerc}>{localDemand}%</span>
         </div>
-        <span className={`${styles.ciRatioPerc} ${styles[fulfillmentStatus]}`}>
-          {service.ratio}%
-        </span>
-      </div>
 
-      {/* Summary line */}
-      <div className={styles.ciSummary}>
-        Receiving {formatNumber(service.receiving)} of {formatNumber(service.requesting)}{unitsLabel}
+        {/* Row 2: Supply fulfillment bar */}
+        <div className={styles.ciSupplyBarRow}>
+          <div className={styles.ciSupplyBar}>
+            <div className={styles.ciSupplyBarFill} style={{ width: `${fillPct}%` }} />
+          </div>
+          <span className={styles.ciDemandPerc}>{Math.round(fillPct)}%</span>
+        </div>
+
+        {/* Row 3: Supplied / Demanded summary */}
+        <div className={styles.ciSummary}>
+          <span className={styles.ciFluidLabel}>
+            Supplied {formatNumber(data.supplied)} / Demanded {formatNumber(data.demanded)} {data.units}
+          </span>
+        </div>
       </div>
     </div>
   );

@@ -307,6 +307,32 @@ export interface BuildingProductData {
 }
 
 /**
+ * Company input entry — eagerly fetched via cInputCount + indexed cInput{i}.* properties.
+ * Handler: compInputs (CompanyServicesSheetForm.pas)
+ * Displayed as per-input sections with demand slider, supply bar, and supplied/demanded text.
+ * RDO: RDOSetCompanyInputDemand(inputIndex, percValue)
+ *
+ * Note: Config 6 HQ buildings use a tab also named "SERVICES" but with the Supplies handler
+ * (GetInputNames + SetPath protocol), not this compInputs protocol.
+ */
+export interface CompInputData {
+  /** Display name — cInput{i}.0 (e.g. "Advertisement", "Computer Services") */
+  name: string;
+  /** Amount supplied — cInputSup{i} */
+  supplied: number;
+  /** Amount demanded — cInputDem{i} */
+  demanded: number;
+  /** Demand percentage setting 0-100 — cInputRatio{i} */
+  ratio: number;
+  /** Maximum demand capacity — cInputMax{i} */
+  maxDemand: number;
+  /** Whether this input can be edited — cEditable{i} === 'yes' */
+  editable: boolean;
+  /** Unit label — cUnits{i}.0 (e.g. "hits", "hours") */
+  units: string;
+}
+
+/**
  * Tab metadata sent from server to client.
  * Driven by CLASSES.BIN [InspectorInfo] section — each building class
  * defines exactly which tabs to display.
@@ -354,6 +380,8 @@ export interface BuildingDetailsResponse {
   supplies?: BuildingSupplyData[];
   /** Product/output data (if applicable) */
   products?: BuildingProductData[];
+  /** Company input data — eagerly fetched via cInputCount + cInput{i}.* indexed properties */
+  compInputs?: CompInputData[];
   /** Money graph data points */
   moneyGraph?: number[];
   /** Timestamp */

@@ -1656,6 +1656,18 @@ export class StarpeaceClient {
       this.banMinister(buildingDetails);
     } else if (actionId === 'sitMinister') {
       this.sitMinister(buildingDetails);
+    } else if (actionId === 'connect') {
+      // RDOConnectToTycoon: open Search panel so user can find the target company
+      useUiStore.getState().openRightPanel('search');
+      this.showNotification('Search for a company to connect with', 'info');
+    } else if (actionId === 'demolish') {
+      useUiStore.getState().requestConfirm(
+        'Demolish Building',
+        'Are you sure you want to demolish this building? This action cannot be undone.',
+        () => this.deleteFacility(buildingDetails.x, buildingDetails.y).then(success => {
+          if (success) ClientBridge.hideBuildingPanel();
+        }),
+      );
     } else if (actionId === 'startRepair') {
       this.startRepair(buildingDetails);
     } else if (actionId === 'stopRepair') {

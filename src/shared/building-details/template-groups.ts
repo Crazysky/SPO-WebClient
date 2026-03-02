@@ -48,7 +48,12 @@ export const UNK_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'Stopped', displayName: 'Status', type: PropertyType.STOP_TOGGLE },
+    { rdoName: 'demolish', displayName: 'Demolish', type: PropertyType.ACTION_BUTTON, actionId: 'demolish', buttonLabel: 'Demolish' },
   ],
+  rdoCommands: {
+    'Stopped': { command: 'property' },
+  },
 };
 
 /**
@@ -61,16 +66,19 @@ export const IND_GENERAL_GROUP: PropertyGroup = {
   icon: 'i',
   order: 0,
   properties: [
-    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
+    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT, editable: true },
     { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
-    { rdoName: 'Stopped', displayName: 'Paused', type: PropertyType.BOOLEAN, editable: true },
+    { rdoName: 'Stopped', displayName: 'Status', type: PropertyType.STOP_TOGGLE },
     { rdoName: 'TradeRole', displayName: 'Trade Role', type: PropertyType.ENUM, editable: true, enumLabels: { '0': 'Neutral', '1': 'Producer', '2': 'Distributor', '3': 'Buyer', '4': 'Importer', '5': 'Export', '6': 'Import' } },
     { rdoName: 'TradeLevel', displayName: 'Trade Level', type: PropertyType.ENUM, editable: true, enumLabels: { '0': 'Same Owner', '1': 'Subsidiaries', '2': 'Allies', '3': 'Anyone' } },
+    { rdoName: 'connect', displayName: 'Connect', type: PropertyType.ACTION_BUTTON, actionId: 'connect', buttonLabel: 'Connect' },
+    { rdoName: 'demolish', displayName: 'Demolish', type: PropertyType.ACTION_BUTTON, actionId: 'demolish', buttonLabel: 'Demolish' },
   ],
   rdoCommands: {
+    'Name': { command: 'property' },
     'TradeLevel': { command: 'RDOSetTradeLevel' },
     'TradeRole': { command: 'RDOSetRole' },
     'Stopped': { command: 'property' },
@@ -89,12 +97,14 @@ export const SRV_GENERAL_GROUP: PropertyGroup = {
   icon: 'i',
   order: 0,
   properties: [
-    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
+    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT, editable: true },
     { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
-    { rdoName: 'Stopped', displayName: 'Paused', type: PropertyType.BOOLEAN, editable: true },
+    { rdoName: 'Trouble', displayName: 'Issues', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'SecurityId', displayName: 'SecurityId', type: PropertyType.TEXT, hideEmpty: true },
+    { rdoName: 'Stopped', displayName: 'Status', type: PropertyType.STOP_TOGGLE },
     {
       rdoName: 'srvNames',
       displayName: 'Services',
@@ -110,10 +120,15 @@ export const SRV_GENERAL_GROUP: PropertyGroup = {
         { rdoSuffix: 'srvAvgPrices', label: 'Avg Price', type: PropertyType.CURRENCY, width: '15%' },
       ],
     },
+    { rdoName: 'connect', displayName: 'Connect', type: PropertyType.ACTION_BUTTON, actionId: 'connect', buttonLabel: 'Connect' },
+    { rdoName: 'demolish', displayName: 'Demolish', type: PropertyType.ACTION_BUTTON, actionId: 'demolish', buttonLabel: 'Demolish' },
   ],
   rdoCommands: {
+    'Name': { command: 'property' },
     'Stopped': { command: 'property' },
     'srvPrices': { command: 'RDOSetPrice', indexed: true },
+    'RDOConnectToTycoon': { command: 'RDOConnectToTycoon' },
+    'RDODisconnectFromTycoon': { command: 'RDODisconnectFromTycoon' },
   },
 };
 
@@ -127,7 +142,7 @@ export const RES_GENERAL_GROUP: PropertyGroup = {
   icon: 'i',
   order: 0,
   properties: [
-    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT },
+    { rdoName: 'Name', displayName: 'Name', type: PropertyType.TEXT, editable: true },
     { rdoName: 'Creator', displayName: 'Owner', type: PropertyType.TEXT },
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
@@ -149,10 +164,14 @@ export const RES_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'Maintenance', displayName: 'Maintenance', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, unit: '%' },
     // Repair control: progress bar + conditional start/stop (Voyager: RdoRepair / RdoStopRepair)
     { rdoName: 'Repair', displayName: 'Repair', type: PropertyType.REPAIR_CONTROL, maxProperty: 'RepairPrice' },
+    { rdoName: 'Stopped', displayName: 'Status', type: PropertyType.STOP_TOGGLE },
+    { rdoName: 'demolish', displayName: 'Demolish', type: PropertyType.ACTION_BUTTON, actionId: 'demolish', buttonLabel: 'Demolish' },
   ],
   rdoCommands: {
+    'Name': { command: 'property' },
     'Rent': { command: 'property' },
     'Maintenance': { command: 'property' },
+    'Stopped': { command: 'property' },
   },
 };
 
@@ -171,7 +190,12 @@ export const HQ_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'Cost', displayName: 'Value', type: PropertyType.CURRENCY },
     { rdoName: 'ROI', displayName: 'ROI', type: PropertyType.PERCENTAGE, colorCode: 'auto' },
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'Stopped', displayName: 'Status', type: PropertyType.STOP_TOGGLE },
+    { rdoName: 'demolish', displayName: 'Demolish', type: PropertyType.ACTION_BUTTON, actionId: 'demolish', buttonLabel: 'Demolish' },
   ],
+  rdoCommands: {
+    'Stopped': { command: 'property' },
+  },
 };
 
 /**
@@ -220,11 +244,14 @@ export const BANK_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'Interest', displayName: 'Interest Rate', type: PropertyType.SLIDER, editable: true, min: 0, max: 100, step: 1, unit: '%' },
     { rdoName: 'Term', displayName: 'Loan Term', type: PropertyType.SLIDER, editable: true, min: 1, max: 20, step: 1, unit: 'years' },
     { rdoName: 'BudgetPerc', displayName: 'Budget', type: PropertyType.SLIDER, editable: true, min: 0, max: 100, unit: '%' },
+    { rdoName: 'Stopped', displayName: 'Status', type: PropertyType.STOP_TOGGLE },
+    { rdoName: 'demolish', displayName: 'Demolish', type: PropertyType.ACTION_BUTTON, actionId: 'demolish', buttonLabel: 'Demolish' },
   ],
   rdoCommands: {
     'Interest': { command: 'property' },
     'Term': { command: 'property' },
     'BudgetPerc': { command: 'RDOSetLoanPerc' },
+    'Stopped': { command: 'property' },
   },
 };
 
@@ -245,12 +272,16 @@ export const WH_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'Role', displayName: 'Trade Role', type: PropertyType.ENUM, enumLabels: { '0': 'Neutral', '1': 'Producer', '2': 'Distributor', '3': 'Buyer', '4': 'Importer', '5': 'Export', '6': 'Import' } },
     { rdoName: 'TradeLevel', displayName: 'Trade Level', type: PropertyType.ENUM, editable: true, enumLabels: { '0': 'Same Owner', '1': 'Subsidiaries', '2': 'Allies', '3': 'Anyone' } },
     { rdoName: 'GateMap', displayName: 'Gate Map', type: PropertyType.NUMBER, hideEmpty: true },
+    { rdoName: 'Stopped', displayName: 'Status', type: PropertyType.STOP_TOGGLE },
+    { rdoName: 'connect', displayName: 'Connect', type: PropertyType.ACTION_BUTTON, actionId: 'connect', buttonLabel: 'Connect' },
+    { rdoName: 'demolish', displayName: 'Demolish', type: PropertyType.ACTION_BUTTON, actionId: 'demolish', buttonLabel: 'Demolish' },
   ],
   rdoCommands: {
     'TradeLevel': { command: 'RDOSetTradeLevel' },
     'RDOSelectWare': { command: 'RDOSelectWare' },
     'RDOConnectToTycoon': { command: 'RDOConnectToTycoon' },
     'RDODisconnectFromTycoon': { command: 'RDODisconnectFromTycoon' },
+    'Stopped': { command: 'property' },
   },
 };
 
@@ -271,10 +302,13 @@ export const TV_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'Years', displayName: 'Age', type: PropertyType.NUMBER, unit: 'years' },
     { rdoName: 'HoursOnAir', displayName: 'Hours On Air', type: PropertyType.SLIDER, editable: true, min: 0, max: 100, unit: '%' },
     { rdoName: 'Comercials', displayName: 'Commercials', type: PropertyType.SLIDER, editable: true, min: 0, max: 100, unit: '%' },
+    { rdoName: 'Stopped', displayName: 'Status', type: PropertyType.STOP_TOGGLE },
+    { rdoName: 'demolish', displayName: 'Demolish', type: PropertyType.ACTION_BUTTON, actionId: 'demolish', buttonLabel: 'Demolish' },
   ],
   rdoCommands: {
     'HoursOnAir': { command: 'property' },
     'Comercials': { command: 'property' },
+    'Stopped': { command: 'property' },
   },
 };
 
@@ -401,64 +435,6 @@ export const SUPPLIES_GROUP: PropertyGroup = {
   },
 };
 
-export const SERVICES_GROUP: PropertyGroup = {
-  id: 'services',
-  name: 'Services',
-  icon: '$',
-  order: 30,
-  special: 'services',
-  properties: [
-    {
-      rdoName: 'srvNames',
-      displayName: 'Product',
-      type: PropertyType.TEXT,
-      indexed: true,
-      indexSuffix: '.0',
-      countProperty: 'ServiceCount',
-    },
-    {
-      rdoName: 'srvPrices',
-      displayName: 'Price',
-      type: PropertyType.SLIDER,
-      editable: true,
-      indexed: true,
-      min: 0,
-      max: 500,
-      step: 10,
-      unit: '%',
-      countProperty: 'ServiceCount',
-    },
-    {
-      rdoName: 'srvSupplies',
-      displayName: 'Offer',
-      type: PropertyType.NUMBER,
-      indexed: true,
-      countProperty: 'ServiceCount',
-    },
-    {
-      rdoName: 'srvDemands',
-      displayName: 'Demand',
-      type: PropertyType.NUMBER,
-      indexed: true,
-      countProperty: 'ServiceCount',
-    },
-    {
-      rdoName: 'srvMarketPrices',
-      displayName: 'Market Price',
-      type: PropertyType.CURRENCY,
-      indexed: true,
-      countProperty: 'ServiceCount',
-    },
-    {
-      rdoName: 'srvAvgPrices',
-      displayName: 'Avg Price',
-      type: PropertyType.CURRENCY,
-      indexed: true,
-      countProperty: 'ServiceCount',
-    },
-  ],
-};
-
 /**
  * Products — Output gate handler for industrial buildings (172 classes)
  * Voyager: ProdSheetForm.pas — FingerTabs with per-output gate properties + connections
@@ -492,11 +468,10 @@ export const PRODUCTS_GROUP: PropertyGroup = {
 };
 
 /**
- * compInputs — Company inputs (composite service demands)
+ * compInputs — Company inputs (supplies the facility needs)
  * Voyager: CompanyServicesSheetForm.pas — registered as 'compInputs'
- * Properties: cInputCount (count), then indexed cInput/cInputSup/cInputDem/etc.
- * Note: cInput and cUnits use MLS suffix (.{ActiveLanguage} e.g. cInput0.0, cUnits0.0)
- * RDO: RDOSetCompanyInputDemand(tabIndex, percValue) with BindTo(CurrBlock)
+ * Data comes from GetInputNames protocol (lazy-loaded per input),
+ * NOT from indexed properties. The special marker triggers the accordion UI.
  */
 export const ADVERTISEMENT_GROUP: PropertyGroup = {
   id: 'advertisement',
@@ -504,15 +479,7 @@ export const ADVERTISEMENT_GROUP: PropertyGroup = {
   icon: 'A',
   order: 25,
   special: 'compInputs',
-  properties: [
-    { rdoName: 'cInput', displayName: 'Services', type: PropertyType.TEXT, indexed: true, indexSuffix: '.0', countProperty: 'cInputCount' },
-    { rdoName: 'cInputSup', displayName: 'Receiving', type: PropertyType.NUMBER, indexed: true, countProperty: 'cInputCount' },
-    { rdoName: 'cInputDem', displayName: 'Requesting', type: PropertyType.NUMBER, indexed: true, countProperty: 'cInputCount' },
-    { rdoName: 'cInputRatio', displayName: 'Ratio', type: PropertyType.PERCENTAGE, indexed: true, countProperty: 'cInputCount' },
-    { rdoName: 'cInputMax', displayName: 'Max', type: PropertyType.NUMBER, indexed: true, countProperty: 'cInputCount' },
-    { rdoName: 'cEditable', displayName: 'Editable', type: PropertyType.BOOLEAN, indexed: true, countProperty: 'cInputCount' },
-    { rdoName: 'cUnits', displayName: 'Units', type: PropertyType.TEXT, indexed: true, indexSuffix: '.0', countProperty: 'cInputCount' },
-  ],
+  properties: [],
   rdoCommands: {
     'RDOSetCompanyInputDemand': { command: 'RDOSetCompanyInputDemand' },
   },
@@ -1061,7 +1028,6 @@ export const GROUP_BY_ID: Record<string, PropertyGroup> = {
   'townGeneral': TOWN_GENERAL_GROUP,
   'workforce': WORKFORCE_GROUP,
   'supplies': SUPPLIES_GROUP,
-  'services': SERVICES_GROUP,
   'products': PRODUCTS_GROUP,
   'upgrade': UPGRADE_GROUP,
   'finances': FINANCES_GROUP,
