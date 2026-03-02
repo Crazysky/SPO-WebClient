@@ -475,7 +475,7 @@ export const PRODUCTS_GROUP: PropertyGroup = {
  */
 export const ADVERTISEMENT_GROUP: PropertyGroup = {
   id: 'advertisement',
-  name: 'Advertising',
+  name: 'Services',
   icon: 'A',
   order: 25,
   special: 'compInputs',
@@ -494,7 +494,7 @@ export const ADVERTISEMENT_GROUP: PropertyGroup = {
  */
 export const ADS_GROUP: PropertyGroup = {
   id: 'ads',
-  name: 'Advertising',
+  name: 'Services',
   icon: 'A',
   order: 25,
   special: 'supplies',
