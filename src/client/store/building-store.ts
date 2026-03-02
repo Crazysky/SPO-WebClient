@@ -12,13 +12,18 @@ import type {
 } from '@/shared/types';
 import { registerInspectorTabs } from '@/shared/building-details';
 
-export type ResearchSection = 'available' | 'developing' | 'completed';
-
 interface ResearchState {
-  inventory: ResearchCategoryData | null;
+  /** Cached inventory per category tab (key = categoryIndex 0..4). */
+  inventoryByCategory: Map<number, ResearchCategoryData>;
+  /** Currently viewed category tab index (0..4). */
+  activeCategoryIndex: number;
+  /** Tab labels from research.0.dat (e.g. ["GENERAL","COMMERCE",...]). */
+  categoryTabs: string[];
+  /** Which categories have been fetched at least once. */
+  loadedCategories: Set<number>;
+  /** Selected invention (shared across tabs). */
   selectedInventionId: string | null;
   selectedDetails: ResearchInventionDetails | null;
-  activeSection: ResearchSection;
   isLoadingInventory: boolean;
   isLoadingDetails: boolean;
 }
@@ -68,19 +73,22 @@ interface BuildingState {
   clearConnectionPicker: () => void;
 
   // Research actions
+  setResearchCategoryTabs: (tabs: string[]) => void;
   setResearchInventory: (data: ResearchCategoryData) => void;
   setResearchSelectedInvention: (inventionId: string | null) => void;
   setResearchDetails: (details: ResearchInventionDetails) => void;
-  setResearchActiveSection: (section: ResearchSection) => void;
+  setResearchActiveCategoryIndex: (index: number) => void;
   setResearchLoading: (field: 'inventory' | 'details', loading: boolean) => void;
   clearResearch: () => void;
 }
 
 const INITIAL_RESEARCH: ResearchState = {
-  inventory: null,
+  inventoryByCategory: new Map(),
+  activeCategoryIndex: 0,
+  categoryTabs: [],
+  loadedCategories: new Set(),
   selectedInventionId: null,
   selectedDetails: null,
-  activeSection: 'available',
   isLoadingInventory: false,
   isLoadingDetails: false,
 };
@@ -166,14 +174,30 @@ export const useBuildingStore = create<BuildingState>((set) => ({
   // Research
   research: null,
 
-  setResearchInventory: (data) =>
+  setResearchCategoryTabs: (tabs) =>
     set((state) => ({
       research: {
         ...(state.research ?? INITIAL_RESEARCH),
-        inventory: data,
-        isLoadingInventory: false,
+        categoryTabs: tabs,
       },
     })),
+
+  setResearchInventory: (data) =>
+    set((state) => {
+      const prev = state.research ?? INITIAL_RESEARCH;
+      const nextMap = new Map(prev.inventoryByCategory);
+      nextMap.set(data.categoryIndex, data);
+      const nextLoaded = new Set(prev.loadedCategories);
+      nextLoaded.add(data.categoryIndex);
+      return {
+        research: {
+          ...prev,
+          inventoryByCategory: nextMap,
+          loadedCategories: nextLoaded,
+          isLoadingInventory: false,
+        },
+      };
+    }),
 
   setResearchSelectedInvention: (inventionId) =>
     set((state) => ({
@@ -193,11 +217,11 @@ export const useBuildingStore = create<BuildingState>((set) => ({
       },
     })),
 
-  setResearchActiveSection: (section) =>
+  setResearchActiveCategoryIndex: (index) =>
     set((state) => ({
       research: {
         ...(state.research ?? INITIAL_RESEARCH),
-        activeSection: section,
+        activeCategoryIndex: index,
         selectedInventionId: null,
         selectedDetails: null,
       },

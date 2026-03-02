@@ -22,6 +22,7 @@ import {
 import { useBuildingStore } from '../../store/building-store';
 import { useClient } from '../../context';
 import { ResearchPanel } from './ResearchPanel';
+import { RevenueGraph } from './RevenueGraph';
 import { getConnectionStatus } from './comp-inputs-utils';
 import styles from './PropertyGroup.module.css';
 
@@ -335,6 +336,18 @@ function DefinedProperties({
           onAction={handleActionButton}
         />,
       );
+      rendered.add(def.rdoName);
+      continue;
+    }
+
+    // Revenue graph (MoneyGraphInfo)
+    if (def.type === PropertyType.GRAPH) {
+      const hasGraph = valueMap.get('MoneyGraph') ?? '0';
+      if (details?.moneyGraph?.length && hasGraph !== '0') {
+        elements.push(
+          <RevenueGraph key="revenue-graph" data={details.moneyGraph} />,
+        );
+      }
       rendered.add(def.rdoName);
       continue;
     }

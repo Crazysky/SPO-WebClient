@@ -150,6 +150,9 @@ export interface ClientCallbacks {
   // Research / Inventions
   onResearchLoadInventory: (buildingX: number, buildingY: number, categoryIndex: number) => void;
   onResearchGetDetails: (buildingX: number, buildingY: number, inventionId: string) => void;
+  onResearchQueueInvention: (buildingX: number, buildingY: number, inventionId: string) => void;
+  onResearchCancelInvention: (buildingX: number, buildingY: number, inventionId: string) => void;
+  onResearchFetchCategoryTabs: () => void;
   onConnectionConnect: (fluidId: string, direction: 'input' | 'output', selectedCoords: Array<{ x: number; y: number }>) => void;
   onDisconnectConnection: (buildingX: number, buildingY: number, fluidId: string, direction: 'input' | 'output', x: number, y: number) => void;
 

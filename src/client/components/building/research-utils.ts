@@ -1,0 +1,75 @@
+/**
+ * Research panel utility functions — pure helpers for grouping, sorting,
+ * and status detection of invention items across categories.
+ */
+
+import type { ResearchInventionItem, ResearchCategoryData } from '@/shared/types';
+
+/** Invention item with a resolved status from its source section. */
+export interface MergedInventionItem extends ResearchInventionItem {
+  status: 'available' | 'researching' | 'developed';
+}
+
+/**
+ * Merge available/developing/completed arrays into one list, sorted by status:
+ *   1. available + enabled
+ *   2. available + disabled (locked)
+ *   3. researching
+ *   4. developed
+ */
+export function mergeAndSortInventions(data: ResearchCategoryData): MergedInventionItem[] {
+  const merged: MergedInventionItem[] = [];
+
+  for (const item of data.available) {
+    merged.push({ ...item, status: 'available' });
+  }
+  for (const item of data.developing) {
+    merged.push({ ...item, status: 'researching' });
+  }
+  for (const item of data.completed) {
+    merged.push({ ...item, status: 'developed' });
+  }
+
+  merged.sort((a, b) => statusOrder(a) - statusOrder(b));
+  return merged;
+}
+
+/** Sort key: available+enabled=0, available+disabled=1, researching=2, developed=3. */
+function statusOrder(item: MergedInventionItem): number {
+  if (item.status === 'available') return item.enabled !== false ? 0 : 1;
+  if (item.status === 'researching') return 2;
+  return 3;
+}
+
+/**
+ * Group merged items by their `parent` field.
+ * Returns entries in insertion order (first-seen parent first).
+ * Items without a parent go under the empty string key.
+ */
+export function groupInventionsByParent(
+  items: MergedInventionItem[],
+): Map<string, MergedInventionItem[]> {
+  const map = new Map<string, MergedInventionItem[]>();
+  for (const item of items) {
+    const key = item.parent ?? '';
+    const arr = map.get(key);
+    if (arr) arr.push(item);
+    else map.set(key, [item]);
+  }
+  return map;
+}
+
+/**
+ * True if at least one item in the group is available and enabled
+ * (determines green vs grey accordion header).
+ */
+export function isGroupResearchable(items: MergedInventionItem[]): boolean {
+  return items.some((i) => i.status === 'available' && i.enabled !== false);
+}
+
+/**
+ * Count total available (enabled) inventions for a category.
+ */
+export function countAvailableEnabled(data: ResearchCategoryData): number {
+  return data.available.filter((i) => i.enabled !== false).length;
+}

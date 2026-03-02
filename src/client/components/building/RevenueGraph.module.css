@@ -1,0 +1,166 @@
+/* ============================================================================
+ * RevenueGraph — SVG revenue history chart for Finances tab
+ * ============================================================================ */
+
+.container {
+  padding: var(--space-3);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  position: relative;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.title {
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.currentValue {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.currentValuePositive {
+  color: var(--money-positive);
+}
+
+.currentValueNegative {
+  color: var(--money-negative);
+}
+
+.currentValueNeutral {
+  color: var(--money-neutral);
+}
+
+/* ---- SVG Chart ---- */
+
+.chartArea {
+  position: relative;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+/* ---- Line & Area Fills ---- */
+
+.line {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px rgba(16, 185, 129, 0.4));
+}
+
+.lineAnimated {
+  animation: drawLine 600ms var(--ease-out) forwards;
+}
+
+.areaPositive {
+  fill: rgba(74, 222, 128, 0.12);
+}
+
+.areaNegative {
+  fill: rgba(248, 113, 113, 0.10);
+}
+
+/* ---- Grid & Axes ---- */
+
+.gridLine {
+  stroke: var(--glass-border);
+  stroke-width: 0.5;
+  stroke-dasharray: 2 4;
+}
+
+.zeroLine {
+  stroke: var(--accent-gold-dark);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  opacity: 0.6;
+}
+
+.axisLabel {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  fill: var(--text-disabled);
+  dominant-baseline: middle;
+}
+
+.axisLabelX {
+  text-anchor: middle;
+  dominant-baseline: hanging;
+}
+
+/* ---- Data Points ---- */
+
+.dataPoint {
+  fill: var(--bg-tertiary);
+  stroke: var(--accent-gold);
+  stroke-width: 1.5;
+  cursor: pointer;
+  transition: r var(--duration-fast) var(--ease-default),
+              stroke-width var(--duration-fast) var(--ease-default);
+}
+
+.dataPoint:hover {
+  stroke-width: 2;
+}
+
+/* ---- Tooltip ---- */
+
+.tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent-gold-dark);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-gold-light);
+  white-space: nowrap;
+  transform: translate(-50%, -100%);
+  margin-top: -8px;
+  box-shadow: var(--shadow-md);
+  z-index: 10;
+}
+
+/* ---- Empty State ---- */
+
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 80px;
+  color: var(--text-disabled);
+  font-size: var(--text-xs);
+  font-style: italic;
+}
+
+/* ---- Animation ---- */
+
+@keyframes drawLine {
+  from {
+    stroke-dashoffset: var(--path-length);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}

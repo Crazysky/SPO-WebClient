@@ -1,16 +1,28 @@
 /**
  * ResearchPanel — Research/Inventions panel for HQ buildings.
  *
- * Shows three sections (Available, Researching, Developed) with a list
- * of inventions per section. Selecting an invention loads its details
- * (properties + description) from the server.
+ * Layout:
+ *   CategoryTabBar  (5 tabs: GENERAL, COMMERCE, REAL ESTATE, INDUSTRY, CIVICS)
+ *   InventionGroupList (scrollable)
+ *     InventionGroup[] (collapsible accordion per parent category)
+ *       GroupHeader  (green/grey dot + name + chevron + "N available" badge)
+ *       InventionRow[] (status dot + name + inline Research/Cancel button)
+ *   DetailPanel (slide-down when invention selected)
  */
 
-import { useEffect, useCallback } from 'react';
-import type { ResearchInventionItem } from '@/shared/types';
-import { useBuildingStore, type ResearchSection } from '../../store/building-store';
+import { useEffect, useCallback, useState, useMemo } from 'react';
+import type { ResearchInventionDetails } from '@/shared/types';
+import { useBuildingStore } from '../../store/building-store';
 import { useClient } from '../../context';
+import { TabBar } from '../common/TabBar';
 import { Skeleton } from '../common/Skeleton';
+import {
+  mergeAndSortInventions,
+  groupInventionsByParent,
+  isGroupResearchable,
+  countAvailableEnabled,
+  type MergedInventionItem,
+} from './research-utils';
 import styles from './ResearchPanel.module.css';
 
 interface ResearchPanelProps {
@@ -18,75 +30,113 @@ interface ResearchPanelProps {
   buildingY: number;
 }
 
+const FALLBACK_TABS = ['GENERAL', 'COMMERCE', 'REAL ESTATE', 'INDUSTRY', 'CIVICS'];
+
 export function ResearchPanel({ buildingX, buildingY }: ResearchPanelProps) {
   const client = useClient();
   const research = useBuildingStore((s) => s.research);
   const isOwner = useBuildingStore((s) => s.isOwner);
 
-  // Load inventory on mount
+  const activeCategoryIndex = research?.activeCategoryIndex ?? 0;
+  const categoryTabs = research?.categoryTabs ?? [];
+  const isLoadingInventory = research?.isLoadingInventory ?? false;
+  const isLoadingDetails = research?.isLoadingDetails ?? false;
+  const selectedId = research?.selectedInventionId ?? null;
+  const details = research?.selectedDetails ?? null;
+
+  const tabLabels = categoryTabs.length > 0 ? categoryTabs : FALLBACK_TABS;
+  const inventory = research?.inventoryByCategory.get(activeCategoryIndex) ?? null;
+
+  // Fetch category tabs + first category on mount
   useEffect(() => {
+    client.onResearchFetchCategoryTabs();
     client.onResearchLoadInventory(buildingX, buildingY, 0);
   }, [client, buildingX, buildingY]);
 
-  const activeSection: ResearchSection = research?.activeSection ?? 'available';
-  const inventory = research?.inventory;
-  const selectedId = research?.selectedInventionId ?? null;
-  const details = research?.selectedDetails ?? null;
-  const isLoadingInventory = research?.isLoadingInventory ?? false;
-  const isLoadingDetails = research?.isLoadingDetails ?? false;
-
-  const handleSectionChange = useCallback(
-    (section: ResearchSection) => {
-      useBuildingStore.getState().setResearchActiveSection(section);
+  // Handle tab change — lazy load if not cached
+  const handleTabChange = useCallback(
+    (tabId: string) => {
+      const index = parseInt(tabId, 10);
+      useBuildingStore.getState().setResearchActiveCategoryIndex(index);
+      const loaded = useBuildingStore.getState().research?.loadedCategories;
+      if (!loaded?.has(index)) {
+        client.onResearchLoadInventory(buildingX, buildingY, index);
+      }
     },
-    [],
+    [client, buildingX, buildingY],
   );
 
   const handleSelectInvention = useCallback(
-    (item: ResearchInventionItem) => {
-      if (item.enabled === false) return;
+    (item: MergedInventionItem) => {
       client.onResearchGetDetails(buildingX, buildingY, item.inventionId);
     },
     [client, buildingX, buildingY],
   );
 
-  const handleAction = useCallback(
-    (action: string) => {
-      client.onBuildingAction(action);
+  const handleQueueResearch = useCallback(
+    (inventionId: string) => {
+      client.onResearchQueueInvention(buildingX, buildingY, inventionId);
     },
-    [client],
+    [client, buildingX, buildingY],
   );
 
-  const items = getItemsForSection(inventory, activeSection);
-  const availableCount = inventory?.available.length ?? 0;
-  const developingCount = inventory?.developing.length ?? 0;
-  const completedCount = inventory?.completed.length ?? 0;
+  const handleCancelResearch = useCallback(
+    (inventionId: string) => {
+      client.onResearchCancelInvention(buildingX, buildingY, inventionId);
+    },
+    [client, buildingX, buildingY],
+  );
+
+  // Build tabs with badge counts
+  const tabs = useMemo(() => {
+    return tabLabels.map((label, i) => {
+      const catData = research?.inventoryByCategory.get(i);
+      const badge = catData ? countAvailableEnabled(catData) : undefined;
+      return { id: String(i), label, badge };
+    });
+  }, [tabLabels, research?.inventoryByCategory]);
+
+  // Merge + group items for current category
+  const groups = useMemo(() => {
+    if (!inventory) return null;
+    const merged = mergeAndSortInventions(inventory);
+    return groupInventionsByParent(merged);
+  }, [inventory]);
 
   return (
     <div className={styles.panel}>
-      {/* Section tabs */}
-      <SectionTabs
-        active={activeSection}
-        counts={[availableCount, developingCount, completedCount]}
-        onChange={handleSectionChange}
+      {/* Category tabs */}
+      <TabBar
+        tabs={tabs}
+        activeTab={String(activeCategoryIndex)}
+        onTabChange={handleTabChange}
+        className={styles.categoryTabs}
       />
 
-      {/* Invention list */}
+      {/* Invention groups */}
       {isLoadingInventory ? (
         <div className={styles.loadingList}>
           <Skeleton height="1.5em" />
           <Skeleton height="1.5em" />
           <Skeleton height="1.5em" width="80%" />
         </div>
-      ) : items.length === 0 ? (
+      ) : !groups || groups.size === 0 ? (
         <div className={styles.emptyState}>No inventions in this category</div>
       ) : (
-        <InventionList
-          items={items}
-          selectedId={selectedId}
-          section={activeSection}
-          onSelect={handleSelectInvention}
-        />
+        <div className={styles.groupList}>
+          {Array.from(groups.entries()).map(([parent, items]) => (
+            <InventionGroup
+              key={parent || '__ungrouped__'}
+              parent={parent}
+              items={items}
+              selectedId={selectedId}
+              isOwner={isOwner}
+              onSelect={handleSelectInvention}
+              onQueue={handleQueueResearch}
+              onCancel={handleCancelResearch}
+            />
+          ))}
+        </div>
       )}
 
       {/* Detail panel */}
@@ -97,107 +147,152 @@ export function ResearchPanel({ buildingX, buildingY }: ResearchPanelProps) {
           isLoading={isLoadingDetails}
         />
       )}
+    </div>
+  );
+}
 
-      {/* Action bar */}
-      {selectedId && isOwner && (
-        <ActionBar
-          section={activeSection}
-          selectedEnabled={isSelectedEnabled(items, selectedId)}
-          onAction={handleAction}
-        />
+// =============================================================================
+// INVENTION GROUP (Accordion)
+// =============================================================================
+
+function InventionGroup({
+  parent,
+  items,
+  selectedId,
+  isOwner,
+  onSelect,
+  onQueue,
+  onCancel,
+}: {
+  parent: string;
+  items: MergedInventionItem[];
+  selectedId: string | null;
+  isOwner: boolean;
+  onSelect: (item: MergedInventionItem) => void;
+  onQueue: (inventionId: string) => void;
+  onCancel: (inventionId: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(true);
+  const researchable = isGroupResearchable(items);
+  const availCount = items.filter((i) => i.status === 'available' && i.enabled !== false).length;
+
+  return (
+    <div className={styles.group}>
+      <button
+        className={styles.groupHeader}
+        onClick={() => setIsOpen((v) => !v)}
+        aria-expanded={isOpen}
+      >
+        <span className={`${styles.groupDot} ${researchable ? styles.groupDotActive : ''}`} />
+        <span className={styles.groupName}>{parent || 'Uncategorized'}</span>
+        {availCount > 0 && (
+          <span className={styles.groupCount}>{availCount} avail.</span>
+        )}
+        <svg
+          className={`${styles.groupChevron} ${isOpen ? styles.groupChevronOpen : ''}`}
+          viewBox="0 0 20 20"
+          fill="currentColor"
+        >
+          <path
+            fillRule="evenodd"
+            d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+            clipRule="evenodd"
+          />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <div className={styles.groupBody}>
+          {items.map((item) => (
+            <InventionRow
+              key={item.inventionId}
+              item={item}
+              isSelected={item.inventionId === selectedId}
+              isOwner={isOwner}
+              onSelect={onSelect}
+              onQueue={onQueue}
+              onCancel={onCancel}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
 // =============================================================================
-// SECTION TABS
+// INVENTION ROW
 // =============================================================================
 
-const SECTIONS: { key: ResearchSection; label: string }[] = [
-  { key: 'available', label: 'Available' },
-  { key: 'developing', label: 'Researching' },
-  { key: 'completed', label: 'Developed' },
-];
-
-function SectionTabs({
-  active,
-  counts,
-  onChange,
-}: {
-  active: ResearchSection;
-  counts: [number, number, number];
-  onChange: (section: ResearchSection) => void;
-}) {
-  return (
-    <div className={styles.sectionTabs}>
-      {SECTIONS.map((s, i) => (
-        <button
-          key={s.key}
-          className={`${styles.sectionTab} ${active === s.key ? styles.sectionTabActive : ''}`}
-          onClick={() => onChange(s.key)}
-        >
-          {s.label}
-          <span className={styles.sectionCount}>({counts[i]})</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// =============================================================================
-// INVENTION LIST
-// =============================================================================
-
-function InventionList({
-  items,
-  selectedId,
-  section,
+function InventionRow({
+  item,
+  isSelected,
+  isOwner,
   onSelect,
+  onQueue,
+  onCancel,
 }: {
-  items: ResearchInventionItem[];
-  selectedId: string | null;
-  section: ResearchSection;
-  onSelect: (item: ResearchInventionItem) => void;
+  item: MergedInventionItem;
+  isSelected: boolean;
+  isOwner: boolean;
+  onSelect: (item: MergedInventionItem) => void;
+  onQueue: (inventionId: string) => void;
+  onCancel: (inventionId: string) => void;
 }) {
-  // Group by parent if available
-  const groups = groupByParent(items);
+  const isLocked = item.status === 'available' && item.enabled === false;
+
+  const dotClass =
+    item.status === 'available'
+      ? isLocked
+        ? styles.statusLocked
+        : styles.statusAvailable
+      : item.status === 'researching'
+        ? styles.statusResearching
+        : styles.statusDeveloped;
+
+  const rowClass = [
+    styles.inventionRow,
+    isSelected ? styles.inventionRowSelected : '',
+    isLocked ? styles.inventionRowLocked : '',
+  ].join(' ');
 
   return (
-    <div className={styles.inventionList}>
-      {groups.map(([parent, groupItems]) => (
-        <div key={parent}>
-          {parent !== '' && (
-            <div className={styles.categoryHeader}>{parent}</div>
-          )}
-          {groupItems.map((item) => {
-            const isSelected = item.inventionId === selectedId;
-            const isDisabled = section === 'available' && item.enabled === false;
-            return (
-              <button
-                key={item.inventionId}
-                className={[
-                  styles.inventionItem,
-                  isSelected ? styles.inventionItemSelected : '',
-                  isDisabled ? styles.inventionItemDisabled : '',
-                ].join(' ')}
-                onClick={() => onSelect(item)}
-                disabled={isDisabled}
-              >
-                <span className={styles.inventionName}>
-                  {item.name || item.inventionId}
-                </span>
-                {section === 'completed' && item.cost && (
-                  <span className={styles.inventionCost}>{item.cost}</span>
-                )}
-                {isDisabled && (
-                  <span className={styles.inventionDisabledTag}>locked</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      ))}
+    <div className={rowClass}>
+      <span className={`${styles.statusDot} ${dotClass}`} />
+
+      <button
+        className={styles.inventionName}
+        onClick={() => !isLocked && onSelect(item)}
+        style={{ background: 'none', border: 'none', color: 'inherit', cursor: isLocked ? 'default' : 'pointer', textAlign: 'left', padding: 0, font: 'inherit' }}
+        disabled={isLocked}
+      >
+        {item.name || item.inventionId}
+      </button>
+
+      {item.status === 'developed' && item.cost && (
+        <span className={styles.inventionCost}>{item.cost}</span>
+      )}
+
+      {isLocked && <span className={styles.lockedTag}>locked</span>}
+
+      {/* Inline action buttons — only for owner */}
+      {isOwner && item.status === 'available' && !isLocked && (
+        <button
+          className={`${styles.inlineBtn} ${styles.inlineBtnResearch}`}
+          onClick={(e) => { e.stopPropagation(); onQueue(item.inventionId); }}
+        >
+          Research
+        </button>
+      )}
+
+      {isOwner && item.status === 'researching' && (
+        <button
+          className={`${styles.inlineBtn} ${styles.inlineBtnCancel}`}
+          onClick={(e) => { e.stopPropagation(); onCancel(item.inventionId); }}
+        >
+          Cancel
+        </button>
+      )}
     </div>
   );
 }
@@ -212,7 +307,7 @@ function DetailPanel({
   isLoading,
 }: {
   inventionId: string;
-  details: { inventionId: string; properties: string; description: string } | null;
+  details: ResearchInventionDetails | null;
   isLoading: boolean;
 }) {
   if (isLoading) {
@@ -231,7 +326,7 @@ function DetailPanel({
 
   return (
     <div className={styles.detailPanel}>
-      <div className={styles.detailHeader}>{inventionId}</div>
+      <div className={styles.detailHeader}>{details.inventionId}</div>
       {details.properties && (
         <div className={styles.detailProperties}>{details.properties}</div>
       )}
@@ -240,76 +335,4 @@ function DetailPanel({
       )}
     </div>
   );
-}
-
-// =============================================================================
-// ACTION BAR
-// =============================================================================
-
-function ActionBar({
-  section,
-  selectedEnabled,
-  onAction,
-}: {
-  section: ResearchSection;
-  selectedEnabled: boolean;
-  onAction: (action: string) => void;
-}) {
-  if (section === 'available' && selectedEnabled) {
-    return (
-      <div className={styles.actionBar}>
-        <button className={styles.actionBtn} onClick={() => onAction('queueResearch')}>
-          Research
-        </button>
-      </div>
-    );
-  }
-
-  if (section === 'developing') {
-    return (
-      <div className={styles.actionBar}>
-        <button
-          className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
-          onClick={() => onAction('cancelResearch')}
-        >
-          Cancel
-        </button>
-      </div>
-    );
-  }
-
-  return null;
-}
-
-// =============================================================================
-// HELPERS
-// =============================================================================
-
-function getItemsForSection(
-  inventory: { available: ResearchInventionItem[]; developing: ResearchInventionItem[]; completed: ResearchInventionItem[] } | null,
-  section: ResearchSection,
-): ResearchInventionItem[] {
-  if (!inventory) return [];
-  switch (section) {
-    case 'available': return inventory.available;
-    case 'developing': return inventory.developing;
-    case 'completed': return inventory.completed;
-    default: return [];
-  }
-}
-
-function groupByParent(items: ResearchInventionItem[]): [string, ResearchInventionItem[]][] {
-  const map = new Map<string, ResearchInventionItem[]>();
-  for (const item of items) {
-    const key = item.parent ?? '';
-    const arr = map.get(key);
-    if (arr) arr.push(item);
-    else map.set(key, [item]);
-  }
-  return Array.from(map.entries());
-}
-
-function isSelectedEnabled(items: ResearchInventionItem[], selectedId: string): boolean {
-  const item = items.find((i) => i.inventionId === selectedId);
-  return item ? item.enabled !== false : false;
 }

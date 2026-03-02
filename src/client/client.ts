@@ -343,6 +343,12 @@ export class StarpeaceClient {
         this.loadResearchInventory(buildingX, buildingY, categoryIndex),
       onResearchGetDetails: (buildingX, buildingY, inventionId) =>
         this.getResearchDetails(buildingX, buildingY, inventionId),
+      onResearchQueueInvention: (buildingX, buildingY, inventionId) =>
+        this.queueResearchDirect(buildingX, buildingY, inventionId),
+      onResearchCancelInvention: (buildingX, buildingY, inventionId) =>
+        this.cancelResearchDirect(buildingX, buildingY, inventionId),
+      onResearchFetchCategoryTabs: () =>
+        this.fetchResearchCategoryTabs(),
 
       // Mail
       onMailGetFolder: (folder) => this.sendMessage({ type: WsMessageType.REQ_MAIL_GET_FOLDER, folder }),
@@ -1964,7 +1970,8 @@ export class StarpeaceClient {
         { inventionId, priority: '10' },
       );
       this.showNotification('Research queued', 'success');
-      this.loadResearchInventory(buildingDetails.x, buildingDetails.y, 0);
+      const activeCat = useBuildingStore.getState().research?.activeCategoryIndex ?? 0;
+      this.loadResearchInventory(buildingDetails.x, buildingDetails.y, activeCat);
     } catch (err: unknown) {
       this.showNotification(`Failed to queue research: ${toErrorMessage(err)}`, 'error');
     }
@@ -1983,9 +1990,46 @@ export class StarpeaceClient {
         { inventionId },
       );
       this.showNotification('Research cancelled', 'success');
-      this.loadResearchInventory(buildingDetails.x, buildingDetails.y, 0);
+      const activeCat = useBuildingStore.getState().research?.activeCategoryIndex ?? 0;
+      this.loadResearchInventory(buildingDetails.x, buildingDetails.y, activeCat);
     } catch (err: unknown) {
       this.showNotification(`Failed to cancel research: ${toErrorMessage(err)}`, 'error');
+    }
+  }
+
+  private async queueResearchDirect(buildingX: number, buildingY: number, inventionId: string): Promise<void> {
+    try {
+      await this.setBuildingProperty(buildingX, buildingY, 'RDOQueueResearch', '0', { inventionId, priority: '10' });
+      this.showNotification('Research queued', 'success');
+      const activeCat = useBuildingStore.getState().research?.activeCategoryIndex ?? 0;
+      this.loadResearchInventory(buildingX, buildingY, activeCat);
+    } catch (err: unknown) {
+      this.showNotification(`Failed to queue research: ${toErrorMessage(err)}`, 'error');
+    }
+  }
+
+  private async cancelResearchDirect(buildingX: number, buildingY: number, inventionId: string): Promise<void> {
+    try {
+      await this.setBuildingProperty(buildingX, buildingY, 'RDOCancelResearch', '0', { inventionId });
+      this.showNotification('Research cancelled', 'success');
+      const activeCat = useBuildingStore.getState().research?.activeCategoryIndex ?? 0;
+      this.loadResearchInventory(buildingX, buildingY, activeCat);
+    } catch (err: unknown) {
+      this.showNotification(`Failed to cancel research: ${toErrorMessage(err)}`, 'error');
+    }
+  }
+
+  private async fetchResearchCategoryTabs(): Promise<void> {
+    try {
+      const resp = await fetch('/api/research-inventions');
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json() as { categoryTabs?: string[] };
+      useBuildingStore.getState().setResearchCategoryTabs(data.categoryTabs ?? []);
+    } catch (err: unknown) {
+      console.warn('[Client] Failed to fetch category tabs:', toErrorMessage(err));
+      useBuildingStore.getState().setResearchCategoryTabs(
+        ['GENERAL', 'COMMERCE', 'REAL ESTATE', 'INDUSTRY', 'CIVICS'],
+      );
     }
   }
 

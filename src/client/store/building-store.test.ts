@@ -217,14 +217,15 @@ describe('Building Store — Research state', () => {
     expect(useBuildingStore.getState().research).toBeNull();
   });
 
-  it('setResearchInventory should create research state with inventory', () => {
+  it('setResearchInventory should create research state with inventory in category map', () => {
     useBuildingStore.getState().setResearchInventory(mockInventory);
 
     const research = useBuildingStore.getState().research;
     expect(research).not.toBeNull();
-    expect(research!.inventory).toBe(mockInventory);
+    expect(research!.inventoryByCategory.get(0)).toBe(mockInventory);
+    expect(research!.loadedCategories.has(0)).toBe(true);
     expect(research!.isLoadingInventory).toBe(false);
-    expect(research!.activeSection).toBe('available');
+    expect(research!.activeCategoryIndex).toBe(0);
   });
 
   it('setResearchSelectedInvention should set selectedInventionId and clear details', () => {
@@ -246,13 +247,13 @@ describe('Building Store — Research state', () => {
     expect(research!.isLoadingDetails).toBe(false);
   });
 
-  it('setResearchActiveSection should change section and clear selection', () => {
+  it('setResearchActiveCategoryIndex should change tab and clear selection', () => {
     useBuildingStore.getState().setResearchInventory(mockInventory);
     useBuildingStore.getState().setResearchSelectedInvention('GreenTech.Level1');
-    useBuildingStore.getState().setResearchActiveSection('developing');
+    useBuildingStore.getState().setResearchActiveCategoryIndex(2);
 
     const research = useBuildingStore.getState().research;
-    expect(research!.activeSection).toBe('developing');
+    expect(research!.activeCategoryIndex).toBe(2);
     expect(research!.selectedInventionId).toBeNull();
     expect(research!.selectedDetails).toBeNull();
   });
@@ -284,14 +285,39 @@ describe('Building Store — Research state', () => {
   });
 
   it('setResearchInventory preserves existing research fields', () => {
-    useBuildingStore.getState().setResearchActiveSection('developing');
+    useBuildingStore.getState().setResearchActiveCategoryIndex(1);
     useBuildingStore.getState().setResearchSelectedInvention('AI.Level1');
     useBuildingStore.getState().setResearchInventory(mockInventory);
 
     const research = useBuildingStore.getState().research;
-    // Inventory update preserves other fields
-    expect(research!.inventory).toBe(mockInventory);
+    expect(research!.inventoryByCategory.get(0)).toBe(mockInventory);
     // selectedInventionId is preserved since setResearchInventory doesn't clear it
     expect(research!.selectedInventionId).toBe('AI.Level1');
+  });
+
+  it('setResearchCategoryTabs should store tab labels', () => {
+    const tabs = ['GENERAL', 'COMMERCE', 'REAL ESTATE', 'INDUSTRY', 'CIVICS'];
+    useBuildingStore.getState().setResearchCategoryTabs(tabs);
+
+    const research = useBuildingStore.getState().research;
+    expect(research!.categoryTabs).toEqual(tabs);
+  });
+
+  it('setResearchInventory caches multiple categories independently', () => {
+    const cat1: ResearchCategoryData = {
+      categoryIndex: 1,
+      available: [{ inventionId: 'Commerce.L1', name: 'Commerce 1', enabled: true }],
+      developing: [],
+      completed: [],
+    };
+    useBuildingStore.getState().setResearchInventory(mockInventory);
+    useBuildingStore.getState().setResearchInventory(cat1);
+
+    const research = useBuildingStore.getState().research;
+    expect(research!.inventoryByCategory.size).toBe(2);
+    expect(research!.inventoryByCategory.get(0)).toBe(mockInventory);
+    expect(research!.inventoryByCategory.get(1)).toBe(cat1);
+    expect(research!.loadedCategories.has(0)).toBe(true);
+    expect(research!.loadedCategories.has(1)).toBe(true);
   });
 });
