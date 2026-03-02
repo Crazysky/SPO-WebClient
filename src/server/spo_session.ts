@@ -34,6 +34,7 @@ import {
   BuildingSupplyData,
   BuildingProductData,
   BuildingConnectionData,
+  CompInputData,
   WsEventNewMail,
   MailMessageHeader,
   MailMessageFull,
@@ -5538,6 +5539,13 @@ private handlePush(socketName: string, packet: RdoPacket) {
         products = await this.fetchBuildingProducts(tempObjectId, x, y);
       }
 
+      // Fetch company input data (eager — cInputCount + indexed cInput{i}.* properties)
+      let compInputs: CompInputData[] | undefined;
+      const compInputsGroup = template.groups.find(g => g.special === 'compInputs');
+      if (compInputsGroup) {
+        compInputs = await this.fetchCompInputData(tempObjectId);
+      }
+
       const response: BuildingDetailsResponse = {
         buildingId: buildingId || allValues.get('ObjectId') || allValues.get('CurrBlock') || '',
         x,
@@ -5558,6 +5566,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
         groups,
         supplies,
         products,
+        compInputs,
         moneyGraph,
         timestamp: Date.now(),
       };
@@ -5616,8 +5625,9 @@ private handlePush(socketName: string, packet: RdoPacket) {
         return supplies;
       }
 
-      // Parse input names (format: "path:..name\r" separated entries)
-      const entries = inputNamesRaw.split('\r').filter(e => e.trim());
+      // Parse input names (format: "path::\nname\r\n" separated entries)
+      // split('\r') then trim() strips leading '\n' from entries 2+ (CRLF separators)
+      const entries = inputNamesRaw.split('\r').map(e => e.trim()).filter(Boolean);
 
       for (const entry of entries) {
         const colonIdx = entry.indexOf(':');
@@ -5649,8 +5659,8 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
           const setPathResult = cleanPayloadHelper(setPathPacket.payload || '');
           this.log.debug(`[BuildingDetails] SetPath('${path}') result: "${setPathResult}"`);
-          if (setPathResult === '-1' || setPathResult === '0') {
-            // Successfully navigated, now get properties
+          if (setPathResult === '-1') {
+            // Successfully navigated (-1 = Delphi WordBool TRUE), now get properties
             const supplyProps = await this.cacherGetPropertyList(supplyTempId, [
               'MetaFluid', 'FluidValue', 'LastCostPerc', 'minK', 'MaxPrice',
               'QPSorted', 'SortMode', 'cnxCount', 'ObjectId'
@@ -5718,6 +5728,67 @@ private handlePush(socketName: string, packet: RdoPacket) {
   }
 
   /**
+   * Fetch company input data (compInputs tab).
+   * Protocol: GetPropertyList cInputCount → batch GetPropertyList cInput{i}.* for all inputs.
+   * Handler: compInputs (CompanyServicesSheetForm.pas)
+   *
+   * Wire format:
+   *   C sel <id> call GetPropertyList "^" "%...\tcInputCount\t";
+   *   C sel <id> call GetPropertyList "^" "%cInput0.0\tcInputSup0\tcInputDem0\tcInputRatio0\tcInputMax0\tcEditable0\tcUnits0.0\t...";
+   */
+  private async fetchCompInputData(tempObjectId: string): Promise<CompInputData[]> {
+    const result: CompInputData[] = [];
+
+    try {
+      // Step 1: get count
+      const countProps = await this.cacherGetPropertyList(tempObjectId, ['cInputCount']);
+      const count = parseInt(countProps[0] || '0', 10);
+      if (count <= 0) return result;
+
+      // Step 2: batch all 7 indexed properties per input (max 50 props per batch = ~7 inputs)
+      const BATCH_SIZE = 49; // keep under 50-prop limit
+      const propNames: string[] = [];
+      for (let i = 0; i < count; i++) {
+        propNames.push(
+          `cInput${i}.0`,
+          `cInputSup${i}`,
+          `cInputDem${i}`,
+          `cInputRatio${i}`,
+          `cInputMax${i}`,
+          `cEditable${i}`,
+          `cUnits${i}.0`,
+        );
+      }
+
+      // Fetch in batches of BATCH_SIZE properties
+      const allValues: string[] = [];
+      for (let offset = 0; offset < propNames.length; offset += BATCH_SIZE) {
+        const batch = propNames.slice(offset, offset + BATCH_SIZE);
+        const vals = await this.cacherGetPropertyList(tempObjectId, batch);
+        allValues.push(...vals);
+      }
+
+      // Step 3: parse into CompInputData objects (7 props per input)
+      for (let i = 0; i < count; i++) {
+        const base = i * 7;
+        result.push({
+          name:      allValues[base]     ?? '',
+          supplied:  parseFloat(allValues[base + 1] || '0'),
+          demanded:  parseFloat(allValues[base + 2] || '0'),
+          ratio:     parseInt(allValues[base + 3]   || '0', 10),
+          maxDemand: parseInt(allValues[base + 4]   || '100', 10),
+          editable:  (allValues[base + 5] ?? '').toLowerCase() === 'yes',
+          units:     allValues[base + 6] ?? '',
+        });
+      }
+    } catch (e) {
+      this.log.warn('[BuildingDetails] Error fetching comp input data:', e);
+    }
+
+    return result;
+  }
+
+  /**
    * Fetch product/output data with connections for a building
    * Uses GetOutputNames and SetPath to navigate output gate structure
    * Mirror of fetchBuildingSupplies() but for output gates (ProdSheetForm.pas)
@@ -5747,8 +5818,9 @@ private handlePush(socketName: string, packet: RdoPacket) {
         return products;
       }
 
-      // Parse output names (format: "path:..name\r" separated entries — same as inputs)
-      const entries = outputNamesRaw.split('\r').filter(e => e.trim());
+      // Parse output names (format: "path::\nname\r\n" separated entries — same as inputs)
+      // split('\r') then trim() strips leading '\n' from entries 2+ (CRLF separators)
+      const entries = outputNamesRaw.split('\r').map(e => e.trim()).filter(Boolean);
 
       for (const entry of entries) {
         const colonIdx = entry.indexOf(':');
@@ -5780,8 +5852,8 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
           const setPathResult = cleanPayloadHelper(setPathPacket.payload || '');
           this.log.debug(`[BuildingDetails] Product SetPath('${path}') result: "${setPathResult}"`);
-          if (setPathResult === '-1' || setPathResult === '0') {
-            // Successfully navigated — fetch output gate properties
+          if (setPathResult === '-1') {
+            // Successfully navigated (-1 = Delphi WordBool TRUE) — fetch output gate properties
             const outputProps = await this.cacherGetPropertyList(productTempId, [
               'MetaFluid', 'LastFluid', 'FluidQuality', 'PricePc',
               'AvgPrice', 'MarketPrice', 'cnxCount'
@@ -6341,8 +6413,14 @@ private handlePush(socketName: string, packet: RdoPacket) {
       }
 
       case 'property': {
-        // Direct property set — format as quoted integer value
-        args.push(RdoValue.int(parseInt(value, 10)));
+        // Direct property set — widestring properties use string prefix, others use integer
+        const WIDESTRING_PROPERTIES = new Set(['Name']);
+        const actualPropName = params.propertyName || '';
+        if (WIDESTRING_PROPERTIES.has(actualPropName)) {
+          args.push(RdoValue.string(value));
+        } else {
+          args.push(RdoValue.int(parseInt(value, 10)));
+        }
         break;
       }
 

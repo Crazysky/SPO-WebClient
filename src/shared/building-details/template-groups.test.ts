@@ -24,7 +24,6 @@ import {
   TOWN_GENERAL_GROUP,
   WORKFORCE_GROUP,
   SUPPLIES_GROUP,
-  SERVICES_GROUP,
   PRODUCTS_GROUP,
   ADVERTISEMENT_GROUP,
   UPGRADE_GROUP,
@@ -118,7 +117,7 @@ describe('GROUP_BY_ID lookup', () => {
       'unkGeneral', 'indGeneral', 'srvGeneral', 'resGeneral',
       'hqGeneral', 'bankGeneral', 'whGeneral', 'tvGeneral',
       'capitolGeneral', 'townGeneral',
-      'workforce', 'supplies', 'services', 'upgrade', 'finances',
+      'workforce', 'supplies', 'upgrade', 'finances',
       'advertisement', 'town', 'coverage', 'trade', 'localServices',
       'bankLoans', 'antennas', 'films', 'mausoleum',
       'votes', 'capitolTowns', 'ministeries',
@@ -178,8 +177,8 @@ describe('General handler RDO properties', () => {
     expect(maintProp!.editable).toBe(true);
   });
 
-  it('ResGeneral should have 18 properties (PopulatedBlock stats + investment sliders + repair control)', () => {
-    expect(RES_GENERAL_GROUP.properties).toHaveLength(18);
+  it('ResGeneral should have 20 properties (PopulatedBlock stats + investment sliders + repair control + stop toggle + demolish)', () => {
+    expect(RES_GENERAL_GROUP.properties).toHaveLength(20);
   });
 
   it('ResGeneral should have residential stats from PopulatedBlock.StoreToCache', () => {
@@ -582,6 +581,19 @@ describe('registerInspectorTabs integration', () => {
     expect(template.groups).toHaveLength(5);
     expect(template.groups[0].handlerName).toBe('IndGeneral');
     expect(template.groups[1].handlerName).toBe('Supplies');
+  });
+
+  it('should use canonical group name regardless of raw CLASSES.BIN tabName', () => {
+    // Building inspector tab name from CLASSES.BIN is 'SERVICES' (all-caps raw value),
+    // but the canonical PropertyGroup name for the Supplies handler is 'Supplies'.
+    // registerInspectorTabs must use baseGroup.name, not the raw tabName.
+    registerInspectorTabs('testHQ', [
+      { tabName: 'SERVICES', tabHandler: 'Supplies' },
+    ]);
+    const template = getTemplateForVisualClass('testHQ');
+    const suppliesGroup = template.groups.find(g => g.handlerName === 'Supplies');
+    expect(suppliesGroup).toBeDefined();
+    expect(suppliesGroup!.name).toBe('Supplies');  // canonical, not 'SERVICES'
   });
 
   it('should handle duplicate group IDs with handler suffix', () => {

@@ -78,7 +78,7 @@ export function registerInspectorTabs(
     groups.push({
       ...baseGroup,
       id: groupId,
-      name: tab.tabName || baseGroup.name,
+      name: baseGroup.name,
       order: i * 10,
       handlerName: tab.tabHandler,
     });
