@@ -111,7 +111,7 @@ describe('StatusOverlay — visibility logic via store', () => {
     const state = useBuildingStore.getState();
     expect(state.focusedBuilding).not.toBeNull();
     expect(state.isOverlayMode).toBe(true);
-    // Component would render
+    // Component would render with: buildingName, ownerName, revenue, inspect button
   });
 
   it('overlay hidden after clearFocus', () => {
@@ -144,7 +144,7 @@ describe('StatusOverlay — visibility logic via store', () => {
     useBuildingStore.getState().setFocus(refreshed);
 
     const state = useBuildingStore.getState();
-    expect(state.focusedBuilding?.salesInfo).toBe('Pharmaceutics sales at 95%');
+    expect(state.focusedBuilding?.revenue).toBe('($500/h)');
     expect(state.isOverlayMode).toBe(true);
   });
 
@@ -156,13 +156,18 @@ describe('StatusOverlay — visibility logic via store', () => {
     expect(state.focusedBuilding?.visualClass).toBe('1234');
   });
 
-  it('detailsText splits into lines correctly', () => {
-    const lines = mockBuilding.detailsText.split('\n').filter(Boolean);
-    expect(lines).toEqual(['Hiring: 12 workers', 'Supply: good']);
+  it('overlay shows building name and owner from focused building', () => {
+    useBuildingStore.getState().setFocus(mockBuilding);
+    useBuildingStore.getState().setOverlayMode(true);
+    const state = useBuildingStore.getState();
+    expect(state.focusedBuilding?.buildingName).toBe('Drug Store');
+    expect(state.focusedBuilding?.ownerName).toBe('TestCorp');
   });
 
-  it('empty detailsText produces no lines', () => {
-    const lines = ''.split('\n').filter(Boolean);
-    expect(lines).toEqual([]);
+  it('overlay shows revenue from focused building', () => {
+    useBuildingStore.getState().setFocus(mockBuilding);
+    useBuildingStore.getState().setOverlayMode(true);
+    const state = useBuildingStore.getState();
+    expect(state.focusedBuilding?.revenue).toBe('($120/h)');
   });
 });

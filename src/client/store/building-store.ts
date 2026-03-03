@@ -28,6 +28,24 @@ interface ResearchState {
   isLoadingDetails: boolean;
 }
 
+/** Tracks an in-flight SET command (optimistic feedback). */
+interface PendingUpdate {
+  value: string;
+  timestamp: number;
+}
+
+/** Tracks a failed SET command (revert + error display). */
+interface FailedUpdate {
+  originalValue: string;
+  error: string;
+  timestamp: number;
+}
+
+/** Tracks a recently confirmed SET command (success feedback). */
+interface ConfirmedUpdate {
+  timestamp: number;
+}
+
 interface BuildingState {
   // Focus
   focusedBuilding: BuildingFocusInfo | null;
@@ -43,6 +61,11 @@ interface BuildingState {
   // Ownership context (set by client.ts when showing panel)
   currentCompanyName: string;
   isOwner: boolean;
+
+  // Optimistic SET feedback
+  pendingUpdates: Map<string, PendingUpdate>;
+  failedUpdates: Map<string, FailedUpdate>;
+  confirmedUpdates: Map<string, ConfirmedUpdate>;
 
   // Connection picker state
   connectionPicker: {
@@ -71,6 +94,13 @@ interface BuildingState {
   setConnectionResults: (results: ConnectionSearchResult[]) => void;
   setConnectionSearching: (searching: boolean) => void;
   clearConnectionPicker: () => void;
+
+  // Optimistic SET actions
+  setPending: (key: string, value: string) => void;
+  confirmPending: (key: string) => void;
+  failPending: (key: string, originalValue: string, error: string) => void;
+  clearFailed: (key: string) => void;
+  clearConfirmed: (key: string) => void;
 
   // Research actions
   setResearchCategoryTabs: (tabs: string[]) => void;
@@ -101,6 +131,11 @@ export const useBuildingStore = create<BuildingState>((set) => ({
   isLoading: false,
   currentCompanyName: '',
   isOwner: false,
+
+  // Optimistic SET feedback
+  pendingUpdates: new Map(),
+  failedUpdates: new Map(),
+  confirmedUpdates: new Map(),
 
   setFocus: (info) => set({ focusedBuilding: info }),
 
@@ -145,9 +180,55 @@ export const useBuildingStore = create<BuildingState>((set) => ({
       isLoading: false,
       isOwner: false,
       research: null,
+      pendingUpdates: new Map(),
+      failedUpdates: new Map(),
+      confirmedUpdates: new Map(),
     }),
 
   clearOverlay: () => set({ isOverlayMode: false }),
+
+  // Optimistic SET actions
+  setPending: (key, value) =>
+    set((state) => {
+      const next = new Map(state.pendingUpdates);
+      next.set(key, { value, timestamp: Date.now() });
+      // Clear any previous failure for this key
+      const nextFailed = new Map(state.failedUpdates);
+      nextFailed.delete(key);
+      return { pendingUpdates: next, failedUpdates: nextFailed };
+    }),
+
+  confirmPending: (key) =>
+    set((state) => {
+      const nextPending = new Map(state.pendingUpdates);
+      nextPending.delete(key);
+      const nextConfirmed = new Map(state.confirmedUpdates);
+      nextConfirmed.set(key, { timestamp: Date.now() });
+      return { pendingUpdates: nextPending, confirmedUpdates: nextConfirmed };
+    }),
+
+  failPending: (key, originalValue, error) =>
+    set((state) => {
+      const nextPending = new Map(state.pendingUpdates);
+      nextPending.delete(key);
+      const nextFailed = new Map(state.failedUpdates);
+      nextFailed.set(key, { originalValue, error, timestamp: Date.now() });
+      return { pendingUpdates: nextPending, failedUpdates: nextFailed };
+    }),
+
+  clearFailed: (key) =>
+    set((state) => {
+      const next = new Map(state.failedUpdates);
+      next.delete(key);
+      return { failedUpdates: next };
+    }),
+
+  clearConfirmed: (key) =>
+    set((state) => {
+      const next = new Map(state.confirmedUpdates);
+      next.delete(key);
+      return { confirmedUpdates: next };
+    }),
 
   // Connection picker
   connectionPicker: null,

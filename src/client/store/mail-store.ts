@@ -51,7 +51,7 @@ export const useMailStore = create<MailState>((set) => ({
   composeBody: '',
   composeHeaders: '',
 
-  setFolder: (folder) => set({ currentFolder: folder, currentView: 'list', currentMessage: null }),
+  setFolder: (folder) => set({ currentFolder: folder, currentView: 'list', currentMessage: null, messages: [], isLoading: true }),
   setView: (view) => set({ currentView: view }),
   setMessages: (messages) => set({ messages, isLoading: false }),
   setCurrentMessage: (message) => set({ currentMessage: message, currentView: message ? 'read' : 'list', isLoading: false }),

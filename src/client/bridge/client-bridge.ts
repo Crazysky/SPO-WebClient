@@ -143,6 +143,7 @@ export interface ClientCallbacks {
   onRenameBuilding: (x: number, y: number, newName: string) => void;
   onDeleteBuilding: (x: number, y: number) => void;
   onNavigateToBuilding: (x: number, y: number) => void;
+  onInspectFocusedBuilding: () => void;
   onBuildingAction: (actionId: string) => void;
   onSearchConnections: (x: number, y: number, fluidId: string, fluidName: string, direction: 'input' | 'output') => void;
   onConnectionSearch: (buildingX: number, buildingY: number, fluidId: string, direction: 'input' | 'output', filters: { company?: string; town?: string; maxResults?: number; roles?: number }) => void;
@@ -327,6 +328,21 @@ export const ClientBridge = {
 
   setBuildingLoading(loading: boolean): void {
     useBuildingStore.getState().setLoading(loading);
+  },
+
+  /** Mark a property SET command as in-flight (optimistic feedback). */
+  setPendingUpdate(key: string, value: string): void {
+    useBuildingStore.getState().setPending(key, value);
+  },
+
+  /** Mark a property SET command as confirmed by server. */
+  confirmPendingUpdate(key: string): void {
+    useBuildingStore.getState().confirmPending(key);
+  },
+
+  /** Mark a property SET command as failed — triggers revert + error display. */
+  failPendingUpdate(key: string, originalValue: string, error: string): void {
+    useBuildingStore.getState().failPending(key, originalValue, error);
   },
 
   /** Show overlay above building (first click in two-click flow). */

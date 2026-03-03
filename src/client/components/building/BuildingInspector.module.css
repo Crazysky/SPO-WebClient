@@ -108,6 +108,12 @@
   scrollbar-color: var(--glass-border) transparent;
 }
 
+/* Staggered content entry — sections fade in sequentially when details arrive */
+.stagger0 { animation: fadeIn 150ms ease-out both; }
+.stagger1 { animation: fadeIn 150ms ease-out 50ms both; }
+.stagger2 { animation: fadeIn 150ms ease-out 100ms both; }
+.stagger3 { animation: fadeIn 150ms ease-out 150ms both; }
+
 /* Loading state */
 .loadingState {
   padding: var(--space-4);

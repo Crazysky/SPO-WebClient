@@ -59,6 +59,13 @@
   background: rgba(255, 255, 255, 0.12);
 }
 
+.textInputWrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+
 /* Slider input */
 .sliderContainer {
   display: flex;

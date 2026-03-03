@@ -52,6 +52,9 @@ function resetStore() {
     isOwner: false,
     connectionPicker: null,
     research: null,
+    pendingUpdates: new Map(),
+    failedUpdates: new Map(),
+    confirmedUpdates: new Map(),
   });
 }
 
@@ -319,5 +322,115 @@ describe('Building Store — Research state', () => {
     expect(research!.inventoryByCategory.get(1)).toBe(cat1);
     expect(research!.loadedCategories.has(0)).toBe(true);
     expect(research!.loadedCategories.has(1)).toBe(true);
+  });
+});
+
+describe('Building Store — Optimistic SET feedback', () => {
+  beforeEach(resetStore);
+
+  it('should start with empty pending/failed/confirmed maps', () => {
+    const state = useBuildingStore.getState();
+    expect(state.pendingUpdates.size).toBe(0);
+    expect(state.failedUpdates.size).toBe(0);
+    expect(state.confirmedUpdates.size).toBe(0);
+  });
+
+  it('setPending adds an entry to pendingUpdates', () => {
+    useBuildingStore.getState().setPending('RDOSetPrice:{"index":"0"}', '250');
+    const pending = useBuildingStore.getState().pendingUpdates;
+    expect(pending.size).toBe(1);
+    expect(pending.get('RDOSetPrice:{"index":"0"}')).toMatchObject({ value: '250' });
+  });
+
+  it('setPending clears any previous failure for the same key', () => {
+    const store = useBuildingStore.getState();
+    store.failPending('RDOSetPrice:{"index":"0"}', '100', 'Server error');
+    expect(useBuildingStore.getState().failedUpdates.size).toBe(1);
+
+    store.setPending('RDOSetPrice:{"index":"0"}', '200');
+    expect(useBuildingStore.getState().failedUpdates.size).toBe(0);
+    expect(useBuildingStore.getState().pendingUpdates.size).toBe(1);
+  });
+
+  it('confirmPending moves entry from pending to confirmed', () => {
+    const store = useBuildingStore.getState();
+    store.setPending('RDOSetPrice:{"index":"0"}', '250');
+    expect(useBuildingStore.getState().pendingUpdates.size).toBe(1);
+
+    store.confirmPending('RDOSetPrice:{"index":"0"}');
+    expect(useBuildingStore.getState().pendingUpdates.size).toBe(0);
+    expect(useBuildingStore.getState().confirmedUpdates.size).toBe(1);
+    expect(useBuildingStore.getState().confirmedUpdates.has('RDOSetPrice:{"index":"0"}')).toBe(true);
+  });
+
+  it('failPending moves entry from pending to failed with error info', () => {
+    const store = useBuildingStore.getState();
+    store.setPending('RDOSetSalaries', '500');
+    store.failPending('RDOSetSalaries', '500', 'Request Timeout');
+
+    expect(useBuildingStore.getState().pendingUpdates.size).toBe(0);
+    const failed = useBuildingStore.getState().failedUpdates.get('RDOSetSalaries');
+    expect(failed).toMatchObject({ originalValue: '500', error: 'Request Timeout' });
+  });
+
+  it('clearFailed removes a specific failed entry', () => {
+    const store = useBuildingStore.getState();
+    store.failPending('key1', '10', 'Error 1');
+    store.failPending('key2', '20', 'Error 2');
+    expect(useBuildingStore.getState().failedUpdates.size).toBe(2);
+
+    store.clearFailed('key1');
+    expect(useBuildingStore.getState().failedUpdates.size).toBe(1);
+    expect(useBuildingStore.getState().failedUpdates.has('key1')).toBe(false);
+    expect(useBuildingStore.getState().failedUpdates.has('key2')).toBe(true);
+  });
+
+  it('clearConfirmed removes a specific confirmed entry', () => {
+    const store = useBuildingStore.getState();
+    store.setPending('k1', '1');
+    store.setPending('k2', '2');
+    store.confirmPending('k1');
+    store.confirmPending('k2');
+    expect(useBuildingStore.getState().confirmedUpdates.size).toBe(2);
+
+    store.clearConfirmed('k1');
+    expect(useBuildingStore.getState().confirmedUpdates.size).toBe(1);
+    expect(useBuildingStore.getState().confirmedUpdates.has('k2')).toBe(true);
+  });
+
+  it('clearFocus clears all optimistic maps', () => {
+    const store = useBuildingStore.getState();
+    store.setPending('p1', '1');
+    store.failPending('p2', '2', 'fail');
+    store.setPending('p3', '3');
+    store.confirmPending('p3');
+
+    store.clearFocus();
+    expect(useBuildingStore.getState().pendingUpdates.size).toBe(0);
+    expect(useBuildingStore.getState().failedUpdates.size).toBe(0);
+    expect(useBuildingStore.getState().confirmedUpdates.size).toBe(0);
+  });
+
+  it('multiple pending keys tracked independently', () => {
+    const store = useBuildingStore.getState();
+    store.setPending('RDOSetPrice:{"index":"0"}', '100');
+    store.setPending('RDOSetPrice:{"index":"1"}', '200');
+    store.setPending('RDOSetSalaries', '500');
+
+    expect(useBuildingStore.getState().pendingUpdates.size).toBe(3);
+
+    store.confirmPending('RDOSetPrice:{"index":"0"}');
+    expect(useBuildingStore.getState().pendingUpdates.size).toBe(2);
+    expect(useBuildingStore.getState().confirmedUpdates.size).toBe(1);
+  });
+
+  it('setPending overwrites previous pending value for same key', () => {
+    const store = useBuildingStore.getState();
+    store.setPending('key', '100');
+    store.setPending('key', '200');
+
+    const pending = useBuildingStore.getState().pendingUpdates;
+    expect(pending.size).toBe(1);
+    expect(pending.get('key')?.value).toBe('200');
   });
 });

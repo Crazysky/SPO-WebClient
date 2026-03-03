@@ -6,7 +6,7 @@
  * Editable properties dispatch changes via the client callbacks.
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { BuildingPropertyValue, BuildingSupplyData, BuildingProductData, BuildingConnectionData, CompInputData } from '@/shared/types';
 import {
   PropertyType,
@@ -24,6 +24,7 @@ import { useClient } from '../../context';
 import { ResearchPanel } from './ResearchPanel';
 import { RevenueGraph } from './RevenueGraph';
 import { getConnectionStatus } from './comp-inputs-utils';
+import { SaveIndicator } from './SaveIndicator';
 import styles from './PropertyGroup.module.css';
 
 interface PropertyGroupProps {
@@ -173,6 +174,18 @@ function resolveRdoCommand(
 
   // No mapping found — pass through as-is
   return { command: propertyName };
+}
+
+/**
+ * Compute the pending-update key for a property, matching the key format
+ * used in client.ts setBuildingProperty: "command" or "command:{"index":"0"}"
+ */
+function computePendingKey(
+  rdoName: string,
+  rdoCommands?: Record<string, RdoCommandMapping>,
+): string {
+  const { command, params } = resolveRdoCommand(rdoName, rdoCommands);
+  return params ? `${command}:${JSON.stringify(params)}` : command;
 }
 
 // =============================================================================
@@ -425,6 +438,7 @@ function DefinedProperties({
             rowCount={rowCount}
             valueMap={valueMap}
             canEdit={canEdit}
+            rdoCommands={rdoCommands}
             onPropertyChange={handlePropertyChange}
           />,
         );
@@ -573,6 +587,7 @@ function PropertyValue({ def, value, maxValue, canEdit, onPropertyChange, onStri
             step={def.step ?? 5}
             unit={def.unit}
             rdoName={def.rdoName}
+            pendingKey={computePendingKey(def.rdoName, rdoCommands)}
             onPropertyChange={onPropertyChange}
           />
         );
@@ -585,6 +600,7 @@ function PropertyValue({ def, value, maxValue, canEdit, onPropertyChange, onStri
           <TextInput
             value={value}
             rdoName={def.rdoName}
+            pendingKey={computePendingKey(def.rdoName, rdoCommands)}
             onStringPropertyChange={onStringPropertyChange}
           />
         );
@@ -618,12 +634,23 @@ interface SliderInputProps {
   step: number;
   unit?: string;
   rdoName: string;
+  pendingKey?: string;
   onPropertyChange: (name: string, value: number) => void;
 }
 
-function SliderInput({ value, min, max, step, unit, rdoName, onPropertyChange }: SliderInputProps) {
+function SliderInput({ value, min, max, step, unit, rdoName, pendingKey, onPropertyChange }: SliderInputProps) {
   const [localVal, setLocalVal] = useState(isNaN(value) ? min : value);
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Revert local value on server failure
+  const failedUpdates = useBuildingStore((s) => s.failedUpdates);
+  useEffect(() => {
+    if (!pendingKey) return;
+    const failed = failedUpdates.get(pendingKey);
+    if (failed) {
+      setLocalVal(parseFloat(failed.originalValue) || min);
+    }
+  }, [failedUpdates, pendingKey, min]);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -652,6 +679,7 @@ function SliderInput({ value, min, max, step, unit, rdoName, onPropertyChange }:
       />
       <span className={styles.sliderValue}>
         {localVal}{unit ?? ''}
+        {pendingKey && <SaveIndicator propertyKey={pendingKey} />}
       </span>
     </div>
   );
@@ -664,12 +692,23 @@ function SliderInput({ value, min, max, step, unit, rdoName, onPropertyChange }:
 interface TextInputProps {
   value: string;
   rdoName: string;
+  pendingKey?: string;
   onStringPropertyChange: (name: string, value: string) => void;
 }
 
-function TextInput({ value, rdoName, onStringPropertyChange }: TextInputProps) {
+function TextInput({ value, rdoName, pendingKey, onStringPropertyChange }: TextInputProps) {
   const [localVal, setLocalVal] = useState(value);
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Revert local value on server failure
+  const failedUpdates = useBuildingStore((s) => s.failedUpdates);
+  useEffect(() => {
+    if (!pendingKey) return;
+    const failed = failedUpdates.get(pendingKey);
+    if (failed) {
+      setLocalVal(failed.originalValue);
+    }
+  }, [failedUpdates, pendingKey]);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -684,13 +723,16 @@ function TextInput({ value, rdoName, onStringPropertyChange }: TextInputProps) {
   );
 
   return (
-    <input
-      type="text"
-      className={styles.textInput}
-      value={localVal}
-      onChange={handleChange}
-      maxLength={40}
-    />
+    <span className={styles.textInputWrapper}>
+      <input
+        type="text"
+        className={styles.textInput}
+        value={localVal}
+        onChange={handleChange}
+        maxLength={40}
+      />
+      {pendingKey && <SaveIndicator propertyKey={pendingKey} />}
+    </span>
   );
 }
 
@@ -1073,12 +1115,14 @@ function DataTable({
   rowCount,
   valueMap,
   canEdit,
+  rdoCommands,
   onPropertyChange,
 }: {
   def: PropertyDefinition;
   rowCount: number;
   valueMap: Map<string, string>;
   canEdit: boolean;
+  rdoCommands?: Record<string, RdoCommandMapping>;
   onPropertyChange: (name: string, value: number) => void;
 }) {
   const propSuffix = def.indexSuffix || '';
@@ -1110,6 +1154,7 @@ function DataTable({
                     value={value}
                     rdoName={key}
                     canEdit={canEdit && !!col.editable}
+                    rdoCommands={rdoCommands}
                     onPropertyChange={onPropertyChange}
                   />
                 </td>
@@ -1127,12 +1172,14 @@ function TableCellValue({
   value,
   rdoName,
   canEdit,
+  rdoCommands,
   onPropertyChange,
 }: {
   col: TableColumn;
   value: string;
   rdoName: string;
   canEdit: boolean;
+  rdoCommands?: Record<string, RdoCommandMapping>;
   onPropertyChange: (name: string, value: number) => void;
 }) {
   const num = parseFloat(value);
@@ -1154,6 +1201,7 @@ function TableCellValue({
             max={col.max ?? 300}
             step={col.step ?? 5}
             rdoName={rdoName}
+            pendingKey={computePendingKey(rdoName, rdoCommands)}
             onPropertyChange={onPropertyChange}
           />
         );

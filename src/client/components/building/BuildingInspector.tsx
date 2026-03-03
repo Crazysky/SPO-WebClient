@@ -10,7 +10,9 @@
  * - ActionBar: upgrade/downgrade/delete (sticky bottom)
  */
 
+import { useEffect, useRef } from 'react';
 import { useBuildingStore } from '../../store/building-store';
+import { useClient } from '../../context';
 import { Skeleton } from '../common';
 import { QuickStats } from './QuickStats';
 import { InspectorTabs } from './InspectorTabs';
@@ -18,12 +20,28 @@ import { PropertyGroup } from './PropertyGroup';
 import { ActionBar } from './ActionBar';
 import styles from './BuildingInspector.module.css';
 
+/** Auto-refresh interval for open building panel (ms). */
+const AUTO_REFRESH_INTERVAL = 30_000;
+
 export function BuildingInspector() {
   const focusedBuilding = useBuildingStore((s) => s.focusedBuilding);
   const details = useBuildingStore((s) => s.details);
   const isLoading = useBuildingStore((s) => s.isLoading);
   const currentTab = useBuildingStore((s) => s.currentTab);
   const setCurrentTab = useBuildingStore((s) => s.setCurrentTab);
+  const client = useClient();
+
+  // Auto-refresh building details while panel is open (prevents stale QuickStats)
+  const refreshTimer = useRef<ReturnType<typeof setInterval>>();
+  useEffect(() => {
+    if (!details) return;
+    const x = details.x;
+    const y = details.y;
+    refreshTimer.current = setInterval(() => {
+      client.onRefreshBuilding(x, y);
+    }, AUTO_REFRESH_INTERVAL);
+    return () => clearInterval(refreshTimer.current);
+  }, [details?.x, details?.y, client]);
 
   // Loading state
   if (isLoading || (!details && focusedBuilding)) {
@@ -57,7 +75,7 @@ export function BuildingInspector() {
   return (
     <div className={styles.inspector}>
       {/* Header */}
-      <div className={styles.header}>
+      <div className={`${styles.header} ${styles.stagger0}`}>
         <h3 className={styles.buildingName}>{details.buildingName}</h3>
         <div className={styles.headerMeta}>
           <span className={styles.ownerName}>{details.ownerName}</span>
@@ -68,19 +86,23 @@ export function BuildingInspector() {
       </div>
 
       {/* Quick stats from focus info */}
-      <QuickStats focus={focusedBuilding} />
+      <div className={styles.stagger1}>
+        <QuickStats focus={focusedBuilding} />
+      </div>
 
       {/* Tab navigation */}
       {details.tabs.length > 0 && (
-        <InspectorTabs
-          tabs={details.tabs}
-          activeTab={currentTab || activeGroupId}
-          onTabChange={setCurrentTab}
-        />
+        <div className={styles.stagger2}>
+          <InspectorTabs
+            tabs={details.tabs}
+            activeTab={currentTab || activeGroupId}
+            onTabChange={setCurrentTab}
+          />
+        </div>
       )}
 
       {/* Tab content — scrollable */}
-      <div className={styles.content}>
+      <div className={`${styles.content} ${styles.stagger3}`}>
         <PropertyGroup
           properties={properties}
           buildingX={details.x}

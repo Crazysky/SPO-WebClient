@@ -1,8 +1,10 @@
 /**
- * StatusOverlay — Compact floating building info bubble.
+ * StatusOverlay — Minimal floating popover shown on first building click.
  *
- * Shown above a building after the first map click (overlay mode).
- * A second click on the same building opens the full inspector panel.
+ * Displays building name, owner, revenue pill, and an Inspect button.
+ * Clicking Inspect opens the full inspector panel (same as double-clicking
+ * the building on the map).
+ *
  * Uses requestAnimationFrame to track the building's screen position
  * during scroll/zoom via the worldToScreenCentered bridge utility.
  */
@@ -10,6 +12,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useBuildingStore } from '../../store/building-store';
 import { worldToScreenCentered } from '../../bridge/client-bridge';
+import { useClient } from '../../context/ClientContext';
 import styles from './StatusOverlay.module.css';
 
 /** Gap between caret tip and texture top (pixels). */
@@ -33,6 +36,7 @@ export function revenueDirection(revenue: string): 'up' | 'down' | 'neutral' {
 export function StatusOverlay() {
   const building = useBuildingStore((s) => s.focusedBuilding);
   const isOverlay = useBuildingStore((s) => s.isOverlayMode);
+  const client = useClient();
   const [screenPos, setScreenPos] = useState<{
     x: number; y: number; textureHeight: number;
   } | null>(null);
@@ -62,10 +66,6 @@ export function StatusOverlay() {
 
   if (!building || !isOverlay || !screenPos) return null;
 
-  const detailLines = building.detailsText
-    ? building.detailsText.split('\n').filter(Boolean)
-    : [];
-
   const direction = revenueDirection(building.revenue);
 
   return (
@@ -79,34 +79,27 @@ export function StatusOverlay() {
     >
       <div className={styles.buildingName}>{building.buildingName}</div>
 
-      {building.ownerName && (
-        <div className={styles.ownerName}>{building.ownerName}</div>
-      )}
-
-      {building.salesInfo && (
-        <div className={styles.salesLine}>{building.salesInfo}</div>
-      )}
-
-      {building.revenue && (
-        <div className={`${styles.revenueLine} ${revenueClass(building.revenue)}`}>
-          <span className={styles.revenueArrow}>
-            {direction === 'up' ? '\u25B2' : direction === 'down' ? '\u25BC' : '\u25CF'}
+      <div className={styles.infoRow}>
+        {building.ownerName && (
+          <span className={styles.ownerName}>{building.ownerName}</span>
+        )}
+        {building.revenue && (
+          <span className={`${styles.revenuePill} ${revenueClass(building.revenue)}`}>
+            <span className={styles.revenueArrow}>
+              {direction === 'up' ? '\u25B2' : direction === 'down' ? '\u25BC' : '\u25CF'}
+            </span>
+            {building.revenue}
           </span>
-          <span className={styles.revenueText}>{building.revenue}</span>
-        </div>
-      )}
+        )}
+      </div>
 
-      {detailLines.length > 0 && (
-        <div className={styles.details}>
-          {detailLines.map((line, i) => (
-            <div key={i} className={styles.detailLine}>{line}</div>
-          ))}
-        </div>
-      )}
-
-      {building.hintsText && (
-        <div className={styles.hints}>{building.hintsText}</div>
-      )}
+      <button
+        className={styles.inspectBtn}
+        onClick={() => client.onInspectFocusedBuilding()}
+        data-testid="inspect-button"
+      >
+        INSPECT
+      </button>
 
       <div className={styles.caret} />
     </div>

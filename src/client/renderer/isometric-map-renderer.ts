@@ -2842,8 +2842,8 @@ export class IsometricMapRenderer {
           );
         }
 
-        // Draw VisualClass label for debugging/identification
-        this.drawBuildingLabel(building.visualClass, southCornerScreenPos.x, southCornerScreenPos.y + halfHeight);
+        // Draw facility coordinates label
+        this.drawBuildingLabel(`(${building.x},${building.y})`, southCornerScreenPos.x, southCornerScreenPos.y + halfHeight);
       } else {
         // Texture not loaded yet — skip (will render once texture arrives via onTextureLoaded callback)
         return;
@@ -2852,10 +2852,10 @@ export class IsometricMapRenderer {
   }
 
   /**
-   * Draw building VisualClass label for identification
+   * Draw building label below the building sprite.
    * Skipped at zoom levels 0-1 where tiles are too small for readable labels
    */
-  private drawBuildingLabel(visualClass: string, x: number, y: number): void {
+  private drawBuildingLabel(label: string, x: number, y: number): void {
     // Skip labels at far zoom levels — tiles are too small for readable text
     if (this.terrainRenderer.getZoomLevel() <= 1) return;
 
@@ -2863,7 +2863,7 @@ export class IsometricMapRenderer {
 
     // Draw label background
     ctx.font = '10px monospace';
-    const text = visualClass;
+    const text = label;
     const metrics = ctx.measureText(text);
     const padding = 2;
     const bgWidth = metrics.width + padding * 2;

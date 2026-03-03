@@ -249,6 +249,12 @@ export class StarpeaceClient {
   private isBuildingRoad: boolean = false;
   private isRoadDemolishMode: boolean = false;
 
+  // Speculative prefetch: first click caches a details promise for instant second-click
+  private speculativeBuildingDetails = new Map<string, Promise<BuildingDetailsResponse | null>>();
+
+  // Generation counters: discard stale responses when a newer request supersedes
+  private requestGeneration = new Map<string, number>();
+
   // Logout state
   private isLoggingOut: boolean = false;
 
@@ -306,6 +312,15 @@ export class StarpeaceClient {
         if (success) ClientBridge.hideBuildingPanel();
       }),
       onNavigateToBuilding: (x, y) => this.focusBuilding(x, y),
+      onInspectFocusedBuilding: () => {
+        const { focusedBuilding } = useBuildingStore.getState();
+        if (focusedBuilding) {
+          this.openInspectorForFocused(
+            focusedBuilding.x, focusedBuilding.y,
+            focusedBuilding.visualClass,
+          );
+        }
+      },
       onBuildingAction: (actionId) => {
         const details = useBuildingStore.getState().details;
         if (details) this.handleBuildingAction(actionId, details);
@@ -584,6 +599,21 @@ export class StarpeaceClient {
     ClientBridge.log('Wire', `→ SEND ${msg.type}`);
     // [/E2E-DEBUG]
     this.ws.send(JSON.stringify(msg));
+  }
+
+  /**
+   * Increment and return the generation counter for a request category.
+   * Used to discard stale responses when a newer request has been issued.
+   */
+  private nextGeneration(category: string): number {
+    const gen = (this.requestGeneration.get(category) ?? 0) + 1;
+    this.requestGeneration.set(category, gen);
+    return gen;
+  }
+
+  /** Check if a generation counter is still current (not superseded). */
+  private isCurrentGeneration(category: string, gen: number): boolean {
+    return this.requestGeneration.get(category) === gen;
   }
 
   private handleMessage(msg: WsMessage) {
@@ -1365,6 +1395,11 @@ export class StarpeaceClient {
         selRenderer.setSelectedBuilding(x, y);
       }
 
+      // Speculative prefetch: start loading details in background so second click is instant
+      const cacheKey = `${x},${y}`;
+      this.speculativeBuildingDetails.clear();
+      this.speculativeBuildingDetails.set(cacheKey, this.requestBuildingDetails(x, y, vc));
+
       ClientBridge.log('Building', `Overlay: ${response.building.buildingName}`);
     } catch (err: unknown) {
       ClientBridge.log('Error', `Failed to show overlay: ${toErrorMessage(err)}`);
@@ -1381,33 +1416,38 @@ export class StarpeaceClient {
     this.isFocusingBuilding = true;
     ClientBridge.log('Building', `Opening inspector at (${x}, ${y})`);
 
+    // Open panel with skeleton immediately (slide-in animates in parallel with network)
+    useBuildingStore.getState().setLoading(true);
+    useUiStore.getState().openRightPanel('building');
+
     try {
       const vc = visualClass || this.currentFocusedVisualClass || '0';
-      const details = await this.requestBuildingDetails(x, y, vc);
+      const gen = this.nextGeneration('buildingDetails');
+
+      // Consume speculative prefetch if available, otherwise fire fresh request
+      const cacheKey = `${x},${y}`;
+      const cached = this.speculativeBuildingDetails.get(cacheKey);
+      this.speculativeBuildingDetails.delete(cacheKey);
+      const details = cached ? await cached : await this.requestBuildingDetails(x, y, vc);
+
+      // Discard if a newer request superseded this one
+      if (!this.isCurrentGeneration('buildingDetails', gen)) return;
+
       const focusInfo = this.currentFocusedBuilding;
 
-      const displayDetails = details ?? {
-        buildingId: focusInfo?.buildingId || '',
-        buildingName: focusInfo?.buildingName || 'Building',
-        ownerName: focusInfo?.ownerName || 'Unknown',
-        x,
-        y,
-        visualClass: vc,
-        templateName: 'Building',
-        securityId: '',
-        tabs: [],
-        groups: {
-          generic: [
-            { name: 'Name', value: focusInfo?.buildingName },
-            { name: 'Owner', value: focusInfo?.ownerName },
-            { name: 'Revenue', value: focusInfo?.revenue },
-          ]
-        },
-        timestamp: Date.now()
-      } as BuildingDetailsResponse;
-
-      ClientBridge.showBuildingPanel(displayDetails, this.currentCompanyName, focusInfo ?? undefined);
-      ClientBridge.log('Building', `Inspector opened: ${focusInfo?.buildingName}`);
+      if (details) {
+        ClientBridge.showBuildingPanel(details, this.currentCompanyName, focusInfo ?? undefined);
+        ClientBridge.log('Building', `Inspector opened: ${focusInfo?.buildingName}`);
+      } else {
+        // Details unavailable — keep skeleton visible and set panel context.
+        // EVENT_BUILDING_REFRESH or the retry below will fill in the real data.
+        const bld = useBuildingStore.getState();
+        bld.setCurrentCompanyName(this.currentCompanyName);
+        if (focusInfo) bld.setFocus(focusInfo);
+        bld.setOverlayMode(false);
+        ClientBridge.log('Building', `Inspector skeleton (details pending) for ${focusInfo?.buildingName}`);
+        setTimeout(() => this.refreshBuildingDetails(x, y), 2000);
+      }
     } catch (err: unknown) {
       ClientBridge.log('Error', `Failed to open inspector: ${toErrorMessage(err)}`);
     } finally {
@@ -1442,35 +1482,38 @@ export class StarpeaceClient {
         visualClass = renderer.getVisualClassAt(x, y) ?? undefined;
       }
 
+      // Open panel with skeleton immediately (slide-in animates in parallel with network)
+      useBuildingStore.getState().setLoading(true);
+      useUiStore.getState().openRightPanel('building');
+
+      const gen = this.nextGeneration('buildingDetails');
       const req: WsReqBuildingFocus = { type: WsMessageType.REQ_BUILDING_FOCUS, x, y };
-      const response = await this.sendRequest(req) as WsRespBuildingFocus;
+
+      // Fire focus + details in parallel (saves one full RTT)
+      const [response, details] = await Promise.all([
+        this.sendRequest(req) as Promise<WsRespBuildingFocus>,
+        this.requestBuildingDetails(x, y, visualClass || '0'),
+      ]);
+
+      // Discard if a newer request superseded this one
+      if (!this.isCurrentGeneration('buildingDetails', gen)) return;
 
       this.currentFocusedBuilding = response.building;
       this.currentFocusedVisualClass = visualClass || null;
 
-      const details = await this.requestBuildingDetails(x, y, visualClass || '0');
-      const displayDetails = details ?? {
-        buildingId: response.building.buildingId || '',
-        buildingName: response.building.buildingName || 'Building',
-        ownerName: response.building.ownerName || 'Unknown',
-        x,
-        y,
-        visualClass: visualClass || '0',
-        templateName: 'Building',
-        securityId: '',
-        tabs: [],
-        groups: {
-          generic: [
-            { name: 'Name', value: response.building.buildingName },
-            { name: 'Owner', value: response.building.ownerName },
-            { name: 'Revenue', value: response.building.revenue },
-          ]
-        },
-        timestamp: Date.now()
-      } as BuildingDetailsResponse;
-
-      ClientBridge.showBuildingPanel(displayDetails, this.currentCompanyName, response.building);
-      ClientBridge.log('Building', `Focused: ${response.building.buildingName}`);
+      if (details) {
+        ClientBridge.showBuildingPanel(details, this.currentCompanyName, response.building);
+        ClientBridge.log('Building', `Focused: ${response.building.buildingName}`);
+      } else {
+        // Details unavailable — keep skeleton visible and set panel context.
+        // EVENT_BUILDING_REFRESH or the retry below will fill in the real data.
+        const bld = useBuildingStore.getState();
+        bld.setCurrentCompanyName(this.currentCompanyName);
+        bld.setFocus(response.building);
+        bld.setOverlayMode(false);
+        ClientBridge.log('Building', `Focused skeleton (details pending): ${response.building.buildingName}`);
+        setTimeout(() => this.refreshBuildingDetails(x, y), 2000);
+      }
     } catch (err: unknown) {
       ClientBridge.log('Error', `Failed to focus building: ${toErrorMessage(err)}`);
     } finally {
@@ -1482,6 +1525,7 @@ export class StarpeaceClient {
     if (!this.currentFocusedBuilding) return;
 
     ClientBridge.log('Building', 'Unfocusing building');
+    this.speculativeBuildingDetails.clear();
 
     try {
       const req: WsReqBuildingUnfocus = {
@@ -1546,7 +1590,8 @@ export class StarpeaceClient {
    * Re-fetch building details and update the panel in-place
    */
   private async refreshBuildingDetails(x: number, y: number): Promise<void> {
-    const details = await this.requestBuildingDetails(x, y, '0');
+    const vc = this.currentFocusedVisualClass || '0';
+    const details = await this.requestBuildingDetails(x, y, vc);
     if (details) {
       ClientBridge.updateBuildingDetails(details);
     }
@@ -1565,6 +1610,13 @@ export class StarpeaceClient {
   ): Promise<boolean> {
     ClientBridge.log('Building', `Setting ${propertyName}=${value} at (${x}, ${y})`);
 
+    // Unique key for this property (e.g., "RDOSetPrice:{"index":"0"}")
+    const pendingKey = additionalParams
+      ? `${propertyName}:${JSON.stringify(additionalParams)}`
+      : propertyName;
+
+    ClientBridge.setPendingUpdate(pendingKey, value);
+
     try {
       const req: WsReqBuildingSetProperty = {
         type: WsMessageType.REQ_BUILDING_SET_PROPERTY,
@@ -1578,13 +1630,16 @@ export class StarpeaceClient {
       const response = await this.sendRequest(req) as WsRespBuildingSetProperty;
 
       if (response.success) {
+        ClientBridge.confirmPendingUpdate(pendingKey);
         ClientBridge.log('Building', `Property ${propertyName} updated to ${response.newValue}`);
         return true;
       } else {
+        ClientBridge.failPendingUpdate(pendingKey, value, 'Server rejected the change');
         ClientBridge.log('Error', `Failed to set ${propertyName}`);
         return false;
       }
     } catch (err: unknown) {
+      ClientBridge.failPendingUpdate(pendingKey, value, toErrorMessage(err));
       ClientBridge.log('Error', `Failed to set property: ${toErrorMessage(err)}`);
       return false;
     }
