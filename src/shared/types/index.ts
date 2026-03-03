@@ -135,6 +135,8 @@ export type {
   WsRespBuildingFocus,
   WsEventBuildingRefresh,
   WsEventAreaRefresh,
+  WsEventShowNotification,
+  WsEventCacheRefresh,
   // Building construction messages
   WsReqGetBuildingCategories,
   WsReqGetBuildingFacilities,

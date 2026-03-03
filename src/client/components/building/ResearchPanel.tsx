@@ -21,6 +21,7 @@ import {
   groupInventionsByParent,
   isGroupResearchable,
   countAvailableEnabled,
+  countByStatus,
   type MergedInventionItem,
 } from './research-utils';
 import styles from './ResearchPanel.module.css';
@@ -172,9 +173,9 @@ function InventionGroup({
   onQueue: (inventionId: string) => void;
   onCancel: (inventionId: string) => void;
 }) {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const researchable = isGroupResearchable(items);
-  const availCount = items.filter((i) => i.status === 'available' && i.enabled !== false).length;
+  const counts = countByStatus(items);
 
   return (
     <div className={styles.group}>
@@ -185,8 +186,14 @@ function InventionGroup({
       >
         <span className={`${styles.groupDot} ${researchable ? styles.groupDotActive : ''}`} />
         <span className={styles.groupName}>{parent || 'Uncategorized'}</span>
-        {availCount > 0 && (
-          <span className={styles.groupCount}>{availCount} avail.</span>
+        {(counts.avail > 0 || counts.dev > 0 || counts.has > 0) && (
+          <span className={styles.groupCount}>
+            {[
+              counts.avail > 0 ? `${counts.avail} avail` : '',
+              counts.dev > 0 ? `${counts.dev} dev` : '',
+              counts.has > 0 ? `${counts.has} owned` : '',
+            ].filter(Boolean).join(' \u00B7 ')}
+          </span>
         )}
         <svg
           className={`${styles.groupChevron} ${isOpen ? styles.groupChevronOpen : ''}`}
@@ -291,6 +298,15 @@ function InventionRow({
           onClick={(e) => { e.stopPropagation(); onCancel(item.inventionId); }}
         >
           Cancel
+        </button>
+      )}
+
+      {isOwner && item.status === 'developed' && (
+        <button
+          className={`${styles.inlineBtn} ${styles.inlineBtnSell}`}
+          onClick={(e) => { e.stopPropagation(); onCancel(item.inventionId); }}
+        >
+          Sell
         </button>
       )}
     </div>

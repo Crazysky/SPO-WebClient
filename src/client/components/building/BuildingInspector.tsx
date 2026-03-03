@@ -61,8 +61,8 @@ export function BuildingInspector() {
         <h3 className={styles.buildingName}>{details.buildingName}</h3>
         <div className={styles.headerMeta}>
           <span className={styles.ownerName}>{details.ownerName}</span>
-          {details.visualClass && (
-            <span className={styles.visualClass}>{details.visualClass}</span>
+          {(details.x !== undefined && details.y !== undefined) && (
+            <span className={styles.visualClass}>{details.x}, {details.y}</span>
           )}
         </div>
       </div>

@@ -190,7 +190,7 @@ Format: `{prefix}{cat}Rs{field}{index}` where prefix = `avl`|`dev`|`has`
 | `{prefix}{cat}RsName{idx}` | volatile only | string | Display name (only written for volatile inventions) |
 | `{prefix}{cat}RsDyn{idx}` | volatile only | `'yes'` | Indicates dynamic/volatile |
 | `{prefix}{cat}RsParent{idx}` | volatile only | string | Parent category name |
-| `avl{cat}RsEnabled{idx}` | available only | boolean | `true` if prerequisites met + tier met |
+| `avl{cat}RsEnabled{idx}` | available only | boolean (`'1'`/`'0'` via `WriteBoolean`) | `'1'` if prerequisites met + tier met |
 | `has{cat}RsCost{idx}` | completed only | string | Formatted cost (TotalCost - Subsidy) |
 
 ### Example Cache
@@ -203,8 +203,8 @@ CatCount=0
 avlCount0=2
 devCount0=1
 hasCount0=1
-avl0RsId0=Dir.Marketing    avl0RsEnabled0=true
-avl0RsId1=Dir.Finance      avl0RsEnabled1=false   (prereq not met)
+avl0RsId0=Dir.Marketing    avl0RsEnabled0=1
+avl0RsId1=Dir.Finance      avl0RsEnabled1=0       (prereq not met)
 dev0RsId0=Dir.Research
 has0RsId0=Dir.Basic        has0RsCost0=$5,000,000
 ```
@@ -627,6 +627,82 @@ The server cache only writes `Name` for **volatile** inventions (those with `lic
 - [InventionsSheet.pas:661-756] — RenderTab populates trees and list
 - [InventionsSheet.pas:784-837] — btnResearch/btnStop click handlers
 - [Standards.pas:24-80] — All InventionKind constants
+
+## Research Completion Push Sequence
+
+When a research item completes, the server sends three push commands in rapid succession to the client. This sequence is critical for proper UI refresh.
+
+### Push 1: ShowNotification (toast)
+
+```
+C sel <tycoonProxy> call ShowNotification "*" "#4","%","%Research ""Water Quest Licenses"" completed. Check for new items in your Build page.","#1";
+```
+
+- **Kind:** `#4` = GenericEvent (from `TNotificationKind` in Protocol.pas)
+- **Title:** `%` (empty)
+- **Body:** `%Research "..." completed. Check for new items in your Build page.`
+- **Options:** `#1` = `gevnId_RefreshBuildPage` (Protocol.pas:186)
+- **WebClient actions:**
+  1. Displays a success toast via `showNotification()`
+  2. Invalidates the cached build catalog (`buildingCategories = []`) because completed research may unlock new building types. The catalog is re-fetched on next Build Menu open.
+
+### Push 2: RefreshObject (building visual + focus update)
+
+```
+C sel <tycoonProxy> call RefreshObject "*" "#129625108","#1","%";
+```
+
+- **BuildingId:** `#129625108`
+- **KindOfChange:** `#1` = `fchStructure` (visual changed)
+- **ExtraInfo:** `%` (empty — status text clears after completion)
+- **WebClient action:** Invalidates the building's renderer zone (re-draws on map). If the building is currently focused, propagates empty detailsText/hintsText to the StatusTicker (hides it) and re-fetches building details.
+
+### Push 3: Bare Refresh (cache invalidation)
+
+```
+C 241 sel 31413720 call Refresh "*" ;
+```
+
+- **Connection 241:** The IS connection hosting the cache object proxy
+- **ObjectId 31413720:** The cache proxy object for the focused building
+- **No args:** This is a bare `Refresh` call — tells the cache proxy to invalidate all cached properties and re-read from the model server
+- **WebClient action:** Re-fetches building details via `requestBuildingDetails()`, which refreshes all tabs (including the Research tab inventory showing the newly completed item).
+
+### Flow Diagram
+
+```
+Server completes research
+  │
+  ├─ ShowNotification(4, "", "Research X completed...", 1)
+  │    → Client: success toast shown to player
+  │
+  ├─ RefreshObject(buildingId, 1, "")
+  │    → Client: re-render building on map
+  │    → Client: clear StatusTicker (empty detailsText/hintsText)
+  │    → Client: update focused building store
+  │
+  └─ Refresh() [bare, on cache proxy connection]
+       → Client: re-fetch building details + tabs
+       → Client: Research tab shows updated inventory
+```
+
+### Key Observations
+
+1. **ShowNotification and RefreshObject are often concatenated** in a single TCP message separated by `;` — the WebClient's `handleIncomingMessage()` splits on `;` and processes each command separately.
+2. The bare `Refresh` push arrives on a **different TCP connection** (the cache proxy connection, not the tycoon proxy), but in the WebClient's multiplexed architecture it routes through the same `processSingleCommand()` path.
+3. During active research, the `RefreshObject` push periodically updates the StatusTicker with progress (e.g., `detailsText: "Researching X. Cost: $10M. Company supported at 200%."`, `hintsText: "Please wait..."`). On completion, these fields clear.
+
+### ShowNotification Protocol Reference (from Delphi VoyagerWindow.pas:506-563)
+
+| Kind | Constant | Options | Delphi Action |
+|------|----------|---------|---------------|
+| 0 | `ntkMessageBox` | (unused) | `ShowMsgBox()` — modal dialog |
+| 1 | `ntkURLFrame` | `OP_Minimized` bitflag | Opens URL in embedded frame |
+| 2 | `ntkChatMessage` | (unused) | `SayThis()` — chat message |
+| 3 | `ntkSound` | (unused) | `SayThis()` — chat message + sound |
+| 4 | `ntkGenericEvent` | `gevnId_RefreshBuildPage=1` | Chat message + refresh Build page |
+
+The `gevnId_RefreshBuildPage` option (value `1`, Protocol.pas:186) is sent when research completes or an invention is sold, signaling the client to refresh its building catalog because new facility types may have been unlocked.
 
 ## Open Questions
 

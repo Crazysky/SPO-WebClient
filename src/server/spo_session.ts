@@ -60,6 +60,8 @@ import {
   ResearchCategoryData,
   ResearchInventionItem,
   ResearchInventionDetails,
+  WsEventShowNotification,
+  WsEventCacheRefresh,
 } from '../shared/types';
 import {
   getTemplateForVisualClass,
@@ -4441,7 +4443,38 @@ private handlePush(socketName: string, packet: RdoPacket) {
     return;
   }
 
-  // 8. Generic push fallback (for unhandled events)
+  // 8. ShowNotification — server game notification (research complete, events, etc.)
+  // Format: C sel <proxy> call ShowNotification "*" "#<kind>","%<title>","%<body>","#<options>";
+  // Kind: 0=MessageBox, 1=URLFrame, 2=ChatMessage, 3=Sound, 4=GenericEvent
+  if (packet.member === 'ShowNotification') {
+    const kind = packet.args?.[0] ? RdoParser.asInt(packet.args[0]) : 0;
+    const title = packet.args?.[1] ? RdoParser.getValue(packet.args[1]) : '';
+    const body = packet.args?.[2] ? RdoParser.getValue(packet.args[2]) : '';
+    const options = packet.args?.[3] ? RdoParser.asInt(packet.args[3]) : 0;
+    this.log.debug(`[Push] ShowNotification: kind=${kind}, title="${title}", body="${body}", options=${options}`);
+    const notifEvent: WsEventShowNotification = {
+      type: WsMessageType.EVENT_SHOW_NOTIFICATION,
+      kind,
+      title,
+      body,
+      options,
+    };
+    this.emit('ws_event', notifEvent);
+    return;
+  }
+
+  // 9. Refresh — cache proxy invalidation (server tells client to re-fetch building data)
+  // Format: C <connId> sel <objectId> call Refresh "*" ;
+  if (packet.member === 'Refresh' && (!packet.args || packet.args.length === 0)) {
+    this.log.debug('[Push] Cache Refresh received — building data invalidated');
+    const refreshEvent: WsEventCacheRefresh = {
+      type: WsMessageType.EVENT_CACHE_REFRESH,
+    };
+    this.emit('ws_event', refreshEvent);
+    return;
+  }
+
+  // 10. Generic push fallback (for unhandled events)
   const event: WsEventRdoPush = {
     type: WsMessageType.EVENT_RDO_PUSH,
     rawPacket: packet.raw
@@ -6808,7 +6841,8 @@ export function parseResearchItems(
     let enabled: boolean | undefined;
     if (includeEnabled) {
       const enabledVal = values.get(`avl${cat}RsEnabled${i}`);
-      enabled = enabledVal === 'true' || enabledVal === '-1';
+      // Delphi TObjectCache.WriteBoolean writes '1'/'0'; also accept 'true'/'-1' for safety
+      enabled = enabledVal === '1' || enabledVal === 'true' || enabledVal === '-1';
     }
 
     items.push({ inventionId: id, name, enabled, cost, parent, volatile: isVolatile || undefined });

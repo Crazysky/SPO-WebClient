@@ -73,3 +73,17 @@ export function isGroupResearchable(items: MergedInventionItem[]): boolean {
 export function countAvailableEnabled(data: ResearchCategoryData): number {
   return data.available.filter((i) => i.enabled !== false).length;
 }
+
+/**
+ * Count merged items by status for group header badges.
+ * Available counts only enabled (unlocked) items.
+ */
+export function countByStatus(items: MergedInventionItem[]): { avail: number; dev: number; has: number } {
+  let avail = 0, dev = 0, has = 0;
+  for (const item of items) {
+    if (item.status === 'available' && item.enabled !== false) avail++;
+    else if (item.status === 'researching') dev++;
+    else if (item.status === 'developed') has++;
+  }
+  return { avail, dev, has };
+}

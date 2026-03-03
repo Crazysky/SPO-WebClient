@@ -96,6 +96,8 @@ export enum WsMessageType {
   RESP_BUILDING_FOCUS = 'RESP_BUILDING_FOCUS',
   EVENT_BUILDING_REFRESH = 'EVENT_BUILDING_REFRESH',
   EVENT_AREA_REFRESH = 'EVENT_AREA_REFRESH',
+  EVENT_SHOW_NOTIFICATION = 'EVENT_SHOW_NOTIFICATION',
+  EVENT_CACHE_REFRESH = 'EVENT_CACHE_REFRESH',
 
   // Building Construction
   REQ_GET_BUILDING_CATEGORIES = 'REQ_GET_BUILDING_CATEGORIES',
@@ -483,6 +485,19 @@ export interface WsEventAreaRefresh extends WsMessage {
   y: number;
   width: number;
   height: number;
+}
+
+export interface WsEventShowNotification extends WsMessage {
+  type: WsMessageType.EVENT_SHOW_NOTIFICATION;
+  /** 0=MessageBox, 1=URLFrame, 2=ChatMessage, 3=Sound, 4=GenericEvent */
+  kind: number;
+  title: string;
+  body: string;
+  options: number;
+}
+
+export interface WsEventCacheRefresh extends WsMessage {
+  type: WsMessageType.EVENT_CACHE_REFRESH;
 }
 
 // =============================================================================

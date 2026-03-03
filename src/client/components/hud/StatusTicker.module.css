@@ -1,0 +1,68 @@
+/* StatusTicker — Floating status bar showing building details/hints text.
+ * Centered horizontally near the top of the screen.
+ * z-index 350: between overlay (300) and panel (500). */
+
+.ticker {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 350;
+  pointer-events: none;
+  max-width: 720px;
+  min-width: 200px;
+  padding: var(--space-2) var(--space-4);
+  text-align: center;
+
+  background: rgba(10, 26, 26, 0.88);
+  border: 1px solid rgba(212, 168, 83, 0.2);
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    0 0 6px rgba(212, 168, 83, 0.06);
+
+  animation: tickerAppear var(--duration-base) var(--ease-out);
+}
+
+@keyframes tickerAppear {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.detailsLine {
+  font-size: var(--text-sm);
+  color: var(--success);
+  line-height: var(--leading-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hintsLine {
+  font-size: var(--text-sm);
+  color: var(--warning);
+  line-height: var(--leading-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+@media (max-width: 767px) {
+  .ticker {
+    max-width: 90vw;
+    top: 48px;
+    padding: var(--space-1) var(--space-3);
+  }
+
+  .detailsLine,
+  .hintsLine {
+    font-size: var(--text-xs);
+  }
+}

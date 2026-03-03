@@ -9,6 +9,7 @@ import {
   groupInventionsByParent,
   isGroupResearchable,
   countAvailableEnabled,
+  countByStatus,
   type MergedInventionItem,
 } from './research-utils';
 
@@ -167,5 +168,41 @@ describe('countAvailableEnabled', () => {
       completed: [],
     };
     expect(countAvailableEnabled(data)).toBe(0);
+  });
+});
+
+describe('countByStatus', () => {
+  it('counts mixed statuses correctly', () => {
+    const merged = mergeAndSortInventions(mockData);
+    const counts = countByStatus(merged);
+    expect(counts.avail).toBe(2);  // A1 (enabled) + A3 (enabled), A2 is locked
+    expect(counts.dev).toBe(1);    // D1
+    expect(counts.has).toBe(2);    // C1 + C2
+  });
+
+  it('returns all zeros for empty array', () => {
+    const counts = countByStatus([]);
+    expect(counts).toEqual({ avail: 0, dev: 0, has: 0 });
+  });
+
+  it('excludes locked available items from avail count', () => {
+    const items: MergedInventionItem[] = [
+      { inventionId: 'A', name: 'A', status: 'available', enabled: false, parent: 'X' },
+      { inventionId: 'B', name: 'B', status: 'available', enabled: true, parent: 'X' },
+    ];
+    const counts = countByStatus(items);
+    expect(counts.avail).toBe(1);
+  });
+
+  it('counts only developed items in has', () => {
+    const items: MergedInventionItem[] = [
+      { inventionId: 'A', name: 'A', status: 'developed', cost: '$5M', parent: 'X' },
+      { inventionId: 'B', name: 'B', status: 'developed', cost: '$2M', parent: 'X' },
+      { inventionId: 'C', name: 'C', status: 'researching', parent: 'X' },
+    ];
+    const counts = countByStatus(items);
+    expect(counts.has).toBe(2);
+    expect(counts.dev).toBe(1);
+    expect(counts.avail).toBe(0);
   });
 });

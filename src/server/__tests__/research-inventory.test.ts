@@ -15,13 +15,13 @@ describe('parseResearchItems', () => {
   it('should parse available items with enabled flag', () => {
     const values = new Map([
       ['avl0RsId0', 'GreenTech.Level1'],
-      ['avl0RsEnabled0', '-1'],
+      ['avl0RsEnabled0', '1'],  // Delphi TObjectCache.WriteBoolean writes '1' for true
       ['avl0RsName0', 'Green Technology 1'],
       ['avl0RsDyn0', 'yes'],
       ['avl0RsParent0', 'GreenTech'],
 
       ['avl0RsId1', 'GreenTech.Level2'],
-      ['avl0RsEnabled1', 'false'],
+      ['avl0RsEnabled1', '0'],  // Delphi TObjectCache.WriteBoolean writes '0' for false
       ['avl0RsName1', ''],
       ['avl0RsDyn1', 'no'],
       ['avl0RsParent1', 'GreenTech'],
@@ -124,6 +124,18 @@ describe('parseResearchItems', () => {
     expect(result[0].volatile).toBe(true);
   });
 
+  it('should treat enabled=1 as enabled (Delphi TObjectCache.WriteBoolean)', () => {
+    const values = new Map([
+      ['avl0RsId0', 'Item1'],
+      ['avl0RsEnabled0', '1'],
+      ['avl0RsName0', 'Item 1'],
+      ['avl0RsDyn0', 'no'],
+    ]);
+
+    const result = parseResearchItems('avl', 0, 1, values, true);
+    expect(result[0].enabled).toBe(true);
+  });
+
   it('should treat enabled=true as enabled', () => {
     const values = new Map([
       ['avl0RsId0', 'Item1'],
@@ -136,7 +148,7 @@ describe('parseResearchItems', () => {
     expect(result[0].enabled).toBe(true);
   });
 
-  it('should treat enabled=-1 as enabled (Delphi boolean)', () => {
+  it('should treat enabled=-1 as enabled (Delphi WordBool fallback)', () => {
     const values = new Map([
       ['avl0RsId0', 'Item1'],
       ['avl0RsEnabled0', '-1'],
@@ -146,5 +158,17 @@ describe('parseResearchItems', () => {
 
     const result = parseResearchItems('avl', 0, 1, values, true);
     expect(result[0].enabled).toBe(true);
+  });
+
+  it('should treat enabled=0 as disabled (Delphi TObjectCache.WriteBoolean)', () => {
+    const values = new Map([
+      ['avl0RsId0', 'Item1'],
+      ['avl0RsEnabled0', '0'],
+      ['avl0RsName0', 'Item 1'],
+      ['avl0RsDyn0', 'no'],
+    ]);
+
+    const result = parseResearchItems('avl', 0, 1, values, true);
+    expect(result[0].enabled).toBe(false);
   });
 });

@@ -214,6 +214,17 @@
   background: rgba(239, 68, 68, 0.2);
 }
 
+.inlineBtnSell {
+  background: var(--accent-gold-subtle);
+  border-color: var(--accent-gold-dark);
+  color: var(--accent-gold-light);
+}
+
+.inlineBtnSell:hover {
+  background: rgba(212, 168, 83, 0.2);
+  color: var(--accent-gold);
+}
+
 .lockedTag {
   font-size: 10px;
   color: var(--text-disabled);

@@ -97,6 +97,8 @@ import {
   // Research / Inventions
   WsRespResearchInventory,
   WsRespResearchDetails,
+  // Notifications
+  WsEventShowNotification,
 } from '../shared/types';
 import { getErrorMessage } from '../shared/error-codes';
 import { toErrorMessage } from '../shared/error-utils';
@@ -743,6 +745,43 @@ export class StarpeaceClient {
       case WsMessageType.EVENT_REFRESH_DATE: {
         const dateEvent = msg as WsEventRefreshDate;
         useGameStore.getState().setGameDate(delphiTDateTimeToJsDate(dateEvent.dateDouble));
+        break;
+      }
+
+      case WsMessageType.EVENT_SHOW_NOTIFICATION: {
+        const notif = msg as WsEventShowNotification;
+        ClientBridge.log('Notification', `Kind=${notif.kind}, Options=${notif.options}: ${notif.body || notif.title}`);
+        const displayText = notif.body || notif.title || 'Server notification';
+        // Kind: 0=MessageBox, 1=URLFrame, 2=ChatMessage, 3=Sound, 4=GenericEvent
+        const variant = notif.kind === 4 ? 'success' as const : 'info' as const;
+        this.showNotification(displayText, variant);
+
+        // Options handling per Delphi Protocol.pas:
+        // For kind=4 (GenericEvent): options=1 (gevnId_RefreshBuildPage) → refresh build catalog
+        // because completed research may have unlocked new building types.
+        if (notif.kind === 4 && notif.options === 1) {
+          ClientBridge.log('Notification', 'Research event — invalidating build catalog cache');
+          this.buildingCategories = [];
+          ClientBridge.setBuildMenuCategories([]);
+        }
+        break;
+      }
+
+      case WsMessageType.EVENT_CACHE_REFRESH: {
+        ClientBridge.log('Cache', 'Server invalidated cache — re-fetching building details');
+        if (this.currentFocusedBuilding) {
+          this.requestBuildingDetails(
+            this.currentFocusedBuilding.x,
+            this.currentFocusedBuilding.y,
+            this.currentFocusedVisualClass || '0'
+          ).then(refreshedDetails => {
+            if (refreshedDetails) {
+              ClientBridge.updateBuildingDetails(refreshedDetails);
+            }
+          }).catch(err => {
+            ClientBridge.log('Error', `Failed to refresh building after cache invalidation: ${toErrorMessage(err)}`);
+          });
+        }
         break;
       }
 
