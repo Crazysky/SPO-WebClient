@@ -1,9 +1,10 @@
 /**
  * MinimapUI - Small top-down overview map with viewport indicator and click-to-navigate
  *
- * Renders buildings as colored dots, road segments as lines, and the current
- * viewport as a translucent rectangle. Click anywhere on the minimap to
- * re-center the main camera.
+ * Renders terrain background (colored by land class), buildings as colored dots,
+ * road segments as lines, and the current viewport as a translucent rectangle.
+ * The minimap rotates to match the main map's current rotation.
+ * Click anywhere on the minimap to re-center the main camera.
  *
  * Toggle visibility with the 'M' key.
  */
@@ -20,6 +21,8 @@ export interface MinimapRendererAPI {
   getMapDimensions(): { width: number; height: number };
   getVisibleTileBounds(): { minI: number; maxI: number; minJ: number; maxJ: number };
   getZoom(): number;
+  getRotation(): number; // 0=NORTH, 1=EAST, 2=SOUTH, 3=WEST
+  getTerrainPixelData(): { pixelData: Uint8Array; width: number; height: number } | null;
 }
 
 const DEFAULT_SIZE = 200;
@@ -27,6 +30,14 @@ const MIN_SIZE = 120;
 const MAX_SIZE = 500;
 const MINIMAP_PADDING = 12;
 const UPDATE_INTERVAL_MS = 500;
+
+/** RGB colors for each LandClass (bits 7-6 of landId): Grass, MidGrass, DryGround, Water */
+const LAND_CLASS_COLORS: readonly [number, number, number][] = [
+  [74, 116, 50],    // ZoneA (0) — Grass: medium green
+  [110, 140, 70],   // ZoneB (1) — MidGrass: lighter green
+  [160, 130, 80],   // ZoneC (2) — DryGround: sandy brown
+  [40, 90, 160],    // ZoneD (3) — Water: blue
+];
 
 export class MinimapUI {
   private container: HTMLElement | null = null;
@@ -38,6 +49,8 @@ export class MinimapUI {
   private currentWidth = DEFAULT_SIZE;
   private currentHeight = DEFAULT_SIZE;
   private unsubPanel: (() => void) | null = null;
+  private terrainCanvas: HTMLCanvasElement | null = null;
+  private terrainCacheKey: string = '';
 
   constructor() {
     // Minimap is always visible once renderer is attached — no toggle needed.
@@ -110,6 +123,8 @@ export class MinimapUI {
     this.container = null;
     this.canvas = null;
     this.ctx = null;
+    this.terrainCanvas = null;
+    this.terrainCacheKey = '';
   }
 
   /**
@@ -217,6 +232,7 @@ export class MinimapUI {
         this.canvas.width = newSize;
         this.canvas.height = newSize;
       }
+      this.terrainCanvas = null; // Invalidate terrain cache — new size
       this.render();
     };
 
@@ -264,13 +280,25 @@ export class MinimapUI {
     const dims = this.renderer.getMapDimensions();
     if (dims.width === 0 || dims.height === 0) return;
 
+    const rotation = this.renderer.getRotation(); // 0|1|2|3
+    const angle = (rotation * Math.PI) / 2;
+
     // Scale factor: map coordinates → minimap pixels
     const scaleX = this.currentWidth / dims.width;
     const scaleY = this.currentHeight / dims.height;
 
-    // Clear
+    // Clear entire canvas (outside rotation transform)
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, this.currentWidth, this.currentHeight);
+
+    // Apply rotation around canvas center for all content layers
+    ctx.save();
+    ctx.translate(this.currentWidth / 2, this.currentHeight / 2);
+    ctx.rotate(angle);
+    ctx.translate(-this.currentWidth / 2, -this.currentHeight / 2);
+
+    // Draw terrain background
+    this.drawTerrainBackground(ctx);
 
     // Draw road segments
     this.drawRoads(ctx, scaleX, scaleY);
@@ -280,6 +308,59 @@ export class MinimapUI {
 
     // Draw viewport rectangle
     this.drawViewport(ctx, scaleX, scaleY);
+
+    ctx.restore();
+  }
+
+  private drawTerrainBackground(ctx: CanvasRenderingContext2D): void {
+    const terrain = this.renderer!.getTerrainPixelData();
+    if (!terrain) return;
+
+    const key = `${terrain.width}x${terrain.height}`;
+    if (!this.terrainCanvas || this.terrainCacheKey !== key) {
+      this.terrainCanvas = this.buildTerrainCanvas(
+        terrain.pixelData,
+        terrain.width,
+        terrain.height
+      );
+      this.terrainCacheKey = key;
+    }
+
+    ctx.drawImage(this.terrainCanvas, 0, 0);
+  }
+
+  private buildTerrainCanvas(
+    pixelData: Uint8Array,
+    mapWidth: number,
+    mapHeight: number
+  ): HTMLCanvasElement {
+    const outW = this.currentWidth;
+    const outH = this.currentHeight;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = outW;
+    canvas.height = outH;
+    const tCtx = canvas.getContext('2d')!;
+    const imageData = tCtx.createImageData(outW, outH);
+    const data = imageData.data;
+
+    for (let py = 0; py < outH; py++) {
+      for (let px = 0; px < outW; px++) {
+        const mapX = Math.floor((px / outW) * mapWidth);
+        const mapY = Math.floor((py / outH) * mapHeight);
+        const landId = pixelData[mapY * mapWidth + mapX];
+        const lc = (landId >> 6) & 0x03; // LandClass = bits 7-6
+        const [r, g, b] = LAND_CLASS_COLORS[lc];
+        const idx = (py * outW + px) * 4;
+        data[idx] = r;
+        data[idx + 1] = g;
+        data[idx + 2] = b;
+        data[idx + 3] = 255;
+      }
+    }
+
+    tCtx.putImageData(imageData, 0, 0);
+    return canvas;
   }
 
   private drawRoads(ctx: CanvasRenderingContext2D, scaleX: number, scaleY: number): void {
@@ -342,9 +423,26 @@ export class MinimapUI {
     const dims = this.renderer.getMapDimensions();
     if (dims.width === 0 || dims.height === 0) return;
 
+    const rotation = this.renderer.getRotation();
+
+    // Inverse-rotate pixel coordinates back to north-up map space
+    let rx = pixelX;
+    let ry = pixelY;
+    if (rotation !== 0) {
+      const cx = this.currentWidth / 2;
+      const cy = this.currentHeight / 2;
+      const dx = pixelX - cx;
+      const dy = pixelY - cy;
+      const invAngle = -(rotation * Math.PI) / 2;
+      const cos = Math.cos(invAngle);
+      const sin = Math.sin(invAngle);
+      rx = cx + dx * cos - dy * sin;
+      ry = cy + dx * sin + dy * cos;
+    }
+
     // Convert minimap pixel → map coordinates (x=col, y=row)
-    const mapX = Math.round((pixelX / this.currentWidth) * dims.width);
-    const mapY = Math.round((pixelY / this.currentHeight) * dims.height);
+    const mapX = Math.round((rx / this.currentWidth) * dims.width);
+    const mapY = Math.round((ry / this.currentHeight) * dims.height);
 
     this.renderer.centerOn(mapX, mapY);
   }
