@@ -88,6 +88,8 @@ import {
   parseIdOfResponse as parseIdOfResponseHelper,
 } from './rdo-helpers';
 import { parseMessageListHtml } from './mail-list-parser';
+import type { AspActionUrl } from './asp-url-extractor';
+import { extractAllActionUrls, extractFormActions } from './asp-url-extractor';
 import {
   parseBuildings as parseBuildingsHelper,
   parseSegments as parseSegmentsHelper,
@@ -203,6 +205,9 @@ export class StarpeaceSession extends EventEmitter {
   private worldId: string | null = null;
   private daAddr: string | null = null;
   private daPort: number | null = null;
+
+  /** Cache of action URLs extracted from ASP HTML responses, keyed by ASP page path */
+  private aspActionCache: Map<string, Map<string, AspActionUrl>> = new Map();
 
   // InitClient data (received during login)
   private virtualDate: number | null = null; // Server virtual date (Double)
@@ -916,6 +921,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
   this.cacherId = null;
   this.worldId = null;
   this.daPort = null;
+  this.aspActionCache.clear();
   this.currentFocusedBuildingId = null;
   this.currentFocusedCoords = null;
 
@@ -1910,14 +1916,17 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     const level = Math.min(profile.licenceLevel, levelNames.length - 1);
 
     // Fetch the raw HTML again for detailed curriculum-specific parsing
+    const aspPath = 'NewTycoon/TycoonCurriculum.asp';
     let html = '';
+    let baseUrl = '';
     try {
-      html = await this.fetchAspPage('NewTycoon/TycoonCurriculum.asp', { RIWS: '' });
+      baseUrl = this.buildAspUrl(aspPath, { RIWS: '' });
+      html = await this.fetchAspPage(aspPath, { RIWS: '' });
     } catch {
       this.log.warn('[Profile] TycoonCurriculum.asp re-fetch for curriculum details failed');
     }
 
-    return this.parseCurriculumDetails(html, profile, level, levelNames);
+    return this.parseCurriculumDetails(html, profile, level, levelNames, baseUrl);
   }
 
   /**
@@ -1928,7 +1937,8 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     html: string,
     profile: TycoonProfileFull,
     level: number,
-    levelNames: string[]
+    levelNames: string[],
+    baseUrl: string
   ): CurriculumData {
     // Fortune & Average Profit — from label/value spans
     let fortune = profile.budget;
@@ -2020,6 +2030,15 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       }
     }
 
+    // Extract and cache action URLs from ASP HTML (links to resetTycoon.asp, abandonRole.asp, etc.)
+    if (baseUrl && html) {
+      const actionUrls = extractAllActionUrls(html, baseUrl);
+      if (actionUrls.size > 0) {
+        this.aspActionCache.set('NewTycoon/TycoonCurriculum.asp', actionUrls);
+        this.log.debug(`[Curriculum] Cached ${actionUrls.size} action URL(s) from ASP HTML`);
+      }
+    }
+
     return {
       tycoonName: profile.name,
       currentLevel: level,
@@ -2051,8 +2070,10 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    * Parses budget, loan list, interest rates, and terms from the ASP HTML response.
    */
   public async fetchBankAccount(): Promise<BankAccountData> {
-    const html = await this.fetchAspPage('NewTycoon/TycoonBankAccount.asp', { RIWS: '' });
-    return this.parseBankAccountHtml(html);
+    const aspPath = 'NewTycoon/TycoonBankAccount.asp';
+    const baseUrl = this.buildAspUrl(aspPath, { RIWS: '' });
+    const html = await this.fetchAspPage(aspPath, { RIWS: '' });
+    return this.parseBankAccountHtml(html, baseUrl);
   }
 
   /**
@@ -2062,7 +2083,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    * TotalLoans: `var loans = new Number(NNN)` in script block.
    * Loan rows: `<tr id="rN" lid="N">` with cells: Bank, Date, Amount, Interest, Term, Next payment.
    */
-  private parseBankAccountHtml(html: string): BankAccountData {
+  private parseBankAccountHtml(html: string, baseUrl: string): BankAccountData {
     // Extract budget from JS variable
     let balance = this.accountMoney || '0';
     const budgetMatch = /var\s+budget\s*=\s*(-?\d+)\s*;/i.exec(html);
@@ -2136,6 +2157,15 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     let defaultTerm = 200 - Math.round((existingLoanTotal + defaultMaxLoan) / 10_000_000);
     if (defaultTerm < 5) defaultTerm = 5;
 
+    // Extract and cache action URLs from ASP HTML (forms, JS handlers)
+    if (baseUrl) {
+      const actionUrls = extractAllActionUrls(html, baseUrl);
+      if (actionUrls.size > 0) {
+        this.aspActionCache.set('NewTycoon/TycoonBankAccount.asp', actionUrls);
+        this.log.debug(`[Bank] Cached ${actionUrls.size} action URL(s) from ASP HTML`);
+      }
+    }
+
     return {
       balance,
       maxLoan,
@@ -2163,48 +2193,58 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       const worldIp = this.currentWorldInfo?.ip;
       if (!worldIp) return { success: false, message: 'World IP not available' };
 
-      // Build base URL matching legacy Voyager pattern (no ISAddr/ISPort/ClientViewId for action URLs)
-      const baseParams = new URLSearchParams({
-        Tycoon: this.activeUsername || this.cachedUsername || '',
-        Password: this.cachedPassword || '',
-        Company: this.currentCompany?.name || '',
-        WorldName: this.currentWorldInfo?.name || '',
-        DAAddr: this.daAddr || config.rdo.directoryHost,
-        DAPort: String(this.daPort || config.rdo.ports.directory),
-        SecurityId: '',
-      });
-
-      let actionParams: URLSearchParams;
-
+      // Validate inputs before URL construction
       switch (action) {
-        case 'borrow': {
+        case 'borrow':
           if (!amount) return { success: false, message: 'Amount required' };
-          actionParams = new URLSearchParams(baseParams);
-          actionParams.set('Action', 'LOAN');
-          actionParams.set('LoanValue', amount);
           break;
-        }
-        case 'send': {
+        case 'send':
           if (!amount || !toTycoon) return { success: false, message: 'Amount and recipient required' };
-          actionParams = new URLSearchParams(baseParams);
-          actionParams.set('Action', 'SEND');
-          actionParams.set('SendValue', amount);
-          actionParams.set('SendDest', toTycoon);
-          actionParams.set('SendReason', reason || '');
           break;
-        }
-        case 'payoff': {
+        case 'payoff':
           if (loanIndex === undefined || loanIndex < 0) return { success: false, message: 'Loan index required' };
-          actionParams = new URLSearchParams(baseParams);
-          actionParams.set('Action', 'PAYOFF');
-          actionParams.set('LID', String(loanIndex));
           break;
-        }
         default:
           return { success: false, message: `Unknown action: ${action}` };
       }
 
-      const url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/TycoonBankAccount.asp?${actionParams.toString().replace(/\+/g, '%20')}`;
+      // Action-specific query params (appended to base URL)
+      const actionMap: Record<string, string> = { borrow: 'LOAN', send: 'SEND', payoff: 'PAYOFF' };
+      const extraParams = new URLSearchParams({ Action: actionMap[action] });
+      if (action === 'borrow') extraParams.set('LoanValue', amount!);
+      if (action === 'send') {
+        extraParams.set('SendValue', amount!);
+        extraParams.set('SendDest', toTycoon!);
+        extraParams.set('SendReason', reason || '');
+      }
+      if (action === 'payoff') extraParams.set('LID', String(loanIndex));
+
+      // 1. Try cached form action URL from last fetchBankAccount() ASP parse
+      const cached = this.aspActionCache.get('NewTycoon/TycoonBankAccount.asp');
+      const formAction = cached?.get('TycoonBankAccount.asp');
+
+      let url: string;
+      if (formAction) {
+        // Append action-specific params to cached base URL
+        const separator = formAction.url.includes('?') ? '&' : '?';
+        url = formAction.url + separator + extraParams.toString().replace(/\+/g, '%20');
+        this.log.debug(`[Bank] Using cached form action URL for ${action}`);
+      } else {
+        // Fallback: reconstruct URL from session state
+        const baseParams = new URLSearchParams({
+          Tycoon: this.activeUsername || this.cachedUsername || '',
+          Password: this.cachedPassword || '',
+          Company: this.currentCompany?.name || '',
+          WorldName: this.currentWorldInfo?.name || '',
+          DAAddr: this.daAddr || config.rdo.directoryHost,
+          DAPort: String(this.daPort || config.rdo.ports.directory),
+          SecurityId: '',
+        });
+        for (const [k, v] of extraParams) baseParams.set(k, v);
+        url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/TycoonBankAccount.asp?${baseParams.toString().replace(/\+/g, '%20')}`;
+        this.log.debug(`[Bank] No cached URL for ${action}, reconstructing`);
+      }
+
       this.log.debug(`[Bank] Executing ${action}: ${url}`);
       const response = await fetch(url, { redirect: 'follow' });
       const html = await response.text();
@@ -2393,8 +2433,10 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    */
   public async fetchAutoConnections(): Promise<AutoConnectionsData> {
     try {
-      const html = await this.fetchAspPage('NewTycoon/TycoonAutoConnections.asp', { RIWS: '' });
-      return this.parseAutoConnectionsHtml(html);
+      const aspPath = 'NewTycoon/TycoonAutoConnections.asp';
+      const baseUrl = this.buildAspUrl(aspPath, { RIWS: '' });
+      const html = await this.fetchAspPage(aspPath, { RIWS: '' });
+      return this.parseAutoConnectionsHtml(html, baseUrl);
     } catch (e) {
       this.log.warn('[AutoConnections] ASP fetch failed:', e);
       return { fluids: [] };
@@ -2407,7 +2449,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    * Supplier rows: `<tr id=FluidN fluid=Fluid facilityId="x,y,">` with facility/company names.
    * Checkboxes: HireTC (trade center) and HireWH (warehouses only).
    */
-  private parseAutoConnectionsHtml(html: string): AutoConnectionsData {
+  private parseAutoConnectionsHtml(html: string, baseUrl: string): AutoConnectionsData {
     const fluids: AutoConnectionFluid[] = [];
 
     // Find all fluid header divs: <div id="FluidName" class=header3 style="color: #EEEECC">
@@ -2469,6 +2511,15 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       });
     }
 
+    // Extract and cache action URLs from ASP HTML (onclick handlers, href links)
+    if (baseUrl) {
+      const actionUrls = extractAllActionUrls(html, baseUrl);
+      if (actionUrls.size > 0) {
+        this.aspActionCache.set('NewTycoon/TycoonAutoConnections.asp', actionUrls);
+        this.log.debug(`[AutoConnections] Cached ${actionUrls.size} action URL(s) from ASP HTML`);
+      }
+    }
+
     return { fluids };
   }
 
@@ -2485,69 +2536,102 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     const worldIp = this.currentWorldInfo?.ip;
     if (!worldIp) return { success: false, message: 'World IP not available' };
 
+    // Map action names to ASP filenames for cache lookup
+    const actionToAsp: Record<string, string> = {
+      add: 'AddDefaultSupplier.asp',
+      delete: 'DeleteDefaultSupplier.asp',
+      hireTradeCenter: 'ModifyTradeCenterStatus.asp',
+      dontHireTradeCenter: 'ModifyTradeCenterStatus.asp',
+      onlyWarehouses: 'ModifyWarehouseStatus.asp',
+      dontOnlyWarehouses: 'ModifyWarehouseStatus.asp',
+    };
+
     const basePath = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/`;
     const tycoonId = this.tycoonId || '';
 
     try {
+      // 1. Try cached URL from last fetchAutoConnections() ASP parse
+      const cached = this.aspActionCache.get('NewTycoon/TycoonAutoConnections.asp');
+      const aspKey = actionToAsp[action];
+      const cachedAction = aspKey ? cached?.get(aspKey) : undefined;
+
       let url: string;
 
-      switch (action) {
-        case 'add': {
-          if (!suppliers) return { success: false, message: 'Supplier facility coordinates required' };
-          const params = new URLSearchParams({
-            TycoonId: tycoonId,
-            FluidId: fluidId,
-            DAAddr: this.daAddr || config.rdo.directoryHost,
-            DAPort: String(this.daPort || config.rdo.ports.directory),
-            Supplier: suppliers,
-          });
-          url = `${basePath}AddDefaultSupplier.asp?${params.toString().replace(/\+/g, '%20')}`;
-          break;
+      if (cachedAction) {
+        // Use cached base URL, replace dynamic per-action query params
+        const cachedUrl = new URL(cachedAction.url);
+        cachedUrl.searchParams.set('TycoonId', tycoonId);
+        cachedUrl.searchParams.set('FluidId', fluidId);
+        if (suppliers) cachedUrl.searchParams.set('Supplier', suppliers);
+        if (action === 'hireTradeCenter' || action === 'dontHireTradeCenter') {
+          cachedUrl.searchParams.set('Hire', action === 'hireTradeCenter' ? 'YES' : 'NO');
         }
-        case 'delete': {
-          if (!suppliers) return { success: false, message: 'Supplier facility ID required' };
-          const params = new URLSearchParams({
-            TycoonId: tycoonId,
-            FluidId: fluidId,
-            DAAddr: this.daAddr || config.rdo.directoryHost,
-            DAPort: String(this.daPort || config.rdo.ports.directory),
-            Supplier: suppliers,
-          });
-          url = `${basePath}DeleteDefaultSupplier.asp?${params.toString().replace(/\+/g, '%20')}`;
-          break;
+        if (action === 'onlyWarehouses' || action === 'dontOnlyWarehouses') {
+          cachedUrl.searchParams.set('Hire', action === 'onlyWarehouses' ? 'YES' : 'NO');
         }
-        case 'hireTradeCenter':
-        case 'dontHireTradeCenter': {
-          const params = new URLSearchParams({
-            TycoonId: tycoonId,
-            FluidId: fluidId,
-            DAAddr: this.daAddr || config.rdo.directoryHost,
-            WorldName: this.currentWorldInfo?.name || '',
-            Tycoon: this.activeUsername || this.cachedUsername || '',
-            Password: this.cachedPassword || '',
-            DAPort: String(this.daPort || config.rdo.ports.directory),
-            Hire: action === 'hireTradeCenter' ? 'YES' : 'NO',
-          });
-          url = `${basePath}ModifyTradeCenterStatus.asp?${params.toString().replace(/\+/g, '%20')}`;
-          break;
+        url = cachedUrl.toString();
+        this.log.debug(`[AutoConnections] Using cached URL for ${action}`);
+      } else {
+        // Fallback: reconstruct URL from session state
+        switch (action) {
+          case 'add': {
+            if (!suppliers) return { success: false, message: 'Supplier facility coordinates required' };
+            const params = new URLSearchParams({
+              TycoonId: tycoonId,
+              FluidId: fluidId,
+              DAAddr: this.daAddr || config.rdo.directoryHost,
+              DAPort: String(this.daPort || config.rdo.ports.directory),
+              Supplier: suppliers,
+            });
+            url = `${basePath}AddDefaultSupplier.asp?${params.toString().replace(/\+/g, '%20')}`;
+            break;
+          }
+          case 'delete': {
+            if (!suppliers) return { success: false, message: 'Supplier facility ID required' };
+            const params = new URLSearchParams({
+              TycoonId: tycoonId,
+              FluidId: fluidId,
+              DAAddr: this.daAddr || config.rdo.directoryHost,
+              DAPort: String(this.daPort || config.rdo.ports.directory),
+              Supplier: suppliers,
+            });
+            url = `${basePath}DeleteDefaultSupplier.asp?${params.toString().replace(/\+/g, '%20')}`;
+            break;
+          }
+          case 'hireTradeCenter':
+          case 'dontHireTradeCenter': {
+            const params = new URLSearchParams({
+              TycoonId: tycoonId,
+              FluidId: fluidId,
+              DAAddr: this.daAddr || config.rdo.directoryHost,
+              WorldName: this.currentWorldInfo?.name || '',
+              Tycoon: this.activeUsername || this.cachedUsername || '',
+              Password: this.cachedPassword || '',
+              DAPort: String(this.daPort || config.rdo.ports.directory),
+              Hire: action === 'hireTradeCenter' ? 'YES' : 'NO',
+            });
+            url = `${basePath}ModifyTradeCenterStatus.asp?${params.toString().replace(/\+/g, '%20')}`;
+            break;
+          }
+          case 'onlyWarehouses':
+          case 'dontOnlyWarehouses': {
+            const params = new URLSearchParams({
+              TycoonId: tycoonId,
+              FluidId: fluidId,
+              DAAddr: this.daAddr || config.rdo.directoryHost,
+              WorldName: this.currentWorldInfo?.name || '',
+              Tycoon: this.activeUsername || this.cachedUsername || '',
+              Password: this.cachedPassword || '',
+              DAPort: String(this.daPort || config.rdo.ports.directory),
+              Hire: action === 'onlyWarehouses' ? 'YES' : 'NO',
+            });
+            url = `${basePath}ModifyWarehouseStatus.asp?${params.toString().replace(/\+/g, '%20')}`;
+            break;
+          }
+          default:
+            return { success: false, message: `Unknown action: ${action}` };
         }
-        case 'onlyWarehouses':
-        case 'dontOnlyWarehouses': {
-          const params = new URLSearchParams({
-            TycoonId: tycoonId,
-            FluidId: fluidId,
-            DAAddr: this.daAddr || config.rdo.directoryHost,
-            WorldName: this.currentWorldInfo?.name || '',
-            Tycoon: this.activeUsername || this.cachedUsername || '',
-            Password: this.cachedPassword || '',
-            DAPort: String(this.daPort || config.rdo.ports.directory),
-            Hire: action === 'onlyWarehouses' ? 'YES' : 'NO',
-          });
-          url = `${basePath}ModifyWarehouseStatus.asp?${params.toString().replace(/\+/g, '%20')}`;
-          break;
-        }
-        default:
-          return { success: false, message: `Unknown action: ${action}` };
+        this.log.debug(`[AutoConnections] No cached URL for ${action}, reconstructing`);
       }
 
       this.log.debug(`[AutoConnections] Executing ${action}: ${url}`);
@@ -2563,8 +2647,10 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    */
   public async fetchPolicy(): Promise<PolicyData> {
     try {
-      const html = await this.fetchAspPage('NewTycoon/TycoonPolicy.asp', { RIWS: '' });
-      return this.parsePolicyHtml(html);
+      const aspPath = 'NewTycoon/TycoonPolicy.asp';
+      const baseUrl = this.buildAspUrl(aspPath, { RIWS: '' });
+      const html = await this.fetchAspPage(aspPath, { RIWS: '' });
+      return this.parsePolicyHtml(html, baseUrl);
     } catch (e) {
       this.log.warn('[Policy] ASP fetch failed:', e);
       return { policies: [] };
@@ -2576,8 +2662,9 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    * Tycoon rows: name in `<div class=label style="color: #94B9B0">`, your policy in
    * `<select ... tycoon="name">` with selected option (0=Ally,1=Neutral,2=Enemy),
    * their policy in `<span id=otherspan\d+>` (A/N/E).
+   * Also extracts and caches form action URLs for subsequent setPolicyStatus calls.
    */
-  private parsePolicyHtml(html: string): PolicyData {
+  private parsePolicyHtml(html: string, baseUrl: string): PolicyData {
     const policies: PolicyEntry[] = [];
     const policyLetterMap: Record<string, number> = { A: 0, N: 1, E: 2 };
 
@@ -2604,31 +2691,50 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       idx++;
     }
 
+    // Extract and cache action URLs from ASP HTML (forms, links, onclick handlers)
+    const actionUrls = extractAllActionUrls(html, baseUrl);
+    if (actionUrls.size > 0) {
+      this.aspActionCache.set('NewTycoon/TycoonPolicy.asp', actionUrls);
+      this.log.debug(`[Policy] Cached ${actionUrls.size} action URL(s) from ASP HTML`);
+    }
+
     return { policies };
   }
 
   /**
    * Set diplomatic policy towards another tycoon via TycoonPolicy.asp POST.
-   * This matches the legacy Voyager form submission pattern.
+   * Uses the form action URL extracted from the last fetchPolicy() ASP response
+   * when available, falling back to URL reconstruction if the cache is cold.
    */
   public async setPolicyStatus(tycoonName: string, status: number): Promise<{ success: boolean; message?: string }> {
     const worldIp = this.currentWorldInfo?.ip;
     if (!worldIp) return { success: false, message: 'World IP not available' };
 
     try {
-      const queryParams = new URLSearchParams({
-        Action: 'modify',
-        WorldName: this.currentWorldInfo?.name || '',
-        Tycoon: this.activeUsername || this.cachedUsername || '',
-        TycoonId: this.tycoonId || '',
-        Password: this.cachedPassword || '',
-        DAAddr: this.daAddr || config.rdo.directoryHost,
-        DAPort: String(this.daPort || config.rdo.ports.directory),
-      });
+      // 1. Try cached form action URL from last ASP HTML parse
+      const cached = this.aspActionCache.get('NewTycoon/TycoonPolicy.asp');
+      const formAction = cached?.get('TycoonPolicy.asp');
 
-      const url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/TycoonPolicy.asp?${queryParams.toString().replace(/\+/g, '%20')}`;
+      let url: string;
+      if (formAction) {
+        url = formAction.url;
+        this.log.debug('[Policy] Using cached form action URL');
+      } else {
+        // Fallback: reconstruct URL from session state
+        const queryParams = new URLSearchParams({
+          Action: 'modify',
+          WorldName: this.currentWorldInfo?.name || '',
+          Tycoon: this.activeUsername || this.cachedUsername || '',
+          TycoonId: this.tycoonId || '',
+          Password: this.cachedPassword || '',
+          DAAddr: this.daAddr || config.rdo.directoryHost,
+          DAPort: String(this.daPort || config.rdo.ports.directory),
+        });
+        url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/TycoonPolicy.asp?${queryParams.toString().replace(/\+/g, '%20')}`;
+        this.log.debug('[Policy] No cached URL, reconstructing');
+      }
 
-      // POST body matches the form: NextStatus + SubTycoon + Subject + Status
+      // 2. POST body matches the form: NextStatus + SubTycoon + Subject + Status
       const body = new URLSearchParams({
         NextStatus: String(status),
         SubTycoon: tycoonName,
@@ -2664,64 +2770,84 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     const worldIp = this.currentWorldInfo?.ip;
     if (!worldIp) return { success: false, message: 'World IP not available' };
 
+    // Map action names to ASP filenames for cache lookup
+    const actionToAsp: Record<string, string> = {
+      resetAccount: 'resetTycoon.asp',
+      abandonRole: 'abandonRole.asp',
+      upgradeLevel: 'rdoSetAdvanceLevel.asp',
+      rebuildLinks: 'links.asp',
+    };
+
     try {
+      // 1. Try cached URL from last fetchCurriculumData() ASP parse
+      const cached = this.aspActionCache.get('NewTycoon/TycoonCurriculum.asp');
+      const aspKey = actionToAsp[action];
+      const cachedAction = aspKey ? cached?.get(aspKey) : undefined;
+
       let url: string;
-      switch (action) {
-        case 'resetAccount': {
-          const params = new URLSearchParams({
-            Tycoon: this.activeUsername || this.cachedUsername || '',
-            WorldName: this.currentWorldInfo?.name || '',
-            DAAddr: this.daAddr || config.rdo.directoryHost,
-            DAPort: String(this.daPort || config.rdo.ports.directory),
-            TycoonId: '',
-            Password: this.cachedPassword || '',
-          });
-          url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/resetTycoon.asp?${params.toString().replace(/\+/g, '%20')}`;
-          break;
+      if (cachedAction) {
+        url = cachedAction.url;
+        this.log.debug(`[Curriculum] Using cached URL for ${action}`);
+      } else {
+        // Fallback: reconstruct URL from session state
+        switch (action) {
+          case 'resetAccount': {
+            const params = new URLSearchParams({
+              Tycoon: this.activeUsername || this.cachedUsername || '',
+              WorldName: this.currentWorldInfo?.name || '',
+              DAAddr: this.daAddr || config.rdo.directoryHost,
+              DAPort: String(this.daPort || config.rdo.ports.directory),
+              TycoonId: '',
+              Password: this.cachedPassword || '',
+            });
+            url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/resetTycoon.asp?${params.toString().replace(/\+/g, '%20')}`;
+            break;
+          }
+          case 'abandonRole': {
+            const params = new URLSearchParams({
+              Tycoon: this.activeUsername || this.cachedUsername || '',
+              WorldName: this.currentWorldInfo?.name || '',
+              DAAddr: this.daAddr || config.rdo.directoryHost,
+              DAPort: String(this.daPort || config.rdo.ports.directory),
+              TycoonId: '',
+              Password: this.cachedPassword || '',
+            });
+            url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/abandonRole.asp?${params.toString().replace(/\+/g, '%20')}`;
+            break;
+          }
+          case 'upgradeLevel': {
+            const params = new URLSearchParams({
+              TycoonId: this.tycoonId || '',
+              Password: this.cachedPassword || '',
+              Value: String(value ?? true),
+              WorldName: this.currentWorldInfo?.name || '',
+              DAAddr: this.daAddr || config.rdo.directoryHost,
+              DAPort: String(this.daPort || config.rdo.ports.directory),
+              Tycoon: this.activeUsername || this.cachedUsername || '',
+            });
+            url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/rdoSetAdvanceLevel.asp?${params.toString().replace(/\+/g, '%20')}`;
+            break;
+          }
+          case 'rebuildLinks': {
+            const params = new URLSearchParams({
+              Tycoon: this.activeUsername || this.cachedUsername || '',
+              Password: this.cachedPassword || '',
+              Company: this.currentCompany?.name || '',
+              WorldName: this.currentWorldInfo?.name || '',
+              DAAddr: this.daAddr || config.rdo.directoryHost,
+              DAPort: String(this.daPort || config.rdo.ports.directory),
+              ISAddr: worldIp,
+              ISPort: '8000',
+              ClientViewId: String(this.interfaceServerId || ''),
+              RIWS: '',
+            });
+            url = `http://${worldIp}/Five/0/visual/voyager/util/links.asp?${params.toString().replace(/\+/g, '%20')}`;
+            break;
+          }
+          default:
+            return { success: false, message: `Unknown curriculum action: ${action}` };
         }
-        case 'abandonRole': {
-          const params = new URLSearchParams({
-            Tycoon: this.activeUsername || this.cachedUsername || '',
-            WorldName: this.currentWorldInfo?.name || '',
-            DAAddr: this.daAddr || config.rdo.directoryHost,
-            DAPort: String(this.daPort || config.rdo.ports.directory),
-            TycoonId: '',
-            Password: this.cachedPassword || '',
-          });
-          url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/abandonRole.asp?${params.toString().replace(/\+/g, '%20')}`;
-          break;
-        }
-        case 'upgradeLevel': {
-          const params = new URLSearchParams({
-            TycoonId: this.tycoonId || '',
-            Password: this.cachedPassword || '',
-            Value: String(value ?? true),
-            WorldName: this.currentWorldInfo?.name || '',
-            DAAddr: this.daAddr || config.rdo.directoryHost,
-            DAPort: String(this.daPort || config.rdo.ports.directory),
-            Tycoon: this.activeUsername || this.cachedUsername || '',
-          });
-          url = `http://${worldIp}/Five/0/Visual/Voyager/NewTycoon/rdoSetAdvanceLevel.asp?${params.toString().replace(/\+/g, '%20')}`;
-          break;
-        }
-        case 'rebuildLinks': {
-          const params = new URLSearchParams({
-            Tycoon: this.activeUsername || this.cachedUsername || '',
-            Password: this.cachedPassword || '',
-            Company: this.currentCompany?.name || '',
-            WorldName: this.currentWorldInfo?.name || '',
-            DAAddr: this.daAddr || config.rdo.directoryHost,
-            DAPort: String(this.daPort || config.rdo.ports.directory),
-            ISAddr: worldIp,
-            ISPort: '8000',
-            ClientViewId: String(this.interfaceServerId || ''),
-            RIWS: '',
-          });
-          url = `http://${worldIp}/Five/0/visual/voyager/util/links.asp?${params.toString().replace(/\+/g, '%20')}`;
-          break;
-        }
-        default:
-          return { success: false, message: `Unknown curriculum action: ${action}` };
+        this.log.debug(`[Curriculum] No cached URL for ${action}, reconstructing`);
       }
 
       this.log.debug(`[Curriculum] Executing ${action}: ${url}`);
@@ -4827,6 +4953,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     this.cacherId = null;
     this.worldId = null;
     this.daPort = null;
+    this.aspActionCache.clear();
     this.interfaceServerId = null;
     this.interfaceEventsId = null;
     this.mailAccount = null;
@@ -4972,6 +5099,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
     this.cacherId = null;
     this.worldId = null;
     this.daPort = null;
+    this.aspActionCache.clear();
     this.interfaceEventsId = null;
     this.currentFocusedBuildingId = null;
     this.currentFocusedCoords = null;
