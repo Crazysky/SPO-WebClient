@@ -322,10 +322,7 @@ export const CAPITOL_GENERAL_GROUP: PropertyGroup = {
   icon: 'i',
   order: 0,
   properties: [
-    { rdoName: 'HasRuler', displayName: 'Has Ruler', type: PropertyType.BOOLEAN },
-    { rdoName: 'YearsToElections', displayName: 'Years to Elections', type: PropertyType.NUMBER },
-    { rdoName: 'RulerRating', displayName: 'Ruler Rating', type: PropertyType.PERCENTAGE },
-    { rdoName: 'TycoonsRating', displayName: 'Tycoons Rating', type: PropertyType.PERCENTAGE },
+    { rdoName: 'QOL', displayName: 'QOL', type: PropertyType.PERCENTAGE },
     {
       rdoName: 'covName',
       displayName: 'Coverage',
@@ -337,6 +334,19 @@ export const CAPITOL_GENERAL_GROUP: PropertyGroup = {
         { rdoSuffix: 'covName', label: 'Service', type: PropertyType.TEXT, width: '50%' },
         { rdoSuffix: 'covValue', label: 'Coverage', type: PropertyType.PERCENTAGE, width: '50%' },
       ],
+    },
+    { rdoName: 'ActualRuler', displayName: 'President', type: PropertyType.TEXT },
+    { rdoName: 'RulerRating', displayName: 'Popular Rating', type: PropertyType.PERCENTAGE },
+    { rdoName: 'TycoonsRating', displayName: 'Tycoons Rating', type: PropertyType.PERCENTAGE },
+    { rdoName: 'RulerPeriods', displayName: 'Mandate No.', type: PropertyType.NUMBER },
+    { rdoName: 'YearsToElections', displayName: 'Years to Elections', type: PropertyType.NUMBER, unit: 'years' },
+    { rdoName: 'HasRuler', displayName: 'Has Ruler', type: PropertyType.BOOLEAN, hideEmpty: true },
+    {
+      rdoName: 'visitPresidentPoliticsPage',
+      displayName: 'Visit President Politics Page',
+      type: PropertyType.ACTION_BUTTON,
+      actionId: 'visitPresidentPoliticsPage',
+      buttonLabel: 'Visit President Politics Page',
     },
   ],
 };
@@ -664,6 +674,7 @@ export const VOTES_GROUP: PropertyGroup = {
   icon: 'V',
   order: 10,
   properties: [
+    { rdoName: 'Trouble', displayName: 'Trouble', type: PropertyType.NUMBER, hideEmpty: true },
     { rdoName: 'RulerName', displayName: 'Ruler', type: PropertyType.TEXT },
     { rdoName: 'RulerVotes', displayName: 'Ruler Votes', type: PropertyType.NUMBER },
     { rdoName: 'RulerCmpRat', displayName: 'Ruler Campaign Rating', type: PropertyType.PERCENTAGE },
@@ -707,13 +718,14 @@ export const CAPITOL_TOWNS_GROUP: PropertyGroup = {
       indexed: true,
       countProperty: 'TownCount',
       columns: [
-        { rdoSuffix: 'TownName', label: 'Town', type: PropertyType.TEXT, width: '18%' },
+        { rdoSuffix: 'Town', label: 'Name', type: PropertyType.TEXT, width: '16%' },
         { rdoSuffix: 'TownPopulation', label: 'Population', type: PropertyType.NUMBER, width: '14%' },
-        { rdoSuffix: 'TownQOL', label: 'QoL', type: PropertyType.PERCENTAGE, width: '14%' },
-        { rdoSuffix: 'TownQOS', label: 'QoS', type: PropertyType.PERCENTAGE, width: '14%' },
-        { rdoSuffix: 'TownWealth', label: 'Wealth', type: PropertyType.CURRENCY, width: '14%' },
-        { rdoSuffix: 'TownTax', label: 'Tax', type: PropertyType.PERCENTAGE, width: '14%' },
-        { rdoSuffix: 'HasMayor', label: 'Mayor', type: PropertyType.BOOLEAN, width: '12%' },
+        { rdoSuffix: 'TownQOL', label: 'QOL', type: PropertyType.PERCENTAGE, width: '12%' },
+        { rdoSuffix: 'TownRating', label: 'Commerce', type: PropertyType.PERCENTAGE, width: '12%' },
+        { rdoSuffix: 'TownWealth', label: 'Wealth', type: PropertyType.PERCENTAGE, width: '12%' },
+        { rdoSuffix: 'TownTax', label: 'Tax', type: PropertyType.PERCENTAGE, width: '12%' },
+        { rdoSuffix: 'TownQOS', label: 'QoS', type: PropertyType.PERCENTAGE, width: '12%' },
+        { rdoSuffix: 'HasMayor', label: 'Mayor', type: PropertyType.BOOLEAN, width: '10%' },
       ],
     },
   ],
@@ -766,26 +778,24 @@ export const TOWN_JOBS_GROUP: PropertyGroup = {
   icon: 'J',
   order: 10,
   properties: [
-    // Read-only display: demand, private demand, salary, salary value, min salary per tier
-    { rdoName: 'hiWorkDemand', displayName: 'Executive Demand', type: PropertyType.NUMBER },
-    { rdoName: 'hiPrivateWorkDemand', displayName: 'Executive Private Demand', type: PropertyType.NUMBER },
-    { rdoName: 'hiSalary', displayName: 'Executive Salary', type: PropertyType.CURRENCY },
-    { rdoName: 'hiSalaryValue', displayName: 'Executive Salary Value', type: PropertyType.CURRENCY },
-    { rdoName: 'hiMinSalary', displayName: 'Executive Min Salary (Current)', type: PropertyType.CURRENCY },
-    { rdoName: 'midWorkDemand', displayName: 'Professional Demand', type: PropertyType.NUMBER },
-    { rdoName: 'midPrivateWorkDemand', displayName: 'Professional Private Demand', type: PropertyType.NUMBER },
-    { rdoName: 'midSalary', displayName: 'Professional Salary', type: PropertyType.CURRENCY },
-    { rdoName: 'midSalaryValue', displayName: 'Professional Salary Value', type: PropertyType.CURRENCY },
-    { rdoName: 'midMinSalary', displayName: 'Professional Min Salary (Current)', type: PropertyType.CURRENCY },
-    { rdoName: 'loWorkDemand', displayName: 'Worker Demand', type: PropertyType.NUMBER },
-    { rdoName: 'loPrivateWorkDemand', displayName: 'Worker Private Demand', type: PropertyType.NUMBER },
-    { rdoName: 'loSalary', displayName: 'Worker Salary', type: PropertyType.CURRENCY },
-    { rdoName: 'loSalaryValue', displayName: 'Worker Salary Value', type: PropertyType.CURRENCY },
-    { rdoName: 'loMinSalary', displayName: 'Worker Min Salary (Current)', type: PropertyType.CURRENCY },
-    // Editable min salary sliders
-    { rdoName: 'hiActualMinSalary', displayName: 'Executive Min Salary', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, step: 5 },
-    { rdoName: 'midActualMinSalary', displayName: 'Professional Min Salary', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, step: 5 },
-    { rdoName: 'loActualMinSalary', displayName: 'Worker Min Salary', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, step: 5 },
+    // Executives column
+    { rdoName: 'hiWorkDemand', displayName: 'Executive Vacancies', type: PropertyType.NUMBER },
+    { rdoName: 'hiPrivateWorkDemand', displayName: 'Executive Private Vacancies', type: PropertyType.TEXT },
+    { rdoName: 'hiSalary', displayName: 'Executive Average Wage', type: PropertyType.PERCENTAGE },
+    { rdoName: 'hiSalaryValue', displayName: 'Executive Spending Power', type: PropertyType.PERCENTAGE },
+    { rdoName: 'hiActualMinSalary', displayName: 'Executive Minimum Wage', type: PropertyType.SLIDER, editable: true, min: 0, max: 200, step: 1, unit: '%' },
+    // Professionals column
+    { rdoName: 'midWorkDemand', displayName: 'Professional Vacancies', type: PropertyType.NUMBER },
+    { rdoName: 'midPrivateWorkDemand', displayName: 'Professional Private Vacancies', type: PropertyType.TEXT },
+    { rdoName: 'midSalary', displayName: 'Professional Average Wage', type: PropertyType.PERCENTAGE },
+    { rdoName: 'midSalaryValue', displayName: 'Professional Spending Power', type: PropertyType.PERCENTAGE },
+    { rdoName: 'midActualMinSalary', displayName: 'Professional Minimum Wage', type: PropertyType.SLIDER, editable: true, min: 0, max: 200, step: 1, unit: '%' },
+    // Workers column
+    { rdoName: 'loWorkDemand', displayName: 'Worker Vacancies', type: PropertyType.NUMBER },
+    { rdoName: 'loPrivateWorkDemand', displayName: 'Worker Private Vacancies', type: PropertyType.TEXT },
+    { rdoName: 'loSalary', displayName: 'Worker Average Wage', type: PropertyType.PERCENTAGE },
+    { rdoName: 'loSalaryValue', displayName: 'Worker Spending Power', type: PropertyType.PERCENTAGE },
+    { rdoName: 'loActualMinSalary', displayName: 'Worker Minimum Wage', type: PropertyType.SLIDER, editable: true, min: 0, max: 200, step: 1, unit: '%' },
   ],
   rdoCommands: {
     'hiActualMinSalary': { command: 'RDOSetMinSalaryValue', params: { levelIndex: '0' } },
@@ -801,19 +811,22 @@ export const TOWN_JOBS_GROUP: PropertyGroup = {
  */
 export const TOWN_RES_GROUP: PropertyGroup = {
   id: 'townRes',
-  name: 'Residential',
+  name: 'Residentials',
   icon: 'R',
   order: 10,
   properties: [
-    { rdoName: 'hiResDemand', displayName: 'High Class Demand', type: PropertyType.NUMBER },
-    { rdoName: 'hiResQ', displayName: 'High Class Population', type: PropertyType.NUMBER },
-    { rdoName: 'hiRentPrice', displayName: 'High Class Rent', type: PropertyType.CURRENCY },
-    { rdoName: 'midResDemand', displayName: 'Middle Class Demand', type: PropertyType.NUMBER },
-    { rdoName: 'midResQ', displayName: 'Middle Class Population', type: PropertyType.NUMBER },
-    { rdoName: 'midRentPrice', displayName: 'Middle Class Rent', type: PropertyType.CURRENCY },
-    { rdoName: 'loResDemand', displayName: 'Low Class Demand', type: PropertyType.NUMBER },
-    { rdoName: 'loResQ', displayName: 'Low Class Population', type: PropertyType.NUMBER },
-    { rdoName: 'loRentPrice', displayName: 'Low Class Rent', type: PropertyType.CURRENCY },
+    // High Class column
+    { rdoName: 'hiResDemand', displayName: 'High Class Vacancies', type: PropertyType.NUMBER },
+    { rdoName: 'hiRentPrice', displayName: 'High Class Rent Price', type: PropertyType.PERCENTAGE },
+    { rdoName: 'hiResQ', displayName: 'High Class Quality Index', type: PropertyType.PERCENTAGE },
+    // Middle Class column
+    { rdoName: 'midResDemand', displayName: 'Middle Class Vacancies', type: PropertyType.NUMBER },
+    { rdoName: 'midRentPrice', displayName: 'Middle Class Rent Price', type: PropertyType.PERCENTAGE },
+    { rdoName: 'midResQ', displayName: 'Middle Class Quality Index', type: PropertyType.PERCENTAGE },
+    // Low Class column
+    { rdoName: 'loResDemand', displayName: 'Low Class Vacancies', type: PropertyType.NUMBER },
+    { rdoName: 'loRentPrice', displayName: 'Low Class Rent Price', type: PropertyType.PERCENTAGE },
+    { rdoName: 'loResQ', displayName: 'Low Class Quality Index', type: PropertyType.PERCENTAGE },
   ],
 };
 
@@ -821,7 +834,7 @@ export const TOWN_RES_GROUP: PropertyGroup = {
  * townServices — Town services overview table
  * Voyager: TownProdxSheet.pas — registered as 'townServices'
  * Properties: srvCount (count), GQOS, then indexed svr* properties
- * Note: svrName (no language suffix), svrRatio is float 0-1 (multiply by 100 for %)
+ * Note: svrName uses .0 language suffix (svrName0.0), svrRatio is float 0-1 (multiply by 100 for %)
  */
 export const TOWN_SERVICES_GROUP: PropertyGroup = {
   id: 'townServices',
@@ -829,7 +842,7 @@ export const TOWN_SERVICES_GROUP: PropertyGroup = {
   icon: 'S',
   order: 10,
   properties: [
-    { rdoName: 'GQOS', displayName: 'Quality of Service', type: PropertyType.PERCENTAGE },
+    { rdoName: 'GQOS', displayName: 'General Index', type: PropertyType.PERCENTAGE },
     {
       rdoName: 'svrName',
       displayName: 'Services',
@@ -837,14 +850,14 @@ export const TOWN_SERVICES_GROUP: PropertyGroup = {
       indexed: true,
       countProperty: 'srvCount',
       columns: [
-        { rdoSuffix: 'svrName', label: 'Service', type: PropertyType.TEXT, width: '18%' },
-        { rdoSuffix: 'svrDemand', label: 'Demand', type: PropertyType.NUMBER, width: '12%' },
-        { rdoSuffix: 'svrOffer', label: 'Offer', type: PropertyType.NUMBER, width: '12%' },
+        { rdoSuffix: 'svrName', columnSuffix: '.0', label: 'Name', type: PropertyType.TEXT, width: '16%' },
+        { rdoSuffix: 'svrDemand', label: 'Demand', type: PropertyType.NUMBER, width: '11%' },
+        { rdoSuffix: 'svrOffer', label: 'Offer', type: PropertyType.NUMBER, width: '11%' },
         { rdoSuffix: 'svrCapacity', label: 'Capacity', type: PropertyType.NUMBER, width: '11%' },
-        { rdoSuffix: 'svrRatio', label: 'Ratio', type: PropertyType.PERCENTAGE, width: '11%' },
-        { rdoSuffix: 'svrMarketPrice', label: 'Market', type: PropertyType.CURRENCY, width: '12%' },
-        { rdoSuffix: 'svrPrice', label: 'Price', type: PropertyType.PERCENTAGE, width: '12%' },
-        { rdoSuffix: 'svrQuality', label: 'Quality', type: PropertyType.PERCENTAGE, width: '12%' },
+        { rdoSuffix: 'svrRatio', label: 'Ratio', type: PropertyType.PERCENTAGE, width: '10%' },
+        { rdoSuffix: 'svrMarketPrice', label: 'IFEL Price', type: PropertyType.CURRENCY, width: '11%' },
+        { rdoSuffix: 'svrPrice', label: 'Avg Price', type: PropertyType.PERCENTAGE, width: '11%' },
+        { rdoSuffix: 'svrQuality', label: 'Quality', type: PropertyType.PERCENTAGE, width: '11%' },
       ],
     },
   ],

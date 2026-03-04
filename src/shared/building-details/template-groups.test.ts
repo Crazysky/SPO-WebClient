@@ -407,9 +407,9 @@ describe('Specialized handler RDO properties', () => {
     expect(rdoNames).toContain('loRentPrice');
     expect(TOWN_RES_GROUP.properties).toHaveLength(9);
 
-    // Rent prices should be CURRENCY type
+    // Rent prices should be PERCENTAGE type (displayed as "200%")
     const hiRent = TOWN_RES_GROUP.properties.find(p => p.rdoName === 'hiRentPrice');
-    expect(hiRent!.type).toBe(PropertyType.CURRENCY);
+    expect(hiRent!.type).toBe(PropertyType.PERCENTAGE);
   });
 });
 
@@ -611,5 +611,170 @@ describe('registerInspectorTabs integration', () => {
     const ids = template.groups.map(g => g.id);
     const uniqueIds = new Set(ids);
     expect(uniqueIds.size).toBe(ids.length);
+  });
+});
+
+describe('Capitol building RDO property name generation', () => {
+  beforeEach(() => {
+    clearInspectorTabsCache();
+  });
+
+  /**
+   * Register a full Capitol building (all 7 tabs) and collect property names.
+   * Verifies that the two-phase fetch generates property names matching
+   * the actual RDO protocol traces captured from the Delphi server.
+   */
+  function registerCapitolAndCollect() {
+    registerInspectorTabs('testCapitolFull', [
+      { tabName: 'General', tabHandler: 'capitolGeneral' },
+      { tabName: 'Ministries', tabHandler: 'Ministeries' },
+      { tabName: 'Towns', tabHandler: 'CapitolTowns' },
+      { tabName: 'Services', tabHandler: 'townServices' },
+      { tabName: 'Jobs', tabHandler: 'townJobs' },
+      { tabName: 'Residentials', tabHandler: 'townRes' },
+      { tabName: 'Votes', tabHandler: 'Votes' },
+    ]);
+    const template = getTemplateForVisualClass('testCapitolFull');
+    return collectTemplatePropertyNamesStructured(template);
+  }
+
+  it('capitolGeneral should fetch ActualRuler, QOL, RulerPeriods, HasRuler, ratings, elections', () => {
+    const collected = registerCapitolAndCollect();
+    // Phase 1 regular properties (from RDO trace: GetPropertyList "ActualRuler\tRulerRating\t...")
+    const expectedRegular = [
+      'QOL', 'ActualRuler', 'RulerRating', 'TycoonsRating',
+      'RulerPeriods', 'YearsToElections', 'HasRuler',
+    ];
+    for (const prop of expectedRegular) {
+      expect(collected.regularProperties).toContain(prop);
+    }
+    // covCount is a count property for indexed coverage table
+    expect(collected.countProperties).toContain('covCount');
+  });
+
+  it('capitolGeneral coverage TABLE should generate covName{i}.0 and covValue{i}.0', () => {
+    const collected = registerCapitolAndCollect();
+    const indexedDefs = collected.indexedByCount.get('covCount')!;
+    expect(indexedDefs).toBeDefined();
+
+    const tableDef = indexedDefs.find(d => d.columns && d.columns.length > 0);
+    expect(tableDef).toBeDefined();
+
+    // covName column should inherit table-level indexSuffix '.0'
+    const covNameCol = tableDef!.columns!.find(c => c.rdoSuffix === 'covName');
+    expect(covNameCol).toBeDefined();
+
+    // covValue column should also inherit '.0'
+    const covValueCol = tableDef!.columns!.find(c => c.rdoSuffix === 'covValue');
+    expect(covValueCol).toBeDefined();
+  });
+
+  it('CapitolTowns should generate Town{i} not TownName{i}', () => {
+    const collected = registerCapitolAndCollect();
+    const indexedDefs = collected.indexedByCount.get('TownCount')!;
+    const tableDef = indexedDefs.find(d => d.columns && d.columns.length > 0);
+    expect(tableDef).toBeDefined();
+
+    // The town name column must use rdoSuffix 'Town' → generates Town0, Town1, ...
+    const townCol = tableDef!.columns!.find(c => c.rdoSuffix === 'Town');
+    expect(townCol).toBeDefined();
+
+    // Must NOT have a TownName column (would generate wrong property names)
+    const wrongCol = tableDef!.columns!.find(c => c.rdoSuffix === 'TownName');
+    expect(wrongCol).toBeUndefined();
+
+    // TownRating column should exist (Commerce in original client)
+    const ratingCol = tableDef!.columns!.find(c => c.rdoSuffix === 'TownRating');
+    expect(ratingCol).toBeDefined();
+  });
+
+  it('townServices svrName column should have columnSuffix .0 for language code', () => {
+    const collected = registerCapitolAndCollect();
+    const indexedDefs = collected.indexedByCount.get('srvCount')!;
+    const tableDef = indexedDefs.find(d => d.columns && d.columns.length > 0);
+    expect(tableDef).toBeDefined();
+
+    // svrName column must have columnSuffix '.0' to generate svrName0.0
+    const svrNameCol = tableDef!.columns!.find(c => c.rdoSuffix === 'svrName');
+    expect(svrNameCol).toBeDefined();
+    expect(svrNameCol!.columnSuffix).toBe('.0');
+
+    // Other columns should NOT have columnSuffix
+    const svrDemandCol = tableDef!.columns!.find(c => c.rdoSuffix === 'svrDemand');
+    expect(svrDemandCol!.columnSuffix).toBeUndefined();
+  });
+
+  it('Ministeries should generate Ministry{i}.0 for name and MinisterBudget{i} for budget', () => {
+    const collected = registerCapitolAndCollect();
+    const indexedDefs = collected.indexedByCount.get('MinisterCount')!;
+    const tableDef = indexedDefs.find(d => d.columns && d.columns.length > 0);
+    expect(tableDef).toBeDefined();
+
+    // Ministry column has column-level indexSuffix '.0' for MLS
+    const ministryCol = tableDef!.columns!.find(c => c.rdoSuffix === 'Ministry');
+    expect(ministryCol).toBeDefined();
+    expect(ministryCol!.indexSuffix).toBe('.0');
+
+    // MinisterBudget column should exist (no suffix)
+    const budgetCol = tableDef!.columns!.find(c => c.rdoSuffix === 'MinisterBudget');
+    expect(budgetCol).toBeDefined();
+    expect(budgetCol!.indexSuffix).toBeUndefined();
+  });
+
+  it('townJobs should have slider properties with max 200', () => {
+    const hiSlider = TOWN_JOBS_GROUP.properties.find(p => p.rdoName === 'hiActualMinSalary');
+    expect(hiSlider).toBeDefined();
+    expect(hiSlider!.type).toBe(PropertyType.SLIDER);
+    expect(hiSlider!.max).toBe(200);
+
+    const midSlider = TOWN_JOBS_GROUP.properties.find(p => p.rdoName === 'midActualMinSalary');
+    expect(midSlider!.max).toBe(200);
+
+    const loSlider = TOWN_JOBS_GROUP.properties.find(p => p.rdoName === 'loActualMinSalary');
+    expect(loSlider!.max).toBe(200);
+  });
+
+  it('townJobs salary properties should be PERCENTAGE type', () => {
+    const hiSalary = TOWN_JOBS_GROUP.properties.find(p => p.rdoName === 'hiSalary');
+    expect(hiSalary!.type).toBe(PropertyType.PERCENTAGE);
+
+    const midSalaryValue = TOWN_JOBS_GROUP.properties.find(p => p.rdoName === 'midSalaryValue');
+    expect(midSalaryValue!.type).toBe(PropertyType.PERCENTAGE);
+  });
+
+  it('townRes quality properties should be PERCENTAGE type', () => {
+    const hiResQ = TOWN_RES_GROUP.properties.find(p => p.rdoName === 'hiResQ');
+    expect(hiResQ!.type).toBe(PropertyType.PERCENTAGE);
+    expect(hiResQ!.displayName).toContain('Quality Index');
+
+    const midRent = TOWN_RES_GROUP.properties.find(p => p.rdoName === 'midRentPrice');
+    expect(midRent!.type).toBe(PropertyType.PERCENTAGE);
+  });
+
+  it('Votes should have Trouble property (hidden when zero)', () => {
+    const trouble = VOTES_GROUP.properties.find(p => p.rdoName === 'Trouble');
+    expect(trouble).toBeDefined();
+    expect(trouble!.type).toBe(PropertyType.NUMBER);
+    expect(trouble!.hideEmpty).toBe(true);
+  });
+
+  it('Capitol template should have all 7 tabs', () => {
+    registerInspectorTabs('testCapitolTabs', [
+      { tabName: 'General', tabHandler: 'capitolGeneral' },
+      { tabName: 'Ministries', tabHandler: 'Ministeries' },
+      { tabName: 'Towns', tabHandler: 'CapitolTowns' },
+      { tabName: 'Services', tabHandler: 'townServices' },
+      { tabName: 'Jobs', tabHandler: 'townJobs' },
+      { tabName: 'Residentials', tabHandler: 'townRes' },
+      { tabName: 'Votes', tabHandler: 'Votes' },
+    ]);
+    const template = getTemplateForVisualClass('testCapitolTabs');
+    expect(template.groups).toHaveLength(7);
+
+    const handlerNames = template.groups.map(g => g.handlerName);
+    expect(handlerNames).toEqual([
+      'capitolGeneral', 'Ministeries', 'CapitolTowns',
+      'townServices', 'townJobs', 'townRes', 'Votes',
+    ]);
   });
 });

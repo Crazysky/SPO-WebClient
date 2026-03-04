@@ -892,12 +892,13 @@ describe('CapitolTowns', () => {
     expect(table!.countProperty).toBe('TownCount');
   });
 
-  it('Town table: has TownName, TownPopulation, TownQOL, TownQOS, TownWealth, TownTax, HasMayor columns', () => {
+  it('Town table: has Town, TownPopulation, TownQOL, TownRating, TownWealth, TownTax, HasMayor columns', () => {
     const table = CAPITOL_TOWNS_GROUP.properties.find(p => p.type === PropertyType.TABLE);
     const suffixes = table!.columns!.map(c => c.rdoSuffix);
-    expect(suffixes).toContain('TownName');
+    expect(suffixes).toContain('Town');
     expect(suffixes).toContain('TownPopulation');
     expect(suffixes).toContain('TownQOL');
+    expect(suffixes).toContain('TownRating');
     expect(suffixes).toContain('TownWealth');
     expect(suffixes).toContain('HasMayor');
   });
@@ -972,9 +973,9 @@ describe('TownRes', () => {
     expect(names).toContain('loRentPrice');
   });
 
-  it('hiRentPrice: CURRENCY type', () => {
+  it('hiRentPrice: PERCENTAGE type', () => {
     const prop = TOWN_RES_GROUP.properties.find(p => p.rdoName === 'hiRentPrice');
-    expect(prop!.type).toBe(PropertyType.CURRENCY);
+    expect(prop!.type).toBe(PropertyType.PERCENTAGE);
   });
 
   it('TOWN_RES_GROUP: all properties read-only (no editable)', () => {
