@@ -98,6 +98,55 @@ describe('Profile Store', () => {
     expect(useProfileStore.getState().refreshCounter).toBe(before + 2);
   });
 
+  describe('supplier search state', () => {
+    it('openSupplierSearch should set context and clear results', () => {
+      useProfileStore.getState().openSupplierSearch('coal', 'Coal');
+      const state = useProfileStore.getState();
+      expect(state.supplierSearch).toEqual({ fluidId: 'coal', fluidName: 'Coal' });
+      expect(state.supplierSearchResults).toEqual([]);
+      expect(state.supplierSearchLoading).toBe(false);
+    });
+
+    it('setSupplierSearchResults should populate results and clear loading', () => {
+      useProfileStore.getState().setSupplierSearchLoading(true);
+      const results = [
+        { facilityName: 'Coal Mine', companyName: 'TestCo', x: 100, y: 200, price: '80', quality: '40' },
+      ];
+      useProfileStore.getState().setSupplierSearchResults(results);
+      const state = useProfileStore.getState();
+      expect(state.supplierSearchResults).toEqual(results);
+      expect(state.supplierSearchLoading).toBe(false);
+    });
+
+    it('setSupplierSearchLoading should update loading flag', () => {
+      useProfileStore.getState().setSupplierSearchLoading(true);
+      expect(useProfileStore.getState().supplierSearchLoading).toBe(true);
+      useProfileStore.getState().setSupplierSearchLoading(false);
+      expect(useProfileStore.getState().supplierSearchLoading).toBe(false);
+    });
+
+    it('clearSupplierSearch should reset all supplier search state', () => {
+      useProfileStore.getState().openSupplierSearch('coal', 'Coal');
+      useProfileStore.getState().setSupplierSearchResults([
+        { facilityName: 'Mine', companyName: 'Co', x: 1, y: 2 },
+      ]);
+      useProfileStore.getState().clearSupplierSearch();
+      const state = useProfileStore.getState();
+      expect(state.supplierSearch).toBeNull();
+      expect(state.supplierSearchResults).toEqual([]);
+      expect(state.supplierSearchLoading).toBe(false);
+    });
+
+    it('reset should also clear supplier search state', () => {
+      useProfileStore.getState().openSupplierSearch('steel', 'Steel');
+      useProfileStore.getState().reset();
+      const state = useProfileStore.getState();
+      expect(state.supplierSearch).toBeNull();
+      expect(state.supplierSearchResults).toEqual([]);
+      expect(state.supplierSearchLoading).toBe(false);
+    });
+  });
+
   describe('reset()', () => {
     it('should clear all tab data and increment counter on reset', () => {
       // Populate state

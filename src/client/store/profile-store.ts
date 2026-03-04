@@ -11,6 +11,7 @@ import type {
   CompaniesData,
   AutoConnectionsData,
   PolicyData,
+  ConnectionSearchResult,
 } from '@/shared/types';
 
 export type ProfileTab = 'curriculum' | 'bank' | 'profitloss' | 'companies' | 'autoconnections' | 'policy';
@@ -29,6 +30,11 @@ interface ProfileState {
   autoConnections: AutoConnectionsData | null;
   policy: PolicyData | null;
 
+  // Supplier search modal state (for auto-connections "Add Supplier" flow)
+  supplierSearch: { fluidId: string; fluidName: string } | null;
+  supplierSearchResults: ConnectionSearchResult[];
+  supplierSearchLoading: boolean;
+
   // Refresh counter — incremented after successful actions to trigger re-fetch
   refreshCounter: number;
 
@@ -42,6 +48,10 @@ interface ProfileState {
   setCompanies: (data: CompaniesData) => void;
   setAutoConnections: (data: AutoConnectionsData) => void;
   setPolicy: (data: PolicyData) => void;
+  openSupplierSearch: (fluidId: string, fluidName: string) => void;
+  setSupplierSearchResults: (results: ConnectionSearchResult[]) => void;
+  setSupplierSearchLoading: (loading: boolean) => void;
+  clearSupplierSearch: () => void;
   incrementRefresh: () => void;
   reset: () => void;
 }
@@ -56,6 +66,9 @@ export const useProfileStore = create<ProfileState>((set) => ({
   companies: null,
   autoConnections: null,
   policy: null,
+  supplierSearch: null,
+  supplierSearchResults: [],
+  supplierSearchLoading: false,
   refreshCounter: 0,
 
   setProfile: (profile) => set({ profile, isLoading: false }),
@@ -67,6 +80,14 @@ export const useProfileStore = create<ProfileState>((set) => ({
   setCompanies: (data) => set({ companies: data, isLoading: false }),
   setAutoConnections: (data) => set({ autoConnections: data, isLoading: false }),
   setPolicy: (data) => set({ policy: data, isLoading: false }),
+  openSupplierSearch: (fluidId, fluidName) => set({
+    supplierSearch: { fluidId, fluidName },
+    supplierSearchResults: [],
+    supplierSearchLoading: false,
+  }),
+  setSupplierSearchResults: (results) => set({ supplierSearchResults: results, supplierSearchLoading: false }),
+  setSupplierSearchLoading: (loading) => set({ supplierSearchLoading: loading }),
+  clearSupplierSearch: () => set({ supplierSearch: null, supplierSearchResults: [], supplierSearchLoading: false }),
   incrementRefresh: () => set((s) => ({ refreshCounter: s.refreshCounter + 1 })),
 
   reset: () =>
@@ -80,6 +101,9 @@ export const useProfileStore = create<ProfileState>((set) => ({
       companies: null,
       autoConnections: null,
       policy: null,
+      supplierSearch: null,
+      supplierSearchResults: [],
+      supplierSearchLoading: false,
       // Increment (not zero) so the useEffect re-triggers even if already on 'curriculum'
       refreshCounter: s.refreshCounter + 1,
     })),

@@ -32,7 +32,7 @@ const TABS: Array<{ id: ProfileTab; icon: typeof GraduationCap; label: string }>
   { id: 'bank', icon: Landmark, label: 'Bank' },
   { id: 'profitloss', icon: TrendingUp, label: 'P&L' },
   { id: 'companies', icon: Factory, label: 'Co.' },
-  { id: 'autoconnections', icon: Link, label: 'Connect' },
+  { id: 'autoconnections', icon: Link, label: 'Initial Suppliers' },
   { id: 'policy', icon: Flag, label: 'Policy' },
 ];
 
@@ -606,8 +606,6 @@ function CompaniesTab() {
 function AutoConnectionsTab() {
   const data = useProfileStore((s) => s.autoConnections);
   const client = useClient();
-  const [addingFluid, setAddingFluid] = useState<string | null>(null);
-  const [supplierInput, setSupplierInput] = useState('');
 
   if (!data) return <EmptyState message="No connections data" />;
 
@@ -619,11 +617,9 @@ function AutoConnectionsTab() {
     client.onProfileAutoConnectionAction('delete', fluidId, facilityId);
   };
 
-  const handleAddSupplier = (fluidId: string) => {
-    if (!supplierInput) return;
-    client.onProfileAutoConnectionAction('add', fluidId, supplierInput);
-    setAddingFluid(null);
-    setSupplierInput('');
+  const handleOpenSearch = (fluidId: string, fluidName: string) => {
+    useProfileStore.getState().openSupplierSearch(fluidId, fluidName);
+    useUiStore.getState().openModal('supplierSearch');
   };
 
   return (
@@ -681,31 +677,14 @@ function AutoConnectionsTab() {
             <p className={styles.hint}>No suppliers</p>
           )}
 
-          {/* Add supplier */}
-          {addingFluid === fluid.fluidId ? (
-            <div className={styles.inlineForm}>
-              <label className={styles.formLabel}>Supplier Facility ID</label>
-              <input
-                className={styles.formInput}
-                type="text"
-                placeholder="Facility ID..."
-                value={supplierInput}
-                onChange={(e) => setSupplierInput(e.target.value)}
-              />
-              <div className={styles.formActions}>
-                <button className={styles.formSubmit} onClick={() => handleAddSupplier(fluid.fluidId)} disabled={!supplierInput}>Add</button>
-                <button className={styles.formCancel} onClick={() => { setAddingFluid(null); setSupplierInput(''); }}>Cancel</button>
-              </div>
-            </div>
-          ) : (
-            <button
-              className={styles.addBtn}
-              onClick={() => setAddingFluid(fluid.fluidId)}
-            >
-              <Plus size={12} />
-              <span>Add Supplier</span>
-            </button>
-          )}
+          {/* Add supplier — opens search modal */}
+          <button
+            className={styles.addBtn}
+            onClick={() => handleOpenSearch(fluid.fluidId, fluid.fluidName)}
+          >
+            <Plus size={12} />
+            <span>Add Supplier</span>
+          </button>
         </div>
       ))}
       {data.fluids.length === 0 && <EmptyState message="No initial suppliers configured" />}

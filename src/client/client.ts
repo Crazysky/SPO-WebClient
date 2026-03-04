@@ -925,10 +925,14 @@ export class StarpeaceClient {
         break;
       }
 
-      // Connection Search Response
+      // Connection Search Response — route to supplier search or building connection picker
       case WsMessageType.RESP_SEARCH_CONNECTIONS: {
         const searchResp = msg as WsRespSearchConnections;
-        ClientBridge.updateConnectionResults(searchResp.results);
+        if (useUiStore.getState().modal === 'supplierSearch') {
+          useProfileStore.getState().setSupplierSearchResults(searchResp.results);
+        } else {
+          ClientBridge.updateConnectionResults(searchResp.results);
+        }
         break;
       }
 
