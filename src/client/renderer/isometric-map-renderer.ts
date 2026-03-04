@@ -34,7 +34,8 @@ import {
   MapSegment,
   SurfaceData,
   FacilityDimensions,
-  RoadDrawingState
+  RoadDrawingState,
+  ZONE_TYPES,
 } from '../../shared/types';
 import {
   RoadsRendering,
@@ -82,6 +83,13 @@ interface CachedZone {
   segments: MapSegment[];
   lastLoadTime: number; // Timestamp when zone was loaded
   forceRefresh?: boolean; // Flag to force reload on next visibility check
+}
+
+interface CachedZoneSurface {
+  x: number;       // Aligned zone origin X
+  y: number;       // Aligned zone origin Y
+  data: SurfaceData;
+  lastLoadTime: number;
 }
 
 interface PlacementPreview {
@@ -415,9 +423,8 @@ export class IsometricMapRenderer {
 
   // Zone overlay
   private zoneOverlayEnabled: boolean = false;
-  private zoneOverlayData: SurfaceData | null = null;
-  private zoneOverlayX1: number = 0;
-  private zoneOverlayY1: number = 0;
+  private overlayIsHeatmap: boolean = false;
+  private cachedZoneSurfaces: Map<string, CachedZoneSurface> = new Map();
 
   // Placement preview
   private placementPreview: PlacementPreview | null = null;
@@ -435,6 +442,13 @@ export class IsometricMapRenderer {
     mouseDownTime: 0
   };
   private roadCostPerTile: number = 2000000;
+
+  // Zone painting
+  private zonePaintingMode: boolean = false;
+  private zonePaintingType: number = 2;
+  private zonePaintingState = { isDrawing: false, startX: 0, startY: 0, endX: 0, endY: 0 };
+  private onZoneAreaComplete: ((x1: number, y1: number, x2: number, y2: number) => void) | null = null;
+  private onCancelZonePainting: (() => void) | null = null;
 
   // Map loaded flag
   private mapLoaded: boolean = false;
@@ -762,8 +776,9 @@ export class IsometricMapRenderer {
     const terrainData = await this.terrainRenderer.loadMap(mapName);
     this.mapLoaded = true;
 
-    // Clear cached zones when loading new map
+    // Clear cached zones and zone surfaces when loading new map
     this.cachedZones.clear();
+    this.cachedZoneSurfaces.clear();
     if (this.zoneRequestManager) {
       this.zoneRequestManager.clear();
     }
@@ -1580,6 +1595,29 @@ export class IsometricMapRenderer {
   }
 
   /**
+   * Get current map rotation (for minimap orientation sync)
+   */
+  public getRotation(): number {
+    return this.terrainRenderer.getRotation() as number;
+  }
+
+  /**
+   * Get raw terrain pixel data for minimap background rendering.
+   * Returns null if terrain data is not yet loaded.
+   */
+  public getTerrainPixelData(): { pixelData: Uint8Array; width: number; height: number } | null {
+    const loader = this.terrainRenderer.getTerrainLoader();
+    if (!loader.isLoaded()) return null;
+    const dims = loader.getDimensions();
+    if (dims.width === 0 || dims.height === 0) return null;
+    return {
+      pixelData: loader.getPixelData(),
+      width: dims.width,
+      height: dims.height,
+    };
+  }
+
+  /**
    * Get visible tile bounds (for minimap viewport rectangle)
    */
   public getVisibleTileBounds(): TileBounds {
@@ -1610,14 +1648,32 @@ export class IsometricMapRenderer {
   // ZONE OVERLAY
   // =========================================================================
 
-  public setZoneOverlay(enabled: boolean, data?: SurfaceData, x1?: number, y1?: number) {
+  public setZoneOverlay(enabled: boolean, data?: SurfaceData, x1?: number, y1?: number, heatmap?: boolean) {
     this.zoneOverlayEnabled = enabled;
-    if (data) {
-      this.zoneOverlayData = data;
-      this.zoneOverlayX1 = x1 || 0;
-      this.zoneOverlayY1 = y1 || 0;
+    if (heatmap !== undefined) this.overlayIsHeatmap = heatmap;
+    if (!enabled) {
+      this.cachedZoneSurfaces.clear();
+      this.overlayIsHeatmap = false;
+    } else if (data && x1 !== undefined && y1 !== undefined) {
+      const zoneSize = 64;
+      const alignedX = Math.floor(x1 / zoneSize) * zoneSize;
+      const alignedY = Math.floor(y1 / zoneSize) * zoneSize;
+      const key = `${alignedX},${alignedY}`;
+      this.cachedZoneSurfaces.set(key, {
+        x: alignedX,
+        y: alignedY,
+        data,
+        lastLoadTime: Date.now(),
+      });
     }
     this.requestRender();
+  }
+
+  /**
+   * Get keys of all currently loaded map zones (for populating zone overlay on enable)
+   */
+  public getLoadedZoneKeys(): string[] {
+    return Array.from(this.cachedZones.keys());
   }
 
   // =========================================================================
@@ -1689,6 +1745,32 @@ export class IsometricMapRenderer {
 
   public setOnRoadDrawingCancel(callback: () => void) {
     this.onCancelRoadDrawing = callback;
+  }
+
+  // =========================================================================
+  // ZONE PAINTING MODE
+  // =========================================================================
+
+  public setZonePaintingMode(enabled: boolean, zoneType?: number) {
+    this.zonePaintingMode = enabled;
+    if (zoneType !== undefined) {
+      this.zonePaintingType = zoneType;
+    }
+    this.zonePaintingState = { isDrawing: false, startX: 0, startY: 0, endX: 0, endY: 0 };
+    this.canvas.style.cursor = enabled ? 'crosshair' : 'grab';
+    this.requestRender();
+  }
+
+  public isZonePaintingModeActive(): boolean {
+    return this.zonePaintingMode;
+  }
+
+  public setZoneAreaCompleteCallback(callback: ((x1: number, y1: number, x2: number, y2: number) => void) | null) {
+    this.onZoneAreaComplete = callback;
+  }
+
+  public setCancelZonePaintingCallback(callback: (() => void) | null) {
+    this.onCancelZonePainting = callback;
   }
 
   /**
@@ -2025,6 +2107,7 @@ export class IsometricMapRenderer {
     this.drawPlacementPreview();
     this.drawRoadDrawingPreview();
     this.drawRoadDemolishPreview();
+    this.drawZonePaintingPreview();
 
     // Draw debug overlay if enabled
     if (this.debugMode) {
@@ -3049,86 +3132,125 @@ export class IsometricMapRenderer {
   }
 
   /**
-   * Draw zone overlay as semi-transparent isometric tiles
+   * Draw zone/heatmap overlay as semi-transparent isometric tiles.
+   * Zone mode: discrete colors from ZONE_OVERLAY_COLORS.
+   * Heatmap mode: linear RGB interpolation between color scale points (matching Delphi Map.pas).
    */
   private drawZoneOverlay(bounds: TileBounds) {
-    if (!this.zoneOverlayEnabled || !this.zoneOverlayData) return;
+    if (!this.zoneOverlayEnabled || this.cachedZoneSurfaces.size === 0) return;
 
     const ctx = this.ctx;
     const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
     const halfWidth = config.tileWidth / 2;
     const halfHeight = config.tileHeight / 2;
-    const data = this.zoneOverlayData;
+    const isHeatmap = this.overlayIsHeatmap;
 
-    // Zone color mapping
-    const zoneColors: Record<number, string> = {
-      0: 'transparent',
-      3000: 'rgba(255, 107, 107, 0.3)',  // Residential - Red
-      4000: 'rgba(77, 171, 247, 0.3)',   // Commercial - Blue
-      5000: 'rgba(255, 212, 59, 0.3)',   // Industrial - Yellow
-      6000: 'rgba(81, 207, 102, 0.3)',   // Agricultural - Green
-      7000: 'rgba(255, 146, 43, 0.3)',   // Mixed - Orange
-      8000: 'rgba(132, 94, 247, 0.3)',   // Special - Purple
-      9000: 'rgba(253, 126, 20, 0.3)',   // Other - Bright Orange
-    };
+    // Zone colors from ZONE_TYPES (single source of truth from domain-types.ts)
+    const zoneColors = IsometricMapRenderer.ZONE_OVERLAY_COLORS;
 
-    for (let row = 0; row < data.rows.length; row++) {
-      const rowData = data.rows[row];
-      for (let col = 0; col < rowData.length; col++) {
-        const value = rowData[col];
-        if (value === 0) continue;
+    for (const cached of this.cachedZoneSurfaces.values()) {
+      const data = cached.data;
+      for (let row = 0; row < data.rows.length; row++) {
+        const rowData = data.rows[row];
+        for (let col = 0; col < rowData.length; col++) {
+          const value = rowData[col];
+          if (value === 0 && !isHeatmap) continue;
 
-        const worldX = this.zoneOverlayX1 + col;
-        const worldY = this.zoneOverlayY1 + row;
+          const worldX = cached.x + col;
+          const worldY = cached.y + row;
 
-        // Convert to isometric (x = j, y = i)
-        const screenPos = this.terrainRenderer.mapToScreen(worldY, worldX);
+          // Convert to isometric (x = j, y = i)
+          const screenPos = this.terrainRenderer.mapToScreen(worldY, worldX);
 
-        // Cull if off-screen
-        if (screenPos.x < -config.tileWidth || screenPos.x > this.canvas.width + config.tileWidth ||
-            screenPos.y < -config.tileHeight || screenPos.y > this.canvas.height + config.tileHeight) {
-          continue;
+          // Cull if off-screen
+          if (screenPos.x < -config.tileWidth || screenPos.x > this.canvas.width + config.tileWidth ||
+              screenPos.y < -config.tileHeight || screenPos.y > this.canvas.height + config.tileHeight) {
+            continue;
+          }
+
+          let color: string;
+          if (isHeatmap) {
+            color = IsometricMapRenderer.heatmapColor(value);
+            // Skip near-transparent values (near-zero produces near-black with low alpha)
+            if (Math.abs(value) < 0.001) continue;
+          } else {
+            color = zoneColors[value] || 'rgba(136, 136, 136, 0.3)';
+          }
+
+          ctx.beginPath();
+          ctx.moveTo(screenPos.x, screenPos.y);
+          ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
+          ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
+          ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
+          ctx.closePath();
+
+          ctx.fillStyle = color;
+          ctx.fill();
         }
-
-        const color = zoneColors[value] || 'rgba(136, 136, 136, 0.3)';
-
-        ctx.beginPath();
-        ctx.moveTo(screenPos.x, screenPos.y);
-        ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
-        ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
-        ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
-        ctx.closePath();
-
-        ctx.fillStyle = color;
-        ctx.fill();
       }
     }
   }
 
-  // Zone color → overlay value mapping
+  /**
+   * Convert a heatmap value to an RGBA color string.
+   * Negative values → blue/green (good), positive → red (bad), zero → transparent.
+   * Matches the general Delphi color scale pattern: negative=cool, positive=warm.
+   */
+  private static heatmapColor(value: number): string {
+    const alpha = 0.4;
+    const absVal = Math.abs(value);
+    // Clamp intensity to [0, 1] — values beyond 1 are saturated
+    const t = Math.min(absVal, 1);
+
+    if (value > 0) {
+      // Positive: black → red (crime, pollution increase)
+      const r = Math.round(255 * t);
+      const g = Math.round(40 * (1 - t));
+      const b = Math.round(40 * (1 - t));
+      return `rgba(${r},${g},${b},${alpha})`;
+    } else {
+      // Negative: black → cyan/teal (beauty, supply, population)
+      const r = Math.round(40 * (1 - t));
+      const g = Math.round(200 * t);
+      const b = Math.round(255 * t);
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+  }
+
+  // Zone overlay colors — built from ZONE_TYPES (single source of truth)
+  private static readonly ZONE_OVERLAY_COLORS: Record<number, string> = Object.fromEntries(
+    ZONE_TYPES.map(z => [z.id, z.id === 0 ? 'transparent' : z.overlayColor])
+  );
+
+  // Zone painting preview colors — overlay colors with higher alpha for emphasis
+  private static readonly ZONE_PAINTING_COLORS: Record<number, string> = Object.fromEntries(
+    ZONE_TYPES.map(z => [z.id, z.overlayColor.replace('0.3)', '0.4)')])
+  );
+
+  // Zone color word → Delphi TZoneType value (Protocol.pas)
   private static readonly ZONE_COLOR_MAP: Record<string, number> = {
-    red: 3000,       // Residential
-    blue: 4000,      // Commercial
-    yellow: 5000,    // Industrial
-    green: 6000,     // Agricultural
-    orange: 7000,    // Mixed
-    purple: 8000,    // Special
+    red: 2,        // znResidential
+    blue: 7,       // znCommercial
+    yellow: 6,     // znIndustrial
+    green: 8,      // znCivics
+    orange: 9,     // znOffices
+    purple: 1,     // znReserved
   };
 
-  // Zone color → display name mapping
+  // Zone color word → display name mapping
   private static readonly ZONE_NAME_MAP: Record<string, string> = {
     red: 'RESIDENTIAL',
-    blue: 'COMMERCE',
+    blue: 'COMMERCIAL',
     yellow: 'INDUSTRIAL',
-    green: 'AGRICULTURAL',
-    orange: 'MIXED',
-    purple: 'SPECIAL',
+    green: 'CIVICS',
+    orange: 'OFFICES',
+    purple: 'RESERVED',
   };
 
   /**
    * Parse zone requirement text into a zone overlay value.
    * Input: "Building must be located in blue zone or no zone at all."
-   * Output: 4000 (Commercial), or 0 if no zone requirement
+   * Output: 7 (znCommercial), or 0 if no zone requirement
    */
   private parseZoneRequirementValue(zoneRequirement: string): number {
     if (!zoneRequirement) return 0;
@@ -3264,15 +3386,20 @@ export class IsometricMapRenderer {
       }
 
       // Check zone requirement (only if we have overlay data and a required zone)
-      if (!hasZoneMismatch && requiredZoneValue > 0 && this.zoneOverlayData) {
-        const row = checkY - this.zoneOverlayY1;
-        const col = checkX - this.zoneOverlayX1;
-        if (row >= 0 && row < this.zoneOverlayData.rows.length &&
-            col >= 0 && col < this.zoneOverlayData.rows[row].length) {
-          const tileZone = this.zoneOverlayData.rows[row][col];
-          // Zone mismatch: tile is not the required zone AND not "no zone" (0 = allowed per "or no zone at all")
-          if (tileZone !== requiredZoneValue && tileZone !== 0) {
-            hasZoneMismatch = true;
+      if (!hasZoneMismatch && requiredZoneValue > 0 && this.cachedZoneSurfaces.size > 0) {
+        const zoneSize = 64;
+        const zoneKey = `${Math.floor(checkX / zoneSize) * zoneSize},${Math.floor(checkY / zoneSize) * zoneSize}`;
+        const cachedSurface = this.cachedZoneSurfaces.get(zoneKey);
+        if (cachedSurface) {
+          const row = checkY - cachedSurface.y;
+          const col = checkX - cachedSurface.x;
+          if (row >= 0 && row < cachedSurface.data.rows.length &&
+              col >= 0 && col < cachedSurface.data.rows[row].length) {
+            const tileZone = cachedSurface.data.rows[row][col];
+            // Zone mismatch: tile is not the required zone AND not "no zone" (0 = allowed per "or no zone at all")
+            if (tileZone !== requiredZoneValue && tileZone !== 0) {
+              hasZoneMismatch = true;
+            }
           }
         }
       }
@@ -3570,6 +3697,70 @@ export class IsometricMapRenderer {
     ctx.strokeStyle = strokeColor;
     ctx.lineWidth = 2;
     ctx.stroke();
+  }
+
+  /**
+   * Draw zone painting preview — hover indicator or drag rectangle.
+   */
+  private drawZonePaintingPreview() {
+    if (!this.zonePaintingMode) return;
+    if (!this.mouseHasEnteredCanvas) return;
+
+    const ctx = this.ctx;
+    const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
+    const halfWidth = config.tileWidth / 2;
+    const halfHeight = config.tileHeight / 2;
+    const state = this.zonePaintingState;
+
+    // Zone painting preview colors — from ZONE_TYPES with higher alpha for painting emphasis
+    const fillColor = IsometricMapRenderer.ZONE_PAINTING_COLORS[this.zonePaintingType] || 'rgba(136,136,136,0.4)';
+
+    if (!state.isDrawing) {
+      // Single tile hover indicator
+      const screenPos = this.terrainRenderer.mapToScreen(this.mouseMapI, this.mouseMapJ);
+      ctx.beginPath();
+      ctx.moveTo(screenPos.x, screenPos.y);
+      ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
+      ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
+      ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
+      ctx.closePath();
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      return;
+    }
+
+    // Fill all tiles in the rectangle
+    const minX = Math.min(state.startX, state.endX);
+    const maxX = Math.max(state.startX, state.endX);
+    const minY = Math.min(state.startY, state.endY);
+    const maxY = Math.max(state.startY, state.endY);
+
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const screenPos = this.terrainRenderer.mapToScreen(y, x);
+        ctx.beginPath();
+        ctx.moveTo(screenPos.x, screenPos.y);
+        ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
+        ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
+        ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
+        ctx.closePath();
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+      }
+    }
+
+    // Draw tile count tooltip
+    const tileCount = (maxX - minX + 1) * (maxY - minY + 1);
+    const endPos = this.terrainRenderer.mapToScreen(state.endY, state.endX);
+    ctx.font = '12px monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 3;
+    ctx.strokeText(`${tileCount} tiles`, endPos.x + 15, endPos.y - 5);
+    ctx.fillText(`${tileCount} tiles`, endPos.x + 15, endPos.y - 5);
   }
 
   /**
@@ -4096,6 +4287,11 @@ export class IsometricMapRenderer {
         return;
       }
 
+      if (this.zonePaintingMode && this.onCancelZonePainting) {
+        this.onCancelZonePainting();
+        return;
+      }
+
       // Start drag (even in placement mode — cancel only on release without drag)
       this.isDragging = true;
       this.rightClickDragged = false;
@@ -4105,7 +4301,14 @@ export class IsometricMapRenderer {
     }
 
     if (e.button === 0) { // Left click
-      if (this.roadDrawingMode) {
+      if (this.zonePaintingMode) {
+        this.zonePaintingState.isDrawing = true;
+        this.zonePaintingState.startX = mapPos.j;
+        this.zonePaintingState.startY = mapPos.i;
+        this.zonePaintingState.endX = mapPos.j;
+        this.zonePaintingState.endY = mapPos.i;
+        this.requestRender();
+      } else if (this.roadDrawingMode) {
         this.roadDrawingState.isDrawing = true;
         this.roadDrawingState.startX = mapPos.j;
         this.roadDrawingState.startY = mapPos.i;
@@ -4173,6 +4376,11 @@ export class IsometricMapRenderer {
       this.roadDrawingState.endY = mapPos.i;
     }
 
+    if (this.zonePaintingMode && this.zonePaintingState.isDrawing) {
+      this.zonePaintingState.endX = mapPos.j;
+      this.zonePaintingState.endY = mapPos.i;
+    }
+
     if (this.placementMode && this.placementPreview) {
       this.placementPreview.i = mapPos.i;
       this.placementPreview.j = mapPos.j;
@@ -4215,6 +4423,19 @@ export class IsometricMapRenderer {
           this.roadDrawingState.startY,
           this.roadDrawingState.endX,
           this.roadDrawingState.endY
+        );
+      }
+    }
+
+    if (e.button === 0 && this.zonePaintingMode && this.zonePaintingState.isDrawing) {
+      this.zonePaintingState.isDrawing = false;
+
+      if (this.onZoneAreaComplete) {
+        this.onZoneAreaComplete(
+          this.zonePaintingState.startX,
+          this.zonePaintingState.startY,
+          this.zonePaintingState.endX,
+          this.zonePaintingState.endY
         );
       }
     }
@@ -4279,7 +4500,7 @@ export class IsometricMapRenderer {
   }
 
   private updateCursor() {
-    if (this.placementMode || this.roadDrawingMode || this.onRoadDemolishClick) {
+    if (this.placementMode || this.roadDrawingMode || this.onRoadDemolishClick || this.zonePaintingMode) {
       this.canvas.style.cursor = 'crosshair';
     } else if (this.hoveredBuilding) {
       this.canvas.style.cursor = 'pointer';
@@ -4385,6 +4606,7 @@ export class IsometricMapRenderer {
 
     // Clear data
     this.cachedZones.clear();
+    this.cachedZoneSurfaces.clear();
     this.allBuildings = [];
     this.allSegments = [];
     this.roadTilesMap.clear();
@@ -4409,5 +4631,7 @@ export class IsometricMapRenderer {
     this.onRoadSegmentComplete = null;
     this.onCancelRoadDrawing = null;
     this.onRoadDemolishClick = null;
+    this.onZoneAreaComplete = null;
+    this.onCancelZonePainting = null;
   }
 }
