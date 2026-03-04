@@ -424,6 +424,7 @@ export class IsometricMapRenderer {
   // Zone overlay
   private zoneOverlayEnabled: boolean = false;
   private overlayIsHeatmap: boolean = false;
+  private overlayIsTowns: boolean = false;
   private cachedZoneSurfaces: Map<string, CachedZoneSurface> = new Map();
 
   // Placement preview
@@ -954,12 +955,6 @@ export class IsometricMapRenderer {
       },
       (col, row) => this.hasConcrete(col, row)
     );
-
-    // Pass building tile positions for proximity-based spawning
-    this.vehicleSystem.setBuildingTiles(occupiedTiles);
-
-    // Pause during camera movement
-    this.vehicleSystem.setPaused(this.isCameraMoving);
 
     // Update vehicle positions and spawn new vehicles
     this.vehicleSystem.update(deltaTime, bounds);
@@ -1649,12 +1644,14 @@ export class IsometricMapRenderer {
   // ZONE OVERLAY
   // =========================================================================
 
-  public setZoneOverlay(enabled: boolean, data?: SurfaceData, x1?: number, y1?: number, heatmap?: boolean) {
+  public setZoneOverlay(enabled: boolean, data?: SurfaceData, x1?: number, y1?: number, heatmap?: boolean, towns?: boolean) {
     this.zoneOverlayEnabled = enabled;
     if (heatmap !== undefined) this.overlayIsHeatmap = heatmap;
+    if (towns !== undefined) this.overlayIsTowns = towns;
     if (!enabled) {
       this.cachedZoneSurfaces.clear();
       this.overlayIsHeatmap = false;
+      this.overlayIsTowns = false;
     } else if (data && x1 !== undefined && y1 !== undefined) {
       const zoneSize = 64;
       const alignedX = Math.floor(x1 / zoneSize) * zoneSize;
@@ -3157,11 +3154,19 @@ export class IsometricMapRenderer {
     // Zone colors from ZONE_TYPES (single source of truth from domain-types.ts)
     const zoneColors = IsometricMapRenderer.ZONE_OVERLAY_COLORS;
 
+    // Zone surfaces are fetched for (x, y, x+64, y+64) but the Delphi server uses
+    // inclusive bounds, returning 65×65 tiles. Without capping, adjacent zone surfaces
+    // overlap by 1 tile at each boundary — double-rendering semi-transparent fills
+    // creates visible bold lines at every 64-tile interval.
+    const zoneSize = 64;
+
     for (const cached of this.cachedZoneSurfaces.values()) {
       const data = cached.data;
-      for (let row = 0; row < data.rows.length; row++) {
+      const maxRows = Math.min(data.rows.length, zoneSize);
+      for (let row = 0; row < maxRows; row++) {
         const rowData = data.rows[row];
-        for (let col = 0; col < rowData.length; col++) {
+        const maxCols = Math.min(rowData.length, zoneSize);
+        for (let col = 0; col < maxCols; col++) {
           const value = rowData[col];
           if (value === 0 && !isHeatmap) continue;
 
@@ -3182,6 +3187,11 @@ export class IsometricMapRenderer {
             color = IsometricMapRenderer.heatmapColor(value);
             // Skip near-transparent values (near-zero produces near-black with low alpha)
             if (Math.abs(value) < 0.001) continue;
+          } else if (this.overlayIsTowns) {
+            if (value === 0) continue; // no town
+            const townId = Math.round(value);
+            const idx = ((townId - 1) % IsometricMapRenderer.TOWN_COLORS.length + IsometricMapRenderer.TOWN_COLORS.length) % IsometricMapRenderer.TOWN_COLORS.length;
+            color = IsometricMapRenderer.TOWN_COLORS[idx];
           } else {
             color = zoneColors[value] || 'rgba(136, 136, 136, 0.3)';
           }
@@ -3225,6 +3235,22 @@ export class IsometricMapRenderer {
       return `rgba(${r},${g},${b},${alpha})`;
     }
   }
+
+  // Town overlay colors — distinct colors per town ID (cycles for >12 towns)
+  private static readonly TOWN_COLORS: string[] = [
+    'rgba(255, 99, 71, 0.35)',   // tomato
+    'rgba(30, 144, 255, 0.35)',  // dodger blue
+    'rgba(50, 205, 50, 0.35)',   // lime green
+    'rgba(255, 215, 0, 0.35)',   // gold
+    'rgba(186, 85, 211, 0.35)',  // medium orchid
+    'rgba(0, 206, 209, 0.35)',   // dark turquoise
+    'rgba(255, 140, 0, 0.35)',   // dark orange
+    'rgba(70, 130, 180, 0.35)',  // steel blue
+    'rgba(220, 20, 60, 0.35)',   // crimson
+    'rgba(154, 205, 50, 0.35)',  // yellow green
+    'rgba(255, 105, 180, 0.35)', // hot pink
+    'rgba(0, 128, 128, 0.35)',   // teal
+  ];
 
   // Zone overlay colors — built from ZONE_TYPES (single source of truth)
   private static readonly ZONE_OVERLAY_COLORS: Record<number, string> = Object.fromEntries(

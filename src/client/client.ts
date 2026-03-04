@@ -1274,8 +1274,8 @@ export class StarpeaceClient {
         ? surfaceType === SurfaceType.ZONES
         : surfaceType === this.activeOverlayType;
       if (renderer && stillActive) {
-        const isHeatmap = surfaceType !== SurfaceType.ZONES;
-        renderer.setZoneOverlay(true, response.data, x1, y1, isHeatmap);
+        const isHeatmap = surfaceType !== SurfaceType.ZONES && surfaceType !== SurfaceType.TOWNS;
+        renderer.setZoneOverlay(true, response.data, x1, y1, isHeatmap, surfaceType === SurfaceType.TOWNS);
       }
     } catch (err: unknown) {
       ClientBridge.log('Error', `Failed to fetch ${surfaceType} surface: ${toErrorMessage(err)}`);
@@ -3081,8 +3081,8 @@ export class StarpeaceClient {
     }
 
     // Enable overlay, then fetch surface data for all currently loaded map zones
-    const isHeatmap = surfaceType !== SurfaceType.ZONES;
-    renderer.setZoneOverlay(true, undefined, undefined, undefined, isHeatmap);
+    const isHeatmap = surfaceType !== SurfaceType.ZONES && surfaceType !== SurfaceType.TOWNS;
+    renderer.setZoneOverlay(true, undefined, undefined, undefined, isHeatmap, surfaceType === SurfaceType.TOWNS);
     const loadedKeys = renderer.getLoadedZoneKeys();
     for (const key of loadedKeys) {
       const [x, y] = key.split(',').map(Number);
