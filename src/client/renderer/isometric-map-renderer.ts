@@ -73,6 +73,7 @@ import {
 // painter-algorithm's (i+j) sort is NORTH-only; we use screenY-based sort instead
 import { CarClassManager } from './car-class-system';
 import { VehicleAnimationSystem } from './vehicle-animation-system';
+import { validatePlacementZones } from './placement-validation';
 
 interface CachedZone {
   x: number;
@@ -430,6 +431,7 @@ export class IsometricMapRenderer {
   // Placement preview
   private placementPreview: PlacementPreview | null = null;
   private placementMode: boolean = false;
+  private placementInvalid: boolean = false;
 
   // Road drawing
   private roadDrawingMode: boolean = false;
@@ -3378,20 +3380,22 @@ export class IsometricMapRenderer {
     // Get rotation-aware footprint tiles (cursor = visual top corner)
     const footprint = this.getFootprintTiles(preview.i, preview.j, preview.xsize, preview.ysize);
 
-    // Check for collisions and zone requirements
+    // Check for collisions, zone requirements, and reserved zones
     let hasCollision = false;
-    let hasZoneMismatch = false;
 
     // Parse required zone value from zone requirement text
     // Text format: "Building must be located in blue zone or no zone at all."
     const requiredZoneValue = this.parseZoneRequirementValue(preview.zoneRequirement);
+
+    // Collect zone values for each tile
+    const tileZones: { zoneValue: number | undefined }[] = [];
 
     for (const tile of footprint) {
       if (hasCollision) break;
       const checkX = tile.tileJ;
       const checkY = tile.tileI;
 
-      // Check building collision
+      // Check building collision (any single tile = blocked)
       for (const building of this.allBuildings) {
         const dims = this.facilityDimensionsCache.get(building.visualClass);
         const bw = dims?.xsize || 1;
@@ -3404,7 +3408,7 @@ export class IsometricMapRenderer {
         }
       }
 
-      // Check road collision
+      // Check road collision (any single tile = blocked)
       if (!hasCollision) {
         for (const seg of this.allSegments) {
           const minX = Math.min(seg.x1, seg.x2);
@@ -3420,8 +3424,9 @@ export class IsometricMapRenderer {
         }
       }
 
-      // Check zone requirement (only if we have overlay data and a required zone)
-      if (!hasZoneMismatch && requiredZoneValue > 0 && this.cachedZoneSurfaces.size > 0) {
+      // Collect zone value for this tile
+      let zoneValue: number | undefined;
+      if (this.cachedZoneSurfaces.size > 0) {
         const zoneSize = 64;
         const zoneKey = `${Math.floor(checkX / zoneSize) * zoneSize},${Math.floor(checkY / zoneSize) * zoneSize}`;
         const cachedSurface = this.cachedZoneSurfaces.get(zoneKey);
@@ -3430,17 +3435,17 @@ export class IsometricMapRenderer {
           const col = checkX - cachedSurface.x;
           if (row >= 0 && row < cachedSurface.data.rows.length &&
               col >= 0 && col < cachedSurface.data.rows[row].length) {
-            const tileZone = cachedSurface.data.rows[row][col];
-            // Zone mismatch: tile is not the required zone AND not "no zone" (0 = allowed per "or no zone at all")
-            if (tileZone !== requiredZoneValue && tileZone !== 0) {
-              hasZoneMismatch = true;
-            }
+            zoneValue = cachedSurface.data.rows[row][col];
           }
         }
       }
+      tileZones.push({ zoneValue });
     }
 
-    const isInvalid = hasCollision || hasZoneMismatch;
+    // Validate zone requirements and reserved zone using extracted logic
+    const validation = validatePlacementZones(tileZones, requiredZoneValue, hasCollision);
+    const isInvalid = validation.isInvalid;
+    this.placementInvalid = isInvalid;
     const fillColor = isInvalid ? 'rgba(255, 100, 100, 0.5)' : 'rgba(100, 255, 100, 0.5)';
     const strokeColor = isInvalid ? '#ff4444' : '#44ff44';
 
@@ -4353,7 +4358,8 @@ export class IsometricMapRenderer {
       } else if (this.placementMode && this.placementPreview) {
         // Confirm building placement — normalize cursor to NW corner for the server.
         // Server always expects (x=col, y=row) of the NW corner (min coords).
-        if (this.onPlacementConfirm) {
+        // Block placement if position is invalid (collision, reserved zone, or all tiles in wrong zone)
+        if (this.onPlacementConfirm && !this.placementInvalid) {
           const p = this.placementPreview;
           const { nwI, nwJ } = this.placementNWCorner(p.i, p.j, p.xsize, p.ysize);
           this.onPlacementConfirm(nwJ, nwI); // j=x (col), i=y (row)

@@ -265,7 +265,7 @@ export interface OverlayInfo {
 
 export const OVERLAY_LIST: OverlayInfo[] = [
   // Special
-  { type: SurfaceType.ZONES,      label: 'Building Zones',          category: 'special' },
+  { type: SurfaceType.ZONES,      label: 'City Zones',              category: 'special' },
   { type: SurfaceType.TOWNS,      label: 'Towns',                   category: 'special' },
   // Environment
   { type: SurfaceType.BEAUTY,     label: 'Beauty',                  category: 'environment' },

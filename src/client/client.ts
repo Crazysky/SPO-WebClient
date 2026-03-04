@@ -243,6 +243,7 @@ export class StarpeaceClient {
   private currentBuildingToPlace: BuildingInfo | null = null;
   private currentBuildingXSize: number = 1;
   private currentBuildingYSize: number = 1;
+  private overlayBeforePlacement: { type: 'zones' | 'overlay' | 'none'; overlay?: SurfaceType } = { type: 'none' };
 
   // Double-click prevention flags
   private isFocusingBuilding: boolean = false;
@@ -2900,6 +2901,9 @@ export class StarpeaceClient {
 
     // Setup ESC key to cancel placement
     this.setupPlacementKeyboardHandler();
+
+    // Auto-enable City Zones overlay so user can see zone boundaries
+    this.enableCityZonesForPlacement();
   }
 
 
@@ -2981,6 +2985,57 @@ export class StarpeaceClient {
   }
 
   /**
+   * Auto-enable City Zones overlay when entering building placement mode.
+   * Saves the previous overlay state so it can be restored on cancel.
+   */
+  private enableCityZonesForPlacement(): void {
+    // Save current overlay state for restoration
+    if (this.isCityZonesEnabled) {
+      this.overlayBeforePlacement = { type: 'zones' };
+    } else if (this.activeOverlayType !== null) {
+      this.overlayBeforePlacement = { type: 'overlay', overlay: this.activeOverlayType };
+      // Disable the current overlay first
+      this.toggleZoneOverlay(false, this.activeOverlayType);
+      this.activeOverlayType = null;
+      ClientBridge.setActiveOverlay(null);
+    } else {
+      this.overlayBeforePlacement = { type: 'none' };
+    }
+
+    // Enable City Zones if not already on
+    if (!this.isCityZonesEnabled) {
+      this.isCityZonesEnabled = true;
+      ClientBridge.setCityZonesEnabled(true);
+      this.toggleZoneOverlay(true, SurfaceType.ZONES);
+    }
+  }
+
+  /**
+   * Restore the overlay state that was active before building placement.
+   */
+  private restoreOverlayAfterPlacement(): void {
+    const prev = this.overlayBeforePlacement;
+    this.overlayBeforePlacement = { type: 'none' };
+
+    if (prev.type === 'zones') {
+      // Was already on City Zones — leave it on
+      return;
+    }
+
+    // City Zones was auto-enabled — disable it
+    this.isCityZonesEnabled = false;
+    ClientBridge.setCityZonesEnabled(false);
+    this.toggleZoneOverlay(false, SurfaceType.ZONES);
+
+    if (prev.type === 'overlay' && prev.overlay) {
+      // Restore previous overlay
+      this.activeOverlayType = prev.overlay;
+      ClientBridge.setActiveOverlay(prev.overlay);
+      this.toggleZoneOverlay(true, prev.overlay);
+    }
+  }
+
+  /**
    * Cancel building placement mode
    */
   private cancelBuildingPlacement() {
@@ -2998,7 +3053,8 @@ export class StarpeaceClient {
       renderer.setPlacementMode(false);
     }
 
-    // No need to restore callback - handleMapClick already checks currentBuildingToPlace state
+    // Restore previous overlay state
+    this.restoreOverlayAfterPlacement();
   }
 
   /**

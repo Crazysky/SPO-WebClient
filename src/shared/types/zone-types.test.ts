@@ -3,7 +3,7 @@
  * Values must match Delphi Protocol.pas TZoneType constants (0-9).
  */
 
-import { ZoneType, ZONE_TYPES } from './domain-types';
+import { ZoneType, ZONE_TYPES, SurfaceType, OVERLAY_LIST } from './domain-types';
 
 describe('ZoneType enum', () => {
   it('should match Delphi Protocol.pas TZoneType constants', () => {
@@ -57,5 +57,13 @@ describe('ZONE_TYPES array', () => {
     const enumValues = Object.values(ZoneType).filter(v => typeof v === 'number') as number[];
     const zoneIds = ZONE_TYPES.map(z => z.id);
     expect(zoneIds.sort()).toEqual(enumValues.sort());
+  });
+});
+
+describe('OVERLAY_LIST', () => {
+  it('should label the ZONES overlay as "City Zones"', () => {
+    const zonesOverlay = OVERLAY_LIST.find(o => o.type === SurfaceType.ZONES);
+    expect(zonesOverlay).toBeDefined();
+    expect(zonesOverlay!.label).toBe('City Zones');
   });
 });
