@@ -1,7 +1,7 @@
 /**
  * ProfilePanel — Tabbed tycoon profile (replaces EmpireOverview).
  *
- * Tabs: Curriculum, Bank, P&L, Companies, Connections, Policy.
+ * Tabs: Curriculum, Bank, P&L, Companies, Connections, Strategy.
  * Each tab fetches data from the server on activation via ClientCallbacks.
  */
 
@@ -33,7 +33,7 @@ const TABS: Array<{ id: ProfileTab; icon: typeof GraduationCap; label: string }>
   { id: 'profitloss', icon: TrendingUp, label: 'P&L' },
   { id: 'companies', icon: Factory, label: 'Co.' },
   { id: 'autoconnections', icon: Link, label: 'Initial Suppliers' },
-  { id: 'policy', icon: Flag, label: 'Policy' },
+  { id: 'policy', icon: Flag, label: 'Strategy' },
 ];
 
 export function ProfilePanel() {
@@ -693,21 +693,31 @@ function AutoConnectionsTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Policy Tab — unchanged
+// Strategy Tab — Commercial strategy (diplomatic relations)
 // ---------------------------------------------------------------------------
 
 function PolicyTab() {
   const data = useProfileStore((s) => s.policy);
   const client = useClient();
-  if (!data) return <EmptyState message="No policy data" />;
+  const [tycoonName, setTycoonName] = useState('');
+  const [policyStatus, setPolicyStatus] = useState<number>(1); // default: Neutral
 
   // Delphi TPolicyStatus: 0=Ally, 1=Neutral, 2=Enemy
   const POLICY_LABELS: Record<number, string> = { 0: 'Ally', 1: 'Neutral', 2: 'Enemy' };
   const policyLabel = (val: number) => POLICY_LABELS[val] ?? 'Neutral';
 
+  const handleSetPolicy = useCallback(() => {
+    const trimmed = tycoonName.trim();
+    if (!trimmed) return;
+    client.onProfilePolicySet(trimmed, policyStatus);
+    setTycoonName('');
+    setPolicyStatus(1);
+  }, [client, tycoonName, policyStatus]);
+
   return (
     <div className={styles.tabBody}>
-      {data.policies.length > 0 ? (
+      {/* Existing policies table */}
+      {data && data.policies.length > 0 ? (
         <div className={styles.tableWrap}>
           <table className={styles.table}>
             <thead>
@@ -750,8 +760,39 @@ function PolicyTab() {
           </table>
         </div>
       ) : (
-        <EmptyState message="No diplomatic policies" />
+        data && <EmptyState message="No diplomatic policies" />
       )}
+
+      {/* Set policy towards a tycoon — always shown */}
+      <div className={styles.inlineForm}>
+        <label className={styles.formLabel}>Set policy towards a tycoon</label>
+        <input
+          className={styles.formInput}
+          type="text"
+          placeholder="Tycoon name..."
+          value={tycoonName}
+          onChange={(e) => setTycoonName(e.target.value)}
+        />
+        <label className={styles.formLabel}>Policy</label>
+        <select
+          className={styles.formSelect}
+          value={policyStatus}
+          onChange={(e) => setPolicyStatus(Number(e.target.value))}
+        >
+          <option value={0}>Ally</option>
+          <option value={1}>Neutral</option>
+          <option value={2}>Enemy</option>
+        </select>
+        <div className={styles.formActions}>
+          <button
+            className={styles.formSubmit}
+            onClick={handleSetPolicy}
+            disabled={!tycoonName.trim()}
+          >
+            Set Policy
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
