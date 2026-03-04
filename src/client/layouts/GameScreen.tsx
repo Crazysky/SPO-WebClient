@@ -23,7 +23,7 @@ import { MailPanel } from '../components/mail';
 import { SearchPanel } from '../components/search';
 import { PoliticsPanel } from '../components/politics';
 import { TransportPanel } from '../components/transport';
-import { BuildMenu, ConnectionPickerModal, SettingsDialog } from '../components/modals';
+import { BuildMenu, ConnectionPickerModal, ServerSwitchOverlay, SettingsDialog, ZoneTypePicker } from '../components/modals';
 import { CommandPalette } from '../components/command-palette';
 import { MobileShell } from '../components/mobile';
 import { ErrorBoundary } from '../components/common';
@@ -120,6 +120,10 @@ export function GameScreen() {
       <BuildMenu />
       <ConnectionPickerModal />
       <SettingsDialog />
+      <ZoneTypePicker />
+
+      {/* Server Switch Overlay — z-450, between modals and command palette */}
+      <ServerSwitchOverlay />
 
       {/* Mobile shell — only renders on < 768px */}
       <MobileShell />

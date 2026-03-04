@@ -200,6 +200,24 @@
   color: var(--text-muted);
 }
 
+/* Capitol card */
+.capitolCard {
+  border-color: var(--accent-gold-dark);
+}
+
+.capitolCard:hover {
+  box-shadow: var(--shadow-gold-glow);
+}
+
+.officeBadge {
+  font-size: 10px;
+  color: var(--accent-gold);
+  background: var(--accent-gold-subtle);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-semibold);
+}
+
 /* Loading */
 .loadingGrid {
   display: grid;

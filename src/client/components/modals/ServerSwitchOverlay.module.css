@@ -1,0 +1,60 @@
+/* ServerSwitchOverlay — full-screen overlay for switching servers */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 449;
+  background: rgba(0, 0, 0, 0.75);
+  animation: fadeIn var(--duration-fast) var(--ease-default);
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 450;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+}
+
+/* "Back to [server]" cancel button — top-left corner */
+.cancelBtn {
+  position: fixed;
+  top: var(--space-4);
+  left: var(--space-4);
+  z-index: 451;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default),
+    background var(--duration-fast) var(--ease-default);
+}
+
+.cancelBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+  background: var(--bg-tertiary);
+}
+
+.cancelBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

@@ -7,8 +7,11 @@
  * Tertiary: Mail (with badge), Settings
  */
 
-import { Hammer, Search, User, Milestone, Tractor, Mail, Settings, Globe, Heart, Landmark, Train } from 'lucide-react';
+import { useState } from 'react';
+import { Hammer, Search, User, Milestone, Tractor, Mail, Settings, Globe, Heart, Landmark, Train, Layers } from 'lucide-react';
 import { IconButton } from '../common';
+import { ZoneIcon } from '../icons/ZoneIcon';
+import { OverlayMenu } from './OverlayMenu';
 import { useUiStore } from '../../store/ui-store';
 import { useGameStore } from '../../store/game-store';
 import { useMailStore } from '../../store/mail-store';
@@ -24,9 +27,12 @@ export function LeftRail() {
   const unreadCount = useMailStore((s) => s.unreadCount);
   const isRoadBuildingMode = useGameStore((s) => s.isRoadBuildingMode);
   const isRoadDemolishMode = useGameStore((s) => s.isRoadDemolishMode);
-  const requestConfirm = useUiStore((s) => s.requestConfirm);
-
+  const isZonePaintingMode = useGameStore((s) => s.isZonePaintingMode);
+  const isPublicOfficeRole = useGameStore((s) => s.isPublicOfficeRole);
+  const isCityZonesEnabled = useGameStore((s) => s.isCityZonesEnabled);
+  const activeOverlay = useGameStore((s) => s.activeOverlay);
   const client = useClient();
+  const [overlayMenuOpen, setOverlayMenuOpen] = useState(false);
 
   const railClass = [styles.rail, leftPanel ? styles.shifted : ''].filter(Boolean).join(' ');
 
@@ -79,6 +85,29 @@ export function LeftRail() {
           active={isRoadDemolishMode}
           onClick={() => client.onDemolishRoad()}
         />
+        {isPublicOfficeRole && (
+          <IconButton
+            icon={<ZoneIcon size={20} />}
+            label="Zone Painting"
+            size="lg"
+            variant="glass"
+            active={isZonePaintingMode}
+            onClick={() => isZonePaintingMode ? client.onCancelZonePainting() : openModal('zonePicker')}
+          />
+        )}
+        <div style={{ position: 'relative' }}>
+          <IconButton
+            icon={<Layers size={20} />}
+            label="Overlays"
+            size="lg"
+            variant="glass"
+            active={isCityZonesEnabled || activeOverlay !== null || overlayMenuOpen}
+            onClick={() => setOverlayMenuOpen(!overlayMenuOpen)}
+          />
+          {overlayMenuOpen && (
+            <OverlayMenu onClose={() => setOverlayMenuOpen(false)} />
+          )}
+        </div>
       </div>
 
       <div className={styles.divider} />
@@ -136,11 +165,7 @@ export function LeftRail() {
           label="Switch Server"
           size="lg"
           variant="glass"
-          onClick={() => requestConfirm(
-            'Switch Server',
-            'You will be disconnected from the current world. Continue?',
-            () => client.onLogout()
-          )}
+          onClick={() => client.onSwitchServer()}
         />
       </div>
     </nav>

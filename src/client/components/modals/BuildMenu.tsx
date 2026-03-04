@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, ArrowLeft } from 'lucide-react';
 import { useUiStore } from '../../store/ui-store';
+import { useGameStore } from '../../store/game-store';
 import { useClient } from '../../context';
 import { GlassCard, Skeleton } from '../common';
 import type { BuildingCategory } from '@/shared/types';
@@ -23,7 +24,9 @@ export function BuildMenu() {
   const closeModal = useUiStore((s) => s.closeModal);
   const categories = useUiStore((s) => s.buildMenuCategories);
   const facilities = useUiStore((s) => s.buildMenuFacilities);
+  const capitolIconUrl = useUiStore((s) => s.capitolIconUrl);
 
+  const isPublicOfficeRole = useGameStore((s) => s.isPublicOfficeRole);
   const client = useClient();
   const [phase, setPhase] = useState<Phase>('categories');
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -55,6 +58,11 @@ export function BuildMenu() {
     },
     [client],
   );
+
+  const handleBuildCapitol = useCallback(() => {
+    closeModal();
+    client.onBuildCapitol();
+  }, [closeModal, client]);
 
   const handleFacilitySelect = useCallback(
     (facility: { facilityClass: string; visualClassId: number; available: boolean }) => {
@@ -118,6 +126,20 @@ export function BuildMenu() {
                   )}
                 </GlassCard>
               ))}
+              {isPublicOfficeRole && capitolIconUrl && (
+                <GlassCard
+                  className={`${styles.categoryCard} ${styles.capitolCard}`}
+                  onClick={handleBuildCapitol}
+                >
+                  <img
+                    src={capitolIconUrl}
+                    alt="Capitol"
+                    className={styles.categoryIcon}
+                  />
+                  <span className={styles.categoryName}>Capitol</span>
+                  <span className={styles.officeBadge}>Public Office</span>
+                </GlassCard>
+              )}
             </div>
           )}
 
