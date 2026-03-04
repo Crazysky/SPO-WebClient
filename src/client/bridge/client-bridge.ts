@@ -18,6 +18,9 @@ import { useUiStore } from '../store/ui-store';
 import { useEmpireStore } from '../store/empire-store';
 import { useLogStore } from '../store/log-store';
 import { showToast } from '../components/common/Toast';
+import {
+  SurfaceType,
+} from '@/shared/types';
 import type {
   WorldInfo,
   CompanyInfo,
@@ -119,6 +122,11 @@ export interface ClientCallbacks {
   onRequestClusterInfo: (clusterName: string) => void;
   onRequestClusterFacilities: (cluster: string, folder: string) => void;
 
+  // Server switch
+  onSwitchServer: () => void;
+  onCancelServerSwitch: () => void;
+  onServerSwitchZoneSelect: (zonePath: string) => void;
+
   // Game actions
   onBuildRoad: () => void;
   onDemolishRoad: () => void;
@@ -137,6 +145,7 @@ export interface ClientCallbacks {
   onRequestBuildingCategories: () => void;
   onRequestBuildingFacilities: (kind: number, cluster: string) => void;
   onPlaceBuilding: (facilityClass: string, visualClassId: number) => void;
+  onBuildCapitol: () => void;
 
   // Settings
   onSettingsChange: (settings: GameSettings) => void;
@@ -196,6 +205,14 @@ export interface ClientCallbacks {
 
   // Empire
   onRequestFacilities: () => void;
+
+  // Zone painting
+  onToggleZonePainting: (zoneType: number) => void;
+  onCancelZonePainting: () => void;
+
+  // Overlays
+  onToggleCityZones: () => void;
+  onSetOverlay: (surfaceType: SurfaceType | null) => void;
 }
 
 /**
@@ -246,6 +263,26 @@ export const ClientBridge = {
 
   setRoadDemolishMode(active: boolean): void {
     useGameStore.getState().setRoadDemolishMode(active);
+  },
+
+  setZonePaintingMode(active: boolean): void {
+    useGameStore.getState().setZonePaintingMode(active);
+  },
+
+  setSelectedZoneType(zoneType: number): void {
+    useGameStore.getState().setSelectedZoneType(zoneType);
+  },
+
+  setPublicOfficeRole(isPublicOffice: boolean): void {
+    useGameStore.getState().setPublicOfficeRole(isPublicOffice);
+  },
+
+  setCityZonesEnabled(enabled: boolean): void {
+    useGameStore.getState().setCityZonesEnabled(enabled);
+  },
+
+  setActiveOverlay(overlay: SurfaceType | null): void {
+    useGameStore.getState().setActiveOverlay(overlay);
   },
 
   // ---- Connection state ----
@@ -308,8 +345,8 @@ export const ClientBridge = {
 
   // ---- Build menu ----
 
-  setBuildMenuCategories(categories: BuildingCategory[]): void {
-    useUiStore.getState().setBuildMenuCategories(categories);
+  setBuildMenuCategories(categories: BuildingCategory[], capitolIconUrl?: string): void {
+    useUiStore.getState().setBuildMenuCategories(categories, capitolIconUrl);
   },
 
   setBuildMenuFacilities(facilities: BuildingInfo[]): void {

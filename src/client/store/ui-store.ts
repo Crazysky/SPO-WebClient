@@ -5,10 +5,11 @@
 
 import { create } from 'zustand';
 import type { BuildingCategory, BuildingInfo } from '@/shared/types';
+import { useGameStore } from './game-store';
 
 export type RightPanelType = 'building' | 'mail' | 'search' | 'politics' | 'transport';
 export type LeftPanelType = 'empire' | 'facilities';
-export type ModalType = 'buildMenu' | 'settings' | 'confirm' | 'createCompany' | 'connectionPicker';
+export type ModalType = 'buildMenu' | 'settings' | 'confirm' | 'createCompany' | 'connectionPicker' | 'zonePicker';
 export type MobileTab = 'map' | 'empire' | 'build' | 'mail' | 'more';
 
 interface UiState {
@@ -24,6 +25,7 @@ interface UiState {
   // Build menu data
   buildMenuCategories: BuildingCategory[];
   buildMenuFacilities: BuildingInfo[];
+  capitolIconUrl: string;
 
   // Command palette
   commandPaletteOpen: boolean;
@@ -46,7 +48,7 @@ interface UiState {
   requestConfirm: (title: string, message: string, onConfirm: () => void) => void;
 
   // Actions — Build menu data
-  setBuildMenuCategories: (cats: BuildingCategory[]) => void;
+  setBuildMenuCategories: (cats: BuildingCategory[], capitolIconUrl?: string) => void;
   setBuildMenuFacilities: (facs: BuildingInfo[]) => void;
   clearBuildMenuData: () => void;
 
@@ -69,6 +71,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   confirmPayload: null,
   buildMenuCategories: [],
   buildMenuFacilities: [],
+  capitolIconUrl: '',
   commandPaletteOpen: false,
   mobileTab: 'empire',
 
@@ -96,7 +99,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     set({ modal: 'confirm', confirmPayload: { title, message, onConfirm } }),
 
   // Build menu data
-  setBuildMenuCategories: (cats) => set({ buildMenuCategories: cats }),
+  setBuildMenuCategories: (cats, capitolIconUrl) => set({ buildMenuCategories: cats, ...(capitolIconUrl ? { capitolIconUrl } : {}) }),
   setBuildMenuFacilities: (facs) => set({ buildMenuFacilities: facs }),
   clearBuildMenuData: () => set({ buildMenuCategories: [], buildMenuFacilities: [] }),
 
@@ -113,12 +116,24 @@ export const useUiStore = create<UiState>((set, get) => ({
     const state = get();
     if (state.commandPaletteOpen) {
       set({ commandPaletteOpen: false });
-    } else if (state.modal) {
-      set({ modal: null, confirmPayload: null });
-    } else if (state.rightPanel) {
-      set({ rightPanel: null });
-    } else if (state.leftPanel) {
-      set({ leftPanel: null });
+    } else {
+      // Server switch overlay sits at z-450 (above modals z-400)
+      const gameState = useGameStore.getState();
+      if (gameState.serverSwitchMode) {
+        const canCancel = (gameState.loginStage === 'zones' || gameState.loginStage === 'worlds')
+          && !gameState.loginLoading;
+        if (canCancel) {
+          gameState.cancelServerSwitch();
+          return;
+        }
+      }
+      if (state.modal) {
+        set({ modal: null, confirmPayload: null });
+      } else if (state.rightPanel) {
+        set({ rightPanel: null });
+      } else if (state.leftPanel) {
+        set({ leftPanel: null });
+      }
     }
   },
 }));

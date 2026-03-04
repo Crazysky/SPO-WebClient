@@ -97,6 +97,11 @@ import {
   WsRespClusterInfo,
   WsReqClusterFacilities,
   WsRespClusterFacilities,
+  // Zone Painting
+  WsReqDefineZone,
+  WsRespDefineZone,
+  // Capitol
+  WsReqBuildCapitol,
   // Date
   WsEventRefreshDate,
   // Research / Inventions
@@ -254,6 +259,14 @@ export class StarpeaceClient {
   private isBuildingRoad: boolean = false;
   private isRoadDemolishMode: boolean = false;
 
+  // Zone painting state
+  private isZonePaintingMode: boolean = false;
+  private selectedZoneType: number = 2;
+
+  // City Zones overlay
+  private isCityZonesEnabled: boolean = false;
+  private activeOverlayType: SurfaceType | null = null;
+
   // Speculative prefetch: first click caches a details promise for instant second-click
   private speculativeBuildingDetails = new Map<string, Promise<BuildingDetailsResponse | null>>();
 
@@ -290,6 +303,9 @@ export class StarpeaceClient {
         }
       },
       onLogout: () => this.logout(),
+      onSwitchServer: () => this.startServerSwitch(),
+      onCancelServerSwitch: () => this.cancelServerSwitch(),
+      onServerSwitchZoneSelect: (zonePath: string) => this.serverSwitchZoneSelect(zonePath),
       onSendChatMessage: (message: string) => this.sendChatMessage(message),
       onJoinChannel: (channelName: string) => this.joinChannel(channelName),
       onDirectoryConnect: (username: string, password: string, zonePath?: string) =>
@@ -307,6 +323,7 @@ export class StarpeaceClient {
         this.loadBuildingFacilitiesByKind(kind, cluster),
       onPlaceBuilding: (facilityClass: string, visualClassId: number) =>
         this.placeBuildingFromMenu(facilityClass, visualClassId),
+      onBuildCapitol: () => this.startCapitolPlacement(),
       onSettingsChange: (settings) => this.applySettings(settings),
 
       // Building actions (called from React BuildingInspector)
@@ -453,6 +470,14 @@ export class StarpeaceClient {
         ClientBridge.setEmpireLoading(true);
         this.sendMessage({ type: WsMessageType.REQ_EMPIRE_FACILITIES });
       },
+
+      // Zone painting
+      onToggleZonePainting: (zoneType: number) => this.toggleZonePaintingMode(zoneType),
+      onCancelZonePainting: () => this.cancelZonePaintingMode(),
+
+      // Overlays
+      onToggleCityZones: () => this.toggleCityZones(),
+      onSetOverlay: (surfaceType: SurfaceType | null) => this.setOverlay(surfaceType),
     };
 
     this.callbacks = callbacks as ClientCallbacks;
@@ -1085,6 +1110,11 @@ export class StarpeaceClient {
       // Store company name for building construction
       this.currentCompanyName = company.name;
 
+      // Detect public office role for zone painting visibility
+      const role = (company.ownerRole ?? '').toLowerCase();
+      const isPublicOffice = role.includes('president') || role.includes('minister') || role.includes('mayor');
+      ClientBridge.setPublicOfficeRole(isPublicOffice);
+
       // Preload all facility dimensions (one-time, ~15KB)
       await this.preloadFacilityDimensions();
 
@@ -1093,6 +1123,12 @@ export class StarpeaceClient {
       ClientBridge.setConnected();
       ClientBridge.setWorld(this.currentWorldName);
       ClientBridge.setCompany(company.name, company.id);
+
+      // Close server switch overlay if active
+      if (useGameStore.getState().serverSwitchMode) {
+        useGameStore.getState().completeServerSwitch();
+      }
+
       await this.switchToGameView();
 
       // Apply server WorldSeason to renderer (overrides default SUMMER)
@@ -1209,6 +1245,41 @@ export class StarpeaceClient {
 
     // NOTE: Uses send() without awaiting response because response arrives via EVENT_MAP_DATA
     this.ws?.send(JSON.stringify(req));
+
+    // When any overlay is active, also fetch surface data for this area
+    const activeSurface = this.isCityZonesEnabled ? SurfaceType.ZONES : this.activeOverlayType;
+    if (activeSurface !== null && x !== undefined && y !== undefined) {
+      this.fetchSurfaceForArea(activeSurface, x, y, x + w, y + h);
+    }
+  }
+
+  /**
+   * Fetch surface data for an area and update the renderer overlay.
+   * Called alongside ObjectsInArea/SegmentsInArea when any overlay is active.
+   */
+  private async fetchSurfaceForArea(surfaceType: SurfaceType, x1: number, y1: number, x2: number, y2: number): Promise<void> {
+    try {
+      const req: WsReqGetSurface = {
+        type: WsMessageType.REQ_GET_SURFACE,
+        surfaceType,
+        x1,
+        y1,
+        x2,
+        y2,
+      };
+      const response = await this.sendRequest(req) as WsRespSurfaceData;
+      const renderer = this.mapNavigationUI?.getRenderer();
+      // Check that the overlay is still active (may have been toggled off during fetch)
+      const stillActive = this.isCityZonesEnabled
+        ? surfaceType === SurfaceType.ZONES
+        : surfaceType === this.activeOverlayType;
+      if (renderer && stillActive) {
+        const isHeatmap = surfaceType !== SurfaceType.ZONES;
+        renderer.setZoneOverlay(true, response.data, x1, y1, isHeatmap);
+      }
+    } catch (err: unknown) {
+      ClientBridge.log('Error', `Failed to fetch ${surfaceType} surface: ${toErrorMessage(err)}`);
+    }
   }
 
   /**
@@ -2441,6 +2512,124 @@ export class StarpeaceClient {
   }
 
   // =========================================================================
+  // ZONE PAINTING METHODS
+  // =========================================================================
+
+  /**
+   * Toggle zone painting mode for a given zone type
+   */
+  private toggleZonePaintingMode(zoneType: number): void {
+    // If same type active → toggle off
+    if (this.isZonePaintingMode && this.selectedZoneType === zoneType) {
+      this.cancelZonePaintingMode();
+      return;
+    }
+
+    // Cancel other modes
+    if (this.isRoadBuildingMode) {
+      this.cancelRoadBuildingMode();
+    }
+    if (this.isRoadDemolishMode) {
+      this.cancelRoadDemolishMode();
+    }
+    if (this.currentBuildingToPlace) {
+      this.cancelBuildingPlacement();
+    }
+
+    this.isZonePaintingMode = true;
+    this.selectedZoneType = zoneType;
+
+    const renderer = this.mapNavigationUI?.getRenderer();
+    if (renderer) {
+      renderer.setZonePaintingMode(true, zoneType);
+      renderer.setZoneAreaCompleteCallback((x1, y1, x2, y2) => {
+        this.defineZoneArea(x1, y1, x2, y2);
+      });
+      renderer.setCancelZonePaintingCallback(() => {
+        this.cancelZonePaintingMode();
+      });
+    }
+
+    // Auto-enable zone overlay
+    this.toggleZoneOverlay(true, SurfaceType.ZONES);
+
+    // Setup ESC handler
+    this.setupZonePaintingKeyboardHandler();
+
+    // Push state to store
+    ClientBridge.setZonePaintingMode(true);
+    ClientBridge.setSelectedZoneType(zoneType);
+    ClientBridge.log('Zone', `Zone painting mode enabled: type ${zoneType}`);
+  }
+
+  /**
+   * Cancel zone painting mode
+   */
+  private cancelZonePaintingMode(): void {
+    this.isZonePaintingMode = false;
+
+    const renderer = this.mapNavigationUI?.getRenderer();
+    if (renderer) {
+      renderer.setZonePaintingMode(false);
+      renderer.setZoneAreaCompleteCallback(null);
+      renderer.setCancelZonePaintingCallback(null);
+    }
+
+    // If City Zones overlay is not enabled, disable the zone overlay that was auto-enabled for painting
+    if (!this.isCityZonesEnabled) {
+      this.toggleZoneOverlay(false, SurfaceType.ZONES);
+    }
+
+    ClientBridge.setZonePaintingMode(false);
+    ClientBridge.log('Zone', 'Zone painting mode disabled');
+  }
+
+  /**
+   * Setup ESC handler for zone painting mode
+   */
+  private setupZonePaintingKeyboardHandler(): void {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && this.isZonePaintingMode) {
+        this.cancelZonePaintingMode();
+        document.removeEventListener('keydown', handler);
+      }
+    };
+    document.addEventListener('keydown', handler);
+  }
+
+  /**
+   * Define a zone area on the map
+   */
+  private async defineZoneArea(x1: number, y1: number, x2: number, y2: number): Promise<void> {
+    ClientBridge.log('Zone', `Defining zone ${this.selectedZoneType} from (${x1},${y1}) to (${x2},${y2})...`);
+
+    try {
+      const req: WsReqDefineZone = {
+        type: WsMessageType.REQ_DEFINE_ZONE,
+        zoneId: this.selectedZoneType,
+        x1,
+        y1,
+        x2,
+        y2,
+      };
+
+      const response = await this.sendRequest(req) as WsRespDefineZone;
+
+      if (response.success) {
+        const tileCount = (Math.abs(x2 - x1) + 1) * (Math.abs(y2 - y1) + 1);
+        this.showNotification(`Zone defined: ${tileCount} tiles`, 'success');
+        // Refresh zone overlay
+        this.toggleZoneOverlay(true, SurfaceType.ZONES);
+      } else {
+        this.showNotification(response.message || 'Failed to define zone', 'error');
+      }
+    } catch (err: unknown) {
+      ClientBridge.log('Error', `Failed to define zone: ${toErrorMessage(err)}`);
+      this.showNotification(`Failed to define zone: ${toErrorMessage(err)}`, 'error');
+    }
+  }
+
+  // =========================================================================
   // BUILDING CONSTRUCTION METHODS
   // =========================================================================
 
@@ -2464,7 +2653,7 @@ export class StarpeaceClient {
       const response = await this.sendRequest(req) as WsRespBuildingCategories;
       this.buildingCategories = response.categories;
 
-      ClientBridge.setBuildMenuCategories(response.categories);
+      ClientBridge.setBuildMenuCategories(response.categories, response.capitolIconUrl);
 
       ClientBridge.log('Build', `Loaded ${response.categories.length} building categories`);
     } catch (err: unknown) {
@@ -2524,6 +2713,95 @@ export class StarpeaceClient {
       return;
     }
     this.startBuildingPlacement(facility);
+  }
+
+  /**
+   * Start Capitol placement mode.
+   * Capitol is a special building — no category/facility lookup needed.
+   */
+  private async startCapitolPlacement() {
+    ClientBridge.log('Build', 'Capitol placement mode — click on map to place.');
+
+    // Capitol visualClassId = '152' (from CLASSES.BIN)
+    const CAPITOL_VISUAL_CLASS_ID = '152';
+    let xsize = 1;
+    let ysize = 1;
+    try {
+      const dimensions = await this.getFacilityDimensions(CAPITOL_VISUAL_CLASS_ID);
+      if (dimensions) {
+        xsize = dimensions.xsize;
+        ysize = dimensions.ysize;
+      }
+    } catch (err) {
+      console.error('Failed to fetch Capitol dimensions:', err);
+    }
+
+    this.currentBuildingToPlace = {
+      name: 'Capitol',
+      facilityClass: 'Capitol',
+      visualClassId: CAPITOL_VISUAL_CLASS_ID,
+      cost: 0,
+      area: xsize * ysize,
+      description: 'Capitol building',
+      zoneRequirement: '',
+      iconPath: useUiStore.getState().capitolIconUrl,
+      available: true,
+    };
+    this.currentBuildingXSize = xsize;
+    this.currentBuildingYSize = ysize;
+
+    this.showNotification('Capitol placement mode — Click map to place, ESC to cancel', 'info');
+
+    const renderer = this.mapNavigationUI?.getRenderer();
+    if (renderer) {
+      renderer.setPlacementMode(
+        true,
+        'Capitol',
+        0,
+        xsize * ysize,
+        '',
+        xsize,
+        ysize,
+        CAPITOL_VISUAL_CLASS_ID
+      );
+      renderer.setPlacementConfirmCallback((x, y) => {
+        this.placeCapitol(x, y);
+      });
+      renderer.setCancelPlacementCallback(() => {
+        this.cancelBuildingPlacement();
+      });
+    }
+
+    this.setupPlacementKeyboardHandler();
+  }
+
+  /**
+   * Place the Capitol at coordinates via dedicated message
+   */
+  private async placeCapitol(x: number, y: number) {
+    ClientBridge.log('Build', `Placing Capitol at (${x}, ${y})...`);
+
+    try {
+      const req: WsReqBuildCapitol = {
+        type: WsMessageType.REQ_BUILD_CAPITOL,
+        x,
+        y
+      };
+
+      await this.sendRequest(req);
+
+      ClientBridge.log('Build', 'Capitol built successfully!');
+      this.showNotification('Capitol built successfully!', 'success');
+
+      const buildingMargin = Math.max(this.currentBuildingXSize, this.currentBuildingYSize);
+      this.loadAlignedMapArea(x, y, buildingMargin);
+
+      this.cancelBuildingPlacement();
+    } catch (err: unknown) {
+      const errorMsg = toErrorMessage(err);
+      ClientBridge.log('Error', `Failed to place Capitol: ${errorMsg}`);
+      this.showNotification(`Failed to place Capitol: ${errorMsg}`, 'error');
+    }
   }
 
   /**
@@ -2636,6 +2914,9 @@ export class StarpeaceClient {
         } else if (this.isRoadDemolishMode) {
           this.cancelRoadDemolishMode();
           document.removeEventListener('keydown', handler);
+        } else if (this.isZonePaintingMode) {
+          this.cancelZonePaintingMode();
+          document.removeEventListener('keydown', handler);
         }
       }
     };
@@ -2726,10 +3007,70 @@ export class StarpeaceClient {
   }
 
   /**
-   * Toggle zone overlay
+   * Toggle City Zones overlay ON/OFF.
+   * When ON, fetches zone surface data for the current viewport and enables overlay rendering.
+   * When OFF, disables the overlay. Zone data is re-fetched on each viewport load (loadMapArea).
+   * Mutual exclusion: enabling city zones disables any active overlay.
    */
-  private async toggleZoneOverlay(enabled: boolean, type: SurfaceType) {
-    ClientBridge.log('Zones', enabled ? `Enabling ${type} overlay` : 'Disabling overlay');
+  private toggleCityZones(): void {
+    this.isCityZonesEnabled = !this.isCityZonesEnabled;
+    ClientBridge.setCityZonesEnabled(this.isCityZonesEnabled);
+    ClientBridge.log('Zones', `City Zones overlay ${this.isCityZonesEnabled ? 'enabled' : 'disabled'}`);
+
+    // Mutual exclusion: disable any active overlay when enabling city zones
+    if (this.isCityZonesEnabled && this.activeOverlayType !== null) {
+      this.activeOverlayType = null;
+      ClientBridge.setActiveOverlay(null);
+      this.toggleZoneOverlay(false, SurfaceType.ZONES); // clear previous overlay data
+    }
+
+    if (this.isCityZonesEnabled) {
+      this.toggleZoneOverlay(true, SurfaceType.ZONES);
+    } else {
+      this.toggleZoneOverlay(false, SurfaceType.ZONES);
+    }
+  }
+
+  /**
+   * Set the active map overlay (Beauty, Crime, QOL, etc.).
+   * Only one overlay can be active at a time. Passing null disables the current overlay.
+   * Mutual exclusion: enabling an overlay disables city zones if they are ON.
+   */
+  private setOverlay(surfaceType: SurfaceType | null): void {
+    // Toggle off if same overlay selected
+    if (surfaceType !== null && surfaceType === this.activeOverlayType) {
+      surfaceType = null;
+    }
+
+    // Disable previous overlay rendering
+    if (this.activeOverlayType !== null) {
+      this.toggleZoneOverlay(false, this.activeOverlayType);
+    }
+
+    this.activeOverlayType = surfaceType;
+    ClientBridge.setActiveOverlay(surfaceType);
+
+    if (surfaceType === null) {
+      ClientBridge.log('Overlay', 'Overlay disabled');
+      return;
+    }
+
+    // Mutual exclusion: disable city zones when enabling an overlay
+    if (this.isCityZonesEnabled) {
+      this.isCityZonesEnabled = false;
+      ClientBridge.setCityZonesEnabled(false);
+      ClientBridge.log('Zones', 'City Zones disabled (overlay activated)');
+    }
+
+    ClientBridge.log('Overlay', `Enabling ${surfaceType} overlay`);
+    this.toggleZoneOverlay(true, surfaceType);
+  }
+
+  /**
+   * Toggle zone/surface overlay rendering and fetch data for loaded map zones.
+   */
+  private toggleZoneOverlay(enabled: boolean, surfaceType: SurfaceType) {
+    ClientBridge.log('Overlay', enabled ? `Enabling ${surfaceType} overlay` : 'Disabling overlay');
 
     const renderer = this.mapNavigationUI?.getRenderer();
     if (!renderer) return;
@@ -2739,36 +3080,16 @@ export class StarpeaceClient {
       return;
     }
 
-    try {
-      // Get current camera position to request zone data
-      const cameraPos = renderer.getCameraPosition();
-      const cameraX = Math.floor(cameraPos.x);
-      const cameraY = Math.floor(cameraPos.y);
-
-      // Request 65x65 area centered on camera
-      const x1 = cameraX - 32;
-      const y1 = cameraY - 32;
-      const x2 = cameraX + 32;
-      const y2 = cameraY + 32;
-
-      const req: WsReqGetSurface = {
-        type: WsMessageType.REQ_GET_SURFACE,
-        surfaceType: type,
-        x1,
-        y1,
-        x2,
-        y2
-      };
-
-      const response = await this.sendRequest(req) as WsRespSurfaceData;
-      renderer.setZoneOverlay(true, response.data, x1, y1);
-
-      ClientBridge.log('Zones', `Loaded ${type} overlay data`);
-    } catch (err: unknown) {
-      ClientBridge.log('Error', `Failed to load zone overlay: ${toErrorMessage(err)}`);
-      // Disable overlay on error
-      renderer.setZoneOverlay(false);
+    // Enable overlay, then fetch surface data for all currently loaded map zones
+    const isHeatmap = surfaceType !== SurfaceType.ZONES;
+    renderer.setZoneOverlay(true, undefined, undefined, undefined, isHeatmap);
+    const loadedKeys = renderer.getLoadedZoneKeys();
+    for (const key of loadedKeys) {
+      const [x, y] = key.split(',').map(Number);
+      this.fetchSurfaceForArea(surfaceType, x, y, x + 64, y + 64);
     }
+
+    ClientBridge.log('Overlay', `Fetching ${surfaceType} overlay for ${loadedKeys.length} loaded zones`);
   }
 
   // =========================================================================
@@ -2866,6 +3187,25 @@ export class StarpeaceClient {
     this.getProfile().catch(err => {
       ClientBridge.log('Error', `Failed to refresh tycoon data: ${toErrorMessage(err)}`);
     });
+  }
+
+  // ---- Server switch ----
+
+  private startServerSwitch(): void {
+    useGameStore.getState().enterServerSwitch();
+  }
+
+  private cancelServerSwitch(): void {
+    useGameStore.getState().cancelServerSwitch();
+  }
+
+  private serverSwitchZoneSelect(zonePath: string): void {
+    if (!this.storedUsername || !this.storedPassword) {
+      ClientBridge.log('Error', 'Session lost — cannot switch server');
+      useGameStore.getState().cancelServerSwitch();
+      return;
+    }
+    this.performDirectoryLogin(this.storedUsername, this.storedPassword, zonePath);
   }
 
   public async logout(): Promise<void> {

@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import type { CompanyInfo, WorldInfo, ClusterInfo, ClusterFacilityPreview } from '@/shared/types';
+import { SurfaceType } from '@/shared/types/domain-types';
 
 /* ---- Utilities ---- */
 
@@ -72,11 +73,22 @@ interface GameState {
   // Tool modes
   isRoadBuildingMode: boolean;
   isRoadDemolishMode: boolean;
+  isZonePaintingMode: boolean;
+  selectedZoneType: number;
+  isPublicOfficeRole: boolean;
+
+  // Overlays
+  isCityZonesEnabled: boolean;
+  activeOverlay: SurfaceType | null;
 
   // Login flow
   loginWorlds: WorldInfo[];
   loginStage: 'auth' | 'zones' | 'worlds' | 'companies';
   loginLoading: boolean;
+
+  // Server switch overlay (browse regions/worlds while in-game)
+  serverSwitchMode: boolean;
+  serverSwitchOriginWorld: string;
 
   // Company creation / cluster browsing
   companyCreationClusters: string[];
@@ -98,6 +110,11 @@ interface GameState {
   setGameDate: (date: Date) => void;
   setRoadBuildingMode: (active: boolean) => void;
   setRoadDemolishMode: (active: boolean) => void;
+  setZonePaintingMode: (active: boolean) => void;
+  setSelectedZoneType: (zoneType: number) => void;
+  setPublicOfficeRole: (isPublicOffice: boolean) => void;
+  setCityZonesEnabled: (enabled: boolean) => void;
+  setActiveOverlay: (overlay: SurfaceType | null) => void;
   setLoginWorlds: (worlds: WorldInfo[]) => void;
   setLoginCompanies: (companies: CompanyInfo[]) => void;
   setLoginStage: (stage: 'auth' | 'zones' | 'worlds' | 'companies') => void;
@@ -108,6 +125,9 @@ interface GameState {
   setClusterFacilities: (facilities: ClusterFacilityPreview[]) => void;
   setClusterFacilitiesLoading: (loading: boolean) => void;
   updateSettings: (partial: Partial<GameSettings>) => void;
+  enterServerSwitch: () => void;
+  cancelServerSwitch: () => void;
+  completeServerSwitch: () => void;
   reset: () => void;
 }
 
@@ -123,9 +143,16 @@ export const useGameStore = create<GameState>((set) => ({
   gameDate: null,
   isRoadBuildingMode: false,
   isRoadDemolishMode: false,
+  isZonePaintingMode: false,
+  selectedZoneType: 2,
+  isPublicOfficeRole: false,
+  isCityZonesEnabled: false,
+  activeOverlay: null,
   loginWorlds: [],
   loginStage: 'auth',
   loginLoading: false,
+  serverSwitchMode: false,
+  serverSwitchOriginWorld: '',
   companyCreationClusters: [],
   clusterInfo: null,
   clusterInfoLoading: false,
@@ -145,6 +172,11 @@ export const useGameStore = create<GameState>((set) => ({
 
   setRoadBuildingMode: (active) => set({ isRoadBuildingMode: active }),
   setRoadDemolishMode: (active) => set({ isRoadDemolishMode: active }),
+  setZonePaintingMode: (active) => set({ isZonePaintingMode: active }),
+  setSelectedZoneType: (zoneType) => set({ selectedZoneType: zoneType }),
+  setPublicOfficeRole: (isPublicOffice) => set({ isPublicOfficeRole: isPublicOffice }),
+  setCityZonesEnabled: (enabled) => set({ isCityZonesEnabled: enabled }),
+  setActiveOverlay: (overlay) => set({ activeOverlay: overlay }),
 
   setLoginWorlds: (worlds) => set({ loginWorlds: worlds, loginStage: 'worlds', loginLoading: false }),
   setLoginCompanies: (companies) => set({ companies, loginStage: 'companies', loginLoading: false }),
@@ -162,6 +194,27 @@ export const useGameStore = create<GameState>((set) => ({
       settings: { ...state.settings, ...partial },
     })),
 
+  enterServerSwitch: () =>
+    set((state) => ({
+      serverSwitchMode: true,
+      serverSwitchOriginWorld: state.worldName,
+      loginStage: 'zones' as const,
+      loginLoading: false,
+    })),
+
+  cancelServerSwitch: () =>
+    set({
+      serverSwitchMode: false,
+      serverSwitchOriginWorld: '',
+      loginStage: 'auth' as const,
+    }),
+
+  completeServerSwitch: () =>
+    set({
+      serverSwitchMode: false,
+      serverSwitchOriginWorld: '',
+    }),
+
   reset: () =>
     set({
       status: 'disconnected',
@@ -174,9 +227,15 @@ export const useGameStore = create<GameState>((set) => ({
       gameDate: null,
       isRoadBuildingMode: false,
       isRoadDemolishMode: false,
+      isZonePaintingMode: false,
+      selectedZoneType: 2,
+      isPublicOfficeRole: false,
+      isCityZonesEnabled: false,
       loginWorlds: [],
       loginStage: 'auth',
       loginLoading: false,
+      serverSwitchMode: false,
+      serverSwitchOriginWorld: '',
       companyCreationClusters: [],
       clusterInfo: null,
       clusterInfoLoading: false,
