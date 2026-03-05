@@ -259,6 +259,13 @@ describe('General handler RDO properties', () => {
     const tableProp = TOWN_GENERAL_GROUP.properties.find(p => p.type === PropertyType.TABLE);
     expect(tableProp).toBeDefined();
     expect(tableProp!.countProperty).toBe('covCount');
+    // TownHall: covName uses MLS (.0 suffix), covValue is plain integer (no suffix)
+    // Population.pas:1090 — StoreMultiStringToCache for covName, WriteInteger for covValue
+    expect(tableProp!.indexSuffix).toBe('.0');
+    const covNameCol = tableProp!.columns!.find(c => c.rdoSuffix === 'covName');
+    expect(covNameCol!.indexSuffix).toBeUndefined(); // inherits table-level '.0'
+    const covValueCol = tableProp!.columns!.find(c => c.rdoSuffix === 'covValue');
+    expect(covValueCol!.indexSuffix).toBe(''); // overrides to '' — covValue is plain integer
   });
 
   it('SrvGeneral should have SERVICE_CARDS with editable price column', () => {
@@ -652,7 +659,7 @@ describe('Capitol building RDO property name generation', () => {
     expect(collected.countProperties).toContain('covCount');
   });
 
-  it('capitolGeneral coverage TABLE should generate covName{i}.0 and covValue{i}.0', () => {
+  it('capitolGeneral coverage TABLE should generate covName{i} and covValue{i} (no MLS suffix)', () => {
     const collected = registerCapitolAndCollect();
     const indexedDefs = collected.indexedByCount.get('covCount')!;
     expect(indexedDefs).toBeDefined();
@@ -660,13 +667,17 @@ describe('Capitol building RDO property name generation', () => {
     const tableDef = indexedDefs.find(d => d.columns && d.columns.length > 0);
     expect(tableDef).toBeDefined();
 
-    // covName column should inherit table-level indexSuffix '.0'
+    // Capitol writes covName{i} (plain, no MLS .0 suffix) — WorldPolitics.pas:1303
+    // Unlike TownHall which uses covName{i}.{lang} (with MLS suffix)
+    expect(tableDef!.indexSuffix).toBe('');
+
     const covNameCol = tableDef!.columns!.find(c => c.rdoSuffix === 'covName');
     expect(covNameCol).toBeDefined();
+    expect(covNameCol!.indexSuffix).toBeUndefined();
 
-    // covValue column should also inherit '.0'
     const covValueCol = tableDef!.columns!.find(c => c.rdoSuffix === 'covValue');
     expect(covValueCol).toBeDefined();
+    expect(covValueCol!.indexSuffix).toBeUndefined();
   });
 
   it('CapitolTowns should generate Town{i} not TownName{i}', () => {

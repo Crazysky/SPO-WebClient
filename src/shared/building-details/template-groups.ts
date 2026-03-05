@@ -328,7 +328,6 @@ export const CAPITOL_GENERAL_GROUP: PropertyGroup = {
       displayName: 'Coverage',
       type: PropertyType.TABLE,
       indexed: true,
-      indexSuffix: '.0',
       countProperty: 'covCount',
       columns: [
         { rdoSuffix: 'covName', label: 'Service', type: PropertyType.TEXT, width: '50%' },
@@ -380,7 +379,7 @@ export const TOWN_GENERAL_GROUP: PropertyGroup = {
       countProperty: 'covCount',
       columns: [
         { rdoSuffix: 'covName', label: 'Service', type: PropertyType.TEXT, width: '50%' },
-        { rdoSuffix: 'covValue', label: 'Coverage', type: PropertyType.PERCENTAGE, width: '50%' },
+        { rdoSuffix: 'covValue', label: 'Coverage', type: PropertyType.PERCENTAGE, width: '50%', indexSuffix: '' },
       ],
     },
     {
