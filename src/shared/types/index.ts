@@ -273,6 +273,9 @@ export type {
   // Capitol
   WsReqBuildCapitol,
   WsRespCapitolPlaced,
+  // Facility connections (trade)
+  WsReqConnectFacilities,
+  WsRespConnectFacilities,
 } from './message-types';
 
 export type { ConnectionSearchResult, FavoritesItem, ResearchCategoryData, ResearchInventionItem, ResearchInventionDetails } from './message-types';
