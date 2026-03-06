@@ -4,7 +4,7 @@
 
 import styles from './Badge.module.css';
 
-type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'info' | 'gold';
+type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'danger' | 'info' | 'gold';
 
 interface BadgeProps {
   children: React.ReactNode;

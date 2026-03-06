@@ -66,7 +66,7 @@ export function PoliticsPanel() {
                 <ProgressBar
                   value={rating.value / 100}
                   variant={rating.value >= 50 ? 'success' : 'warning'}
-                  label={`${rating.value}%`}
+                  showLabel
                 />
               </div>
             ))}

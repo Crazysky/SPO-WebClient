@@ -6,7 +6,7 @@
  * Editable properties dispatch changes via the client callbacks.
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, type JSX } from 'react';
 import type { BuildingPropertyValue, BuildingSupplyData, BuildingProductData, BuildingConnectionData, CompInputData } from '@/shared/types';
 import {
   PropertyType,
@@ -19,7 +19,9 @@ import {
   formatNumber,
   getTemplateForVisualClass,
 } from '@/shared/building-details';
+import { isCivicBuilding } from '@/shared/building-details/civic-buildings';
 import { useBuildingStore } from '../../store/building-store';
+import { useGameStore } from '../../store/game-store';
 import { useClient } from '../../context';
 import { ResearchPanel } from './ResearchPanel';
 import { RevenueGraph } from './RevenueGraph';
@@ -37,6 +39,7 @@ export function PropertyGroup({ properties, buildingX, buildingY }: PropertyGrou
   const details = useBuildingStore((s) => s.details);
   const isOwner = useBuildingStore((s) => s.isOwner);
   const currentTab = useBuildingStore((s) => s.currentTab);
+  const isPublicOfficeRole = useGameStore((s) => s.isPublicOfficeRole);
 
   // Get property definitions from template system.
   // Template cache is populated by the store's setDetails action (via registerInspectorTabs)
@@ -48,7 +51,9 @@ export function PropertyGroup({ properties, buildingX, buildingY }: PropertyGrou
 
   // Check if this is a town tab (mayor can edit town properties)
   const isTownTab = activeGroup?.special === 'town';
-  const canEdit = isTownTab ? checkIsMayor(properties) : isOwner;
+  // President can edit civic building properties (Capitol Budget, Town taxes, etc.)
+  const isCivic = isCivicBuilding(visualClass);
+  const canEdit = isTownTab ? checkIsMayor(properties) : (isOwner || (isCivic && isPublicOfficeRole));
 
   // Special: supplies tab — render structured supply UI from details.supplies
   if (activeGroup?.special === 'supplies') {
@@ -516,6 +521,7 @@ function DefinedProperties({
         canEdit={canEdit}
         onPropertyChange={handlePropertyChange}
         onStringPropertyChange={handleStringPropertyChange}
+        rdoCommands={rdoCommands}
       />,
     );
   }
@@ -556,9 +562,10 @@ interface DefinedPropertyRowProps {
   canEdit: boolean;
   onPropertyChange: (name: string, value: number) => void;
   onStringPropertyChange?: (name: string, value: string) => void;
+  rdoCommands?: Record<string, RdoCommandMapping>;
 }
 
-function DefinedPropertyRow({ def, value, maxValue, canEdit, onPropertyChange, onStringPropertyChange }: DefinedPropertyRowProps) {
+function DefinedPropertyRow({ def, value, maxValue, canEdit, onPropertyChange, onStringPropertyChange, rdoCommands }: DefinedPropertyRowProps) {
   return (
     <div className={styles.row}>
       <span className={styles.name} title={def.tooltip}>{def.displayName}</span>
@@ -569,6 +576,7 @@ function DefinedPropertyRow({ def, value, maxValue, canEdit, onPropertyChange, o
         canEdit={canEdit}
         onPropertyChange={onPropertyChange}
         onStringPropertyChange={onStringPropertyChange}
+        rdoCommands={rdoCommands}
       />
     </div>
   );
@@ -594,9 +602,10 @@ interface PropertyValueProps {
   canEdit: boolean;
   onPropertyChange: (name: string, value: number) => void;
   onStringPropertyChange?: (name: string, value: string) => void;
+  rdoCommands?: Record<string, RdoCommandMapping>;
 }
 
-function PropertyValue({ def, value, maxValue, canEdit, onPropertyChange, onStringPropertyChange }: PropertyValueProps) {
+function PropertyValue({ def, value, maxValue, canEdit, onPropertyChange, onStringPropertyChange, rdoCommands }: PropertyValueProps) {
   const num = parseFloat(value);
   const colorClass = getColorClass(num, def.colorCode);
 
@@ -688,7 +697,7 @@ interface SliderInputProps {
 
 function SliderInput({ value, min, max, step, unit, rdoName, pendingKey, onPropertyChange }: SliderInputProps) {
   const [localVal, setLocalVal] = useState(isNaN(value) ? min : value);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Revert local value on server failure
   const failedUpdates = useBuildingStore((s) => s.failedUpdates);
@@ -746,7 +755,7 @@ interface TextInputProps {
 
 function TextInput({ value, rdoName, pendingKey, onStringPropertyChange }: TextInputProps) {
   const [localVal, setLocalVal] = useState(value);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Revert local value on server failure
   const failedUpdates = useBuildingStore((s) => s.failedUpdates);
@@ -801,6 +810,11 @@ function CurrencyInput({
 }) {
   const [localVal, setLocalVal] = useState(isNaN(value) ? '' : formatCurrency(value));
   const [isEditing, setIsEditing] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const commitRef = useRef(false);
+
+  const pendingUpdates = useBuildingStore((s) => s.pendingUpdates);
+  const pending = pendingKey ? pendingUpdates.get(pendingKey) : undefined;
 
   const failedUpdates = useBuildingStore((s) => s.failedUpdates);
   useEffect(() => {
@@ -811,50 +825,89 @@ function CurrencyInput({
     }
   }, [failedUpdates, pendingKey]);
 
-  // Sync from server when not editing
+  // Sync from server when not editing and no pending update in flight
   useEffect(() => {
-    if (!isEditing && !isNaN(value)) {
+    if (!isEditing && !pending && !isNaN(value)) {
       setLocalVal(formatCurrency(value));
     }
-  }, [value, isEditing]);
+  }, [value, isEditing, pending]);
+
+  const cancel = useCallback(() => {
+    setIsEditing(false);
+    setLocalVal(isNaN(value) ? '' : formatCurrency(value));
+  }, [value]);
 
   const commit = useCallback(() => {
+    commitRef.current = true;
     setIsEditing(false);
     const parsed = parseFloat(localVal.replace(/[^0-9.-]/g, ''));
-    if (!isNaN(parsed)) {
+    if (!isNaN(parsed) && parsed !== value) {
       onPropertyChange(rdoName, parsed);
       setLocalVal(formatCurrency(parsed));
     } else {
-      setLocalVal(formatCurrency(value));
+      setLocalVal(isNaN(value) ? '' : formatCurrency(value));
     }
   }, [localVal, rdoName, value, onPropertyChange]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter') commit();
+      if (e.key === 'Enter') {
+        commit();
+        inputRef.current?.blur();
+      }
       if (e.key === 'Escape') {
-        setIsEditing(false);
-        setLocalVal(formatCurrency(value));
+        cancel();
+        inputRef.current?.blur();
       }
     },
-    [commit, value],
+    [commit, cancel],
   );
 
+  const handleBlur = useCallback(() => {
+    // If the user clicked the confirm button, commitRef is already true — don't cancel.
+    // Use requestAnimationFrame to let the tick button's mousedown fire first.
+    requestAnimationFrame(() => {
+      if (!commitRef.current) {
+        cancel();
+      }
+      commitRef.current = false;
+    });
+  }, [cancel]);
+
   return (
-    <span className={styles.textInputWrapper}>
+    <span className={styles.currencyInputWrapper}>
       <input
+        ref={inputRef}
         type="text"
         className={styles.currencyInput}
         value={localVal}
         onFocus={() => {
           setIsEditing(true);
+          commitRef.current = false;
           setLocalVal(isNaN(value) ? '' : String(value));
         }}
         onChange={(e) => setLocalVal(e.target.value)}
-        onBlur={commit}
+        onBlur={handleBlur}
         onKeyDown={handleKeyDown}
       />
-      {pendingKey && <SaveIndicator propertyKey={pendingKey} />}
+      {isEditing && (
+        <button
+          type="button"
+          className={styles.currencyConfirmBtn}
+          onMouseDown={(e) => {
+            e.preventDefault(); // keep focus on input until commit
+            commit();
+          }}
+          title="Confirm"
+        >
+          &#10003;
+        </button>
+      )}
+      {!isEditing && pendingKey && (
+        <span className={styles.currencyIndicator}>
+          <SaveIndicator propertyKey={pendingKey} />
+        </span>
+      )}
     </span>
   );
 }
@@ -1309,30 +1362,40 @@ function DataTable({
         </tr>
       </thead>
       <tbody>
-        {Array.from({ length: rowCount }, (_, i) => (
-          <tr key={i} className={styles.dataRow}>
-            {cols.map((col) => {
-              const colSuffix = col.columnSuffix || '';
-              const idxSuffix = col.indexSuffix !== undefined ? col.indexSuffix : propSuffix;
-              const key = `${col.rdoSuffix}${i}${colSuffix}${idxSuffix}`;
-              const value = valueMap.get(key) ?? '';
-              return (
-                <td key={col.rdoSuffix} className={styles.tableCell}>
-                  <TableCellValue
-                    col={col}
-                    value={value}
-                    rdoName={key}
-                    rowIndex={i}
-                    canEdit={canEdit && !!col.editable}
-                    rdoCommands={rdoCommands}
-                    onPropertyChange={onPropertyChange}
-                    onRowAction={onRowAction}
-                  />
-                </td>
-              );
-            })}
-          </tr>
-        ))}
+        {Array.from({ length: rowCount }, (_, i) => {
+          // Build row values map for conditional visibility (visibleWhen)
+          const rowValues: Record<string, string> = {};
+          for (const c of cols) {
+            const cSuffix = c.columnSuffix || '';
+            const iSuffix = c.indexSuffix !== undefined ? c.indexSuffix : propSuffix;
+            rowValues[c.rdoSuffix] = valueMap.get(`${c.rdoSuffix}${i}${cSuffix}${iSuffix}`) ?? '';
+          }
+          return (
+            <tr key={i} className={styles.dataRow}>
+              {cols.map((col) => {
+                const colSuffix = col.columnSuffix || '';
+                const idxSuffix = col.indexSuffix !== undefined ? col.indexSuffix : propSuffix;
+                const key = `${col.rdoSuffix}${i}${colSuffix}${idxSuffix}`;
+                const value = valueMap.get(key) ?? '';
+                return (
+                  <td key={col.rdoSuffix} className={styles.tableCell}>
+                    <TableCellValue
+                      col={col}
+                      value={value}
+                      rdoName={key}
+                      rowIndex={i}
+                      canEdit={canEdit && !!col.editable}
+                      rdoCommands={rdoCommands}
+                      onPropertyChange={onPropertyChange}
+                      onRowAction={onRowAction}
+                      rowValues={rowValues}
+                    />
+                  </td>
+                );
+              })}
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -1347,6 +1410,7 @@ function TableCellValue({
   rdoCommands,
   onPropertyChange,
   onRowAction,
+  rowValues,
 }: {
   col: TableColumn;
   value: string;
@@ -1356,10 +1420,36 @@ function TableCellValue({
   rdoCommands?: Record<string, RdoCommandMapping>;
   onPropertyChange: (name: string, value: number) => void;
   onRowAction?: (actionId: string, rowIndex: number) => void;
+  rowValues: Record<string, string>;
 }) {
   const num = parseFloat(value);
   switch (col.type) {
-    case PropertyType.ACTION_BUTTON:
+    case PropertyType.ACTION_BUTTON: {
+      if (col.visibleWhen) {
+        const colVal = rowValues[col.visibleWhen.column] ?? '';
+        const isEmpty = !colVal || colVal.trim() === '';
+        const show = col.visibleWhen.condition === 'empty' ? isEmpty : !isEmpty;
+        if (!show) {
+          // Check for altAction (e.g., Elect/Depose sharing one column)
+          if (col.altAction) {
+            const altColVal = rowValues[col.visibleWhen.column] ?? '';
+            const altEmpty = !altColVal || altColVal.trim() === '';
+            const altShow = col.altAction.condition === 'empty' ? altEmpty : !altEmpty;
+            if (altShow) {
+              const isDanger = col.altAction.buttonLabel === 'Depose';
+              return (
+                <button
+                  className={isDanger ? styles.tableActionBtnDanger : styles.tableActionBtn}
+                  onClick={() => onRowAction?.(col.altAction!.actionId, rowIndex)}
+                >
+                  {col.altAction.buttonLabel}
+                </button>
+              );
+            }
+          }
+          return null;
+        }
+      }
       return (
         <button
           className={styles.tableActionBtn}
@@ -1368,6 +1458,7 @@ function TableCellValue({
           {col.buttonLabel || 'Action'}
         </button>
       );
+    }
     case PropertyType.CURRENCY:
       if (canEdit) {
         return (
@@ -1587,7 +1678,7 @@ function PriceSliderWithMarker({
   onPropertyChange: (name: string, value: number) => void;
 }) {
   const [localVal, setLocalVal] = useState(isNaN(value) ? 0 : value);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1737,8 +1828,8 @@ function SupplyCard({
   const [expanded, setExpanded] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [overpayTarget, setOverpayTarget] = useState<number | null>(null);
-  const maxPriceTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const minKTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const maxPriceTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const minKTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const currentMaxPrice = parseInt(supply.maxPrice || '200', 10);
   const currentMinK = parseInt(supply.minK || '0', 10);
@@ -1773,6 +1864,14 @@ function SupplyCard({
 
   const handleModify = () => {
     if (selectedIdx !== null) setOverpayTarget(selectedIdx);
+  };
+
+  const handleFire = () => {
+    if (selectedIdx === null) return;
+    const conn = supply.connections[selectedIdx];
+    if (!conn) return;
+    client.onDisconnectConnection(buildingX, buildingY, supply.metaFluid, 'input', conn.x, conn.y);
+    setSelectedIdx(null);
   };
 
   const handleRowClick = (idx: number) => {
@@ -1852,7 +1951,15 @@ function SupplyCard({
 
           {/* Connections table */}
           {supply.connections.length > 0 ? (
-            <table className={styles.supplyTable}>
+            <table
+              className={styles.supplyTable}
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Delete' && canEdit && selectedIdx !== null) {
+                  handleFire();
+                }
+              }}
+            >
               <thead>
                 <tr>
                   <th style={{ width: 24 }}></th>
@@ -1914,6 +2021,13 @@ function SupplyCard({
               >
                 Modify
               </button>
+              <button
+                className={styles.fireBtn}
+                onClick={handleFire}
+                disabled={selectedIdx === null}
+              >
+                Fire
+              </button>
             </div>
           )}
         </div>
@@ -1951,16 +2065,30 @@ function ProductsPanel({
 
 function ProductCard({
   product,
-  canEdit: _canEdit,
-  buildingX: _buildingX,
-  buildingY: _buildingY,
+  canEdit,
+  buildingX,
+  buildingY,
 }: {
   product: BuildingProductData;
   canEdit: boolean;
   buildingX: number;
   buildingY: number;
 }) {
+  const client = useClient();
   const [expanded, setExpanded] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+
+  const handleRowClick = (idx: number) => {
+    setSelectedIdx(selectedIdx === idx ? null : idx);
+  };
+
+  const handleFire = () => {
+    if (selectedIdx === null) return;
+    const conn = product.connections[selectedIdx];
+    if (!conn) return;
+    client.onDisconnectConnection(buildingX, buildingY, product.metaFluid, 'output', conn.x, conn.y);
+    setSelectedIdx(null);
+  };
 
   return (
     <div className={styles.supplyCard}>
@@ -2000,20 +2128,52 @@ function ProductCard({
           )}
 
           {product.connections.length > 0 ? (
-            <div className={styles.connectionList}>
-              {product.connections.map((conn, j) => (
-                <div key={j} className={styles.connectionRow}>
-                  <div className={styles.connectionName}>{conn.facilityName}</div>
-                  <div className={styles.connectionMeta}>
-                    <span className={styles.connectionCompany}>{conn.companyName}</span>
-                    {conn.price && <span className={styles.connectionStat}>{conn.price}%</span>}
-                    {conn.quality && <span className={styles.connectionStat}>Q:{conn.quality}%</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <table
+              className={styles.supplyTable}
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Delete' && canEdit && selectedIdx !== null) {
+                  handleFire();
+                }
+              }}
+            >
+              <thead>
+                <tr>
+                  <th>Facility</th>
+                  <th style={{ width: 80 }}>Owner</th>
+                  <th style={{ width: 60 }}>Price</th>
+                  <th style={{ width: 60 }}>Quality</th>
+                </tr>
+              </thead>
+              <tbody>
+                {product.connections.map((conn, j) => (
+                  <tr
+                    key={j}
+                    className={`${styles.supplyTableRow}${selectedIdx === j ? ` ${styles.supplyTableRowSelected}` : ''}`}
+                    onClick={() => handleRowClick(j)}
+                  >
+                    <td>{conn.facilityName}</td>
+                    <td>{conn.companyName}</td>
+                    <td>{conn.price ? `${conn.price}%` : ''}</td>
+                    <td>{conn.quality ? `${conn.quality}%` : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           ) : (
             <div className={styles.noConnections}>No buyers connected</div>
+          )}
+
+          {canEdit && (
+            <div className={styles.supplyActions}>
+              <button
+                className={styles.fireBtn}
+                onClick={handleFire}
+                disabled={selectedIdx === null}
+              >
+                Fire
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -2071,7 +2231,7 @@ function CompInputSection({
 }) {
   const client = useClient();
   const [localDemand, setLocalDemand] = useState(data.ratio);
-  const demandTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const demandTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const fillPct = data.demanded > 0 ? Math.min(100, (data.supplied / data.demanded) * 100) : 0;
 

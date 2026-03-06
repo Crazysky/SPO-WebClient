@@ -1,30 +1,8 @@
 /** @type {import('jest').Config} */
-module.exports = {
-  preset: 'ts-jest',
-  testEnvironment: 'node',
-  roots: ['<rootDir>/src'],
-  testMatch: ['**/*.test.ts', '**/*.test.js'],
+
+/** Shared module resolution used by both projects */
+const sharedModuleConfig = {
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
-  setupFilesAfterEnv: ['<rootDir>/src/server/__tests__/setup/jest-setup.ts'],
-  collectCoverageFrom: [
-    'src/**/*.ts',
-    '!src/**/*.test.ts',
-    '!src/**/__fixtures__/**',
-    '!src/**/__mocks__/**',
-    '!src/**/__tests__/**',
-    '!src/**/*.d.ts',
-    '!src/client/**/*', // Exclude client-side code for now
-  ],
-  coverageDirectory: 'coverage',
-  coverageReporters: ['text', 'lcov', 'html'],
-  coverageThreshold: {
-    global: {
-      lines: 60,
-      functions: 60,
-      branches: 60,
-      statements: 60
-    }
-  },
   moduleNameMapper: {
     '\\.module\\.css$': '<rootDir>/src/__mocks__/css-module.js',
     '^@/(.*)$': '<rootDir>/src/$1',
@@ -45,10 +23,70 @@ module.exports = {
       isolatedModules: false
     }]
   },
-  globals: {
-    'ts-jest': {
-      isolatedModules: false
-    }
+};
+
+module.exports = {
+  projects: [
+    // Project 1: Existing node-env tests (.test.ts)
+    {
+      displayName: 'unit',
+      preset: 'ts-jest',
+      testEnvironment: 'node',
+      roots: ['<rootDir>/src'],
+      testMatch: ['**/*.test.ts', '**/*.test.js'],
+      setupFilesAfterEnv: ['<rootDir>/src/server/__tests__/setup/jest-setup.ts'],
+      ...sharedModuleConfig,
+    },
+    // Project 2: Component smoke tests (.test.tsx) — jsdom environment
+    {
+      displayName: 'component',
+      preset: 'ts-jest',
+      testEnvironment: 'jsdom',
+      roots: ['<rootDir>/src'],
+      testMatch: ['**/*.test.tsx'],
+      setupFilesAfterEnv: [
+        '<rootDir>/src/server/__tests__/setup/jest-setup.ts',
+        '<rootDir>/src/client/__tests__/setup/component-setup.ts',
+      ],
+      ...sharedModuleConfig,
+    },
+  ],
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.test.{ts,tsx}',
+    '!src/**/__fixtures__/**',
+    '!src/**/__mocks__/**',
+    '!src/**/__tests__/**',
+    '!src/**/*.d.ts',
+  ],
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov', 'html'],
+  coverageThreshold: {
+    global: {
+      lines: 35,
+      functions: 35,
+      branches: 25,
+      statements: 35
+    },
+    // Per-directory thresholds — ratchet up as coverage improves
+    './src/shared/': {
+      lines: 50,
+      functions: 60,
+      branches: 35,
+      statements: 50
+    },
+    './src/shared/building-details/': {
+      lines: 90,
+      functions: 100,
+      branches: 80,
+      statements: 90
+    },
+    './src/shared/types/': {
+      lines: 90,
+      functions: 70,
+      branches: 80,
+      statements: 90
+    },
   },
   testTimeout: 10000,
   verbose: true

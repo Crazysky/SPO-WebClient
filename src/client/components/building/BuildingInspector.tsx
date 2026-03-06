@@ -23,7 +23,12 @@ import styles from './BuildingInspector.module.css';
 /** Auto-refresh interval for open building panel (ms). */
 const AUTO_REFRESH_INTERVAL = 30_000;
 
-export function BuildingInspector() {
+interface BuildingInspectorProps {
+  /** Hide the built-in header (used when wrapped in a modal that already shows the name). */
+  hideHeader?: boolean;
+}
+
+export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
   const focusedBuilding = useBuildingStore((s) => s.focusedBuilding);
   const details = useBuildingStore((s) => s.details);
   const isLoading = useBuildingStore((s) => s.isLoading);
@@ -32,7 +37,7 @@ export function BuildingInspector() {
   const client = useClient();
 
   // Auto-refresh building details while panel is open (prevents stale QuickStats)
-  const refreshTimer = useRef<ReturnType<typeof setInterval>>();
+  const refreshTimer = useRef<ReturnType<typeof setInterval>>(undefined);
   useEffect(() => {
     if (!details) return;
     const x = details.x;
@@ -74,16 +79,18 @@ export function BuildingInspector() {
 
   return (
     <div className={styles.inspector}>
-      {/* Header */}
-      <div className={`${styles.header} ${styles.stagger0}`}>
-        <h3 className={styles.buildingName}>{details.buildingName}</h3>
-        <div className={styles.headerMeta}>
-          <span className={styles.ownerName}>{details.ownerName}</span>
-          {(details.x !== undefined && details.y !== undefined) && (
-            <span className={styles.visualClass}>{details.x}, {details.y}</span>
-          )}
+      {/* Header (hidden when inside modal — modal provides its own title) */}
+      {!hideHeader && (
+        <div className={`${styles.header} ${styles.stagger0}`}>
+          <h3 className={styles.buildingName}>{details.buildingName}</h3>
+          <div className={styles.headerMeta}>
+            <span className={styles.ownerName}>{details.ownerName}</span>
+            {(details.x !== undefined && details.y !== undefined) && (
+              <span className={styles.visualClass}>{details.x}, {details.y}</span>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Quick stats from focus info */}
       <div className={styles.stagger1}>

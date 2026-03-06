@@ -24,7 +24,7 @@ export function SaveIndicator({ propertyKey }: SaveIndicatorProps) {
   const clearFailed = useBuildingStore((s) => s.clearFailed);
 
   // Auto-clear confirmed after animation completes (1.5s)
-  const confirmedTimer = useRef<ReturnType<typeof setTimeout>>();
+  const confirmedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {
     if (confirmed) {
       confirmedTimer.current = setTimeout(() => clearConfirmed(propertyKey), 1500);
@@ -33,7 +33,7 @@ export function SaveIndicator({ propertyKey }: SaveIndicatorProps) {
   }, [confirmed, propertyKey, clearConfirmed]);
 
   // Auto-clear failed after 4s
-  const failedTimer = useRef<ReturnType<typeof setTimeout>>();
+  const failedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {
     if (failed) {
       failedTimer.current = setTimeout(() => clearFailed(propertyKey), 4000);

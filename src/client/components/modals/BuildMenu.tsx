@@ -65,9 +65,9 @@ export function BuildMenu() {
   }, [closeModal, client]);
 
   const handleFacilitySelect = useCallback(
-    (facility: { facilityClass: string; visualClassId: number; available: boolean }) => {
+    (facility: { facilityClass: string; visualClassId: string; available: boolean }) => {
       closeModal();
-      client.onPlaceBuilding(facility.facilityClass, facility.visualClassId);
+      client.onPlaceBuilding(facility.facilityClass, parseInt(facility.visualClassId, 10));
     },
     [closeModal, client],
   );
