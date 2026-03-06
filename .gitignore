@@ -38,6 +38,9 @@ cache/
 # Separate from update server structure
 webclient-cache/
 
+# Test coverage
+coverage/
+
 # E2E session screenshots
 screenshots/
 
