@@ -124,6 +124,7 @@ import { useChatStore } from './store/chat-store';
 import { useBuildingStore } from './store/building-store';
 import { useProfileStore } from './store/profile-store';
 import { useMailStore } from './store/mail-store';
+import { usePoliticsStore } from './store/politics-store';
 import { getFacilityDimensionsCache } from './facility-dimensions-cache';
 import { isCivicBuilding, registerCivicVisualClass } from '../shared/building-details/civic-buildings';
 import { SoundManager } from './audio/sound-manager';
@@ -467,10 +468,20 @@ export class StarpeaceClient {
       },
 
       // Politics
-      onLaunchCampaign: (buildingX, buildingY) => this.sendMessage({
-        type: WsMessageType.REQ_POLITICS_LAUNCH_CAMPAIGN,
-        buildingX, buildingY,
-      }),
+      onLaunchCampaign: (buildingX, buildingY) => {
+        const townName = usePoliticsStore.getState().townName;
+        this.sendMessage({
+          type: WsMessageType.REQ_POLITICS_LAUNCH_CAMPAIGN,
+          buildingX, buildingY, townName,
+        });
+      },
+      onCancelCampaign: (buildingX, buildingY) => {
+        const townName = usePoliticsStore.getState().townName;
+        this.sendMessage({
+          type: WsMessageType.REQ_POLITICS_CANCEL_CAMPAIGN,
+          buildingX, buildingY, townName,
+        });
+      },
       onQueryTycoonRole: (tycoonName: string) => this.sendMessage({
         type: WsMessageType.REQ_TYCOON_ROLE,
         tycoonName,
@@ -925,6 +936,11 @@ export class StarpeaceClient {
       // Politics Response
       case WsMessageType.RESP_POLITICS_DATA:
         ClientBridge.handlePoliticsResponse(msg);
+        break;
+
+      case WsMessageType.RESP_POLITICS_LAUNCH_CAMPAIGN:
+      case WsMessageType.RESP_POLITICS_CANCEL_CAMPAIGN:
+        ClientBridge.handlePoliticsCampaignResponse(msg);
         break;
 
       case WsMessageType.RESP_TYCOON_ROLE:
@@ -1928,13 +1944,7 @@ export class StarpeaceClient {
   // =========================================================================
 
   private handleBuildingAction(actionId: string, buildingDetails: BuildingDetailsResponse, rowData?: Record<string, string>): void {
-    if (actionId === 'visitPolitics') {
-      const townName = buildingDetails.groups['townGeneral']
-        ?.find(p => p.name === 'Town')?.value || '';
-      ClientBridge.showPoliticsPanel(townName, buildingDetails.x, buildingDetails.y);
-    } else if (actionId === 'visitPresidentPoliticsPage') {
-      ClientBridge.showCapitolPanel(buildingDetails.x, buildingDetails.y);
-    } else if (actionId === 'clone') {
+    if (actionId === 'clone') {
       this.startCloneFacility(buildingDetails);
     } else if (actionId === 'launchMovie') {
       this.launchMovie(buildingDetails);
@@ -2321,16 +2331,20 @@ export class StarpeaceClient {
       `Enter username to elect as mayor of ${townName}:`,
       async (playerName: string) => {
         try {
-          await this.setBuildingProperty(buildingDetails.x, buildingDetails.y, 'RDOSitMayor', playerName, {
+          const success = await this.setBuildingProperty(buildingDetails.x, buildingDetails.y, 'RDOSitMayor', playerName, {
             townName,
+            index: rowData['_index'] ?? '0',
           });
-          this.showNotification(`${playerName} elected as mayor of ${townName}`, 'success');
-          this.refreshBuildingDetails(buildingDetails.x, buildingDetails.y);
+          if (success) {
+            this.showNotification(`${playerName} elected as mayor of ${townName}`, 'success');
+            setTimeout(() => this.refreshBuildingDetails(buildingDetails.x, buildingDetails.y), 1000);
+          } else {
+            this.showNotification(`Failed to elect mayor of ${townName}`, 'error');
+          }
         } catch (err: unknown) {
           this.showNotification(`Failed to elect mayor: ${toErrorMessage(err)}`, 'error');
         }
       },
-      { defaultValue: this.storedUsername ?? '' },
     );
   }
 
@@ -2346,17 +2360,20 @@ export class StarpeaceClient {
       `Enter username to appoint as ${ministryName}:`,
       async (playerName: string) => {
         try {
-          await this.setBuildingProperty(buildingDetails.x, buildingDetails.y, 'RDOSitMinister', '0', {
+          const success = await this.setBuildingProperty(buildingDetails.x, buildingDetails.y, 'RDOSitMinister', '0', {
             ministryId,
             ministerName: playerName,
           });
-          this.showNotification(`${playerName} appointed as ${ministryName}`, 'success');
-          this.refreshBuildingDetails(buildingDetails.x, buildingDetails.y);
+          if (success) {
+            this.showNotification(`${playerName} appointed as ${ministryName}`, 'success');
+            setTimeout(() => this.refreshBuildingDetails(buildingDetails.x, buildingDetails.y), 1000);
+          } else {
+            this.showNotification(`Failed to appoint ${playerName}`, 'error');
+          }
         } catch (err: unknown) {
           this.showNotification(`Failed to appoint minister: ${toErrorMessage(err)}`, 'error');
         }
       },
-      { defaultValue: this.storedUsername ?? '' },
     );
   }
 
@@ -2367,11 +2384,15 @@ export class StarpeaceClient {
       return;
     }
     try {
-      await this.setBuildingProperty(buildingDetails.x, buildingDetails.y, 'RDOBanMinister', '0', {
+      const success = await this.setBuildingProperty(buildingDetails.x, buildingDetails.y, 'RDOBanMinister', '0', {
         ministryId,
       });
-      this.showNotification('Minister deposed', 'success');
-      this.refreshBuildingDetails(buildingDetails.x, buildingDetails.y);
+      if (success) {
+        this.showNotification('Minister deposed', 'success');
+        setTimeout(() => this.refreshBuildingDetails(buildingDetails.x, buildingDetails.y), 1000);
+      } else {
+        this.showNotification('Failed to depose minister', 'error');
+      }
     } catch (err: unknown) {
       this.showNotification(`Failed to depose minister: ${toErrorMessage(err)}`, 'error');
     }

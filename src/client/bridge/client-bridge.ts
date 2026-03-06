@@ -205,6 +205,7 @@ export interface ClientCallbacks {
 
   // Politics
   onLaunchCampaign: (buildingX: number, buildingY: number) => void;
+  onCancelCampaign: (buildingX: number, buildingY: number) => void;
   onQueryTycoonRole: (tycoonName: string) => void;
 
   // Empire
@@ -413,6 +414,10 @@ export const ClientBridge = {
     bld.setOverlayMode(false);
     bld.setDetails(details);
     if (isCivicBuilding(details.visualClass)) {
+      // Set politics store context so civic tabs (especially Ratings) have building coords
+      const townGroup = details.groups['townGeneral'] ?? [];
+      const townName = townGroup.find(p => p.name === 'Town')?.value ?? '';
+      usePoliticsStore.getState().setTownContext(townName, details.x, details.y);
       useUiStore.getState().openModal('buildingInspector');
     } else {
       useUiStore.getState().openRightPanel('building');
@@ -635,6 +640,15 @@ export const ClientBridge = {
     }
   },
 
+  handlePoliticsCampaignResponse(msg: WsMessage): void {
+    const resp = msg as unknown as { success: boolean; message?: string };
+    if (resp.success) {
+      showToast(resp.message || 'Campaign updated', 'success');
+    } else {
+      showToast(resp.message || 'Campaign action failed', 'error');
+    }
+  },
+
   handleTycoonRoleResponse(msg: WsMessage): void {
     if (msg.type !== WsMessageType.RESP_TYCOON_ROLE) return;
     const resp = msg as WsRespTycoonRole;
@@ -653,17 +667,6 @@ export const ClientBridge = {
         : '';
       gameState.setPublicOfficeRole(isPublicOffice, roleName);
     }
-  },
-
-  showPoliticsPanel(townName: string, buildingX: number, buildingY: number): void {
-    usePoliticsStore.getState().setTownContext(townName, buildingX, buildingY);
-    usePoliticsStore.getState().setLoading(true);
-    useUiStore.getState().openRightPanel('politics');
-  },
-
-  showCapitolPanel(buildingX: number, buildingY: number): void {
-    usePoliticsStore.getState().setTownContext('', buildingX, buildingY);
-    useUiStore.getState().openRightPanel('capitol');
   },
 
   // ---- Transport response handling ----

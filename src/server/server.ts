@@ -142,6 +142,8 @@ import {
   WsRespPoliticsVote,
   WsReqPoliticsLaunchCampaign,
   WsRespPoliticsLaunchCampaign,
+  WsReqPoliticsCancelCampaign,
+  WsRespPoliticsCancelCampaign,
   WsReqTycoonRole,
   WsRespTycoonRole,
   WsReqSearchConnections,
@@ -2632,7 +2634,7 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
       case WsMessageType.REQ_POLITICS_LAUNCH_CAMPAIGN: {
         const campReq = msg as WsReqPoliticsLaunchCampaign;
         console.log(`[Gateway] Launching political campaign`);
-        const result = await session.politicsLaunchCampaign(campReq.buildingX, campReq.buildingY);
+        const result = await session.politicsLaunchCampaign(campReq.buildingX, campReq.buildingY, campReq.townName);
         const response: WsRespPoliticsLaunchCampaign = {
           type: WsMessageType.RESP_POLITICS_LAUNCH_CAMPAIGN,
           wsRequestId: msg.wsRequestId,
@@ -2640,6 +2642,20 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
           message: result.message,
         };
         ws.send(JSON.stringify(response));
+        break;
+      }
+
+      case WsMessageType.REQ_POLITICS_CANCEL_CAMPAIGN: {
+        const cancelReq = msg as WsReqPoliticsCancelCampaign;
+        console.log(`[Gateway] Cancelling political campaign`);
+        const cancelResult = await session.politicsCancelCampaign(cancelReq.buildingX, cancelReq.buildingY, cancelReq.townName);
+        const cancelResponse: WsRespPoliticsCancelCampaign = {
+          type: WsMessageType.RESP_POLITICS_CANCEL_CAMPAIGN,
+          wsRequestId: msg.wsRequestId,
+          success: cancelResult.success,
+          message: cancelResult.message,
+        };
+        ws.send(JSON.stringify(cancelResponse));
         break;
       }
 

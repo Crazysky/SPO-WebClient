@@ -14,7 +14,6 @@ import { BuildingInspector } from '../building';
 import { BuildMenu } from '../modals';
 import { ChatStrip } from '../chat';
 import { SearchPanel } from '../search';
-import { PoliticsPanel } from '../politics';
 import { TransportPanel } from '../transport';
 import { BottomNav } from './BottomNav';
 import { BottomSheet } from './BottomSheet';
@@ -28,9 +27,6 @@ function MoreMenu() {
     <div className={styles.moreMenu}>
       <button className={styles.moreItem} onClick={() => openRightPanel('search')}>
         Search
-      </button>
-      <button className={styles.moreItem} onClick={() => openRightPanel('politics')}>
-        Politics
       </button>
       <button className={styles.moreItem} onClick={() => openRightPanel('transport')}>
         Transport
@@ -46,7 +42,6 @@ function MobileTabContent() {
 
   // If a right panel is explicitly open (e.g. from More menu), show it
   if (rightPanel === 'search') return <SearchPanel />;
-  if (rightPanel === 'politics') return <PoliticsPanel />;
   if (rightPanel === 'transport') return <TransportPanel />;
 
   switch (mobileTab) {

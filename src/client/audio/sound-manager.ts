@@ -16,16 +16,16 @@ export type SoundEvent =
   | 'error'
   | 'construction';
 
-/** Maps sound events to filenames in cache/Sound/ */
+/** Maps sound events to filenames in public/sounds/ */
 const SOUND_MAP: Record<SoundEvent, string> = {
-  'ui-click': 'click.wav',
-  'ui-select': 'select.wav',
-  'chat-message': 'comm.wav',
-  'mail': 'system.wav',
-  'period-end': 'bells.wav',
+  'ui-click': '/sounds/come-here-notification.ogg',
+  'ui-select': '/sounds/come-here-notification.ogg',
+  'chat-message': '/sounds/come-here-notification.ogg',
+  'mail': '/sounds/come-here-notification.ogg',
+  'period-end': '/sounds/come-here-notification.ogg',
   'notification': '/sounds/come-here-notification.ogg',
-  'error': 'Explosion.wav',
-  'construction': 'Construction.wav',
+  'error': '/sounds/come-here-notification.ogg',
+  'construction': '/sounds/come-here-notification.ogg',
 };
 
 /** Sound events to eagerly preload (small files) */

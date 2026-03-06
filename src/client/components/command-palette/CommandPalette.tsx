@@ -59,12 +59,6 @@ export function CommandPalette() {
         execute: () => toggleRightPanel('search'),
       },
       {
-        id: 'politics',
-        label: 'Open Politics',
-        category: 'navigation',
-        execute: () => toggleRightPanel('politics'),
-      },
-      {
         id: 'transport',
         label: 'Open Transport',
         category: 'navigation',

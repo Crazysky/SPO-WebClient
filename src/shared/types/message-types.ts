@@ -221,6 +221,8 @@ export enum WsMessageType {
   RESP_POLITICS_VOTE = 'RESP_POLITICS_VOTE',
   REQ_POLITICS_LAUNCH_CAMPAIGN = 'REQ_POLITICS_LAUNCH_CAMPAIGN',
   RESP_POLITICS_LAUNCH_CAMPAIGN = 'RESP_POLITICS_LAUNCH_CAMPAIGN',
+  REQ_POLITICS_CANCEL_CAMPAIGN = 'REQ_POLITICS_CANCEL_CAMPAIGN',
+  RESP_POLITICS_CANCEL_CAMPAIGN = 'RESP_POLITICS_CANCEL_CAMPAIGN',
   REQ_TYCOON_ROLE = 'REQ_TYCOON_ROLE',
   RESP_TYCOON_ROLE = 'RESP_TYCOON_ROLE',
 
@@ -1080,10 +1082,24 @@ export interface WsReqPoliticsLaunchCampaign extends WsMessage {
   type: WsMessageType.REQ_POLITICS_LAUNCH_CAMPAIGN;
   buildingX: number;
   buildingY: number;
+  townName?: string;
 }
 
 export interface WsRespPoliticsLaunchCampaign extends WsMessage {
   type: WsMessageType.RESP_POLITICS_LAUNCH_CAMPAIGN;
+  success: boolean;
+  message?: string;
+}
+
+export interface WsReqPoliticsCancelCampaign extends WsMessage {
+  type: WsMessageType.REQ_POLITICS_CANCEL_CAMPAIGN;
+  buildingX: number;
+  buildingY: number;
+  townName?: string;
+}
+
+export interface WsRespPoliticsCancelCampaign extends WsMessage {
+  type: WsMessageType.RESP_POLITICS_CANCEL_CAMPAIGN;
   success: boolean;
   message?: string;
 }

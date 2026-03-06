@@ -205,13 +205,13 @@ describe('SoundManager', () => {
     it('should limit concurrent sounds', async () => {
       sm.initOnInteraction();
       // First load the sound so it's cached
-      sm.playFile('click.wav');
+      sm.playFile('/sounds/come-here-notification.ogg');
       await new Promise(r => setTimeout(r, 20));
       const sourcesAfterFirst = mockSources.length;
 
       // Now play many more — buffer is cached, so playBuffer is synchronous
       for (let i = 0; i < 10; i++) {
-        sm.playFile('click.wav');
+        sm.playFile('/sounds/come-here-notification.ogg');
       }
       // Only MAX_CONCURRENT (8) sources total should be created from cached playback
       // (minus the initial preload-triggered plays)

@@ -6,6 +6,7 @@ import { useState, useCallback } from 'react';
 import type { BuildingPropertyValue } from '@/shared/types';
 import { useClient } from '../../context';
 import { useGameStore } from '../../store/game-store';
+import { SaveIndicator } from '../building/SaveIndicator';
 import { buildValueMap, getNum, formatCompact, isPresidentRole } from './capitol-utils';
 import styles from './PoliticsPanel.module.css';
 
@@ -134,6 +135,7 @@ function BudgetInput({
   const client = useClient();
   const [value, setValue] = useState(String(initialValue));
   const [editing, setEditing] = useState(false);
+  const pendingKey = `MinisterBudget${index}`;
 
   const commit = useCallback(() => {
     setEditing(false);
@@ -149,28 +151,34 @@ function BudgetInput({
 
   if (!editing) {
     return (
-      <span
-        style={{ cursor: 'pointer' }}
-        onClick={() => setEditing(true)}
-        title="Click to edit budget"
-      >
-        {formatCompact(initialValue)}
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+        <span
+          style={{ cursor: 'pointer' }}
+          onClick={() => setEditing(true)}
+          title="Click to edit budget"
+        >
+          {formatCompact(initialValue)}
+        </span>
+        <SaveIndicator propertyKey={pendingKey} />
       </span>
     );
   }
 
   return (
-    <input
-      className={styles.budgetInput}
-      type="number"
-      value={value}
-      autoFocus
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') commit();
-        if (e.key === 'Escape') { setValue(String(initialValue)); setEditing(false); }
-      }}
-    />
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+      <input
+        className={styles.budgetInput}
+        type="number"
+        value={value}
+        autoFocus
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') { setValue(String(initialValue)); setEditing(false); }
+        }}
+      />
+      <SaveIndicator propertyKey={pendingKey} />
+    </span>
   );
 }

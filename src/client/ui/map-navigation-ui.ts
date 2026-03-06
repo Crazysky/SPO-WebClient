@@ -32,9 +32,7 @@ export class MapNavigationUI {
     // Trigger initial zone loading now that callback is set
     if (this.renderer) {
       console.log('[MapNavigationUI] Triggering initial zone load');
-      setTimeout(() => {
-        this.renderer?.triggerZoneCheck();
-      }, 100);
+      this.renderer.triggerZoneCheck();
     }
   }
 

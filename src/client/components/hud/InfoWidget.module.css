@@ -71,6 +71,13 @@
   text-overflow: ellipsis;
 }
 
+.role {
+  color: var(--accent-gold);
+  font-size: var(--text-2xs, 0.65rem);
+  text-transform: capitalize;
+  letter-spacing: 0.04em;
+}
+
 .company {
   color: var(--text-secondary);
   overflow: hidden;

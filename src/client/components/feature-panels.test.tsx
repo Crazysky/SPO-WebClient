@@ -11,7 +11,6 @@ import { renderWithProviders, resetStores } from '../__tests__/setup/render-help
 import { MailPanel } from './mail/MailPanel';
 import { ChatStrip } from './chat/ChatStrip';
 import { TransportPanel } from './transport/TransportPanel';
-import { PoliticsPanel } from './politics/PoliticsPanel';
 
 // ---------------------------------------------------------------------------
 // MailPanel
@@ -59,17 +58,5 @@ describe('TransportPanel', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// PoliticsPanel
-// ---------------------------------------------------------------------------
-
-describe('PoliticsPanel (CapitolPanel)', () => {
-  beforeEach(resetStores);
-
-  it('renders tab bar with default tabs', () => {
-    renderWithProviders(<PoliticsPanel />);
-    expect(screen.getByText('Towns')).toBeTruthy();
-    expect(screen.getByText('Ministries')).toBeTruthy();
-    expect(screen.getByText('Ratings')).toBeTruthy();
-  });
-});
+// PoliticsPanel has been merged into BuildingInspector (civic tab overrides).
+// See __tests__/capitol-panel.test.tsx for comprehensive civic building tab tests.

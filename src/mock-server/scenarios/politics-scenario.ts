@@ -88,6 +88,44 @@ export function createPoliticsScenario(
       ],
       tags: ['politics'],
     },
+    {
+      id: 'pol-ws-002',
+      timestamp: '2026-02-22T22:00:01.000Z',
+      request: {
+        type: WsMessageType.REQ_POLITICS_LAUNCH_CAMPAIGN,
+        wsRequestId: 'pol-002',
+        buildingX: 520,
+        buildingY: 430,
+      } as WsMessage,
+      responses: [
+        {
+          type: WsMessageType.RESP_POLITICS_LAUNCH_CAMPAIGN,
+          wsRequestId: 'pol-002',
+          success: false,
+          message: 'Your application has been denied. Our records show that you already have a public commitment.',
+        } as WsMessage,
+      ],
+      tags: ['politics'],
+    },
+    {
+      id: 'pol-ws-003',
+      timestamp: '2026-02-22T22:00:02.000Z',
+      request: {
+        type: WsMessageType.REQ_POLITICS_CANCEL_CAMPAIGN,
+        wsRequestId: 'pol-003',
+        buildingX: 520,
+        buildingY: 430,
+      } as WsMessage,
+      responses: [
+        {
+          type: WsMessageType.RESP_POLITICS_CANCEL_CAMPAIGN,
+          wsRequestId: 'pol-003',
+          success: true,
+          message: 'Campaign updated successfully',
+        } as WsMessage,
+      ],
+      tags: ['politics'],
+    },
   ];
 
   return {

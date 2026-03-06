@@ -343,13 +343,6 @@ export const CAPITOL_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'RulerPeriods', displayName: 'Mandate No.', type: PropertyType.NUMBER },
     { rdoName: 'YearsToElections', displayName: 'Years to Elections', type: PropertyType.NUMBER, unit: 'years' },
     { rdoName: 'HasRuler', displayName: 'Has Ruler', type: PropertyType.BOOLEAN, hideEmpty: true },
-    {
-      rdoName: 'visitPresidentPoliticsPage',
-      displayName: 'Visit President Politics Page',
-      type: PropertyType.ACTION_BUTTON,
-      actionId: 'visitPresidentPoliticsPage',
-      buttonLabel: 'Visit President Politics Page',
-    },
   ],
 };
 
@@ -384,13 +377,6 @@ export const TOWN_GENERAL_GROUP: PropertyGroup = {
         { rdoSuffix: 'covName', label: 'Service', type: PropertyType.TEXT, width: '50%' },
         { rdoSuffix: 'covValue', label: 'Coverage', type: PropertyType.PERCENTAGE, width: '50%', indexSuffix: '' },
       ],
-    },
-    {
-      rdoName: 'visitPolitics',
-      displayName: 'Visit Politics Page',
-      type: PropertyType.ACTION_BUTTON,
-      actionId: 'visitPolitics',
-      buttonLabel: 'Visit Politics Page',
     },
   ],
 };

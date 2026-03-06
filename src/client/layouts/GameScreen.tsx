@@ -21,7 +21,6 @@ import { BuildingInspector, StatusOverlay } from '../components/building';
 import { ProfilePanel, EmpireOverview } from '../components/empire';
 import { MailPanel } from '../components/mail';
 import { SearchPanel } from '../components/search';
-import { PoliticsPanel } from '../components/politics';
 import { TransportPanel } from '../components/transport';
 import { OverlayMenu } from '../components/hud/OverlayMenu';
 import { BuildMenu, BuildingInspectorModal, ConnectionPickerModal, ServerSwitchOverlay, SettingsDialog, SupplierSearchModal, ZoneTypePicker } from '../components/modals';
@@ -44,9 +43,7 @@ const RIGHT_PANEL_TITLES: Record<string, string> = {
   building: 'Building Inspector',
   mail: 'Mail',
   search: 'Search',
-  politics: 'Politics',
   transport: 'Transport',
-  capitol: 'Capitol',
 };
 
 /** Renders the correct content component for the active right panel type */
@@ -58,9 +55,6 @@ function RightPanelContent({ type }: { type: string | null }) {
       return <MailPanel />;
     case 'search':
       return <SearchPanel />;
-    case 'politics':
-    case 'capitol':
-      return <PoliticsPanel />;
     case 'transport':
       return <TransportPanel />;
     default:

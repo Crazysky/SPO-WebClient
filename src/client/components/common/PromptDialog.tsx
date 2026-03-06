@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import styles from './ConfirmDialog.module.css';
+import promptStyles from './PromptDialog.module.css';
 
 interface PromptDialogProps {
   title: string;
@@ -52,7 +53,7 @@ export function PromptDialog({
             Cancel
           </button>
           <button
-            className={styles.confirmBtn}
+            className={promptStyles.submitBtn}
             disabled={!canSubmit}
             onClick={handleSubmit}
           >

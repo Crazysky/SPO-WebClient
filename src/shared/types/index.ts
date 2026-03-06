@@ -244,6 +244,8 @@ export type {
   WsRespPoliticsVote,
   WsReqPoliticsLaunchCampaign,
   WsRespPoliticsLaunchCampaign,
+  WsReqPoliticsCancelCampaign,
+  WsRespPoliticsCancelCampaign,
   WsReqTycoonRole,
   WsRespTycoonRole,
   // Connection Search

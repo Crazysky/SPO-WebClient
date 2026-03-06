@@ -208,6 +208,31 @@
   opacity: 0.9;
 }
 
+.cancelCampaignBtn {
+  width: 100%;
+  padding: var(--space-3);
+  background: linear-gradient(135deg, var(--status-error), #a33);
+  color: var(--text-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: opacity var(--duration-fast) var(--ease-default);
+}
+
+.cancelCampaignBtn:hover {
+  opacity: 0.9;
+}
+
+.campaignMessage {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 /* ---- 3-column comparison grid (Jobs, Residentials) ---- */
 
 .columnGrid {

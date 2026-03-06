@@ -10,13 +10,13 @@
 }
 
 .dialog {
-  background: var(--surface-primary);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   padding: var(--space-6);
   max-width: 400px;
   width: 90%;
-  animation: slideUp var(--duration-normal) var(--ease-default);
+  animation: slideUp var(--duration-base) var(--ease-default);
 }
 
 .title {
@@ -42,8 +42,8 @@
 .input {
   width: 100%;
   padding: var(--space-2) var(--space-3);
-  background: var(--surface-secondary);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: var(--text-sm);
@@ -53,7 +53,7 @@
 
 .input:focus {
   outline: none;
-  border-color: var(--accent-primary);
+  border-color: var(--primary);
 }
 
 .buttons {
@@ -65,8 +65,8 @@
 
 .cancelBtn {
   padding: var(--space-2) var(--space-4);
-  background: var(--surface-secondary);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: var(--text-sm);
@@ -75,12 +75,12 @@
 }
 
 .cancelBtn:hover {
-  background: var(--surface-tertiary);
+  background: var(--bg-hover);
 }
 
 .confirmBtn {
   padding: var(--space-2) var(--space-4);
-  background: var(--status-error);
+  background: var(--error);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   color: #fff;

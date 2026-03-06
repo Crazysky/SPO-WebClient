@@ -6,6 +6,7 @@ import { useState, useCallback } from 'react';
 import type { BuildingPropertyValue } from '@/shared/types';
 import { useClient } from '../../context';
 import { useGameStore } from '../../store/game-store';
+import { SaveIndicator } from '../building/SaveIndicator';
 import { buildValueMap, getNum, formatCompact, isPresidentRole } from './capitol-utils';
 import styles from './PoliticsPanel.module.css';
 
@@ -81,6 +82,7 @@ export function TownsTab({ properties, buildingX, buildingY }: TownsTabProps) {
                   buildingX={buildingX}
                   buildingY={buildingY}
                   index={row.index}
+                  editable={isPresident}
                 />
               </td>
               <td>{row.qos}%</td>
@@ -108,14 +110,17 @@ function TaxSlider({
   buildingX,
   buildingY,
   index,
+  editable,
 }: {
   value: number;
   buildingX: number;
   buildingY: number;
   index: number;
+  editable: boolean;
 }) {
   const client = useClient();
   const [value, setValue] = useState(initialValue);
+  const pendingKey = `TownTax${index}`;
 
   const handleChange = useCallback(
     (newValue: number) => {
@@ -124,6 +129,10 @@ function TaxSlider({
     },
     [client, buildingX, buildingY, index],
   );
+
+  if (!editable) {
+    return <span>{initialValue}%</span>;
+  }
 
   return (
     <div className={styles.sliderCell}>
@@ -137,6 +146,7 @@ function TaxSlider({
         onChange={(e) => handleChange(parseInt(e.target.value, 10))}
       />
       <span className={styles.sliderValue}>{value}%</span>
+      <SaveIndicator propertyKey={pendingKey} />
     </div>
   );
 }

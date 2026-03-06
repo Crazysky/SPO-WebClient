@@ -496,7 +496,6 @@ const MOCK_TOWN_HALL: MockBuilding = {
       { name: 'covValue1', value: '65', index: 1 },
       { name: 'covName2.0', value: 'Police', index: 2 },
       { name: 'covValue2', value: '82', index: 2 },
-      { name: 'visitPolitics', value: '' },
     ],
     'townJobs': [
       { name: 'hiWorkDemand', value: '125' },

@@ -260,8 +260,8 @@ class ZoneRequestManager {
     this.zoneQueue.push(...zonesToAdd);
     this.zoneQueue.sort((a, b) => a.priority - b.priority);
 
-    // For Z3 (closest zoom), process immediately even during movement
-    if (currentZoom === 3 && !this.isMoving) {
+    // Process immediately when camera is stationary (all zoom levels)
+    if (!this.isMoving) {
       this.processQueue();
     }
   }

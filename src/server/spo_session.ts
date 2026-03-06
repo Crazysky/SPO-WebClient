@@ -3111,46 +3111,97 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
   }
 
   /**
-   * Launch a political campaign at a Town Hall.
-   * Voyager: VotesSheet.pas / TownPolitics.pas — RDOLaunchCampaign(TycoonId)
+   * Launch a political campaign via ASP proxy.
+   * Fetches tycoonCampaign.asp?Launch=TRUE which calls RDOLaunchCampaign
+   * and returns HTML with success or denial message.
+   * townName: non-empty for Town Hall (mayor), empty for Capitol (president).
    */
-  public async politicsLaunchCampaign(buildingX: number, buildingY: number): Promise<{ success: boolean; message: string }> {
+  public async politicsLaunchCampaign(buildingX: number, buildingY: number, townName?: string): Promise<{ success: boolean; message: string }> {
+    const worldIp = this.currentWorldInfo?.ip;
+    if (!worldIp) {
+      return { success: false, message: 'Not connected to world' };
+    }
+
     try {
-      await this.connectConstructionService();
-      if (!this.worldId) throw new Error('Construction service not initialized');
-
-      await this.connectMapService();
-      const tempObjectId = await this.cacherCreateObject();
-      let currBlock: string;
-
-      try {
-        await this.cacherSetObject(tempObjectId, buildingX, buildingY);
-        const values = await this.cacherGetPropertyList(tempObjectId, ['CurrBlock']);
-        currBlock = values[0];
-        if (!currBlock) throw new Error(`No CurrBlock at (${buildingX}, ${buildingY})`);
-      } finally {
-        await this.cacherCloseObject(tempObjectId);
-      }
-
-      const socket = this.sockets.get('construction');
-      if (!socket) throw new Error('Construction socket unavailable');
-
-      const tycoonName = this.activeUsername || this.cachedUsername || '';
-      const cmd = RdoCommand
-        .sel(parseInt(currBlock))
-        .call('RDOLaunchCampaign').push()
-        .args(RdoValue.string(tycoonName))
-        .build();
-
-      this.log.debug(`[Politics] Launching campaign for ${tycoonName}`);
-      socket.write(cmd);
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      return { success: true, message: 'Campaign launched' };
+      const queryParams = this.buildCampaignParams('Launch', buildingX, buildingY, townName);
+      const url = `http://${worldIp}/Five/0/Visual/Voyager/Politics/tycooncampaign.asp?${queryParams.toString().replace(/\+/g, '%20')}`;
+      this.log.debug(`[Politics] Launching campaign via ASP: ${url}`);
+      const resp = await fetch(url, { redirect: 'follow' });
+      const html = await resp.text();
+      return this.parseCampaignResponse(html);
     } catch (e) {
       this.log.warn(`[Politics] LaunchCampaign failed: ${toErrorMessage(e)}`);
       return { success: false, message: toErrorMessage(e) };
     }
+  }
+
+  /**
+   * Cancel a political campaign via ASP proxy.
+   * Fetches tycoonCampaign.asp?Cancel=TRUE which calls RDOCancelCampaign.
+   * townName: non-empty for Town Hall (mayor), empty for Capitol (president).
+   */
+  public async politicsCancelCampaign(buildingX: number, buildingY: number, townName?: string): Promise<{ success: boolean; message: string }> {
+    const worldIp = this.currentWorldInfo?.ip;
+    if (!worldIp) {
+      return { success: false, message: 'Not connected to world' };
+    }
+
+    try {
+      const queryParams = this.buildCampaignParams('Cancel', buildingX, buildingY, townName);
+      const url = `http://${worldIp}/Five/0/Visual/Voyager/Politics/tycooncampaign.asp?${queryParams.toString().replace(/\+/g, '%20')}`;
+      this.log.debug(`[Politics] Cancelling campaign via ASP: ${url}`);
+      const resp = await fetch(url, { redirect: 'follow' });
+      const html = await resp.text();
+      return this.parseCampaignResponse(html);
+    } catch (e) {
+      this.log.warn(`[Politics] CancelCampaign failed: ${toErrorMessage(e)}`);
+      return { success: false, message: toErrorMessage(e) };
+    }
+  }
+
+  /**
+   * Build URL params for tycoonCampaign.asp.
+   * Capitol (president): Capitol=YES, x/y = building coords, TownName empty.
+   * Town Hall (mayor): TownName=<name>, Capitol/x/y empty.
+   */
+  private buildCampaignParams(
+    action: 'Launch' | 'Cancel', buildingX: number, buildingY: number, townName?: string
+  ): URLSearchParams {
+    const isCapitol = !townName;
+    return new URLSearchParams({
+      WorldName: this.currentWorldInfo?.name || '',
+      TycoonName: this.activeUsername || this.cachedUsername || '',
+      Password: this.cachedPassword || '',
+      TownName: townName || '',
+      DAAddr: this.daAddr || config.rdo.directoryHost,
+      DAPort: String(this.daPort || config.rdo.ports.directory),
+      [action]: 'TRUE',
+      Capitol: isCapitol ? 'YES' : '',
+      Recache: 'YES',
+      x: isCapitol ? String(buildingX) : '',
+      y: isCapitol ? String(buildingY) : '',
+    });
+  }
+
+  /**
+   * Parse the HTML response from tycoonCampaign.asp for success/denial.
+   * Denial: contains a `<div class=label>` with an error message.
+   * Success: no denial div (may contain project sliders or empty body).
+   */
+  private parseCampaignResponse(html: string): { success: boolean; message: string } {
+    // Check for denial message: <div class=label ...>message text</div>
+    const denialMatch = html.match(/<div\s+class=label[^>]*>\s*([\s\S]*?)\s*<\/div>/i);
+    if (denialMatch) {
+      const message = denialMatch[1]
+        .replace(/<[^>]*>/g, '')  // strip nested HTML tags
+        .replace(/\s+/g, ' ')    // normalize whitespace
+        .trim();
+      if (message) {
+        return { success: false, message };
+      }
+    }
+    // No denial found — treat as success
+    return { success: true, message: 'Campaign updated successfully' };
   }
 
   /**

@@ -11,9 +11,11 @@ import styles from './PoliticsPanel.module.css';
 interface RatingsTabProps {
   buildingX: number;
   buildingY: number;
+  isCandidate: boolean;
+  isMayor: boolean;
 }
 
-export function RatingsTab({ buildingX, buildingY }: RatingsTabProps) {
+export function RatingsTab({ buildingX, buildingY, isCandidate, isMayor }: RatingsTabProps) {
   const client = useClient();
   const data = usePoliticsStore((s) => s.data);
 
@@ -85,14 +87,27 @@ export function RatingsTab({ buildingX, buildingY }: RatingsTabProps) {
         </section>
       )}
 
-      {data.canLaunchCampaign && (
+      {/* Campaign action — hidden for mayors (already hold office) */}
+      {!isMayor && (
         <div className={styles.section}>
-          <button
-            className={styles.launchBtn}
-            onClick={() => client.onLaunchCampaign(buildingX, buildingY)}
-          >
-            Launch Campaign
-          </button>
+          {isCandidate ? (
+            <button
+              className={styles.cancelCampaignBtn}
+              onClick={() => client.onCancelCampaign(buildingX, buildingY)}
+            >
+              Cancel Campaign
+            </button>
+          ) : (
+            <button
+              className={styles.launchBtn}
+              onClick={() => client.onLaunchCampaign(buildingX, buildingY)}
+            >
+              Start Campaign
+            </button>
+          )}
+          {data.campaignMessage && (
+            <p className={styles.campaignMessage}>{data.campaignMessage}</p>
+          )}
         </div>
       )}
     </>

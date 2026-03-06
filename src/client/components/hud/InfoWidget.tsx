@@ -25,6 +25,7 @@ export function InfoWidget() {
   const companyName = useGameStore((s) => s.companyName);
   const tycoonStats = useGameStore((s) => s.tycoonStats);
   const gameDate = useGameStore((s) => s.gameDate);
+  const ownerRole = useGameStore((s) => s.ownerRole);
   const toggleLeftPanel = useUiStore((s) => s.toggleLeftPanel);
   const rightPanel = useUiStore((s) => s.rightPanel);
 
@@ -51,6 +52,13 @@ export function InfoWidget() {
           <span className={styles.rank}>#{tycoonStats.ranking}</span>
           <span className={styles.separator}>&middot;</span>
           <span className={styles.name}>{username || 'Unknown'}</span>
+        </div>
+      )}
+
+      {/* Row 2b: Public role (if any) */}
+      {ownerRole && (
+        <div className={styles.row}>
+          <span className={styles.role}>{ownerRole}</span>
         </div>
       )}
 

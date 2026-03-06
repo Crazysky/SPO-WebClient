@@ -10,18 +10,47 @@
  * - ActionBar: upgrade/downgrade/delete (sticky bottom)
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useBuildingStore } from '../../store/building-store';
+import { usePoliticsStore } from '../../store/politics-store';
+import { useGameStore } from '../../store/game-store';
 import { useClient } from '../../context';
+import { isCivicBuilding } from '@/shared/building-details/civic-buildings';
+import type { BuildingDetailsTab, BuildingPropertyValue } from '@/shared/types';
 import { Skeleton } from '../common';
 import { QuickStats } from './QuickStats';
 import { InspectorTabs } from './InspectorTabs';
 import { PropertyGroup } from './PropertyGroup';
 import { ActionBar } from './ActionBar';
+import { TownsTab } from '../politics/TownsTab';
+import { MinistriesTab } from '../politics/MinistriesTab';
+import { JobsTab } from '../politics/JobsTab';
+import { ResidentialsTab } from '../politics/ResidentialsTab';
+import { VotesTab } from '../politics/VotesTab';
+import { RatingsTab } from '../politics/RatingsTab';
+import { buildValueMap, getNum, isPresidentRole } from '../politics/capitol-utils';
 import styles from './BuildingInspector.module.css';
 
 /** Auto-refresh interval for open building panel (ms). */
 const AUTO_REFRESH_INTERVAL = 30_000;
+
+/** Group IDs that have rich civic tab components (replaces generic PropertyGroup). */
+const CIVIC_TAB_OVERRIDES = new Set([
+  'capitolTowns',
+  'ministeries',
+  'townJobs',
+  'townRes',
+  'votes',
+]);
+
+/** Synthetic Ratings tab injected for civic buildings. */
+const RATINGS_TAB: BuildingDetailsTab = {
+  id: 'ratings',
+  name: 'Ratings',
+  icon: '★',
+  order: 90,
+  handlerName: 'ratings',
+};
 
 interface BuildingInspectorProps {
   /** Hide the built-in header (used when wrapped in a modal that already shows the name). */
@@ -35,6 +64,26 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
   const currentTab = useBuildingStore((s) => s.currentTab);
   const setCurrentTab = useBuildingStore((s) => s.setCurrentTab);
   const client = useClient();
+
+  const isCivic = details ? isCivicBuilding(details.visualClass) : false;
+  const username = useGameStore((s) => s.username);
+  const ownerRole = useGameStore((s) => s.ownerRole);
+
+  // For civic buildings, append the synthetic Ratings tab
+  const tabs = useMemo(() => {
+    if (!details) return [];
+    if (!isCivic) return details.tabs;
+    return [...details.tabs, RATINGS_TAB];
+  }, [details, isCivic]);
+
+  // Derive campaign state from votes group (needed for Ratings tab)
+  const votesGroup = details?.groups['votes'] ?? [];
+  const valueMap = buildValueMap(votesGroup);
+  const candidateCount = getNum(valueMap, 'CampaignCount');
+  const isCandidate = Array.from({ length: candidateCount }, (_, i) =>
+    valueMap.get(`Candidate${i}`) ?? ''
+  ).some((name) => name.toLowerCase() === (username ?? '').toLowerCase());
+  const isMayor = isPresidentRole(ownerRole);
 
   // Auto-refresh building details while panel is open (prevents stale QuickStats)
   const refreshTimer = useRef<ReturnType<typeof setInterval>>(undefined);
@@ -74,7 +123,7 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
   }
 
   // Find active tab's properties
-  const activeGroupId = details.tabs.find((t) => t.id === currentTab)?.id ?? details.tabs[0]?.id ?? '';
+  const activeGroupId = tabs.find((t) => t.id === currentTab)?.id ?? tabs[0]?.id ?? '';
   const properties = details.groups[activeGroupId] ?? [];
 
   return (
@@ -98,10 +147,10 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
       </div>
 
       {/* Tab navigation */}
-      {details.tabs.length > 0 && (
+      {tabs.length > 0 && (
         <div className={styles.stagger2}>
           <InspectorTabs
-            tabs={details.tabs}
+            tabs={tabs}
             activeTab={currentTab || activeGroupId}
             onTabChange={setCurrentTab}
           />
@@ -110,10 +159,14 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
 
       {/* Tab content — scrollable */}
       <div className={`${styles.content} ${styles.stagger3}`}>
-        <PropertyGroup
+        <CivicOrGenericTab
+          isCivic={isCivic}
+          activeGroupId={activeGroupId}
           properties={properties}
           buildingX={details.x}
           buildingY={details.y}
+          isCandidate={isCandidate}
+          isMayor={isMayor}
         />
       </div>
 
@@ -125,4 +178,46 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
       />
     </div>
   );
+}
+
+/** Renders a rich civic tab component or falls back to generic PropertyGroup. */
+function CivicOrGenericTab({
+  isCivic,
+  activeGroupId,
+  properties,
+  buildingX,
+  buildingY,
+  isCandidate,
+  isMayor,
+}: {
+  isCivic: boolean;
+  activeGroupId: string;
+  properties: BuildingPropertyValue[];
+  buildingX: number;
+  buildingY: number;
+  isCandidate: boolean;
+  isMayor: boolean;
+}) {
+  if (!isCivic || !CIVIC_TAB_OVERRIDES.has(activeGroupId)) {
+    // Synthetic Ratings tab for civic buildings
+    if (isCivic && activeGroupId === 'ratings') {
+      return <RatingsTab buildingX={buildingX} buildingY={buildingY} isCandidate={isCandidate} isMayor={isMayor} />;
+    }
+    return <PropertyGroup properties={properties} buildingX={buildingX} buildingY={buildingY} />;
+  }
+
+  switch (activeGroupId) {
+    case 'capitolTowns':
+      return <TownsTab properties={properties} buildingX={buildingX} buildingY={buildingY} />;
+    case 'ministeries':
+      return <MinistriesTab properties={properties} buildingX={buildingX} buildingY={buildingY} />;
+    case 'townJobs':
+      return <JobsTab properties={properties} buildingX={buildingX} buildingY={buildingY} />;
+    case 'townRes':
+      return <ResidentialsTab properties={properties} />;
+    case 'votes':
+      return <VotesTab properties={properties} buildingX={buildingX} buildingY={buildingY} />;
+    default:
+      return <PropertyGroup properties={properties} buildingX={buildingX} buildingY={buildingY} />;
+  }
 }
