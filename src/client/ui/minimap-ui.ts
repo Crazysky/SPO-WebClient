@@ -303,6 +303,10 @@ export class MinimapUI {
     ctx.scale(ISO_SCALE, ISO_SCALE);
     ctx.translate(-this.currentWidth / 2, -this.currentHeight / 2);
 
+    // Flip Y axis to correct north/south orientation
+    ctx.translate(0, this.currentHeight);
+    ctx.scale(1, -1);
+
     // Draw terrain background
     this.drawTerrainBackground(ctx);
 
@@ -452,7 +456,7 @@ export class MinimapUI {
     const mapX = Math.max(0, Math.min(dims.width - 1,
       Math.round((rx / this.currentWidth) * dims.width)));
     const mapY = Math.max(0, Math.min(dims.height - 1,
-      Math.round((ry / this.currentHeight) * dims.height)));
+      Math.round(((this.currentHeight - ry) / this.currentHeight) * dims.height)));
 
     this.renderer.centerOn(mapX, mapY);
   }
