@@ -162,8 +162,8 @@ export const RES_GENERAL_GROUP: PropertyGroup = {
     { rdoName: 'invPrivacy', displayName: 'Privacy', type: PropertyType.PERCENTAGE },
     { rdoName: 'InvBeauty', displayName: 'Beauty Investment', type: PropertyType.PERCENTAGE },
     // Editable sliders
-    { rdoName: 'Rent', displayName: 'Rent', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, unit: '%' },
-    { rdoName: 'Maintenance', displayName: 'Maintenance', type: PropertyType.SLIDER, editable: true, min: 0, max: 500, unit: '%' },
+    { rdoName: 'Rent', displayName: 'Rent', type: PropertyType.SLIDER, editable: true, min: 0, max: 200, unit: '%' },
+    { rdoName: 'Maintenance', displayName: 'Maintenance', type: PropertyType.SLIDER, editable: true, min: 0, max: 200, unit: '%' },
     // Repair control: progress bar + conditional start/stop (Voyager: RdoRepair / RdoStopRepair)
     { rdoName: 'Repair', displayName: 'Repair', type: PropertyType.REPAIR_CONTROL, maxProperty: 'RepairPrice' },
     { rdoName: 'Stopped', displayName: 'Status', type: PropertyType.STOP_TOGGLE },

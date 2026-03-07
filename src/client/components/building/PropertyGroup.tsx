@@ -1988,8 +1988,8 @@ function SupplyCard({
                     <td>${conn.price}</td>
                     <td>{conn.overprice}%</td>
                     <td>{conn.lastValue}</td>
-                    <td>{conn.quality}%</td>
-                    <td>${conn.cost}</td>
+                    <td>{conn.quality}</td>
+                    <td>{conn.cost}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2082,6 +2082,10 @@ function ProductCard({
     setSelectedIdx(selectedIdx === idx ? null : idx);
   };
 
+  const handleHire = () => {
+    client.onSearchConnections(buildingX, buildingY, product.metaFluid, product.name || product.metaFluid, 'output');
+  };
+
   const handleFire = () => {
     if (selectedIdx === null) return;
     const conn = product.connections[selectedIdx];
@@ -2166,12 +2170,13 @@ function ProductCard({
 
           {canEdit && (
             <div className={styles.supplyActions}>
+              <button className={styles.hireBtn} onClick={handleHire}>Hire</button>
               <button
                 className={styles.fireBtn}
                 onClick={handleFire}
                 disabled={selectedIdx === null}
               >
-                Fire
+                Remove
               </button>
             </div>
           )}
@@ -2276,10 +2281,20 @@ function CompInputSection({
             {/* Row 2: Supply fulfillment bar */}
             <div className={styles.ciSupplyBarRow}>
               <div className={styles.ciSupplyBar}>
-                <div className={styles.ciSupplyBarFill} style={{ width: `${fillPct}%` }} />
+                <div
+                  className={`${styles.ciSupplyBarFill}${fillPct < 50 ? ` ${styles.ciBarCrit}` : fillPct < 100 ? ` ${styles.ciBarWarn}` : ''}`}
+                  style={{ width: `${fillPct}%` }}
+                />
               </div>
               <span className={styles.ciDemandPerc}>{Math.round(fillPct)}%</span>
             </div>
+
+            {/* Low supply warning */}
+            {fillPct < 100 && (
+              <span className={`${styles.ciLowSupply}${fillPct < 50 ? ` ${styles.ciBarCrit}` : ` ${styles.ciBarWarn}`}`}>
+                {fillPct < 50 ? 'Critical: supply severely low' : 'Warning: supply below demand'}
+              </span>
+            )}
 
             {/* Row 3: Supplied / Demanded summary */}
             <div className={styles.ciSummary}>

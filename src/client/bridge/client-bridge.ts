@@ -660,10 +660,11 @@ export const ClientBridge = {
     const gameState = useGameStore.getState();
     const currentUser = gameState.username;
     if (currentUser && resp.role.tycoonName.toLowerCase() === currentUser.toLowerCase()) {
-      const isPublicOffice = resp.role.isMayor || resp.role.isPresident || resp.role.isMinister;
-      const roleName = resp.role.isPresident ? 'president'
-        : resp.role.isMayor ? 'mayor'
-        : resp.role.isMinister ? 'minister'
+      const isPresident = resp.role.isPresident || resp.role.isCapitalMayor;
+      const isPublicOffice = resp.role.isMayor || isPresident || resp.role.isMinister;
+      const roleName = isPresident ? 'President'
+        : resp.role.isMayor ? 'Mayor'
+        : resp.role.isMinister ? 'Minister'
         : '';
       gameState.setPublicOfficeRole(isPublicOffice, roleName);
     }

@@ -1332,6 +1332,15 @@
   border-radius: 3px;
   transition: width 0.3s ease;
 }
+.ciSupplyBarFill.ciBarWarn { background: var(--accent-gold, #d4a843); }
+.ciSupplyBarFill.ciBarCrit { background: var(--color-error, #f44336); }
+
+.ciLowSupply {
+  font-size: var(--font-xs);
+  padding: 0 var(--space-3);
+}
+.ciLowSupply.ciBarWarn { color: var(--accent-gold, #d4a843); }
+.ciLowSupply.ciBarCrit { color: var(--color-error, #f44336); }
 
 /* Status color classes */
 .healthy { color: var(--color-success, #4caf50); }

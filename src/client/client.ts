@@ -1159,9 +1159,10 @@ export class StarpeaceClient {
       this.currentCompanyName = company.name;
 
       // Detect public office role for zone painting visibility (fast path from ASP HTML)
-      const role = (company.ownerRole ?? '').toLowerCase();
-      const isPublicOffice = role.includes('president') || role.includes('minister') || role.includes('mayor');
-      ClientBridge.setPublicOfficeRole(isPublicOffice, role);
+      const roleRaw = company.ownerRole ?? '';
+      const roleLower = roleRaw.toLowerCase();
+      const isPublicOffice = roleLower.includes('president') || roleLower.includes('minister') || roleLower.includes('mayor');
+      ClientBridge.setPublicOfficeRole(isPublicOffice, roleRaw);
 
       // Confirm via server cache (async, authoritative boolean flags)
       if (this.storedUsername) {
@@ -1530,6 +1531,8 @@ export class StarpeaceClient {
     } else if (this.isCloneMode) {
       this.executeCloneFacility(x, y);
     } else {
+      // Portal (visual class 6031) is not inspectable
+      if (visualClass === '6031') return;
       // Civic buildings (Capitol, TownHall) skip overlay — open modal directly
       if (visualClass && isCivicBuilding(visualClass)) {
         this.focusBuilding(x, y, visualClass);
