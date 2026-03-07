@@ -49,6 +49,76 @@ describe('cleanPayload', () => {
     expect(cleanPayload('"!3.14"')).toBe('3.14');
     expect(cleanPayload('"*"')).toBe('');
   });
+
+  // --- REGRESSION GUARDS for .trim() ---
+  // cleanPayload has two .trim() calls: initial (strips outer whitespace so
+  // the res= regex can match) and final (strips residual whitespace after
+  // prefix removal). Both are load-bearing. These tests FAIL if either is
+  // removed, preventing silent regressions on tab-delimited RDO data.
+
+  describe('initial .trim() regression (line 12)', () => {
+    it('tabs around res= format must be stripped for regex match', () => {
+      expect(cleanPayload('\tres="%hello"\t')).toBe('hello');
+    });
+
+    it('newlines around quoted value must be stripped', () => {
+      expect(cleanPayload('\n"#42"\n')).toBe('42');
+    });
+
+    it('mixed whitespace around res= format', () => {
+      expect(cleanPayload(' \t res="#5" \n ')).toBe('5');
+    });
+  });
+
+  describe('final .trim() regression (line 30)', () => {
+    it('space after % prefix inside res= must be trimmed', () => {
+      expect(cleanPayload('res="% value "')).toBe('value');
+    });
+
+    it('spaces around number inside res= must be trimmed', () => {
+      expect(cleanPayload('res="# 42 "')).toBe('42');
+    });
+  });
+
+  describe('tab-boundary behavior (documents known trade-off)', () => {
+    // cleanPayload's final .trim() strips trailing tabs. This is why
+    // spo_session.ts:3491 inlines its own extraction for GetPropertyList
+    // where positional alignment of tab-delimited values is critical.
+
+    it('trailing tab is stripped — tab-split yields fewer elements', () => {
+      const cleaned = cleanPayload('res="%A\tB\t"');
+      expect(cleaned).toBe('A\tB');
+      expect(cleaned.split('\t')).toEqual(['A', 'B']);
+    });
+
+    it('leading tab after prefix is stripped — first empty value lost', () => {
+      const cleaned = cleanPayload('res="%\tvalue"');
+      expect(cleaned).toBe('value');
+      expect(cleaned.split('\t')).toEqual(['value']);
+    });
+  });
+
+  describe('edge cases that must stay stable', () => {
+    it('empty string returns empty', () => {
+      expect(cleanPayload('')).toBe('');
+    });
+
+    it('whitespace-only returns empty', () => {
+      expect(cleanPayload('   ')).toBe('');
+    });
+
+    it('tab-only returns empty', () => {
+      expect(cleanPayload('\t\t')).toBe('');
+    });
+
+    it('bare type prefix returns empty', () => {
+      expect(cleanPayload('#')).toBe('');
+    });
+
+    it('bare newline returns empty', () => {
+      expect(cleanPayload('\n')).toBe('');
+    });
+  });
 });
 
 describe('parsePropertyResponse', () => {

@@ -1608,8 +1608,6 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
 
       case WsMessageType.REQ_BUILDING_DETAILS: {
         const req = msg as WsReqBuildingDetails;
-        console.log(`[Gateway] Getting building details at (${req.x}, ${req.y}), visualClass: ${req.visualClass}`);
-
         try {
           const details = await session.getBuildingDetails(req.x, req.y, req.visualClass);
 

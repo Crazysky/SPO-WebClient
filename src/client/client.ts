@@ -613,7 +613,7 @@ export class StarpeaceClient {
     });
   }
 
-  private sendRequest(msg: Partial<WsMessage>): Promise<WsMessage> {
+  private sendRequest(msg: Partial<WsMessage>, timeoutMs = 15000): Promise<WsMessage> {
     return new Promise((resolve, reject) => {
       if (!this.ws || !this.isConnected) return reject(new Error('WebSocket not connected'));
 
@@ -634,7 +634,7 @@ export class StarpeaceClient {
           this.pendingRequests.delete(requestId);
           reject(new Error('Request Timeout'));
         }
-      }, 15000);
+      }, timeoutMs);
     });
   }
 
@@ -1762,7 +1762,28 @@ export class StarpeaceClient {
   /**
    * Request detailed building information
    */
-  public async requestBuildingDetails(
+  /** In-flight building details promises by "x,y" key — prevents duplicate requests */
+  private inFlightBuildingDetails = new Map<string, Promise<BuildingDetailsResponse | null>>();
+
+  public requestBuildingDetails(
+    x: number,
+    y: number,
+    visualClass: string
+  ): Promise<BuildingDetailsResponse | null> {
+    const key = `${x},${y}`;
+    const existing = this.inFlightBuildingDetails.get(key);
+    if (existing) {
+      ClientBridge.log('Building', `Dedup: reusing in-flight request at (${x}, ${y})`);
+      return existing;
+    }
+
+    const promise = this.requestBuildingDetailsImpl(x, y, visualClass);
+    this.inFlightBuildingDetails.set(key, promise);
+    promise.finally(() => this.inFlightBuildingDetails.delete(key));
+    return promise;
+  }
+
+  private async requestBuildingDetailsImpl(
     x: number,
     y: number,
     visualClass: string
@@ -1777,7 +1798,9 @@ export class StarpeaceClient {
         visualClass
       };
 
-      const response = await this.sendRequest(req) as WsRespBuildingDetails;
+      // Use 90s timeout — buildings with many products (e.g. Trade Center: 33)
+      // can take 30-60s to fetch from the Delphi server
+      const response = await this.sendRequest(req, 90000) as WsRespBuildingDetails;
       ClientBridge.log('Building', `Got details: ${response.details.templateName}`);
       return response.details;
     } catch (err: unknown) {

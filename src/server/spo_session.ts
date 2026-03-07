@@ -214,6 +214,8 @@ export class StarpeaceSession extends EventEmitter {
   private currentWorldInfo: WorldInfo | null = null;
   private rdoCnntId: string | null = null;
   private cacherId: string | null = null;
+  /** Deduplication map for in-flight getBuildingDetails requests by "x,y" key */
+  private inFlightBuildingDetails = new Map<string, Promise<BuildingDetailsResponse>>();
   private worldId: string | null = null;
   private daAddr: string | null = null;
   private daPort: number | null = null;
@@ -3488,29 +3490,54 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       member: 'GetPropertyList',
       args: [query]
     });
-    const raw = cleanPayloadHelper(packet.payload || '');
+    // Extract tab-delimited values WITHOUT trimming — cleanPayload's .trim()
+    // strips leading/trailing tabs, destroying empty values at the boundaries.
+    // The Delphi cache server always returns one value per requested property
+    // (empty string for unknown properties), so positional alignment is critical.
+    const rawPayload = packet.payload || '';
+    let raw: string;
+    const resMatch = rawPayload.match(/^res="((?:[^"]|"")*)"$/);
+    if (resMatch) {
+      raw = resMatch[1].replace(/""/g, '"');
+      // Strip OLE string type prefix (%) but NOT whitespace/tabs
+      if (raw.length > 0 && ['#', '%', '@', '$', '^', '!', '*'].includes(raw[0])) {
+        raw = raw.substring(1);
+      }
+    } else {
+      raw = cleanPayloadHelper(rawPayload);
+    }
 
-    // Always tab-split: request uses tab delimiters, response should too.
-    // The old space-split fallback broke multi-word values (e.g. "Processed Food")
-    // and misaligned every subsequent property in the batch.
+    // Tab-split: the Delphi server appends TAB after each value, so we get
+    // N values + 1 trailing empty from the final tab. Trim individual values
+    // (spaces only, not tabs) but preserve empty strings for missing properties.
     const values = raw.split('\t').map(v => v.trim());
+    // Remove trailing empty element from the final TAB delimiter
+    if (values.length > 0 && values[values.length - 1] === '') {
+      values.pop();
+    }
     if (values.length < propertyNames.length) {
       this.log.warn(
         `[cacherGetPropertyList] Response has ${values.length} values for ${propertyNames.length} requested properties`
       );
+      this.log.warn(`[cacherGetPropertyList] Requested: ${propertyNames.join(', ')}`);
+      this.log.warn(`[cacherGetPropertyList] Received: ${values.map((v, i) => `[${i}]="${v}"`).join(', ')}`);
     }
     return values;
   }
 
   private async cacherCloseObject(tempObjectId: string): Promise<void> {
-    if (!this.cacherId) throw new Error('Missing cacherId');
+    if (!this.cacherId) return;
+    // CloseObject is a procedure WITH parameter → use "^" separator (synchronous call).
+    // The old code used separator: '*' which is WRONG per RDO dispatch rules:
+    //   procedure with params → "^" | parameterless procedure → "*"
+    // Using "*" with sendRdoRequest's QueryId could crash the Delphi FIVE layer.
     await this.sendRdoRequest('map', {
       verb: RdoVerb.SEL,
       targetId: this.cacherId,
       action: RdoAction.CALL,
       member: 'CloseObject',
-      args: [tempObjectId],
-	  separator: '*'
+      args: [tempObjectId]
+      // No separator override → defaults to "^" (METHOD_SEPARATOR) since rid is present
     });
   }
 
@@ -6048,6 +6075,31 @@ private handlePush(socketName: string, packet: RdoPacket) {
     y: number,
     visualClass: string
   ): Promise<BuildingDetailsResponse> {
+    // Deduplicate concurrent requests for the same building coordinates.
+    // The client fires speculative prefetch, event refresh, and retry requests
+    // that can create 10+ concurrent calls — each spawning temp objects and
+    // product queries on the Delphi server. Return the same promise instead.
+    const dedupeKey = `${x},${y}`;
+    const existing = this.inFlightBuildingDetails.get(dedupeKey);
+    if (existing) {
+      this.log.debug(`[BuildingDetails] Dedup hit (${x},${y})`);
+      return existing;
+    }
+
+    const promise = this.getBuildingDetailsImpl(x, y, visualClass);
+    this.inFlightBuildingDetails.set(dedupeKey, promise);
+    try {
+      return await promise;
+    } finally {
+      this.inFlightBuildingDetails.delete(dedupeKey);
+    }
+  }
+
+  private async getBuildingDetailsImpl(
+    x: number,
+    y: number,
+    visualClass: string
+  ): Promise<BuildingDetailsResponse> {
     this.log.debug(`[BuildingDetails] Fetching details for building at (${x}, ${y}), visualClass: ${visualClass}`);
 
     // Get template for this building type
@@ -6101,6 +6153,8 @@ private handlePush(socketName: string, packet: RdoPacket) {
           }
         }
       }
+
+      this.log.debug(`[BuildingDetails] Phase 1 done (${allValues.size} values, ${collected.countProperties.length} count props, groups=${template.groups.length})`);
 
       // Phase 2: Fetch indexed properties based on count values
 		const indexedProps: string[] = [];
@@ -6340,7 +6394,6 @@ private handlePush(socketName: string, packet: RdoPacket) {
       if (compInputsGroup) {
         compInputs = await this.fetchCompInputData(tempObjectId);
       }
-
       const response: BuildingDetailsResponse = {
         buildingId: buildingId || allValues.get('ObjectId') || allValues.get('CurrBlock') || '',
         x,
@@ -6369,7 +6422,6 @@ private handlePush(socketName: string, packet: RdoPacket) {
       return response;
 
     } finally {
-      // Clean up temporary object
       await this.cacherCloseObject(tempObjectId);
     }
   }
