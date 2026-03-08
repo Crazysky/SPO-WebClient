@@ -145,6 +145,8 @@ export enum WsMessageType {
   RESP_GET_ROAD_COST = 'RESP_GET_ROAD_COST',
   REQ_DEMOLISH_ROAD = 'REQ_DEMOLISH_ROAD',
   RESP_DEMOLISH_ROAD = 'RESP_DEMOLISH_ROAD',
+  REQ_DEMOLISH_ROAD_AREA = 'REQ_DEMOLISH_ROAD_AREA',
+  RESP_DEMOLISH_ROAD_AREA = 'RESP_DEMOLISH_ROAD_AREA',
 
   // Search Menu / Directory
   REQ_SEARCH_MENU_HOME = 'REQ_SEARCH_MENU_HOME',
@@ -812,6 +814,21 @@ export interface WsReqDemolishRoad extends WsMessage {
 
 export interface WsRespDemolishRoad extends WsMessage {
   type: WsMessageType.RESP_DEMOLISH_ROAD;
+  success: boolean;
+  message?: string;
+  errorCode?: number;
+}
+
+export interface WsReqDemolishRoadArea extends WsMessage {
+  type: WsMessageType.REQ_DEMOLISH_ROAD_AREA;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface WsRespDemolishRoadArea extends WsMessage {
+  type: WsMessageType.RESP_DEMOLISH_ROAD_AREA;
   success: boolean;
   message?: string;
   errorCode?: number;

@@ -63,7 +63,7 @@ export function JobsTab({ properties, buildingX, buildingY }: JobsTabProps) {
 
   return (
     <div className={styles.columnGrid}>
-      {classes.map((cls) => (
+      {classes.map((cls, i) => (
         <div key={cls.prefix} className={styles.column}>
           <div className={styles.columnHeader}>{cls.label}</div>
 
@@ -92,7 +92,7 @@ export function JobsTab({ properties, buildingX, buildingY }: JobsTabProps) {
           </div>
           <MinWageSlider
             value={cls.minWage}
-            rdoName={`${cls.prefix}ActualMinSalary`}
+            levelIndex={String(i)}
             buildingX={buildingX}
             buildingY={buildingY}
             editable={isPresident}
@@ -105,13 +105,13 @@ export function JobsTab({ properties, buildingX, buildingY }: JobsTabProps) {
 
 function MinWageSlider({
   value: initialValue,
-  rdoName,
+  levelIndex,
   buildingX,
   buildingY,
   editable,
 }: {
   value: number;
-  rdoName: string;
+  levelIndex: string;
   buildingX: number;
   buildingY: number;
   editable: boolean;
@@ -122,9 +122,9 @@ function MinWageSlider({
   const handleChange = useCallback(
     (newValue: number) => {
       setValue(newValue);
-      client.onSetBuildingProperty(buildingX, buildingY, rdoName, String(newValue));
+      client.onSetBuildingProperty(buildingX, buildingY, 'RDOSetMinSalaryValue', String(newValue), { levelIndex });
     },
-    [client, buildingX, buildingY, rdoName],
+    [client, buildingX, buildingY, levelIndex],
   );
 
   return (

@@ -60,6 +60,8 @@ import {
   WsRespBuildRoad,
   WsReqDemolishRoad,
   WsRespDemolishRoad,
+  WsReqDemolishRoadArea,
+  WsRespDemolishRoadArea,
   // Company Switching
   WsReqSwitchCompany,
   // Logout
@@ -1373,6 +1375,25 @@ export class StarpeaceClient {
     }
     if (needRight && needBelow) {
       this.loadMapArea(alignedX + zoneSize, alignedY + zoneSize, zoneSize, zoneSize);
+    }
+  }
+
+  /**
+   * Load all map zones that intersect the rectangle (x1,y1)→(x2,y2).
+   * Unlike loadAlignedMapArea which only expands in the positive direction,
+   * this correctly handles roads/areas drawn in any direction.
+   */
+  private loadAlignedMapAreaForRect(x1: number, y1: number, x2: number, y2: number) {
+    const zoneSize = 64;
+    const minAX = Math.floor(Math.min(x1, x2) / zoneSize) * zoneSize;
+    const minAY = Math.floor(Math.min(y1, y2) / zoneSize) * zoneSize;
+    const maxAX = Math.floor(Math.max(x1, x2) / zoneSize) * zoneSize;
+    const maxAY = Math.floor(Math.max(y1, y2) / zoneSize) * zoneSize;
+
+    for (let ax = minAX; ax <= maxAX; ax += zoneSize) {
+      for (let ay = minAY; ay <= maxAY; ay += zoneSize) {
+        this.loadMapArea(ax, ay, zoneSize, zoneSize);
+      }
     }
   }
 
@@ -2717,9 +2738,9 @@ export class StarpeaceClient {
 
       if (response.success) {
         ClientBridge.log('Road', `Road built: ${response.tileCount} tiles, cost $${response.cost}`);
-        // Refresh the zone-aligned map area covering the road segment
-        const roadMargin = Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1)) + 1;
-        this.loadAlignedMapArea(x1, y1, roadMargin);
+        this.showNotification(`Road built: ${response.tileCount} tiles`, 'success');
+        // Refresh all zones intersecting the road path
+        this.loadAlignedMapAreaForRect(x1, y1, x2, y2);
       } else {
         ClientBridge.log('Error', response.message || 'Failed to build road');
       }
@@ -2763,10 +2784,14 @@ export class StarpeaceClient {
         renderer.setRoadDemolishClickCallback((x: number, y: number) => {
           this.demolishRoadAt(x, y);
         });
+        renderer.setRoadDemolishAreaCompleteCallback((x1: number, y1: number, x2: number, y2: number) => {
+          this.demolishRoadArea(x1, y1, x2, y2);
+        });
 
-        ClientBridge.log('Road', 'Road demolish mode enabled. Click on a road segment to demolish it. Press ESC to cancel.');
+        ClientBridge.log('Road', 'Road demolish mode enabled. Click or drag to select road tiles. Press ESC to cancel.');
       } else {
         renderer.setRoadDemolishClickCallback(null);
+        renderer.setRoadDemolishAreaCompleteCallback(null);
         ClientBridge.log('Road', 'Road demolish mode disabled');
       }
     }
@@ -2783,6 +2808,7 @@ export class StarpeaceClient {
     const renderer = this.mapNavigationUI?.getRenderer();
     if (renderer) {
       renderer.setRoadDemolishClickCallback(null);
+      renderer.setRoadDemolishAreaCompleteCallback(null);
     }
 
     ClientBridge.setRoadDemolishMode(false);
@@ -2815,6 +2841,39 @@ export class StarpeaceClient {
     } catch (err: unknown) {
       ClientBridge.log('Error', `Failed to demolish road: ${toErrorMessage(err)}`);
       this.showNotification(`Failed to demolish road: ${toErrorMessage(err)}`, 'error');
+    }
+  }
+
+  /**
+   * Demolish all road segments in a rectangular area via WipeCircuit.
+   */
+  private async demolishRoadArea(x1: number, y1: number, x2: number, y2: number): Promise<void> {
+    const nx1 = Math.min(x1, x2);
+    const ny1 = Math.min(y1, y2);
+    const nx2 = Math.max(x1, x2);
+    const ny2 = Math.max(y1, y2);
+
+    ClientBridge.log('Road', `Demolishing road area (${nx1},${ny1})→(${nx2},${ny2})...`);
+
+    try {
+      const req: WsReqDemolishRoadArea = {
+        type: WsMessageType.REQ_DEMOLISH_ROAD_AREA,
+        x1: nx1, y1: ny1, x2: nx2, y2: ny2
+      };
+
+      const response = await this.sendRequest(req) as WsRespDemolishRoadArea;
+
+      if (response.success) {
+        ClientBridge.log('Road', `Road area demolished`);
+        this.showNotification('Roads demolished', 'success');
+        this.loadAlignedMapAreaForRect(nx1, ny1, nx2, ny2);
+      } else {
+        ClientBridge.log('Error', response.message || 'Failed to demolish roads');
+        this.showNotification(response.message || 'Failed to demolish roads', 'error');
+      }
+    } catch (err: unknown) {
+      ClientBridge.log('Error', `Failed to demolish road area: ${toErrorMessage(err)}`);
+      this.showNotification(`Failed to demolish roads: ${toErrorMessage(err)}`, 'error');
     }
   }
 
@@ -3011,7 +3070,7 @@ export class StarpeaceClient {
   /**
    * Place a building from React build menu selection
    */
-  private placeBuildingFromMenu(facilityClass: string, visualClassId: number) {
+  private placeBuildingFromMenu(facilityClass: string, visualClassId: string) {
     const facility = this.lastLoadedFacilities.find(
       f => f.facilityClass === facilityClass && f.visualClassId === visualClassId
     );

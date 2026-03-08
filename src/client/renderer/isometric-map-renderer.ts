@@ -457,6 +457,10 @@ export class IsometricMapRenderer {
   private onZoneAreaComplete: ((x1: number, y1: number, x2: number, y2: number) => void) | null = null;
   private onCancelZonePainting: (() => void) | null = null;
 
+  // Road demolish drag selection
+  private roadDemolishDragState = { isDrawing: false, startX: 0, startY: 0, endX: 0, endY: 0 };
+  private onRoadDemolishAreaComplete: ((x1: number, y1: number, x2: number, y2: number) => void) | null = null;
+
   // Map loaded flag
   private mapLoaded: boolean = false;
   private mapName: string = '';
@@ -1520,6 +1524,12 @@ export class IsometricMapRenderer {
 
   public setRoadDemolishClickCallback(callback: ((x: number, y: number) => void) | null) {
     this.onRoadDemolishClick = callback;
+    // Reset drag state when entering/exiting demolish mode
+    this.roadDemolishDragState.isDrawing = false;
+  }
+
+  public setRoadDemolishAreaCompleteCallback(callback: ((x1: number, y1: number, x2: number, y2: number) => void) | null) {
+    this.onRoadDemolishAreaComplete = callback;
   }
 
   // =========================================================================
@@ -3719,42 +3729,75 @@ export class IsometricMapRenderer {
   }
 
   /**
-   * Draw demolish hover indicator for road demolish mode.
-   * Shows a red semi-transparent diamond on tiles that contain a road,
-   * or a gray indicator on tiles without a road.
+   * Draw demolish preview — single tile hover or drag rectangle.
+   * Red for tiles with roads, gray for empty tiles.
    */
   private drawRoadDemolishPreview() {
     if (!this.onRoadDemolishClick) return;
+    if (!this.mouseHasEnteredCanvas) return;
 
     const ctx = this.ctx;
     const config = ZOOM_LEVELS[this.terrainRenderer.getZoomLevel()];
     const halfWidth = config.tileWidth / 2;
     const halfHeight = config.tileHeight / 2;
+    const state = this.roadDemolishDragState;
 
-    const x = this.mouseMapJ;
-    const y = this.mouseMapI;
+    if (!state.isDrawing) {
+      // Single tile hover indicator
+      const x = this.mouseMapJ;
+      const y = this.mouseMapI;
+      const hasRoad = this.hasRoadAt(x, y);
+      const fillColor = hasRoad ? 'rgba(255, 50, 50, 0.5)' : 'rgba(150, 150, 150, 0.3)';
+      const strokeColor = hasRoad ? '#ff3333' : '#999999';
 
-    const hasRoad = this.hasRoadAt(x, y);
+      const screenPos = this.terrainRenderer.mapToScreen(y, x);
+      ctx.beginPath();
+      ctx.moveTo(screenPos.x, screenPos.y);
+      ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
+      ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
+      ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
+      ctx.closePath();
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      return;
+    }
 
-    // Red for tiles with roads (demolish target), gray for empty tiles
-    const fillColor = hasRoad ? 'rgba(255, 50, 50, 0.5)' : 'rgba(150, 150, 150, 0.3)';
-    const strokeColor = hasRoad ? '#ff3333' : '#999999';
+    // Drag rectangle — highlight all tiles, red if road, gray if empty
+    const minX = Math.min(state.startX, state.endX);
+    const maxX = Math.max(state.startX, state.endX);
+    const minY = Math.min(state.startY, state.endY);
+    const maxY = Math.max(state.startY, state.endY);
 
-    const screenPos = this.terrainRenderer.mapToScreen(y, x);
+    let roadCount = 0;
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const hasRoad = this.hasRoadAt(x, y);
+        if (hasRoad) roadCount++;
 
-    ctx.beginPath();
-    ctx.moveTo(screenPos.x, screenPos.y);
-    ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
-    ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
-    ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
-    ctx.closePath();
+        const screenPos = this.terrainRenderer.mapToScreen(y, x);
+        ctx.beginPath();
+        ctx.moveTo(screenPos.x, screenPos.y);
+        ctx.lineTo(screenPos.x - halfWidth, screenPos.y + halfHeight);
+        ctx.lineTo(screenPos.x, screenPos.y + config.tileHeight);
+        ctx.lineTo(screenPos.x + halfWidth, screenPos.y + halfHeight);
+        ctx.closePath();
+        ctx.fillStyle = hasRoad ? 'rgba(255, 50, 50, 0.5)' : 'rgba(150, 150, 150, 0.2)';
+        ctx.fill();
+      }
+    }
 
-    ctx.fillStyle = fillColor;
-    ctx.fill();
-
-    ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    // Tooltip with road tile count
+    const endPos = this.terrainRenderer.mapToScreen(state.endY, state.endX);
+    ctx.font = '12px monospace';
+    ctx.fillStyle = roadCount > 0 ? '#ff6666' : '#cccccc';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 3;
+    const label = roadCount > 0 ? `${roadCount} road tiles` : 'No roads';
+    ctx.strokeText(label, endPos.x + 15, endPos.y - 5);
+    ctx.fillText(label, endPos.x + 15, endPos.y - 5);
   }
 
   /**
@@ -4389,11 +4432,13 @@ export class IsometricMapRenderer {
           this.onConnectModeClick(building.x, building.y);
         }
       } else if (this.onRoadDemolishClick) {
-        // Road demolish mode — only fire if a road tile exists at click location
-        const key = `${mapPos.j},${mapPos.i}`;
-        if (this.roadTilesMap.has(key)) {
-          this.onRoadDemolishClick(mapPos.j, mapPos.i);
-        }
+        // Road demolish mode — start drag selection
+        this.roadDemolishDragState.isDrawing = true;
+        this.roadDemolishDragState.startX = mapPos.j;
+        this.roadDemolishDragState.startY = mapPos.i;
+        this.roadDemolishDragState.endX = mapPos.j;
+        this.roadDemolishDragState.endY = mapPos.i;
+        this.requestRender();
       } else {
         // Check building click
         const building = this.getBuildingAt(mapPos.j, mapPos.i);
@@ -4444,6 +4489,11 @@ export class IsometricMapRenderer {
     if (this.zonePaintingMode && this.zonePaintingState.isDrawing) {
       this.zonePaintingState.endX = mapPos.j;
       this.zonePaintingState.endY = mapPos.i;
+    }
+
+    if (this.onRoadDemolishClick && this.roadDemolishDragState.isDrawing) {
+      this.roadDemolishDragState.endX = mapPos.j;
+      this.roadDemolishDragState.endY = mapPos.i;
     }
 
     if (this.placementMode && this.placementPreview) {
@@ -4503,6 +4553,23 @@ export class IsometricMapRenderer {
           this.zonePaintingState.endY
         );
       }
+    }
+
+    if (e.button === 0 && this.onRoadDemolishClick && this.roadDemolishDragState.isDrawing) {
+      this.roadDemolishDragState.isDrawing = false;
+
+      const { startX, startY, endX, endY } = this.roadDemolishDragState;
+      if (startX === endX && startY === endY) {
+        // Single click — demolish single tile (backward compat)
+        const key = `${startX},${startY}`;
+        if (this.roadTilesMap.has(key)) {
+          this.onRoadDemolishClick(startX, startY);
+        }
+      } else if (this.onRoadDemolishAreaComplete) {
+        // Drag — demolish area
+        this.onRoadDemolishAreaComplete(startX, startY, endX, endY);
+      }
+      this.requestRender();
     }
   }
 

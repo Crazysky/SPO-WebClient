@@ -120,12 +120,12 @@ function TaxSlider({
 }) {
   const client = useClient();
   const [value, setValue] = useState(initialValue);
-  const pendingKey = `TownTax${index}`;
+  const pendingKey = `RDOSetTownTaxes:{"index":"${index}"}`;
 
   const handleChange = useCallback(
     (newValue: number) => {
       setValue(newValue);
-      client.onSetBuildingProperty(buildingX, buildingY, `TownTax${index}`, String(newValue));
+      client.onSetBuildingProperty(buildingX, buildingY, 'RDOSetTownTaxes', String(newValue), { index: String(index) });
     },
     [client, buildingX, buildingY, index],
   );

@@ -164,7 +164,7 @@ describe('Build Menu — integration flow', () => {
 
     // Modal should close and placement should start
     expect(useUiStore.getState().modal).toBeNull();
-    expect(placeSpy).toHaveBeenCalledWith('SmallStore', 101);
+    expect(placeSpy).toHaveBeenCalledWith('SmallStore', '101');
   });
 
   it('does not start placement for unavailable facility', () => {

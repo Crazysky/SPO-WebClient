@@ -28,7 +28,7 @@ import { JobsTab } from '../politics/JobsTab';
 import { ResidentialsTab } from '../politics/ResidentialsTab';
 import { VotesTab } from '../politics/VotesTab';
 import { RatingsTab } from '../politics/RatingsTab';
-import { buildValueMap, getNum, isPresidentRole } from '../politics/capitol-utils';
+import { buildValueMap, getNum } from '../politics/capitol-utils';
 import styles from './BuildingInspector.module.css';
 
 /** Auto-refresh interval for open building panel (ms). */
@@ -67,7 +67,7 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
 
   const isCivic = details ? isCivicBuilding(details.visualClass) : false;
   const username = useGameStore((s) => s.username);
-  const ownerRole = useGameStore((s) => s.ownerRole);
+  const holdsOffice = useGameStore((s) => s.isPublicOfficeRole);
 
   // For civic buildings, append the synthetic Ratings tab
   const tabs = useMemo(() => {
@@ -76,15 +76,20 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
     return [...details.tabs, RATINGS_TAB];
   }, [details, isCivic]);
 
-  // Derive campaign state from votes group (needed for Ratings tab)
+  // Derive campaign state (needed for Ratings tab)
+  // Primary: PoliticsData.campaigns (works for both Capitol and Town Hall)
+  const politicsCampaigns = usePoliticsStore((s) => s.data?.campaigns);
+  const isCandidateFromPolitics = (politicsCampaigns ?? []).some(
+    (c) => c.candidateName.toLowerCase() === (username ?? '').toLowerCase()
+  );
+  // Fallback: votes group (only populated for Capitol)
   const votesGroup = details?.groups['votes'] ?? [];
   const valueMap = buildValueMap(votesGroup);
   const candidateCount = getNum(valueMap, 'CampaignCount');
-  const isCandidate = Array.from({ length: candidateCount }, (_, i) =>
+  const isCandidateFromVotes = Array.from({ length: candidateCount }, (_, i) =>
     valueMap.get(`Candidate${i}`) ?? ''
   ).some((name) => name.toLowerCase() === (username ?? '').toLowerCase());
-  const isMayor = isPresidentRole(ownerRole);
-
+  const isCandidate = isCandidateFromPolitics || isCandidateFromVotes;
   // Auto-refresh building details while panel is open (prevents stale QuickStats)
   const refreshTimer = useRef<ReturnType<typeof setInterval>>(undefined);
   useEffect(() => {
@@ -166,7 +171,7 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
           buildingX={details.x}
           buildingY={details.y}
           isCandidate={isCandidate}
-          isMayor={isMayor}
+          holdsOffice={holdsOffice}
         />
       </div>
 
@@ -188,7 +193,7 @@ function CivicOrGenericTab({
   buildingX,
   buildingY,
   isCandidate,
-  isMayor,
+  holdsOffice,
 }: {
   isCivic: boolean;
   activeGroupId: string;
@@ -196,12 +201,12 @@ function CivicOrGenericTab({
   buildingX: number;
   buildingY: number;
   isCandidate: boolean;
-  isMayor: boolean;
+  holdsOffice: boolean;
 }) {
   if (!isCivic || !CIVIC_TAB_OVERRIDES.has(activeGroupId)) {
     // Synthetic Ratings tab for civic buildings
     if (isCivic && activeGroupId === 'ratings') {
-      return <RatingsTab buildingX={buildingX} buildingY={buildingY} isCandidate={isCandidate} isMayor={isMayor} />;
+      return <RatingsTab buildingX={buildingX} buildingY={buildingY} isCandidate={isCandidate} holdsOffice={holdsOffice} />;
     }
     return <PropertyGroup properties={properties} buildingX={buildingX} buildingY={buildingY} />;
   }

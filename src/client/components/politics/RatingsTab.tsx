@@ -12,10 +12,10 @@ interface RatingsTabProps {
   buildingX: number;
   buildingY: number;
   isCandidate: boolean;
-  isMayor: boolean;
+  holdsOffice: boolean;
 }
 
-export function RatingsTab({ buildingX, buildingY, isCandidate, isMayor }: RatingsTabProps) {
+export function RatingsTab({ buildingX, buildingY, isCandidate, holdsOffice }: RatingsTabProps) {
   const client = useClient();
   const data = usePoliticsStore((s) => s.data);
 
@@ -87,8 +87,8 @@ export function RatingsTab({ buildingX, buildingY, isCandidate, isMayor }: Ratin
         </section>
       )}
 
-      {/* Campaign action — hidden for mayors (already hold office) */}
-      {!isMayor && (
+      {/* Campaign action — hidden for office holders (already hold public office) */}
+      {!holdsOffice && (
         <div className={styles.section}>
           {isCandidate ? (
             <button
@@ -101,6 +101,7 @@ export function RatingsTab({ buildingX, buildingY, isCandidate, isMayor }: Ratin
             <button
               className={styles.launchBtn}
               onClick={() => client.onLaunchCampaign(buildingX, buildingY)}
+              disabled={data.canLaunchCampaign === false}
             >
               Start Campaign
             </button>

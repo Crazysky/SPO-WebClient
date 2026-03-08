@@ -65,13 +65,25 @@ describe('InfoWidget', () => {
   it('renders without crashing when no data', () => {
     const { container } = renderWithProviders(<InfoWidget />);
     expect(container).toBeTruthy();
-    expect(screen.getByText('No Company')).toBeTruthy();
+    expect(screen.getByText(/No Company/)).toBeTruthy();
+  });
+
+  it('renders OFFLINE when no worldName', () => {
+    useGameStore.setState({ worldName: '' });
+    renderWithProviders(<InfoWidget />);
+    expect(screen.getByText('OFFLINE')).toBeTruthy();
+  });
+
+  it('renders server name from worldName', () => {
+    useGameStore.setState({ worldName: 'Shamba' });
+    renderWithProviders(<InfoWidget />);
+    expect(screen.getByText('SHAMBA')).toBeTruthy();
   });
 
   it('renders company name when set', () => {
     useGameStore.setState({ companyName: 'TestCo Industries' });
     renderWithProviders(<InfoWidget />);
-    expect(screen.getByText('TestCo Industries')).toBeTruthy();
+    expect(screen.getByText(/TestCo Industries/)).toBeTruthy();
   });
 
   it('renders tycoon stats', () => {
@@ -81,7 +93,7 @@ describe('InfoWidget', () => {
         username: 'TestPlayer',
         ranking: 5,
         cash: '1,234,567',
-        incomePerHour: '+$500',
+        incomePerHour: '500',
         buildingCount: 12,
         maxBuildings: 50,
         failureLevel: 0,
@@ -90,8 +102,30 @@ describe('InfoWidget', () => {
     renderWithProviders(<InfoWidget />);
     expect(screen.getByText('#5')).toBeTruthy();
     expect(screen.getByText('TestPlayer')).toBeTruthy();
-    expect(screen.getByText('12/50 facilities')).toBeTruthy();
-    expect(screen.getByText('$1,234,567')).toBeTruthy();
+    expect(screen.getByText('1,234,567')).toBeTruthy();
+    expect(screen.getByText('12/50')).toBeTruthy();
+  });
+
+  it('renders positive income with sign', () => {
+    useGameStore.setState({
+      tycoonStats: {
+        username: 'P', ranking: 1, cash: '100',
+        incomePerHour: '500', buildingCount: 1, maxBuildings: 10, failureLevel: 0,
+      },
+    });
+    renderWithProviders(<InfoWidget />);
+    expect(screen.getByText('+$500/h')).toBeTruthy();
+  });
+
+  it('renders negative income with sign', () => {
+    useGameStore.setState({
+      tycoonStats: {
+        username: 'P', ranking: 1, cash: '100',
+        incomePerHour: '-200', buildingCount: 1, maxBuildings: 10, failureLevel: 0,
+      },
+    });
+    renderWithProviders(<InfoWidget />);
+    expect(screen.getByText('-$200/h')).toBeTruthy();
   });
 });
 

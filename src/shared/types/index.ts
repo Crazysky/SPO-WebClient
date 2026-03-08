@@ -194,6 +194,8 @@ export type {
   // Road demolition messages
   WsReqDemolishRoad,
   WsRespDemolishRoad,
+  WsReqDemolishRoadArea,
+  WsRespDemolishRoadArea,
   // Logout messages
   WsReqLogout,
   WsRespLogout,

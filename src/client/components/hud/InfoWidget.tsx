@@ -1,27 +1,49 @@
 /**
- * InfoWidget — Top-right glass card showing game date, rank, company, facilities, and cash.
+ * InfoWidget — Top-right structured glass card with financial stats, game date, and identity.
  *
- * Replaces the old full-width TopBar. Compact, always visible (z-300).
- * Debt tint at failureLevel >= 1.
+ * Three-section layout inspired by city-builder UIs (SimCity, Anno 1800):
+ *  1. Header: server name + compact date
+ *  2. Financial: cash (prominent) + income/h (color-coded)
+ *  3. Identity: rank, name, role, company, facilities progress bar
+ *
+ * Debt tint at failureLevel >= 1, pulsing alert at >= 2.
  */
 
 import { useGameStore } from '../../store/game-store';
 import { useUiStore } from '../../store/ui-store';
 import styles from './InfoWidget.module.css';
 
-const DATE_FORMAT: Intl.DateTimeFormatOptions = {
+const COMPACT_DATE: Intl.DateTimeFormatOptions = {
   month: 'short',
   day: 'numeric',
-  year: 'numeric',
+  year: '2-digit',
 };
 
-function formatGameDate(date: Date | null): string {
+function formatCompactDate(date: Date | null): string {
   if (!date) return '...';
-  return date.toLocaleDateString('en-US', DATE_FORMAT);
+  return date.toLocaleDateString('en-US', COMPACT_DATE);
+}
+
+/** Determine sign of income string for color coding. */
+function incomeSign(income: string): 'positive' | 'negative' | 'neutral' {
+  const cleaned = income.replace(/[^0-9.\-]/g, '');
+  const num = parseFloat(cleaned);
+  if (Number.isNaN(num) || num === 0) return 'neutral';
+  return num > 0 ? 'positive' : 'negative';
+}
+
+/** Format income with sign prefix and dollar sign. */
+function formatIncome(income: string): string {
+  const sign = incomeSign(income);
+  const cleaned = income.replace(/[^0-9.,]/g, '');
+  if (sign === 'positive') return `+$${cleaned}/h`;
+  if (sign === 'negative') return `-$${cleaned}/h`;
+  return `$0/h`;
 }
 
 export function InfoWidget() {
   const username = useGameStore((s) => s.username);
+  const worldName = useGameStore((s) => s.worldName);
   const companyName = useGameStore((s) => s.companyName);
   const tycoonStats = useGameStore((s) => s.tycoonStats);
   const gameDate = useGameStore((s) => s.gameDate);
@@ -39,57 +61,81 @@ export function InfoWidget() {
     .filter(Boolean)
     .join(' ');
 
+  const sign = tycoonStats ? incomeSign(tycoonStats.incomePerHour) : 'neutral';
+  const incomeClass =
+    sign === 'positive' ? styles.incomePositive
+      : sign === 'negative' ? styles.incomeNegative
+        : styles.incomeNeutral;
+
+  const facilitiesPercent = tycoonStats
+    ? Math.min(100, Math.round((tycoonStats.buildingCount / Math.max(1, tycoonStats.maxBuildings)) * 100))
+    : 0;
+
   return (
     <div className={widgetClass}>
-      {/* Row 1: Game date */}
-      <div className={styles.row}>
-        <span className={styles.date}>{formatGameDate(gameDate)}</span>
-      </div>
-
-      {/* Row 2: Rank + player name */}
-      {tycoonStats && (
-        <div className={styles.row}>
-          <span className={styles.rank}>#{tycoonStats.ranking}</span>
-          <span className={styles.separator}>&middot;</span>
-          <span className={styles.name}>{username || 'Unknown'}</span>
-        </div>
-      )}
-
-      {/* Row 2b: Public role (if any) */}
-      {ownerRole && (
-        <div className={styles.row}>
-          <span className={styles.role}>{ownerRole}</span>
-        </div>
-      )}
-
-      {/* Row 3: Company name (clickable → Profile) */}
-      <div className={styles.row}>
-        <span
-          className={styles.company}
-          onClick={() => toggleLeftPanel('empire')}
-          title="Empire Overview (E)"
-        >
-          {companyName || 'No Company'}
+      {/* Header: Server + Date */}
+      <div className={styles.header}>
+        <span className={styles.server}>
+          {worldName ? worldName.toUpperCase() : 'OFFLINE'}
         </span>
+        <span className={styles.date}>{formatCompactDate(gameDate)}</span>
       </div>
 
-      {/* Row 4: Facilities count */}
+      {/* Financial section */}
       {tycoonStats && (
+        <div className={styles.financial}>
+          <div className={styles.cashRow}>
+            <span className={styles.cashSymbol}>$</span>
+            <span className={styles.cash}>{tycoonStats.cash}</span>
+          </div>
+          <div className={styles.incomeRow}>
+            <span className={incomeClass}>
+              {formatIncome(tycoonStats.incomePerHour)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Identity section */}
+      <div className={styles.identity}>
+        {tycoonStats && (
+          <div className={styles.row}>
+            <span className={styles.rank}>#{tycoonStats.ranking}</span>
+            <span className={styles.separator}>&middot;</span>
+            <span className={styles.name}>{username || 'Unknown'}</span>
+            {ownerRole && (
+              <>
+                <span className={styles.separator}>&middot;</span>
+                <span className={styles.role}>{ownerRole}</span>
+              </>
+            )}
+          </div>
+        )}
+
         <div className={styles.row}>
-          <span className={styles.facilities}>
-            {tycoonStats.buildingCount}/{tycoonStats.maxBuildings} facilities
+          <span
+            className={styles.company}
+            onClick={() => toggleLeftPanel('empire')}
+            title="Empire Overview (E)"
+          >
+            {companyName || 'No Company'} &#x203a;
           </span>
         </div>
-      )}
 
-      {/* Row 5: Cash + Income */}
-      {tycoonStats && (
-        <div className={styles.row}>
-          <span className={styles.cash}>${tycoonStats.cash}</span>
-          <span className={styles.separator}>&middot;</span>
-          <span className={styles.income}>{tycoonStats.incomePerHour}/h</span>
-        </div>
-      )}
+        {tycoonStats && (
+          <div className={styles.facilitiesRow}>
+            <span className={styles.facilitiesLabel}>
+              {tycoonStats.buildingCount}/{tycoonStats.maxBuildings}
+            </span>
+            <div className={styles.facilitiesBar}>
+              <div
+                className={styles.facilitiesFill}
+                style={{ width: `${facilitiesPercent}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

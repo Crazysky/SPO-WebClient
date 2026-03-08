@@ -19,7 +19,7 @@ import { usePoliticsStore } from '../../store/politics-store';
 import { useBuildingStore } from '../../store/building-store';
 import { useGameStore } from '../../store/game-store';
 import { BuildingInspector } from '../building/BuildingInspector';
-import type { BuildingPropertyValue, BuildingDetailsResponse, BuildingDetailsTab } from '@/shared/types';
+import type { BuildingPropertyValue, BuildingDetailsResponse, BuildingDetailsTab, PoliticsData } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -459,7 +459,7 @@ describe('CapitolPanel', () => {
   // ---- Ratings tab: Start/Cancel Campaign ----
 
   describe('Ratings tab campaign button', () => {
-    const MOCK_POLITICS_DATA = {
+    const MOCK_POLITICS_DATA: PoliticsData = {
       townName: 'Paraiso',
       yearsToElections: 33,
       mayorName: 'Mayor Chen',
@@ -478,16 +478,20 @@ describe('CapitolPanel', () => {
     function setupRatingsTab(opts: {
       username?: string;
       ownerRole?: string;
+      isPublicOfficeRole?: boolean;
       votesData?: BuildingPropertyValue[];
       politicsData?: typeof MOCK_POLITICS_DATA;
     } = {}) {
       const votesData = opts.votesData ?? VOTES_DATA;
       setupCapitol({ votes: votesData });
       usePoliticsStore.setState({ data: opts.politicsData ?? MOCK_POLITICS_DATA });
+      const role = (opts.ownerRole ?? '').toLowerCase();
       useGameStore.setState({
         username: opts.username ?? 'TestPlayer',
         ownerRole: opts.ownerRole ?? '',
-        isPublicOfficeRole: (opts.ownerRole ?? '').toLowerCase().includes('president'),
+        isPublicOfficeRole: opts.isPublicOfficeRole ?? (
+          role.includes('president') || role.includes('mayor') || role.includes('minister')
+        ),
       });
     }
 
@@ -507,8 +511,24 @@ describe('CapitolPanel', () => {
       expect(screen.queryByText('Start Campaign')).toBeNull();
     });
 
-    it('hides both buttons when user is mayor/president', () => {
+    it('hides both buttons when user is president', () => {
       setupRatingsTab({ ownerRole: 'President of Shamba' });
+      renderWithProviders(<BuildingInspector hideHeader />);
+      switchTab('ratings');
+      expect(screen.queryByText('Start Campaign')).toBeNull();
+      expect(screen.queryByText('Cancel Campaign')).toBeNull();
+    });
+
+    it('hides both buttons when user is mayor', () => {
+      setupRatingsTab({ ownerRole: 'Mayor', isPublicOfficeRole: true });
+      renderWithProviders(<BuildingInspector hideHeader />);
+      switchTab('ratings');
+      expect(screen.queryByText('Start Campaign')).toBeNull();
+      expect(screen.queryByText('Cancel Campaign')).toBeNull();
+    });
+
+    it('hides both buttons when user is minister', () => {
+      setupRatingsTab({ ownerRole: 'Minister', isPublicOfficeRole: true });
       renderWithProviders(<BuildingInspector hideHeader />);
       switchTab('ratings');
       expect(screen.queryByText('Start Campaign')).toBeNull();
@@ -560,6 +580,45 @@ describe('CapitolPanel', () => {
       expect(screen.getByText('Cancel Campaign')).toBeTruthy();
     });
 
+    it('derives isCandidate from PoliticsData.campaigns when votes group is empty', () => {
+      setupRatingsTab({
+        username: 'Senator Adams',
+        votesData: [], // no votes group data
+        politicsData: {
+          ...MOCK_POLITICS_DATA,
+          campaigns: [{ candidateName: 'Senator Adams', rating: 45 }],
+        },
+      });
+      renderWithProviders(<BuildingInspector hideHeader />);
+      switchTab('ratings');
+      expect(screen.getByText('Cancel Campaign')).toBeTruthy();
+      expect(screen.queryByText('Start Campaign')).toBeNull();
+    });
+
+    it('disables Start Campaign when canLaunchCampaign is false', () => {
+      setupRatingsTab({
+        politicsData: {
+          ...MOCK_POLITICS_DATA,
+          canLaunchCampaign: false,
+          campaignMessage: 'Your prestige is too low to run for office.',
+        },
+      });
+      renderWithProviders(<BuildingInspector hideHeader />);
+      switchTab('ratings');
+      const btn = screen.getByText('Start Campaign');
+      expect((btn as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('enables Start Campaign when canLaunchCampaign is true', () => {
+      setupRatingsTab({
+        politicsData: { ...MOCK_POLITICS_DATA, canLaunchCampaign: true },
+      });
+      renderWithProviders(<BuildingInspector hideHeader />);
+      switchTab('ratings');
+      const btn = screen.getByText('Start Campaign');
+      expect((btn as HTMLButtonElement).disabled).toBe(false);
+    });
+
     // ---- Town Hall context (townName set) ----
 
     it('shows Start Campaign in Town Hall context (townName set)', () => {
@@ -579,12 +638,27 @@ describe('CapitolPanel', () => {
     });
 
     it('hides buttons in Town Hall context when user is mayor', () => {
-      setupRatingsTab({ ownerRole: 'President of Shamba' });
+      setupRatingsTab({ ownerRole: 'Mayor', isPublicOfficeRole: true });
       usePoliticsStore.setState({ townName: 'Olympus' });
       renderWithProviders(<BuildingInspector hideHeader />);
       switchTab('ratings');
       expect(screen.queryByText('Start Campaign')).toBeNull();
       expect(screen.queryByText('Cancel Campaign')).toBeNull();
+    });
+
+    it('shows Cancel Campaign in Town Hall context via PoliticsData.campaigns', () => {
+      setupRatingsTab({
+        username: 'TestPlayer',
+        votesData: [], // Town Hall has no votes group
+        politicsData: {
+          ...MOCK_POLITICS_DATA,
+          campaigns: [{ candidateName: 'TestPlayer', rating: 30 }],
+        },
+      });
+      usePoliticsStore.setState({ townName: 'Olympus' });
+      renderWithProviders(<BuildingInspector hideHeader />);
+      switchTab('ratings');
+      expect(screen.getByText('Cancel Campaign')).toBeTruthy();
     });
   });
 });

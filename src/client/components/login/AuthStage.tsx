@@ -8,6 +8,7 @@
 import { useState, useCallback, type KeyboardEvent } from 'react';
 import { GlassCard } from '../common';
 import { showToast } from '../common/Toast';
+import { APP_VERSION, BUILD_DATE } from '../../version';
 import styles from './AuthStage.module.css';
 
 interface AuthStageProps {
@@ -71,7 +72,7 @@ export function AuthStage({ onConnect, isLoading, status }: AuthStageProps) {
         </button>
       </GlassCard>
 
-      <span className={styles.version}>Alpha 0.1.0</span>
+      <span className={styles.version}>Alpha {APP_VERSION} ({BUILD_DATE})</span>
     </div>
   );
 }

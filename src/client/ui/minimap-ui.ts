@@ -165,13 +165,12 @@ export class MinimapUI {
       left: ${MINIMAP_PADDING}px;
       width: ${this.currentWidth}px;
       height: ${this.currentHeight}px;
-      border: 2px solid rgba(148, 163, 184, 0.6);
-      border-radius: 8px;
       overflow: hidden;
       z-index: 100;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
       cursor: crosshair;
       background: #0f172a;
+      clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+      filter: drop-shadow(0 0 1px rgba(148, 163, 184, 0.6)) drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
       transition: left 250ms cubic-bezier(0.16, 1, 0.3, 1);
     `;
 
@@ -192,15 +191,16 @@ export class MinimapUI {
 
     this.container.appendChild(this.canvas);
 
-    // Resize handle — bottom-right corner (SE)
+    // Resize handle — bottom vertex of diamond
     const handle = document.createElement('div');
     handle.style.cssText = `
       position: absolute;
-      bottom: 0;
-      right: 0;
-      width: 14px;
-      height: 14px;
-      cursor: se-resize;
+      bottom: -2px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 20px;
+      height: 12px;
+      cursor: s-resize;
       z-index: 1;
     `;
     this.container.appendChild(handle);
@@ -217,15 +217,12 @@ export class MinimapUI {
   }
 
   private attachResizeListeners(handle: HTMLElement): void {
-    let startX = 0;
     let startY = 0;
     let startW = 0;
 
     const onMouseMove = (e: MouseEvent) => {
-      // Dragging SE handle: moving right/down = bigger, left/up = smaller
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      const delta = Math.max(dx, dy);
+      // Dragging bottom vertex: moving down = bigger, up = smaller
+      const delta = e.clientY - startY;
       const newSize = Math.max(MIN_SIZE, Math.min(MAX_SIZE, startW + delta));
       this.currentWidth = newSize;
       this.currentHeight = newSize;
@@ -249,7 +246,6 @@ export class MinimapUI {
     handle.addEventListener('mousedown', (e: MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      startX = e.clientX;
       startY = e.clientY;
       startW = this.currentWidth;
       document.addEventListener('mousemove', onMouseMove);

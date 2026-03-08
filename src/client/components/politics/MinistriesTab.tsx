@@ -135,13 +135,13 @@ function BudgetInput({
   const client = useClient();
   const [value, setValue] = useState(String(initialValue));
   const [editing, setEditing] = useState(false);
-  const pendingKey = `MinisterBudget${index}`;
+  const pendingKey = `RDOSetMinistryBudget:{"index":"${index}"}`;
 
   const commit = useCallback(() => {
     setEditing(false);
     const numValue = parseInt(value, 10);
     if (!isNaN(numValue) && numValue !== initialValue) {
-      client.onSetBuildingProperty(buildingX, buildingY, `MinisterBudget${index}`, String(numValue));
+      client.onSetBuildingProperty(buildingX, buildingY, 'RDOSetMinistryBudget', String(numValue), { index: String(index) });
     }
   }, [value, initialValue, client, buildingX, buildingY, index]);
 

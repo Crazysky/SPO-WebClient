@@ -318,9 +318,9 @@ describe('MinimapUI', () => {
       // rdx = 50*(-0.7071) - 50*(-0.7071) = 0
       // rdy = 50*(-0.7071) + 50*(-0.7071) = -70.71
       // rx = 100 + 0/0.7071 = 100, ry = 100 + (-70.71)/0.7071 = 0
-      // mapX = round(100/200*100)=50, mapY = max(0, round(0/200*100))=0
+      // mapX = round(100/200*100)=50, mapY = min(99, round((200-0)/200*100))=99
       canvas!.onmousedown!({ offsetX: 150, offsetY: 150, preventDefault: jest.fn(), stopPropagation: jest.fn() });
-      expect(renderer.centerOn).toHaveBeenCalledWith(50, 0);
+      expect(renderer.centerOn).toHaveBeenCalledWith(50, 99);
 
       minimap.destroy();
     });
@@ -339,9 +339,9 @@ describe('MinimapUI', () => {
       // rdx = 0*(0.7071) - (-100)*(-0.7071) = -70.71
       // rdy = 0*(-0.7071) + (-100)*(0.7071) = -70.71
       // rx = 100 + (-70.71)/0.7071 = 0, ry = 100 + (-70.71)/0.7071 = 0
-      // mapX = max(0, 0) = 0, mapY = max(0, 0) = 0
+      // mapX = max(0, 0) = 0, mapY = min(99, round((200-0)/200*100)) = 99
       canvas!.onmousedown!({ offsetX: 100, offsetY: 0, preventDefault: jest.fn(), stopPropagation: jest.fn() });
-      expect(renderer.centerOn).toHaveBeenCalledWith(0, 0);
+      expect(renderer.centerOn).toHaveBeenCalledWith(0, 99);
 
       minimap.destroy();
     });
@@ -471,6 +471,39 @@ describe('MinimapUI', () => {
 
       expect(mockCtx.createImageData).toHaveBeenCalled();
       expect(mockCtx.putImageData).toHaveBeenCalled();
+
+      minimap.destroy();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Diamond shape tests
+  // ---------------------------------------------------------------------------
+
+  describe('diamond shape', () => {
+    it('should apply diamond clip-path to container', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer());
+
+      const container = allElements.find(el => el.id === 'minimap-container');
+      expect(container).toBeDefined();
+      expect(container!.style.cssText).toContain('clip-path');
+      expect(container!.style.cssText).toContain('polygon');
+
+      minimap.destroy();
+    });
+
+    it('should position resize handle at bottom vertex with s-resize cursor', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer());
+
+      const container = allElements.find(el => el.id === 'minimap-container');
+      expect(container).toBeDefined();
+      // Handle is the second child (after canvas)
+      const handle = container!.children[1];
+      expect(handle).toBeDefined();
+      expect(handle.style.cssText).toContain('s-resize');
+      expect(handle.style.cssText).toContain('left: 50%');
 
       minimap.destroy();
     });

@@ -291,7 +291,7 @@ export class StarpeaceSession extends EventEmitter {
   private readonly MAX_CONCURRENT_MAP_REQUESTS = 3; // Maximum 3 zone requests at once
   
   // --- REQUEST DEDUPLICATION ---
-    private pendingMapRequests: Set<string> = new Set();
+    private pendingMapRequests: Map<string, Promise<MapData>> = new Map();
 
 
 
@@ -1405,6 +1405,19 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
   }
 
   /**
+   * Ensure the mail socket is connected, reconnecting if the server closed it.
+   * The Delphi MailServer has a 10-second idle timeout (MailConnectionTimeOut)
+   * which closes idle TCP connections. This method transparently reconnects.
+   */
+  private async ensureMailConnection(): Promise<void> {
+    if (!this.sockets.has('mail')) {
+      this.log.debug('[Mail] Socket was closed (server idle timeout), reconnecting...');
+      this.mailServerId = null;
+      await this.connectMailService();
+    }
+  }
+
+  /**
    * Compose and send a mail message.
    * Reference: MsgComposerHandler.pas:316-329
    * Flow: NewMail → AddLine (per line) → Post
@@ -1415,6 +1428,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    * Flow: NewMail → AddHeaders? → AddLine (per line) → Post → CloseMessage
    */
   public async composeMail(to: string, subject: string, bodyLines: string[], headers?: string): Promise<boolean> {
+    await this.ensureMailConnection();
     if (!this.mailServerId || !this.mailAccount) {
       throw new Error('Mail service not connected');
     }
@@ -1507,6 +1521,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     headers?: string,
     existingDraftId?: string
   ): Promise<boolean> {
+    await this.ensureMailConnection();
     if (!this.mailServerId || !this.mailAccount) {
       throw new Error('Mail service not connected');
     }
@@ -1597,6 +1612,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    * Flow: OpenMessage → GetHeaders → GetLines → GetAttachmentCount → GetAttachment → CloseMessage
    */
   public async readMailMessage(folder: string, messageId: string): Promise<MailMessageFull> {
+    await this.ensureMailConnection();
     if (!this.mailServerId || !this.mailAccount) {
       throw new Error('Mail service not connected');
     }
@@ -1694,6 +1710,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    * Delete a mail message from a folder.
    */
   public async deleteMailMessage(folder: string, messageId: string): Promise<void> {
+    await this.ensureMailConnection();
     if (!this.mailServerId || !this.mailAccount) {
       throw new Error('Mail service not connected');
     }
@@ -1724,6 +1741,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
    * routing notifications, which we don't need for a count query).
    */
   public async getMailUnreadCount(): Promise<number> {
+    await this.ensureMailConnection();
     if (!this.mailServerId || !this.mailAccount) {
       throw new Error('Mail service not connected');
     }
@@ -3316,6 +3334,7 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
 
 public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64): Promise<MapData> {
     if (!this.worldContextId) throw new Error('Not logged into world');
+    const worldCtxId = this.worldContextId; // capture for async closure
 
     const targetX = x !== undefined ? x : this.lastPlayerX;
     const targetY = y !== undefined ? y : this.lastPlayerY;
@@ -3326,11 +3345,12 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       this.lastPlayerY = targetY;
     }
 
-    // --- DEDUPLICATION: Check if already pending ---
+    // --- DEDUPLICATION: Share pending promise instead of throwing ---
     const requestKey = `${targetX},${targetY}`;
-    if (this.pendingMapRequests.has(requestKey)) {
-        this.log.debug(`[Session] Skipping duplicate map request for ${requestKey}`);
-        throw new Error(`Map area ${requestKey} already loading`);
+    const pending = this.pendingMapRequests.get(requestKey);
+    if (pending) {
+        this.log.debug(`[Session] Sharing pending map request for ${requestKey}`);
+        return pending;
     }
 
     // --- MAP CONCURRENCY LIMIT: Check if at max concurrent map requests ---
@@ -3339,17 +3359,16 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
         throw new Error(`Maximum concurrent map requests reached (${this.MAX_CONCURRENT_MAP_REQUESTS})`);
     }
 
-    // Mark as pending
-    this.pendingMapRequests.add(requestKey);
-    this.activeMapRequests++;
-
-    try {
+    // Build the promise and store it for dedup sharing
+    const promise = (async (): Promise<MapData> => {
+      this.activeMapRequests++;
+      try {
         this.log.debug(`[Session] Loading map area at ${targetX}, ${targetY} (size ${w}x${h}) [${this.activeMapRequests}/${this.MAX_CONCURRENT_MAP_REQUESTS}]`);
 
         // --- FIXED: ObjectsInArea with correct separator (consistant avec SwitchFocusEx) ---
         const objectsPacket = await this.sendRdoRequest('world', {
             verb: RdoVerb.SEL,
-            targetId: this.worldContextId,
+            targetId: worldCtxId,
             action: RdoAction.CALL,
             member: 'ObjectsInArea',
             separator: '"^"',  // FIX: Use '"^"' for consistency with other requests
@@ -3365,7 +3384,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
 
         const segmentsPacket = await this.sendRdoRequest('world', {
             verb: RdoVerb.SEL,
-            targetId: this.worldContextId,
+            targetId: worldCtxId,
             action: RdoAction.CALL,
             member: 'SegmentsInArea',
             args: [
@@ -3386,11 +3405,15 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
 
         return { x: targetX, y: targetY, w, h, buildings, segments };
 
-    } finally {
+      } finally {
         // Always remove from pending tracker
         this.pendingMapRequests.delete(requestKey);
         this.activeMapRequests--;
-    }
+      }
+    })();
+
+    this.pendingMapRequests.set(requestKey, promise);
+    return promise;
 }
 
 
@@ -3981,7 +4004,13 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       this.log.debug(`[RoadBuilding] Generated ${segments.length} segment(s)`);
 
       // Get owner and circuit IDs
-      const ownerId = this.fTycoonProxyId || 0;
+      if (!this.fTycoonProxyId) {
+        return {
+          success: false, cost: 0, tileCount: 0,
+          message: 'Tycoon not initialized — reconnect', errorCode: 1
+        };
+      }
+      const ownerId = this.fTycoonProxyId;
       const circuitId = 1; // Road circuit type
 
       let totalCost = 0;
@@ -4136,8 +4165,11 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       return { success: false, message: 'Not connected to world', errorCode: 1 };
     }
 
+    if (!this.fTycoonProxyId) {
+      return { success: false, message: 'Tycoon not initialized — reconnect', errorCode: 1 };
+    }
     const circuitId = 1; // Road circuit type
-    const ownerId = this.fTycoonProxyId || 0;
+    const ownerId = this.fTycoonProxyId;
 
     try {
       const result = await this.sendRdoRequest('world', {
@@ -4178,6 +4210,69 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
       return { success: false, message, errorCode: resultCode };
     } catch (e: unknown) {
       this.log.error(`[RoadDemolish] Failed to demolish road:`, e);
+      return { success: false, message: toErrorMessage(e), errorCode: 1 };
+    }
+  }
+
+  /**
+   * Wipe (demolish) all road segments in a rectangular area.
+   * RDO: sel <worldContextId> call WipeCircuit "^" "#<circuitId>","#<ownerId>","#<x1>","#<y1>","#<x2>","#<y2>"
+   * Delphi: World.pas RDOWipeCircuit(CircuitId, TycoonId, x1, y1, x2, y2)
+   */
+  public async wipeCircuit(
+    x1: number, y1: number, x2: number, y2: number
+  ): Promise<{ success: boolean; message?: string; errorCode?: number }> {
+    if (!this.worldContextId) {
+      return { success: false, message: 'Not connected to world', errorCode: 1 };
+    }
+    if (!this.fTycoonProxyId) {
+      return { success: false, message: 'Tycoon not initialized — reconnect', errorCode: 1 };
+    }
+
+    const circuitId = 1; // Road circuit type
+    const ownerId = this.fTycoonProxyId;
+    // Normalize to min/max
+    const nx1 = Math.min(x1, x2);
+    const ny1 = Math.min(y1, y2);
+    const nx2 = Math.max(x1, x2);
+    const ny2 = Math.max(y1, y2);
+
+    try {
+      const result = await this.sendRdoRequest('world', {
+        verb: RdoVerb.SEL,
+        targetId: this.worldContextId,
+        action: RdoAction.CALL,
+        member: 'WipeCircuit',
+        separator: '"^"',
+        args: [
+          `#${circuitId}`,
+          `#${ownerId}`,
+          `#${nx1}`,
+          `#${ny1}`,
+          `#${nx2}`,
+          `#${ny2}`
+        ]
+      });
+
+      const resultMatch = /res="#(-?\d+)"/.exec(result.payload || '');
+      const resultCode = resultMatch ? parseInt(resultMatch[1], 10) : -1;
+
+      if (resultCode === 0) {
+        this.log.debug(`[RoadDemolish] Area wiped (${nx1},${ny1})→(${nx2},${ny2})`);
+        return { success: true };
+      }
+
+      const errorMessages: Record<number, string> = {
+        1: 'Road demolition failed — please try a different area',
+        15: 'Permission denied — you do not have rights to demolish roads here',
+        21: 'Invalid circuit type',
+      };
+
+      const message = errorMessages[resultCode] || `Failed with code ${resultCode}`;
+      this.log.warn(`[RoadDemolish] Area wipe failed: ${message}`);
+      return { success: false, message, errorCode: resultCode };
+    } catch (e: unknown) {
+      this.log.error(`[RoadDemolish] Failed to wipe circuit:`, e);
       return { success: false, message: toErrorMessage(e), errorCode: 1 };
     }
   }

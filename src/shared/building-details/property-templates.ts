@@ -12,6 +12,7 @@ import {
   WORKFORCE_GROUP,
   UPGRADE_GROUP,
   HQ_INVENTIONS_GROUP,
+  VOTES_GROUP,
   HANDLER_TO_GROUP,
 } from './template-groups';
 import { CIVIC_HANDLER_NAMES, registerCivicVisualClass } from './civic-buildings';
@@ -93,6 +94,18 @@ export function registerInspectorTabs(
       ...HQ_INVENTIONS_GROUP,
       order: groups.length * 10,
       handlerName: 'hdqInventions',
+    });
+  }
+
+  // Runtime-inject Votes for Town Hall buildings (Delphi VotesSheet serves both
+  // Capitol and Town Hall, but CLASSES.BIN may not list it for Town Hall)
+  const hasTownGeneral = inspectorTabs.some(t => t.tabHandler === 'townGeneral');
+  const hasVotes = usedIds.has('votes');
+  if (hasTownGeneral && !hasVotes) {
+    groups.push({
+      ...VOTES_GROUP,
+      order: groups.length * 10,
+      handlerName: 'Votes',
     });
   }
 

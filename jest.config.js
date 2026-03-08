@@ -1,5 +1,11 @@
 /** @type {import('jest').Config} */
 
+/** Vite define replacements — must be mirrored here for Jest */
+const sharedGlobals = {
+  __APP_VERSION__: '"0.1.0"',
+  __BUILD_DATE__: '"test"',
+};
+
 /** Shared module resolution used by both projects */
 const sharedModuleConfig = {
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
@@ -35,6 +41,7 @@ module.exports = {
       roots: ['<rootDir>/src'],
       testMatch: ['**/*.test.ts', '**/*.test.js'],
       setupFilesAfterEnv: ['<rootDir>/src/server/__tests__/setup/jest-setup.ts'],
+      globals: sharedGlobals,
       ...sharedModuleConfig,
     },
     // Project 2: Component smoke tests (.test.tsx) — jsdom environment
@@ -48,6 +55,7 @@ module.exports = {
         '<rootDir>/src/server/__tests__/setup/jest-setup.ts',
         '<rootDir>/src/client/__tests__/setup/component-setup.ts',
       ],
+      globals: sharedGlobals,
       ...sharedModuleConfig,
     },
   ],
