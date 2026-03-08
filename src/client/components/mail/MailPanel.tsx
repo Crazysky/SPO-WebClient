@@ -11,6 +11,8 @@ import { useMailStore } from '../../store/mail-store';
 import { useClient } from '../../context';
 import { TabBar, Skeleton } from '../common';
 import type { MailFolder, MailMessageHeader } from '@/shared/types';
+import { isHtmlContent } from '@/shared/mail-html-utils';
+import { HtmlMailBody } from './HtmlMailBody';
 import styles from './MailPanel.module.css';
 
 const FOLDERS: { id: MailFolder; label: string; badge?: boolean }[] = [
@@ -159,7 +161,11 @@ export function MailPanel() {
             <span>From: {currentMessage.from || currentMessage.fromAddr}</span>
             <span>{currentMessage.dateFmt || currentMessage.date}</span>
           </div>
-          <div className={styles.readBody}>{currentMessage.body.join('\n')}</div>
+          {isHtmlContent(currentMessage.body) ? (
+            <HtmlMailBody body={currentMessage.body} />
+          ) : (
+            <div className={styles.readBody}>{currentMessage.body.join('\n')}</div>
+          )}
         </div>
       )}
 

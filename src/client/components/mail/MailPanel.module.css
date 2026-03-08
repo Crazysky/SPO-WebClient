@@ -200,6 +200,16 @@
   white-space: pre-wrap;
 }
 
+/* HTML mail body (iframe) */
+.htmlBody {
+  width: 100%;
+  min-height: 300px;
+  flex: 1;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
 /* Compose view */
 .composeView {
   flex: 1;
