@@ -420,6 +420,7 @@ export class IsometricMapRenderer {
   private onRoadSegmentComplete: ((x1: number, y1: number, x2: number, y2: number) => void) | null = null;
   private onCancelRoadDrawing: (() => void) | null = null;
   private onRoadDemolishClick: ((x: number, y: number) => void) | null = null;
+  private onCancelRoadDemolish: (() => void) | null = null;
   private onEmptyMapClick: (() => void) | null = null;
 
   // Zone overlay
@@ -1526,6 +1527,10 @@ export class IsometricMapRenderer {
     this.onRoadDemolishClick = callback;
     // Reset drag state when entering/exiting demolish mode
     this.roadDemolishDragState.isDrawing = false;
+  }
+
+  public setCancelRoadDemolishCallback(callback: (() => void) | null) {
+    this.onCancelRoadDemolish = callback;
   }
 
   public setRoadDemolishAreaCompleteCallback(callback: ((x1: number, y1: number, x2: number, y2: number) => void) | null) {
@@ -4390,6 +4395,11 @@ export class IsometricMapRenderer {
 
       if (this.zonePaintingMode && this.onCancelZonePainting) {
         this.onCancelZonePainting();
+        return;
+      }
+
+      if (this.onRoadDemolishClick && this.onCancelRoadDemolish) {
+        this.onCancelRoadDemolish();
         return;
       }
 

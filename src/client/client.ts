@@ -2829,8 +2829,11 @@ export class StarpeaceClient {
         renderer.setRoadDemolishAreaCompleteCallback((x1: number, y1: number, x2: number, y2: number) => {
           this.demolishRoadArea(x1, y1, x2, y2);
         });
+        renderer.setCancelRoadDemolishCallback(() => {
+          this.cancelRoadDemolishMode();
+        });
 
-        ClientBridge.log('Road', 'Road demolish mode enabled. Click or drag to select road tiles. Press ESC to cancel.');
+        ClientBridge.log('Road', 'Road demolish mode enabled. Click or drag to select road tiles. Right-click or press ESC to cancel.');
       } else {
         renderer.setRoadDemolishClickCallback(null);
         renderer.setRoadDemolishAreaCompleteCallback(null);
@@ -2851,6 +2854,7 @@ export class StarpeaceClient {
     if (renderer) {
       renderer.setRoadDemolishClickCallback(null);
       renderer.setRoadDemolishAreaCompleteCallback(null);
+      renderer.setCancelRoadDemolishCallback(null);
     }
 
     ClientBridge.setRoadDemolishMode(false);
