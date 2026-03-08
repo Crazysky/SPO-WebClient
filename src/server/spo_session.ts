@@ -6014,7 +6014,7 @@ private handlePush(socketName: string, packet: RdoPacket) {
 
       // FALLBACK: Extract from icon filename (for HTML without info attributes)
       if (!facilityClass && iconPath) {
-        const iconFilenameMatch = /Map([A-Z][a-zA-Z0-9]+?)(?:\d+x\d+x\d+)?\.gif/i.exec(iconPath);
+        const iconFilenameMatch = /Map([A-Z][a-zA-Z0-9]+?)(?:\d+x\d+(?:x\d+)?)?\.gif/i.exec(iconPath);
         if (iconFilenameMatch) {
           facilityClass = iconFilenameMatch[1];
           this.log.warn(`[BuildConstruction] FacilityClass from icon fallback: "${facilityClass}" (may differ from kernel class)`);
@@ -6032,9 +6032,12 @@ private handlePush(socketName: string, packet: RdoPacket) {
           visualClassId = visualIdMatch[1];
         } else if (facilityClass) {
           // Last resort: search the full HTML for VisualClassId near this Cell_N
-          const cellAnchor = html.indexOf(`Cell_${cellIndex}`);
-          if (cellAnchor >= 0) {
-            const searchWindow = html.substring(cellAnchor, cellAnchor + 2000);
+          // IMPORTANT: Scope to cell boundary to avoid bleeding into neighboring cells
+          const cellAnchor2 = html.indexOf(`Cell_${cellIndex}`);
+          if (cellAnchor2 >= 0) {
+            const nextCell = html.indexOf('Cell_', cellAnchor2 + 5);
+            const end = nextCell >= 0 ? nextCell : cellAnchor2 + 2000;
+            const searchWindow = html.substring(cellAnchor2, end);
             const windowMatch = /VisualClassId[=:](\d+)/i.exec(searchWindow);
             if (windowMatch) {
               visualClassId = windowMatch[1];

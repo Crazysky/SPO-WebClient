@@ -3312,7 +3312,8 @@ export class StarpeaceClient {
         building.zoneRequirement,
         xsize,
         ysize,
-        building.visualClassId
+        building.visualClassId,
+        building.iconPath
       );
     }
 

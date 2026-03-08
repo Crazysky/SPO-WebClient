@@ -25,7 +25,7 @@ const cellRegex = /<tr[^>]*\sid\s*=\s*["']?Cell_(\d+)["']?[^>]*>([\s\S]*?)<\/tr>
 const iconRegex = /src\s*=\s*["']?([^"'\s>]+)["']?/i;
 
 /** Extract facilityClass from icon filename (fallback only) */
-const facilityClassRegex = /Map([A-Z][a-zA-Z0-9]+?)(?:\d+x\d+x\d+)?\.gif/i;
+const facilityClassRegex = /Map([A-Z][a-zA-Z0-9]+?)(?:\d+x\d+(?:x\d+)?)?\.gif/i;
 
 /** Extract FacilityClass from info attribute (primary source) */
 const infoFacilityClassRegex = /FacilityClass=([A-Za-z0-9]+)/i;
@@ -450,6 +450,132 @@ describe('FacilityList.asp HTML parsing', () => {
       const iconMatch = facilityClassRegex.exec('MapPGISmallShop64x32x0.gif');
       expect(iconMatch).not.toBeNull();
       expect(iconMatch![1]).toBe('PGISmallShop');
+    });
+  });
+
+  describe('IFEL icon filename parsing (2-segment dimensions)', () => {
+    it('should extract IFELCollege from MapIFELCollege64x32.gif (2-segment)', () => {
+      const m = facilityClassRegex.exec('MapIFELCollege64x32.gif');
+      expect(m).not.toBeNull();
+      expect(m![1]).toBe('IFELCollege');
+    });
+
+    it('should extract IFELDump from MapIFELDump64x32.gif (2-segment)', () => {
+      const m = facilityClassRegex.exec('MapIFELDump64x32.gif');
+      expect(m).not.toBeNull();
+      expect(m![1]).toBe('IFELDump');
+    });
+
+    it('should extract IFELTennis from MapIFELTennis64x32.gif (2-segment)', () => {
+      const m = facilityClassRegex.exec('MapIFELTennis64x32.gif');
+      expect(m).not.toBeNull();
+      expect(m![1]).toBe('IFELTennis');
+    });
+
+    it('should extract IFELJail from MapIFELJail64x32.gif (2-segment)', () => {
+      const m = facilityClassRegex.exec('MapIFELJail64x32.gif');
+      expect(m).not.toBeNull();
+      expect(m![1]).toBe('IFELJail');
+    });
+
+    it('should still extract IFELAlienParkA from 3-segment name', () => {
+      const m = facilityClassRegex.exec('MapIFELAlienParkA64x32x0.GIF');
+      expect(m).not.toBeNull();
+      expect(m![1]).toBe('IFELAlienParkA');
+    });
+
+    it('should still extract PGIFoodStore from 3-segment name', () => {
+      const m = facilityClassRegex.exec('MapPGIFoodStore64x32x0.gif');
+      expect(m).not.toBeNull();
+      expect(m![1]).toBe('PGIFoodStore');
+    });
+  });
+
+  describe('VisualClassId search scoping (cell boundary)', () => {
+    it('should NOT bleed VisualClassId from a neighboring cell', () => {
+      // Simulates the bug: Cell_0 has no VisualClassId, Cell_1 has VisualClassId=8022 (Tennis)
+      // An unbounded search from Cell_0 would find Tennis's ID. Scoped search must NOT.
+      const html = `
+<tr id="Cell_0" style="display:none">
+  <td><table><tr>
+    <td><img src=/five/icons/MapIFELCollege64x32.gif border="0"></td>
+    <td><div class=comment>$200K<br><nobr>400 m.</nobr></div></td>
+  </tr>
+  <tr><td colspan="2"><table><tr>
+    <td info="http://local.asp?FacilityClass=IFELCollege" command="build">Build now</td>
+  </tr></table></td></tr>
+  </table></td>
+</tr>
+<tr id="Cell_1" style="display:none">
+  <td><table><tr>
+    <td><img src=/five/icons/MapIFELTennis64x32.gif border="0"></td>
+  </tr>
+  <tr><td colspan="2"><table><tr>
+    <td info="http://local.asp?FacilityClass=IFELTennis&VisualClassId=8022" command="build">Build now</td>
+  </tr></table></td></tr>
+  </table></td>
+</tr>`;
+
+      // Scoped search for Cell_0: stop at Cell_1 boundary
+      const cellAnchor = html.indexOf('Cell_0');
+      expect(cellAnchor).toBeGreaterThan(-1);
+
+      const nextCell = html.indexOf('Cell_', cellAnchor + 5);
+      expect(nextCell).toBeGreaterThan(cellAnchor); // Cell_1 exists
+
+      const scopedWindow = html.substring(cellAnchor, nextCell);
+      const scopedMatch = visualIdRegex.exec(scopedWindow);
+      expect(scopedMatch).toBeNull(); // Cell_0 has no VisualClassId — must NOT find Tennis's 8022
+
+      // Unbounded search (the old bug) WOULD find it
+      const unboundedWindow = html.substring(cellAnchor, cellAnchor + 2000);
+      const unboundedMatch = visualIdRegex.exec(unboundedWindow);
+      expect(unboundedMatch).not.toBeNull();
+      expect(unboundedMatch![1]).toBe('8022'); // Proves the bleed-across bug
+    });
+
+    it('should find VisualClassId when it IS within the same cell', () => {
+      const html = `
+<tr id="Cell_0" style="display:none">
+  <td><table><tr>
+    <td><img src=/five/icons/MapIFELTennis64x32.gif border="0"></td>
+  </tr>
+  <tr><td colspan="2"><table><tr>
+    <td info="http://local.asp?FacilityClass=IFELTennis&VisualClassId=8022" command="build">Build now</td>
+  </tr></table></td></tr>
+  </table></td>
+</tr>
+<tr id="Cell_1" style="display:none">
+  <td>next cell</td>
+</tr>`;
+
+      const cellAnchor = html.indexOf('Cell_0');
+      const nextCell = html.indexOf('Cell_', cellAnchor + 5);
+      const scopedWindow = html.substring(cellAnchor, nextCell);
+      const scopedMatch = visualIdRegex.exec(scopedWindow);
+      expect(scopedMatch).not.toBeNull();
+      expect(scopedMatch![1]).toBe('8022');
+    });
+
+    it('should use 2000-char fallback when there is no next cell', () => {
+      // Last cell in HTML — no Cell_ after it, so fallback to cellAnchor + 2000
+      const html = `
+<tr id="Cell_5" style="display:none">
+  <td><table><tr>
+    <td info="http://local.asp?FacilityClass=IFELMuseum&VisualClassId=8032" command="build">Build now</td>
+  </tr></table></td>
+</tr>
+</table></body></html>`;
+
+      const cellAnchor = html.indexOf('Cell_5');
+      const nextCell = html.indexOf('Cell_', cellAnchor + 5);
+      expect(nextCell).toBe(-1); // No next cell
+
+      const end = nextCell >= 0 ? nextCell : cellAnchor + 2000;
+      const scopedWindow = html.substring(cellAnchor, end);
+      const scopedMatch = visualIdRegex.exec(scopedWindow);
+      expect(scopedMatch).not.toBeNull();
+      expect(scopedMatch![1]).toBe('8032');
     });
   });
 });

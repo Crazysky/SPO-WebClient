@@ -103,6 +103,7 @@ interface PlacementPreview {
   xsize: number;
   ysize: number;
   visualClass: string;  // For loading the building texture preview
+  fallbackIconUrl?: string;  // Build menu icon URL when CLASSES.BIN has no entry
 }
 
 /**
@@ -433,6 +434,7 @@ export class IsometricMapRenderer {
   private placementPreview: PlacementPreview | null = null;
   private placementMode: boolean = false;
   private placementInvalid: boolean = false;
+  private fallbackIconImages: Map<string, HTMLImageElement | null> = new Map();
 
   // Road drawing
   private roadDrawingMode: boolean = false;
@@ -1707,7 +1709,8 @@ export class IsometricMapRenderer {
     zoneRequirement: string = '',
     xsize: number = 1,
     ysize: number = 1,
-    visualClass: string = ''
+    visualClass: string = '',
+    fallbackIconUrl: string = ''
   ) {
     this.placementMode = enabled;
     if (enabled && buildingName) {
@@ -1720,7 +1723,8 @@ export class IsometricMapRenderer {
         zoneRequirement,
         xsize,
         ysize,
-        visualClass
+        visualClass,
+        fallbackIconUrl: fallbackIconUrl || undefined
       };
       this.canvas.style.cursor = 'crosshair';
     } else {
@@ -3397,6 +3401,30 @@ export class IsometricMapRenderer {
   }
 
   /**
+   * Load a fallback icon image (build menu icon) for placement preview.
+   * Returns the image if loaded, null if loading or unavailable.
+   */
+  private loadFallbackIcon(url?: string): HTMLImageElement | null {
+    if (!url) return null;
+
+    const cached = this.fallbackIconImages.get(url);
+    if (cached !== undefined) return cached;
+
+    // Start loading — store null as sentinel until loaded
+    this.fallbackIconImages.set(url, null);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      this.fallbackIconImages.set(url, img);
+    };
+    img.onerror = () => {
+      // Keep null sentinel — won't retry
+    };
+    img.src = url;
+    return null;
+  }
+
+  /**
    * Draw building placement preview
    */
   private drawPlacementPreview() {
@@ -3506,10 +3534,13 @@ export class IsometricMapRenderer {
       const textureFilename = GameObjectTextureCache.getBuildingTextureFilename(preview.visualClass);
       const texture = this.gameObjectTextureCache.getTextureSync('BuildingImages', textureFilename);
 
-      if (texture) {
+      // Use primary texture from CLASSES.BIN, or fall back to build menu icon
+      const drawImage = texture ?? this.loadFallbackIcon(preview.fallbackIconUrl);
+
+      if (drawImage) {
         const scaleFactor = config.tileWidth / 64;
-        const scaledWidth = texture.width * scaleFactor;
-        const scaledHeight = texture.height * scaleFactor;
+        const scaledWidth = drawImage.width * scaleFactor;
+        const scaledHeight = drawImage.height * scaleFactor;
 
         // Anchor at the south corner of the NW-based footprint (same as drawBuildings).
         // Compute NW corner from cursor, then apply the standard anchor logic.
@@ -3530,7 +3561,7 @@ export class IsometricMapRenderer {
 
         // Draw semi-transparent, tinted red on invalid placement
         ctx.globalAlpha = isInvalid ? 0.4 : 0.7;
-        ctx.drawImage(texture, drawX, drawY, scaledWidth, scaledHeight);
+        ctx.drawImage(drawImage, drawX, drawY, scaledWidth, scaledHeight);
         ctx.globalAlpha = 1.0;
       }
     }
