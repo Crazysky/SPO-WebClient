@@ -262,6 +262,9 @@ export enum WsMessageType {
   REQ_DEFINE_ZONE = 'REQ_DEFINE_ZONE',
   RESP_DEFINE_ZONE = 'RESP_DEFINE_ZONE',
 
+  // Camera Position
+  REQ_UPDATE_CAMERA = 'REQ_UPDATE_CAMERA',
+
   // Capitol
   REQ_BUILD_CAPITOL = 'REQ_BUILD_CAPITOL',
   RESP_CAPITOL_PLACED = 'RESP_CAPITOL_PLACED',
@@ -1362,6 +1365,16 @@ export interface WsRespCapitolCoords extends WsMessage {
   x: number;
   y: number;
   hasCapitol: boolean;
+}
+
+// =============================================================================
+// CAMERA POSITION MESSAGES
+// =============================================================================
+
+export interface WsReqUpdateCamera extends WsMessage {
+  type: WsMessageType.REQ_UPDATE_CAMERA;
+  x: number;  // column (j) — matches LastX.0 cookie
+  y: number;  // row (i) — matches LastY.0 cookie
 }
 
 // =============================================================================

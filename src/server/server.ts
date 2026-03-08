@@ -1299,6 +1299,13 @@ async function handleClientMessage(ws: WebSocket, session: StarpeaceSession, sea
         break;
       }
 
+      case WsMessageType.REQ_UPDATE_CAMERA: {
+        const camReq = msg as { x: number; y: number };
+        session.updateCameraPosition(camReq.x, camReq.y);
+        // Fire-and-forget — no response needed
+        break;
+      }
+
       case WsMessageType.REQ_RDO_DIRECT: {
         const req = msg as WsReqRdoDirect;
         // Execute arbitrary RDO command requested by UI

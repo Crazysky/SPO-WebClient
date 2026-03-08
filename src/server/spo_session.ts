@@ -3349,12 +3349,6 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
     const targetX = x !== undefined ? x : this.lastPlayerX;
     const targetY = y !== undefined ? y : this.lastPlayerY;
 
-    // Track current camera position for save on disconnect
-    if (x !== undefined && y !== undefined) {
-      this.lastPlayerX = targetX;
-      this.lastPlayerY = targetY;
-    }
-
     // --- DEDUPLICATION: Share pending promise instead of throwing ---
     const requestKey = `${targetX},${targetY}`;
     const pending = this.pendingMapRequests.get(requestKey);
@@ -3437,6 +3431,15 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
 		y: this.lastPlayerY
 	  };
 	}
+
+  /**
+   * Update the player's camera center position (for save on disconnect).
+   * Called by the client whenever the camera stops moving.
+   */
+  public updateCameraPosition(x: number, y: number): void {
+    this.lastPlayerX = x;
+    this.lastPlayerY = y;
+  }
 
   /**
    * VERIFIED [HIGH-02]: Get property list at specific coordinates

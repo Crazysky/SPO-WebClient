@@ -238,6 +238,7 @@ export class StarpeaceClient {
   private savedPlayerX: number | undefined;
   private savedPlayerY: number | undefined;
   private worldSeason: number | null = null;
+  private cameraUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Building focus state
   private currentFocusedBuilding: BuildingFocusInfo | null = null;
@@ -556,6 +557,7 @@ export class StarpeaceClient {
       this.mapNavigationUI.setOnLoadZone((x, y, w, h) => {
         ClientBridge.log('Map', `Requesting zone (${x}, ${y}) ${w}x${h}`);
         this.loadMapArea(x, y, w, h);
+        this.sendCameraPositionDebounced();
       });
 
       this.mapNavigationUI.setOnBuildingClick((x, y, visualClass) => {
@@ -611,8 +613,9 @@ export class StarpeaceClient {
       ClientBridge.log('System', 'Gateway Disconnected.');
     };
 
-    // Handle browser close/refresh - send logout request
+    // Handle browser close/refresh - save camera position and send logout request
     window.addEventListener('beforeunload', () => {
+      this.sendCameraPositionNow();
       this.sendLogoutBeacon();
     });
   }
@@ -3723,6 +3726,27 @@ export class StarpeaceClient {
    * Send logout request as a beacon when page is closing
    * Uses sendBeacon for reliable delivery during page unload
    */
+  private sendCameraPositionDebounced(): void {
+    if (this.cameraUpdateTimer !== null) {
+      clearTimeout(this.cameraUpdateTimer);
+    }
+    this.cameraUpdateTimer = setTimeout(() => {
+      this.cameraUpdateTimer = null;
+      this.sendCameraPositionNow();
+    }, 2000);
+  }
+
+  private sendCameraPositionNow(): void {
+    const renderer = this.mapNavigationUI?.getRenderer();
+    if (!renderer || !this.isConnected || !this.ws) return;
+    const pos = renderer.getCameraPosition();
+    this.sendMessage({
+      type: WsMessageType.REQ_UPDATE_CAMERA,
+      x: pos.x,
+      y: pos.y,
+    });
+  }
+
   private sendLogoutBeacon(): void {
     if (!this.isConnected || !this.ws) {
       return;
