@@ -2238,6 +2238,9 @@ function CompInputSection({
   const [localDemand, setLocalDemand] = useState(data.ratio);
   const demandTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  const barMax = data.maxDemand > 0 ? data.maxDemand : data.demanded;
+  const demPct = barMax > 0 ? Math.min(100, (data.demanded / barMax) * 100) : 0;
+  const supPct = barMax > 0 ? Math.min(100, (data.supplied / barMax) * 100) : 0;
   const fillPct = data.demanded > 0 ? Math.min(100, (data.supplied / data.demanded) * 100) : 0;
 
   const handleDemandChange = useCallback(
@@ -2278,15 +2281,19 @@ function CompInputSection({
               <span className={styles.ciDemandPerc}>{localDemand}%</span>
             </div>
 
-            {/* Row 2: Supply fulfillment bar */}
-            <div className={styles.ciSupplyBarRow}>
+            {/* Row 2: Supply bar — scaled to maxDemand capacity */}
+            <div className={styles.ciDemandRow}>
+              <span className={styles.ciDemandLabel}>Supply</span>
               <div className={styles.ciSupplyBar}>
+                {/* Demand zone — faint gold showing demanded portion of max capacity */}
+                <div className={styles.ciDemandZone} style={{ width: `${demPct}%` }} />
+                {/* Supply fill — supplied portion of max capacity */}
                 <div
                   className={`${styles.ciSupplyBarFill}${fillPct < 50 ? ` ${styles.ciBarCrit}` : fillPct < 100 ? ` ${styles.ciBarWarn}` : ''}`}
-                  style={{ width: `${fillPct}%` }}
+                  style={{ width: `${supPct}%` }}
                 />
               </div>
-              <span className={styles.ciDemandPerc}>{Math.round(fillPct)}%</span>
+              <span className={styles.ciDemandPerc}>{Math.round(supPct)}%</span>
             </div>
 
             {/* Low supply warning */}
@@ -2296,10 +2303,10 @@ function CompInputSection({
               </span>
             )}
 
-            {/* Row 3: Supplied / Demanded summary */}
+            {/* Summary — includes max capacity when available */}
             <div className={styles.ciSummary}>
               <span className={styles.ciFluidLabel}>
-                Supplied {formatNumber(data.supplied)} / Demanded {formatNumber(data.demanded)} {data.units}
+                Supplied {formatNumber(data.supplied)} / Demanded {formatNumber(data.demanded)}{data.maxDemand > 0 ? ` / Max ${formatNumber(data.maxDemand)}` : ''} {data.units}
               </span>
             </div>
           </>
