@@ -7,6 +7,36 @@
   overflow: hidden;
 }
 
+/* Toolbar — refresh + close, top-right */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  flex-shrink: 0;
+  animation: toolbarIn 200ms ease-out both;
+}
+
+.toolbar > button {
+  transition: transform 200ms ease-out, background 200ms ease-out;
+}
+
+.toolbar > button:hover {
+  transform: translateY(-1px);
+  background: var(--bg-elevated);
+}
+
+@keyframes toolbarIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toolbar { animation: none; }
+  .toolbar > button:hover { transform: none; }
+}
+
 /* Header */
 .header {
   padding: var(--space-4);
@@ -14,11 +44,33 @@
   flex-shrink: 0;
 }
 
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 .buildingName {
   font-size: var(--text-lg);
   font-weight: var(--font-bold);
   color: var(--text-primary);
   margin: 0;
+}
+
+.renameInput {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--accent-gold, #d4a843);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.renameInput:focus {
+  box-shadow: 0 0 0 2px rgba(212, 168, 67, 0.2);
 }
 
 .headerMeta {

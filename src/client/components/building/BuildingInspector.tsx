@@ -3,25 +3,26 @@
  *
  * Slides in via RightPanel when a building is focused.
  * Structure:
+ * - Toolbar: refresh + close buttons (top-right)
  * - Header: building name, owner, visual class
  * - QuickStats: revenue, profit, workers, efficiency
  * - TabNavigation: driven by server-sent tab config
  * - Tab content: property rows, supply/product accordions
- * - ActionBar: upgrade/downgrade/delete (sticky bottom)
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Edit3, RefreshCw, X, Check } from 'lucide-react';
 import { useBuildingStore } from '../../store/building-store';
 import { usePoliticsStore } from '../../store/politics-store';
 import { useGameStore } from '../../store/game-store';
+import { useUiStore } from '../../store';
 import { useClient } from '../../context';
 import { isCivicBuilding } from '@/shared/building-details/civic-buildings';
 import type { BuildingDetailsTab, BuildingPropertyValue } from '@/shared/types';
-import { Skeleton } from '../common';
+import { IconButton, Skeleton } from '../common';
 import { QuickStats } from './QuickStats';
 import { InspectorTabs } from './InspectorTabs';
 import { PropertyGroup } from './PropertyGroup';
-import { ActionBar } from './ActionBar';
 import { TownsTab } from '../politics/TownsTab';
 import { MinistriesTab } from '../politics/MinistriesTab';
 import { JobsTab } from '../politics/JobsTab';
@@ -63,7 +64,11 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
   const isLoading = useBuildingStore((s) => s.isLoading);
   const currentTab = useBuildingStore((s) => s.currentTab);
   const setCurrentTab = useBuildingStore((s) => s.setCurrentTab);
+  const isOwner = useBuildingStore((s) => s.isOwner);
+  const closeRightPanel = useUiStore((s) => s.closeRightPanel);
   const client = useClient();
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [newName, setNewName] = useState('');
 
   const isCivic = details ? isCivicBuilding(details.visualClass) : false;
   const username = useGameStore((s) => s.username);
@@ -90,6 +95,30 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
     valueMap.get(`Candidate${i}`) ?? ''
   ).some((name) => name.toLowerCase() === (username ?? '').toLowerCase());
   const isCandidate = isCandidateFromPolitics || isCandidateFromVotes;
+  const handleRefresh = useCallback(() => {
+    if (details) client.onRefreshBuilding(details.x, details.y);
+  }, [details?.x, details?.y, client]);
+
+  const handleClose = useCallback(() => {
+    closeRightPanel();
+  }, [closeRightPanel]);
+
+  const handleStartRename = useCallback(() => {
+    setNewName(details?.buildingName ?? '');
+    setIsRenaming(true);
+  }, [details]);
+
+  const handleConfirmRename = useCallback(() => {
+    if (newName.trim() && details) {
+      client.onRenameBuilding(details.x, details.y, newName.trim());
+    }
+    setIsRenaming(false);
+  }, [details?.x, details?.y, newName, client]);
+
+  const handleCancelRename = useCallback(() => {
+    setIsRenaming(false);
+  }, []);
+
   // Auto-refresh building details while panel is open (prevents stale QuickStats)
   const refreshTimer = useRef<ReturnType<typeof setInterval>>(undefined);
   useEffect(() => {
@@ -127,16 +156,77 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
     );
   }
 
-  // Find active tab's properties
+  // Find active tab's properties (filter out Name — shown in header instead)
   const activeGroupId = tabs.find((t) => t.id === currentTab)?.id ?? tabs[0]?.id ?? '';
-  const properties = details.groups[activeGroupId] ?? [];
+  const properties = (details.groups[activeGroupId] ?? []).filter((p) => p.name !== 'Name');
 
   return (
     <div className={styles.inspector}>
+      {/* Toolbar — refresh + close (top-right) */}
+      <div className={styles.toolbar}>
+        <IconButton
+          icon={<RefreshCw size={16} />}
+          label="Refresh"
+          size="sm"
+          variant="ghost"
+          onClick={handleRefresh}
+        />
+        <IconButton
+          icon={<X size={16} />}
+          label="Close"
+          size="sm"
+          variant="ghost"
+          onClick={handleClose}
+        />
+      </div>
+
       {/* Header (hidden when inside modal — modal provides its own title) */}
       {!hideHeader && (
         <div className={`${styles.header} ${styles.stagger0}`}>
-          <h3 className={styles.buildingName}>{details.buildingName}</h3>
+          <div className={styles.nameRow}>
+            {isRenaming ? (
+              <>
+                <input
+                  type="text"
+                  className={styles.renameInput}
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleConfirmRename();
+                    if (e.key === 'Escape') handleCancelRename();
+                  }}
+                  autoFocus
+                />
+                <IconButton
+                  icon={<Check size={14} />}
+                  label="Confirm rename"
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleConfirmRename}
+                />
+                <IconButton
+                  icon={<X size={14} />}
+                  label="Cancel rename"
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleCancelRename}
+                />
+              </>
+            ) : (
+              <>
+                <h3 className={styles.buildingName}>{details.buildingName}</h3>
+                {isOwner && (
+                  <IconButton
+                    icon={<Edit3 size={14} />}
+                    label="Rename building"
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleStartRename}
+                  />
+                )}
+              </>
+            )}
+          </div>
           <div className={styles.headerMeta}>
             <span className={styles.ownerName}>{details.ownerName}</span>
             {(details.x !== undefined && details.y !== undefined) && (
@@ -174,13 +264,6 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
           holdsOffice={holdsOffice}
         />
       </div>
-
-      {/* Sticky action bar */}
-      <ActionBar
-        buildingX={details.x}
-        buildingY={details.y}
-        securityId={details.securityId}
-      />
     </div>
   );
 }

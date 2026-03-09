@@ -14,10 +14,12 @@ interface RightPanelProps {
   onClose: () => void;
   title: string;
   icon?: ReactNode;
+  /** Hide the built-in header (title + close button). Used when the child provides its own controls. */
+  hideHeader?: boolean;
   children: ReactNode;
 }
 
-export function RightPanel({ open, onClose, title, icon, children }: RightPanelProps) {
+export function RightPanel({ open, onClose, title, icon, hideHeader, children }: RightPanelProps) {
   const { visible, animating } = usePanel(open);
 
   if (!visible) return null;
@@ -35,15 +37,17 @@ export function RightPanel({ open, onClose, title, icon, children }: RightPanelP
         role="complementary"
         aria-label={title}
       >
-        <div className={styles.header}>
-          <div className={styles.titleGroup}>
-            {icon && <span className={styles.icon}>{icon}</span>}
-            <h2 className={styles.title}>{title}</h2>
+        {!hideHeader && (
+          <div className={styles.header}>
+            <div className={styles.titleGroup}>
+              {icon && <span className={styles.icon}>{icon}</span>}
+              <h2 className={styles.title}>{title}</h2>
+            </div>
+            <button className={styles.closeBtn} onClick={onClose} aria-label="Close panel">
+              <X size={18} />
+            </button>
           </div>
-          <button className={styles.closeBtn} onClick={onClose} aria-label="Close panel">
-            <X size={18} />
-          </button>
-        </div>
+        )}
         <div className={styles.content}>
           {children}
         </div>

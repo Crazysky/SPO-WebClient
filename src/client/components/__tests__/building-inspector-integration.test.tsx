@@ -126,8 +126,7 @@ describe('Building Inspector — integration flow', () => {
     });
     renderWithProviders(<BuildingInspector />);
 
-    // General tab properties visible
-    expect(screen.getByText('Name')).toBeTruthy();
+    // General tab properties visible (Name is shown in header, not property list)
     expect(screen.getByText('Created')).toBeTruthy();
     expect(screen.getByText('Efficiency')).toBeTruthy();
   });
@@ -161,19 +160,17 @@ describe('Building Inspector — integration flow', () => {
     expect(screen.getByText('$1,200')).toBeTruthy();
   });
 
-  it('renders ActionBar for building owner', () => {
+  it('renders toolbar with refresh and close buttons', () => {
     useBuildingStore.setState({
       focusedBuilding: mockFocus,
       details: mockDetails,
       isLoading: false,
       currentTab: 'general',
-      isOwner: true,
     });
     renderWithProviders(<BuildingInspector />);
 
-    // ActionBar should render owner controls
-    const inspector = screen.getAllByText('Small Farm')[0].closest('[class*="inspector"]');
-    expect(inspector).toBeTruthy();
+    expect(screen.getByLabelText('Refresh')).toBeTruthy();
+    expect(screen.getByLabelText('Close')).toBeTruthy();
   });
 });
 
@@ -236,7 +233,8 @@ describe('BuildingInspectorModal — integration flow', () => {
 
     renderWithProviders(<BuildingInspectorModal />);
 
-    fireEvent.click(screen.getByLabelText('Close'));
+    // Modal has its own Close button (in header) + inspector toolbar has one too
+    fireEvent.click(screen.getAllByLabelText('Close')[0]);
 
     expect(useUiStore.getState().modal).toBeNull();
     expect(useBuildingStore.getState().focusedBuilding).toBeNull();

@@ -13,7 +13,6 @@ import { useBuildingStore } from '../../../store/building-store';
 import { BuildingInspector } from '../BuildingInspector';
 import { QuickStats } from '../QuickStats';
 import { InspectorTabs } from '../InspectorTabs';
-import { ActionBar } from '../ActionBar';
 import type { BuildingFocusInfo, BuildingDetailsResponse, BuildingDetailsTab } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
@@ -149,29 +148,17 @@ describe('InspectorTabs smoke test', () => {
   });
 });
 
-describe('ActionBar smoke test', () => {
+describe('BuildingInspector toolbar', () => {
   beforeEach(() => {
     resetStores();
   });
 
-  it('renders without crashing for non-owner', () => {
-    useBuildingStore.setState({ isOwner: false, details: mockDetails });
-    const { container } = renderWithProviders(
-      <ActionBar buildingX={100} buildingY={200} securityId="sec-1" />,
-    );
-    // Should have refresh button but no owner actions
-    expect(container.textContent).not.toContain('Rename');
-    expect(container.textContent).not.toContain('Delete');
-  });
+  it('renders refresh and close buttons in the toolbar', () => {
+    useBuildingStore.getState().setFocus(mockFocus);
+    useBuildingStore.setState({ details: mockDetails, isLoading: false });
 
-  it('renders owner actions when user owns the building', () => {
-    useBuildingStore.setState({ isOwner: true, details: mockDetails });
-    renderWithProviders(
-      <ActionBar buildingX={100} buildingY={200} securityId="sec-1" />,
-    );
-    // Owner should see rename and delete buttons (via aria-label)
-    expect(screen.getByLabelText('Rename')).toBeTruthy();
-    expect(screen.getByLabelText('Delete')).toBeTruthy();
+    renderWithProviders(<BuildingInspector />);
     expect(screen.getByLabelText('Refresh')).toBeTruthy();
+    expect(screen.getByLabelText('Close')).toBeTruthy();
   });
 });
