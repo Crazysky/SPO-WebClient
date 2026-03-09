@@ -147,7 +147,7 @@ export interface ClientCallbacks {
 
   // Build menu
   onRequestBuildingCategories: () => void;
-  onRequestBuildingFacilities: (kind: number | string, cluster: string) => void;
+  onRequestBuildingFacilities: (kind: string, cluster: string) => void;
   onPlaceBuilding: (facilityClass: string, visualClassId: string) => void;
   onBuildCapitol: () => void;
   onOpenCapitol: () => void;

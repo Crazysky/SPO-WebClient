@@ -7,6 +7,9 @@
  * Browser-safe: Vérifie l'existence de process avant de l'utiliser.
  */
 
+// Ambient declaration for Node.js process (browser-safe: guarded by typeof check)
+declare const process: { env: Record<string, string | undefined> } | undefined;
+
 // Helper pour accéder à process.env de manière sécurisée (browser-safe)
 const getEnv = (key: string): string | undefined => {
   return typeof process !== 'undefined' && process.env ? process.env[key] : undefined;

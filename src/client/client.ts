@@ -306,8 +306,7 @@ export class StarpeaceClient {
       onToggleDebugOverlay: () => {
         const renderer = this.mapNavigationUI?.getRenderer();
         if (renderer) {
-          renderer.debugMode = !renderer.debugMode;
-          renderer.requestRender();
+          renderer.toggleDebugMode();
         }
       },
       onLogout: () => this.logout(),
@@ -328,9 +327,9 @@ export class StarpeaceClient {
       onRequestClusterFacilities: (cluster: string, folder: string) =>
         this.requestClusterFacilities(cluster, folder),
       onRequestBuildingCategories: () => this.openBuildMenu(),
-      onRequestBuildingFacilities: (kind: number, cluster: string) =>
+      onRequestBuildingFacilities: (kind: string, cluster: string) =>
         this.loadBuildingFacilitiesByKind(kind, cluster),
-      onPlaceBuilding: (facilityClass: string, visualClassId: number) =>
+      onPlaceBuilding: (facilityClass: string, visualClassId: string) =>
         this.placeBuildingFromMenu(facilityClass, visualClassId),
       onBuildCapitol: () => this.startCapitolPlacement(),
       onOpenCapitol: () => this.openCapitolInspector(),
@@ -456,7 +455,7 @@ export class StarpeaceClient {
         type: WsMessageType.REQ_PROFILE_CURRICULUM_ACTION, action, value,
       }),
       onProfileSwitchCompany: (companyId, companyName, ownerRole) => {
-        const company: CompanyInfo = { id: String(companyId), name: companyName, ownerRole, cluster: '' };
+        const company: CompanyInfo = { id: String(companyId), name: companyName, ownerRole };
         useGameStore.getState().setSwitchingCompany(true);
         this.sendRequest({
           type: WsMessageType.REQ_SWITCH_COMPANY,
@@ -623,7 +622,7 @@ export class StarpeaceClient {
     });
   }
 
-  private sendRequest(msg: Partial<WsMessage>, timeoutMs = 15000): Promise<WsMessage> {
+  private sendRequest<T extends WsMessage>(msg: T, timeoutMs = 15000): Promise<WsMessage> {
     return new Promise((resolve, reject) => {
       if (!this.ws || !this.isConnected) return reject(new Error('WebSocket not connected'));
 
@@ -651,7 +650,7 @@ export class StarpeaceClient {
   /**
    * Send message without Promise (for event-based responses like search menu)
    */
-  private sendMessage(msg: Partial<WsMessage>): void {
+  private sendMessage<T extends WsMessage>(msg: T): void {
     if (!this.ws || !this.isConnected) {
       console.error('[Client] Cannot send message: WebSocket not connected');
       return;
@@ -1171,7 +1170,7 @@ export class StarpeaceClient {
         ClientBridge.log('Company', 'Company switch successful');
 
         // Restore camera to player's last saved position
-        const switchRespAny = switchResp as Record<string, unknown>;
+        const switchRespAny = switchResp as unknown as Record<string, unknown>;
         if (typeof switchRespAny.playerX === 'number' && typeof switchRespAny.playerY === 'number'
             && (switchRespAny.playerX !== 0 || switchRespAny.playerY !== 0)) {
           this.savedPlayerX = switchRespAny.playerX;
@@ -1189,7 +1188,7 @@ export class StarpeaceClient {
         ClientBridge.log('Company', 'Company selected successfully');
 
         // Restore camera to player's last saved position (Bug 14)
-        const respAny = selectResp as Record<string, unknown>;
+        const respAny = selectResp as unknown as Record<string, unknown>;
         if (typeof respAny.playerX === 'number' && typeof respAny.playerY === 'number'
             && (respAny.playerX !== 0 || respAny.playerY !== 0)) {
           this.savedPlayerX = respAny.playerX;
@@ -2197,7 +2196,7 @@ export class StarpeaceClient {
   // CLONE FACILITY
   // =========================================================================
 
-  private async startCloneFacility(buildingDetails: BuildingDetailsResponse): void {
+  private async startCloneFacility(buildingDetails: BuildingDetailsResponse): Promise<void> {
     this.isCloneMode = true;
     this.cloneSourceBuilding = buildingDetails;
 
@@ -3108,7 +3107,7 @@ export class StarpeaceClient {
   /**
    * Load facilities by kind/cluster (React build menu callback)
    */
-  private async loadBuildingFacilitiesByKind(kind: number, cluster: string) {
+  private async loadBuildingFacilitiesByKind(kind: string, cluster: string) {
     const category = this.buildingCategories.find(c => c.kind === kind && c.cluster === cluster);
     if (!category) {
       ClientBridge.log('Error', `Category not found: kind=${kind}, cluster=${cluster}`);

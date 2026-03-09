@@ -4339,6 +4339,11 @@ export class IsometricMapRenderer {
     this.requestRender();
   }
 
+  public toggleDebugMode(): void {
+    this.debugMode = !this.debugMode;
+    this.requestRender();
+  }
+
   public setVehicleAnimationsEnabled(enabled: boolean): void {
     if (this.vehicleSystem) {
       this.vehicleSystem.setEnabled(enabled);
