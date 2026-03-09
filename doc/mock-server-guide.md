@@ -13,7 +13,7 @@ Browser ──WS/JSON──> Gateway ──RDO/TCP──> Game Server
 
 It is used exclusively for **unit testing** — verifying that client code properly formats requests, parses responses, and handles edge cases. It is NOT a live test server.
 
-Each scenario contains captured real-world exchanges from the 14 game interactions documented in `doc/Mock_Server_scenarios_captures.md`.
+Each scenario contains captured real-world exchanges from the 9 implemented game interactions (out of 14 originally captured in `doc/Mock_Server_scenarios_captures.md`).
 
 ## Architecture
 
@@ -34,20 +34,15 @@ src/mock-server/
 └── scenarios/
     ├── scenario-variables.ts         # Variable system + defaults
     ├── scenario-registry.ts          # Central registry (loadScenario, loadAll)
-    ├── auth-scenario.ts              # Scenario 1: Authentication
-    ├── world-list-scenario.ts        # Scenario 2: World listing
-    ├── company-list-scenario.ts      # Scenario 3: Company listing
-    ├── select-company-scenario.ts    # Scenario 4: Company selection
-    ├── map-data-scenario.ts          # Scenario 5: Map tile data
-    ├── server-busy-scenario.ts       # Scenario 6: ServerBusy check
-    ├── switch-focus-scenario.ts      # Scenario 7: Building inspection
-    ├── refresh-object-scenario.ts    # Scenario 8: Server push
-    ├── set-viewed-area-scenario.ts   # Scenario 9: Viewport update
-    ├── pick-event-scenario.ts        # Scenario 10: Event polling
-    ├── overlays-scenario.ts          # Scenario 11: Zone overlays
-    ├── build-menu-scenario.ts        # Scenario 12: Building construction
-    ├── build-roads-scenario.ts       # Scenario 13: Road building
-    └── mail-scenario.ts              # Scenario 14: Mail system
+    ├── auth-scenario.ts              # Authentication (login + session)
+    ├── world-list-scenario.ts        # World listing (directory query)
+    ├── company-list-scenario.ts      # Company listing
+    ├── select-company-scenario.ts    # Company selection + init
+    ├── switch-focus-scenario.ts      # Building inspection (focus switch)
+    ├── build-menu-scenario.ts        # Building construction menu
+    ├── build-roads-scenario.ts       # Road building
+    ├── mail-scenario.ts              # Mail system
+    └── building-details-scenario.ts  # Building details (property tabs)
 ```
 
 ## Anatomy of a Scenario
@@ -65,7 +60,7 @@ interface ScenarioBundle {
 Not all scenarios need all three layers. For example:
 - **auth** has RDO + WS (no HTTP)
 - **company-list** has HTTP + WS (no RDO)
-- **server-busy** has RDO only
+- **building-details** has RDO + WS (no HTTP)
 
 ## Step-by-step: Adding a New RDO Scenario
 

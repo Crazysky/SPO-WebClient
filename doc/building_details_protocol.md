@@ -1,5 +1,9 @@
 # Starpeace Online Client Protocol Documentation
 
+> **Scope:** This document describes the original Voyager client's cache-server COM/OLE protocol.
+> The WebClient uses RDO directly (see [rdo-protocol-architecture.md](rdo-protocol-architecture.md)).
+> Kept as architectural reference for understanding the original property-fetching design.
+
 ## Overview
 
 This document describes the client-side protocol for Starpeace Online, specifically the methods used by the Voyager client to request and parse server responses. The client communicates with the server through OLE/COM proxy objects to retrieve game object properties and metadata.

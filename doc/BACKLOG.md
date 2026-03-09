@@ -263,7 +263,7 @@
 - **Implementation:**
   - **Framework:** Jest 30.2.0 with ts-jest for TypeScript support
   - **Configuration:** [jest.config.js](jest.config.js) - CommonJS module system, 60% coverage thresholds
-  - **Test Files:** 12 test suites, 414 total tests, 386 passing (93.2%), 18 skipped
+  - **Test Files:** Run `npm test` for current suite/test counts (numbers grow as features are added)
   - **Test Documentation:** [TESTING.md](TESTING.md) - Comprehensive testing guide
   - **Coverage:**
     - ✅ RDO Type System ([src/shared/rdo-types.test.ts](src/shared/rdo-types.test.ts)) - 85/85 tests (100%)
@@ -327,7 +327,7 @@
 - **Development Workflow:**
   - Write tests first (TDD approach preferred)
   - Run tests before committing: `npm test`
-  - Maintain coverage: don't decrease overall test pass rate (currently 93.0%)
+  - Maintain coverage: don't decrease overall test pass rate (run `npm test` for current numbers)
   - Add new test data to `__fixtures__/` if needed
   - Use MockRdoSession for RDO protocol testing instead of real server connections
 
@@ -395,7 +395,7 @@
   - Updated `7zip-min` 1.4.5 → 2.1.0 (major, backward-compatible callback API)
     - Simplified [cab-extractor.ts](src/server/cab-extractor.ts): removed manual promisify wrappers, using native Promise API and built-in `ListItem` type
     - Replaced `require('7zip-min')` with `import * as _7z from '7zip-min'`
-  - Build and all 1595 tests verified passing after updates
+  - Build and all tests verified passing after updates
 - **Deferred (intentional):**
   - `node-fetch` v2 → v3: ESM-only, would break CommonJS server build
   - `jsdom` v27 → v28: Major version, needs compatibility review

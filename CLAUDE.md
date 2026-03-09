@@ -20,8 +20,7 @@ When any UI component is added or modified, verify **both** the visual layer and
 
 **RDO conformity (MANDATORY for any RDO work):** Before writing or modifying ANY RDO-related code, you MUST:
 1. Read [doc/rdo-protocol-architecture.md](doc/rdo-protocol-architecture.md) — wire framing, dispatch internals, login sequence, push filtering rules
-2. Follow the `rdo-protocol` skill's 8-step conformity checklist (auto-loads for spo_session.ts, rdo.ts, rdo-types.ts)
-3. Verify against SPO-Original Delphi source using `delphi-archaeologist` skill before implementing
+2. Verify against SPO-Original Delphi source using `delphi-archaeologist` skill before implementing
 This applies to new RDO calls, modified RDO calls, push handlers, and any code touching `sendRdoRequest()` or `RdoCommand`.
 
 **Screenshot analysis (mandatory for debug/E2E sessions):**
@@ -31,16 +30,15 @@ Never read screenshot images in the main conversation context — each costs ~3-
 3. Delegate to sub-agent: `Task(subagent_type: "general-purpose", prompt: "Read screenshots/<name>.png. Debug overlay active: [describe toggles]. Check: 1. <criterion>... Reply PASS/FAIL per criterion.")` — color legend: Green=building, Blue=junction, Orange=road.
 4. Only the text verdict returns (~100 bytes vs ~3-5MB per image)
 
-
 **Critical patterns & gotchas:**
 - **`sendRdoRequest()` + `"*"` separator = SERVER CRASH** — `sendRdoRequest()` adds a QueryId; void push (`"*"`) with QueryId crashes the Delphi server. Void push → `socket.write(RdoCommand.build())`. Synchronous → `sendRdoRequest()` with `"^"`.
 - Test environment is `node` (no jsdom) — mock DOM elements as plain objects
-- `FacilityDimensionsCache` is singleton — must `clear()` then `initialize()` in tests
+- `ClientFacilityDimensionsCache` is singleton — must `clear()` then `initialize()` in tests
 - TerrainLoader i/j swap: `getTextureId(j, i)` — provider uses (i,j), loader expects (x,y)
 - Concrete tiles stored as `"${x},${y}"` (col,row) not `"${i},${j}"` (row,col)
 - ROAD_TYPE constants are `as const` — use explicit `number` type annotation for local vars
 - `worldContextId` = world operations (map focus, queries); `interfaceServerId` = building operations
-- WebSocket: Client->Server = `WsReq*` types, Server->Client = `WsResp*` types; use `sendResponse()`/`sendError()`
+- WebSocket: Client->Server = `WsReq*` types, Server->Client = `WsResp*` types
 
 ## Project
 
@@ -58,34 +56,26 @@ Browser Client --WebSocket--> Node.js Gateway --RDO Protocol--> Game Servers
 
 For bash/git-bash shells, add to PATH: `export PATH="/c/Program Files/nodejs:$PATH"`
 
-**Windows-specific rules (MANDATORY):**
-- **Paths:** Use forward slashes (`src/server/rdo.ts`) in code/scripts. Bash tool receives Git Bash, so Unix-style paths work, but native Windows commands (e.g. `where`) use backslashes.
-- **No Linux-only commands:** Do NOT use `grep`, `find`, `xargs`, `sed`, `awk`, `wc`, `chmod`, `chown`, `ln -s`, `readlink`, `lsof`, `kill`, `ps aux`, `rm -rf` in Bash. Use the dedicated Claude Code tools (Grep, Glob, Read, Edit, Write) instead.
-- **Process management:** Use `tasklist` / `taskkill` instead of `ps` / `kill`. Use `Get-Process` / `Stop-Process` via `powershell -Command "..."` for port conflicts.
-- **Null device:** Use `/dev/null` in Git Bash (it translates automatically). Do NOT use `NUL`.
-- **npm scripts:** `npm test`, `npm run build`, etc. work identically — always prefer npm scripts over raw shell commands.
-- **File permissions:** Windows has no `chmod`/`chown`. Never attempt to set Unix permissions.
-- **Symlinks:** Avoid `ln -s`. Windows symlinks require admin privileges and behave differently.
-- **Line endings:** Repo uses LF (`.gitattributes`). Do not introduce CRLF.
-- **Temp files:** Use `$TEMP` or `/tmp` (Git Bash maps `/tmp` to a Windows temp directory).
-- **Environment variables:** Use `export VAR=value` in Git Bash. For persistent vars, guide user to Windows System Properties or their shell profile.
+**Windows (Git Bash):**
+- Use Claude Code tools (Grep, Glob, Read, Edit, Write) instead of `grep`/`find`/`sed`/`awk` in Bash
+- Process management: `tasklist`/`taskkill` or `powershell -Command "Get-Process..."` (not `ps`/`kill`)
+- Line endings: LF only (`.gitattributes` enforced) — do not introduce CRLF
+- Prefer `npm test`, `npm run build` over raw shell commands
 
-## MCP Servers (Claude Code)
+## MCP Servers
 
-Project-level MCP config is in [.mcp.json](.mcp.json) (committed to git). All devs get the same tools automatically.
-
-| MCP | Package | Purpose |
-|-----|---------|---------|
-| **GitHub** | `@modelcontextprotocol/server-github` | PRs, issues, code search, repo management |
-| **Playwright** | `@playwright/mcp` | Browser automation for E2E testing |
-| **Context7** | `@upstash/context7-mcp` | Live documentation lookup (TS, Jest, Node.js, etc.) |
+| MCP | Purpose |
+|-----|---------|
+| **GitHub** | PRs, issues, code search, repo management |
+| **Playwright** | Browser automation, E2E testing |
+| **Context7** | Live docs lookup (TS, Jest, Node.js) |
 
 ## Commands
 
 ```bash
 npm run dev          # Build + start server (port 8080)
 npm run build        # Build all (server + client)
-npm test             # Run Jest tests (~3107 tests, 130 suites)
+npm test             # Run all Jest tests
 npm run test:watch   # Watch mode
 npm run test:coverage # Coverage report
 ```
@@ -95,15 +85,16 @@ npm run test:coverage # Coverage report
 ```
 src/
 ├── client/
-│   ├── client.ts              # Main controller (legacy, bridges to React)
+│   ├── client.ts              # StarpeaceClient — game session + canvas UI
 │   ├── main.tsx               # Vite entry, mounts React app
 │   ├── App.tsx                # Root router (LoginScreen vs GameScreen)
-│   ├── bridge/                # React ↔ legacy bridge (ClientBridge)
+│   ├── bridge/                # ClientBridge (pushes state to Zustand stores)
+│   ├── context/               # ClientContext + useClient() hook
 │   ├── store/                 # Zustand stores (11 total)
 │   ├── hooks/                 # Custom hooks (usePanel, useResponsive, etc.)
 │   ├── styles/                # Design tokens, reset, typography, animations
 │   ├── layouts/               # LoginScreen, GameScreen
-│   ├── components/            # React UI (45 components, CSS Modules)
+│   ├── components/            # React UI (60+ components, CSS Modules)
 │   │   ├── common/            # Badge, Toast, GlassCard, Skeleton, etc.
 │   │   ├── hud/               # TopBar, LeftRail, RightRail
 │   │   ├── panels/            # RightPanel, LeftPanel (slide-in)
@@ -112,18 +103,19 @@ src/
 │   │   ├── mail/              # MailPanel
 │   │   ├── chat/              # ChatStrip
 │   │   ├── search/            # SearchPanel
-│   │   ├── politics/          # PoliticsPanel
+│   │   ├── politics/          # Capitol tabs (Towns, Ministries, Jobs, Votes)
 │   │   ├── transport/         # TransportPanel
 │   │   ├── modals/            # BuildMenu, Settings, CompanyCreation
 │   │   ├── mobile/            # MobileShell, BottomNav, BottomSheet
 │   │   └── command-palette/   # CommandPalette (Cmd+K)
 │   ├── renderer/              # Canvas 2D isometric engine
-│   └── ui/                    # Legacy canvas UI (minimap only)
+│   └── ui/                    # Canvas UI (minimap + map navigation)
 ├── server/
 │   ├── server.ts              # HTTP/WebSocket server + API endpoints
 │   ├── spo_session.ts         # RDO session manager
 │   ├── rdo.ts                 # RDO protocol parser
-│   └── services/              # Background services (ServiceRegistry)
+│   ├── *-service.ts           # Background services (ServiceRegistry)
+│   └── terrain-chunk-renderer.ts, texture-extractor.ts
 └── shared/
     ├── rdo-types.ts           # RDO type system (CRITICAL)
     ├── error-utils.ts         # toErrorMessage(err: unknown)
@@ -131,46 +123,27 @@ src/
     └── building-details/      # Property templates
 ```
 
-## Project Skills
+## Skills
 
-12 project-specific skills auto-load contextually when working on relevant files. Each skill contains the key rules, gotchas, and references for its subsystem — no need to manually consult docs.
+Skills auto-load contextually via `PreToolUse` hook in `.claude/settings.json`.
 
-| Skill | Auto-loads for |
-|-------|---------------|
-| `code-guardian` | **Any source file edit** — regression prevention, 5 crash category checklists, sanctuarization manifest |
-| `rdo-protocol` | RDO commands, spo_session.ts, rdo.ts, protocol work |
-| `building-inspector` | Building details, facility inspector, property templates |
-| `road-rendering` | Road topology, textures, road-texture-system.ts |
-| `terrain-rendering` | Terrain, concrete, chunk cache, texture pipeline |
-| `mock-server` | Mock server, test scenarios, capture files |
-| `user-profile-mail` | Profile panel, mail system, mail RDO |
-| `cab-extraction` | CAB files, asset extraction, 7zip |
-| `delphi-archaeologist` | SPO-Original Delphi codebase reverse-engineering |
-| `e2e-test` | E2E testing with Playwright MCP |
-| `dependency-audit` | Vulnerability scanning, license compliance |
-| `dependency-updater` | Dependency updates, outdated packages |
+### Project Skills (invokable via /skill-name)
 
+| Skill | Triggers for |
+|-------|---|
+| `code-guardian` | Any `src/` file — 5 crash category checklists, coverage ratchet, protected files |
+| `delphi-archaeologist` | Reverse-engineering SPO-Original Delphi source, tracing RDO handlers |
+| `dependency-audit` | Vulnerability scanning, license compliance, supply chain security |
+| `dependency-updater` | Updating dependencies, checking outdated packages |
+| `e2e-test` | E2E testing with Playwright MCP (user-invoked only) |
 
-## SkillsMP Marketplace Skills (MANDATORY)
+**Community skills** (30+ installed, auto-load via hooks): React, Zustand, state mgmt, testing, server, security, renderer, a11y, design, TypeScript, refactoring, debugging, protocol, git workflow. See [manifest.json](.claude/skills-skillsmp/manifest.json).
 
-**Skill research rule:** When searching for or evaluating new skills, **always use the SkillsMP API** — never guess or web-search blindly. The project has a configured installer with authenticated API access.
+## SkillsMP
 
-**Files:**
-- Installer script: [.claude/skillsmp-installer.js](.claude/skillsmp-installer.js) — main installer with `REQUIRED_SKILLS` array
-- Ad-hoc installer: [.claude/install-new-skills.js](.claude/install-new-skills.js) — for adding new skills on demand
-- Installed skills: [.claude/skills-skillsmp/](.claude/skills-skillsmp/) — all downloaded SKILL.md files
-- Manifest: [.claude/skills-skillsmp/manifest.json](.claude/skills-skillsmp/manifest.json) — full metadata (stars, authors, URLs)
-
-**API usage:**
-```
-Endpoint: https://skillsmp.com/api/v1/skills/search
-Auth:     Bearer token (in installer scripts)
-Params:   q=<search query>&limit=5&sortBy=stars
-```
-
-**When to use:** Before creating a new custom project skill, search SkillsMP first to check if a high-quality community skill already exists. Prefer skills with 1,000+ stars. Install via the API, then customize with project-specific patterns if needed.
-
-**Currently installed (30 skills):** TypeScript, Node.js backend, Jest testing, security, debugging, refactoring, React state management, Zustand store patterns, accessibility (WCAG/ARIA), design system, interaction design, web performance, PWA, and more. See [manifest.json](.claude/skills-skillsmp/manifest.json) for full list.
+Search SkillsMP API before creating custom skills. Prefer skills with 1,000+ stars.
+- Installer: [.claude/skillsmp-installer.js](.claude/skillsmp-installer.js) | Ad-hoc: [.claude/install-new-skills.js](.claude/install-new-skills.js)
+- Installed: [.claude/skills-skillsmp/](.claude/skills-skillsmp/) (30+ skills) | Metadata: [manifest.json](.claude/skills-skillsmp/manifest.json)
 
 ## RDO Protocol
 
@@ -216,8 +189,6 @@ npm test -- --testNamePattern="X"  # Specific suite
 
 **Custom matchers:** `toContainRdoCommand()`, `toMatchRdoCallFormat()`, `toMatchRdoSetFormat()`, `toHaveRdoTypePrefix()`
 
-**Current status:** 130 suites, ~3107 tests, all passing
-
 ## API Endpoints
 
 | Endpoint | Purpose |
@@ -225,6 +196,7 @@ npm test -- --testNamePattern="X"  # Specific suite
 | `GET /api/map-data/:mapName` | Map terrain/building/road data |
 | `GET /api/road-block-classes` | Road block class definitions |
 | `GET /api/concrete-block-classes` | Concrete block class definitions |
+| `GET /api/car-classes` | Car class definitions |
 | `GET /api/terrain-info/:terrainType` | Terrain type metadata |
 | `GET /api/terrain-atlas/:type/:season` | Terrain atlas PNG |
 | `GET /api/terrain-atlas/:type/:season/manifest` | Terrain atlas JSON |
@@ -249,6 +221,8 @@ Credentials: `SPO_test3` / `test3` / BETA zone / Shamba world / President of Sha
 **Commit:** `type: short summary` — types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `build`
 
 ## Services (ServiceRegistry)
+
+Service files live flat in `src/server/` (no subdirectory).
 
 | Service | Purpose | Dependencies |
 |---------|---------|--------------|

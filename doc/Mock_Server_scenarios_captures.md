@@ -1,3 +1,8 @@
+> **Note:** This document contains raw RDO captures from 14 original game interactions.
+> Only 9 of these are currently implemented as mock scenarios: auth, world-list, company-list,
+> select-company, switch-focus, build-menu, build-roads, mail, building-details.
+> Remaining captures are preserved as protocol reference for future implementation.
+
 # 1. Authentification
 
 C 0 idof "DirectoryServer";
