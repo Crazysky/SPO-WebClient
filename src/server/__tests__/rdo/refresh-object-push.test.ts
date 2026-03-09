@@ -11,10 +11,28 @@
 import { describe, it, expect } from '@jest/globals';
 import type { RdoPacket } from '../../../shared/types/protocol-types';
 import type { BuildingFocusInfo } from '../../../shared/types';
-import {
-  CAPTURED_REFRESH_OBJECT,
-  type CapturedRefreshObjectData,
-} from '../../../mock-server/scenarios/refresh-object-scenario';
+/** Captured RefreshObject building data (inlined from removed scenario) */
+interface CapturedRefreshObjectData {
+  tycoonProxyId: string;
+  buildingId: string;
+  statusFlag: string;
+  companyName: string;
+  salesSummary: string;
+  revenue: string;
+  detailsText: string;
+  hintsText: string;
+}
+
+const CAPTURED_REFRESH_OBJECT: CapturedRefreshObjectData = {
+  tycoonProxyId: '40133496',
+  buildingId: '127839460',
+  statusFlag: '0',
+  companyName: 'Yellow Inc.',
+  salesSummary: 'Pharmaceutics sales at 1%',
+  revenue: '(-$36/h)',
+  detailsText: 'Drug Store.  Upgrade Level: 1  Items Sold: 1/h  Potential customers (per day): 0 hi, 1 mid, 1 low. Actual customers: 0 hi, 1 mid, 1 low.  Efficiency: 87%  Desirability: 46',
+  hintsText: 'Hint: Try to attract more customers by offering better quality and prices.',
+};
 import { cleanPayload } from '../../rdo-helpers';
 import { parseBuildingFocusResponse } from '../../map-parsers';
 import { RdoParser } from '../../../shared/rdo-types';

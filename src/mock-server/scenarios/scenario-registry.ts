@@ -1,5 +1,5 @@
 /**
- * Central registry for all mock server scenarios (1-16).
+ * Central registry for all mock server scenarios.
  * Provides lookup by name, full-set loading, and combined scenario merging.
  */
 
@@ -12,18 +12,11 @@ import { createAuthScenario } from './auth-scenario';
 import { createWorldListScenario } from './world-list-scenario';
 import { createCompanyListScenario } from './company-list-scenario';
 import { createSelectCompanyScenario } from './select-company-scenario';
-import { createMapDataScenario } from './map-data-scenario';
-import { createServerBusyScenario } from './server-busy-scenario';
 import { createSwitchFocusScenario } from './switch-focus-scenario';
-import { createRefreshObjectScenario } from './refresh-object-scenario';
-import { createSetViewedAreaScenario } from './set-viewed-area-scenario';
-import { createPickEventScenario } from './pick-event-scenario';
-import { createOverlaysScenario } from './overlays-scenario';
 import { createBuildMenuScenario } from './build-menu-scenario';
 import { createBuildRoadsScenario } from './build-roads-scenario';
 import { createMailScenario } from './mail-scenario';
 import { createBuildingDetailsScenario } from './building-details-scenario';
-import { createPoliticsScenario } from './politics-scenario';
 
 /** All recognized scenario names */
 export type ScenarioName =
@@ -31,18 +24,11 @@ export type ScenarioName =
   | 'world-list'
   | 'company-list'
   | 'select-company'
-  | 'map-data'
-  | 'server-busy'
   | 'switch-focus'
-  | 'refresh-object'
-  | 'set-viewed-area'
-  | 'pick-event'
-  | 'overlays'
   | 'build-menu'
   | 'build-roads'
   | 'mail'
-  | 'building-details'
-  | 'politics';
+  | 'building-details';
 
 /** Ordered list of all scenario names */
 export const SCENARIO_NAMES: ScenarioName[] = [
@@ -50,18 +36,11 @@ export const SCENARIO_NAMES: ScenarioName[] = [
   'world-list',
   'company-list',
   'select-company',
-  'map-data',
-  'server-busy',
   'switch-focus',
-  'refresh-object',
-  'set-viewed-area',
-  'pick-event',
-  'overlays',
   'build-menu',
   'build-roads',
   'mail',
   'building-details',
-  'politics',
 ];
 
 /** Union result from any scenario factory */
@@ -80,18 +59,11 @@ const SCENARIO_FACTORIES: Record<
   'world-list': (o) => createWorldListScenario(o),
   'company-list': (o) => createCompanyListScenario(o),
   'select-company': (o) => createSelectCompanyScenario(o),
-  'map-data': (o) => createMapDataScenario(o),
-  'server-busy': (o) => createServerBusyScenario(o),
   'switch-focus': (o) => createSwitchFocusScenario(o),
-  'refresh-object': (o) => createRefreshObjectScenario(o),
-  'set-viewed-area': (o) => createSetViewedAreaScenario(o),
-  'pick-event': (o) => createPickEventScenario(o),
-  'overlays': (o) => createOverlaysScenario(o),
   'build-menu': (o) => createBuildMenuScenario(o),
   'build-roads': (o) => createBuildRoadsScenario(o),
   'mail': (o) => createMailScenario(o),
   'building-details': (o) => createBuildingDetailsScenario(o),
-  'politics': (o) => createPoliticsScenario(o),
 };
 
 /**
@@ -150,7 +122,7 @@ export function loadAll(
 
   const ws: WsCaptureScenario = {
     name: 'all-scenarios',
-    description: 'Combined: all 16 mock server scenarios',
+    description: 'Combined: all 9 mock server scenarios',
     capturedAt: '2026-02-18',
     serverInfo: { world: 'Shamba', zone: 'BETA', date: '2026-02-18' },
     exchanges: allWsExchanges,
@@ -159,7 +131,7 @@ export function loadAll(
 
   const rdo: RdoScenario = {
     name: 'all-scenarios',
-    description: 'Combined: all RDO exchanges from 16 scenarios',
+    description: 'Combined: all RDO exchanges from 9 scenarios',
     exchanges: allRdoExchanges,
     variables: rdoVariables,
   };

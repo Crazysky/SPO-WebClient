@@ -1,5 +1,5 @@
 /**
- * Scenario integrity tests for all 15 mock server scenario factory functions
+ * Scenario integrity tests for all 9 mock server scenario factory functions
  * and the scenario registry.
  */
 import { describe, it, expect } from '@jest/globals';
@@ -8,13 +8,7 @@ import { createAuthScenario } from './auth-scenario';
 import { createWorldListScenario, AMERICA_WORLDS, ASIA_WORLDS } from './world-list-scenario';
 import { createCompanyListScenario, CAPTURED_COMPANY } from './company-list-scenario';
 import { createSelectCompanyScenario, CAPTURED_COOKIE } from './select-company-scenario';
-import { createMapDataScenario, SAMPLE_SEGMENTS, SAMPLE_OBJECTS } from './map-data-scenario';
-import { createServerBusyScenario } from './server-busy-scenario';
 import { createSwitchFocusScenario, CAPTURED_FARM, CAPTURED_DRUG_STORE } from './switch-focus-scenario';
-import { createRefreshObjectScenario } from './refresh-object-scenario';
-import { createSetViewedAreaScenario } from './set-viewed-area-scenario';
-import { createPickEventScenario } from './pick-event-scenario';
-import { createOverlaysScenario } from './overlays-scenario';
 import { createBuildMenuScenario, CAPTURED_BUILD_SUCCESS, CAPTURED_BUILD_DUPLICATE } from './build-menu-scenario';
 import { createBuildRoadsScenario, CAPTURED_ROAD_BUILD } from './build-roads-scenario';
 import { createMailScenario, CAPTURED_MAIL_SEND } from './mail-scenario';
@@ -218,87 +212,7 @@ describe('select-company scenario', () => {
 });
 
 // =============================================================================
-// Scenario 5: map-data
-// =============================================================================
-
-describe('map-data scenario', () => {
-  it('creates scenario with RDO', () => {
-    const { rdo } = createMapDataScenario();
-    expect(rdo).toBeDefined();
-    expect(rdo.name).toBe('map-data');
-  });
-
-  it('SAMPLE_SEGMENTS is an array of segment data', () => {
-    expect(Array.isArray(SAMPLE_SEGMENTS)).toBe(true);
-    expect(SAMPLE_SEGMENTS.length).toBeGreaterThan(0);
-    const first = SAMPLE_SEGMENTS[0];
-    expect(first).toHaveProperty('x1');
-    expect(first).toHaveProperty('y1');
-    expect(first).toHaveProperty('x2');
-    expect(first).toHaveProperty('y2');
-    expect(first).toHaveProperty('leftTerrain');
-    expect(first).toHaveProperty('rightTerrain');
-  });
-
-  it('SAMPLE_OBJECTS is an array of object data', () => {
-    expect(Array.isArray(SAMPLE_OBJECTS)).toBe(true);
-    expect(SAMPLE_OBJECTS.length).toBeGreaterThan(0);
-    const first = SAMPLE_OBJECTS[0];
-    expect(first).toHaveProperty('classId');
-    expect(first).toHaveProperty('rotation');
-    expect(first).toHaveProperty('visualClassId');
-    expect(first).toHaveProperty('x');
-    expect(first).toHaveProperty('y');
-  });
-
-  it('RDO ObjectsInArea response format is correct (groups of 5)', () => {
-    const { rdo } = createMapDataScenario();
-    // Find the ObjectsInArea exchange that returns actual objects
-    const objectsExchange = rdo.exchanges.find(
-      e => e.matchKeys?.member === 'ObjectsInArea' && e.response.includes('%')
-        && e.response.length > 20
-    );
-    expect(objectsExchange).toBeDefined();
-    // The response body after "res=%" should be groups of 5 numbers per object
-    const body = objectsExchange!.response.split('res="%')[1];
-    expect(body).toBeDefined();
-    const lines = body!.replace(/"$/, '').split('\n').filter(l => l.length > 0);
-    // Should be divisible by 5 (classId, rotation, visualClassId, x, y)
-    expect(lines.length % 5).toBe(0);
-  });
-
-  it('RDO SegmentsInArea response format is correct (groups of 10)', () => {
-    const { rdo } = createMapDataScenario();
-    const segmentsExchange = rdo.exchanges.find(
-      e => e.matchKeys?.member === 'SegmentsInArea'
-    );
-    expect(segmentsExchange).toBeDefined();
-    const body = segmentsExchange!.response.split('res="%')[1];
-    expect(body).toBeDefined();
-    const lines = body!.replace(/\\n?"$/, '').replace(/\n"$/, '').split('\n').filter(l => l.length > 0);
-    // Should be divisible by 10 (x1,y1,x2,y2,leftT,rightT,leftS,rightS,leftSA,rightSA)
-    expect(lines.length % 10).toBe(0);
-  });
-});
-
-// =============================================================================
-// Scenario 6: server-busy
-// =============================================================================
-
-describe('server-busy scenario', () => {
-  it('creates RDO with single exchange', () => {
-    const { rdo } = createServerBusyScenario();
-    expect(rdo.exchanges).toHaveLength(1);
-  });
-
-  it('response contains ServerBusy="#0"', () => {
-    const { rdo } = createServerBusyScenario();
-    expect(rdo.exchanges[0].response).toContain('ServerBusy="#0"');
-  });
-});
-
-// =============================================================================
-// Scenario 7: switch-focus
+// Scenario 5: switch-focus
 // =============================================================================
 
 describe('switch-focus scenario', () => {
@@ -322,84 +236,7 @@ describe('switch-focus scenario', () => {
 });
 
 // =============================================================================
-// Scenario 8: refresh-object
-// =============================================================================
-
-describe('refresh-object scenario', () => {
-  it('creates scenario (no request, server push)', () => {
-    const { rdo } = createRefreshObjectScenario();
-    expect(rdo.exchanges).toHaveLength(1);
-    // Server push has empty request
-    expect(rdo.exchanges[0].request).toBe('');
-  });
-
-  it('WS has scheduledEvents', () => {
-    const { ws } = createRefreshObjectScenario();
-    expect(ws.scheduledEvents).toBeDefined();
-    expect(ws.scheduledEvents!.length).toBeGreaterThanOrEqual(2);
-    const eventTypes = ws.scheduledEvents!.map(e => e.event.type);
-    expect(eventTypes).toContain(WsMessageType.EVENT_BUILDING_REFRESH);
-    expect(eventTypes).toContain(WsMessageType.EVENT_TYCOON_UPDATE);
-  });
-});
-
-// =============================================================================
-// Scenario 9: set-viewed-area
-// =============================================================================
-
-describe('set-viewed-area scenario', () => {
-  it('creates scenario with empty response', () => {
-    const { rdo } = createSetViewedAreaScenario();
-    expect(rdo.exchanges).toHaveLength(1);
-    expect(rdo.exchanges[0].response).toBe('');
-  });
-
-  it('RDO matchKeys has member="SetViewedArea"', () => {
-    const { rdo } = createSetViewedAreaScenario();
-    expect(rdo.exchanges[0].matchKeys?.member).toBe('SetViewedArea');
-  });
-});
-
-// =============================================================================
-// Scenario 10: pick-event
-// =============================================================================
-
-describe('pick-event scenario', () => {
-  it('creates scenario with empty response', () => {
-    const { rdo } = createPickEventScenario();
-    expect(rdo.exchanges).toHaveLength(1);
-    // PickEvent returns empty string response (no pending events)
-    expect(rdo.exchanges[0].response).toContain('res="%"');
-  });
-
-  it('RDO matchKeys has member="PickEvent"', () => {
-    const { rdo } = createPickEventScenario();
-    expect(rdo.exchanges[0].matchKeys?.member).toBe('PickEvent');
-  });
-});
-
-// =============================================================================
-// Scenario 11: overlays
-// =============================================================================
-
-describe('overlays scenario', () => {
-  it('creates scenario with GetSurface', () => {
-    const { rdo } = createOverlaysScenario();
-    expect(rdo.exchanges).toHaveLength(1);
-    expect(rdo.exchanges[0].matchKeys?.member).toBe('GetSurface');
-  });
-
-  it('response contains RLE-compressed data', () => {
-    const { rdo } = createOverlaysScenario();
-    const response = rdo.exchanges[0].response;
-    // RLE format: "65:65:" prefix (rows:cols) followed by "0=65" repeated entries
-    expect(response).toContain('65:65:');
-    expect(response).toContain('0=65');
-  });
-});
-
-// =============================================================================
-// Scenario 12: build-menu
+// Scenario 6: build-menu
 // =============================================================================
 
 describe('build-menu scenario', () => {
@@ -437,7 +274,7 @@ describe('build-menu scenario', () => {
 });
 
 // =============================================================================
-// Scenario 13: build-roads
+// Scenario 7: build-roads
 // =============================================================================
 
 describe('build-roads scenario', () => {
@@ -469,7 +306,7 @@ describe('build-roads scenario', () => {
 });
 
 // =============================================================================
-// Scenario 14: mail
+// Scenario 8: mail
 // =============================================================================
 
 describe('mail scenario', () => {
@@ -528,7 +365,7 @@ describe('mail scenario', () => {
 });
 
 // =============================================================================
-// Scenario 15: building-details
+// Scenario 9: building-details
 // =============================================================================
 
 describe('building-details scenario', () => {
@@ -623,8 +460,8 @@ describe('building-details scenario', () => {
 // =============================================================================
 
 describe('scenario registry', () => {
-  it('SCENARIO_NAMES has 16 entries', () => {
-    expect(SCENARIO_NAMES).toHaveLength(16);
+  it('SCENARIO_NAMES has 9 entries', () => {
+    expect(SCENARIO_NAMES).toHaveLength(9);
   });
 
   it('loadScenario returns bundle for each name', () => {
@@ -649,21 +486,19 @@ describe('scenario registry', () => {
 
   it('loadAll.ws has exchanges from all scenarios', () => {
     const all = loadAll();
-    // Every scenario with WS contributes at least 1 exchange (except refresh-object which has 0)
-    expect(all.ws.exchanges.length).toBeGreaterThanOrEqual(10);
+    expect(all.ws.exchanges.length).toBeGreaterThanOrEqual(5);
   });
 
   it('loadAll.rdo has exchanges from all scenarios', () => {
     const all = loadAll();
-    // Auth(5) + world-list(5) + select-company(5) + map-data(3) + server-busy(1) +
-    // switch-focus(2) + refresh-object(1) + set-viewed-area(1) + pick-event(1) +
-    // overlays(1) + build-menu(2) + build-roads(1) + mail(6) = 34
-    expect(all.rdo.exchanges.length).toBeGreaterThanOrEqual(30);
+    // Auth(5) + world-list(5) + select-company(5) + switch-focus(2) +
+    // build-menu(2) + build-roads(1) + mail(14) + building-details(many) = 34+
+    expect(all.rdo.exchanges.length).toBeGreaterThanOrEqual(20);
   });
 
   it('loadAll.http has exchanges from all scenarios', () => {
     const all = loadAll();
-    // company-list(3) + select-company(2) + build-menu(2) + build-roads(1) + mail(2) = 10
+    // company-list(3) + select-company(2) + build-menu(2) + build-roads(1) + mail(4) = 12
     expect(all.http.exchanges.length).toBeGreaterThanOrEqual(8);
   });
 
