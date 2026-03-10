@@ -10,6 +10,8 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     __BUILD_DATE__: JSON.stringify(new Date().toISOString().slice(0, 10)),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString().slice(11, 19)),
+    __BUILD_NUMBER__: JSON.stringify(Math.floor(Date.now() / 1000).toString(36)),
   },
   root: '.',
   publicDir: false, // Don't copy public/ into build output

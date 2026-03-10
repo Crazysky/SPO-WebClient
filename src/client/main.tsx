@@ -14,6 +14,9 @@ import './styles/design-tokens.css';
 import './styles/reset.css';
 import './styles/typography.css';
 import './styles/animations.css';
+import { APP_VERSION, BUILD_DATE, BUILD_TIME, BUILD_NUMBER } from './version';
+
+console.log(`[SPO] Beta ${APP_VERSION} | Built ${BUILD_DATE} ${BUILD_TIME} | #${BUILD_NUMBER}`);
 
 const client = new StarpeaceClient();
 

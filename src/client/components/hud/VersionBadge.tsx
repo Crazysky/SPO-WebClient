@@ -1,4 +1,4 @@
-import { APP_VERSION, BUILD_DATE } from '../../version';
+import { APP_VERSION, BUILD_DATE, BUILD_TIME, BUILD_NUMBER } from '../../version';
 import { useUiStore } from '../../store/ui-store';
 import styles from './VersionBadge.module.css';
 
@@ -13,7 +13,7 @@ export function VersionBadge() {
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') openModal('changelog'); }}
     >
-      <div>Beta {APP_VERSION} ({BUILD_DATE})</div>
+      <div>Beta {APP_VERSION} ({BUILD_DATE} {BUILD_TIME} #{BUILD_NUMBER})</div>
       <div>Created by Robin &ldquo;Crazz&rdquo; Aleman</div>
     </div>
   );
