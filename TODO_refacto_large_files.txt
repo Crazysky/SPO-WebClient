@@ -1,0 +1,39 @@
+Codebase Reorganization Audit
+Files Needing Urgent Reorganization (by priority)
+CRITICAL — God Objects
+File	Lines	Problem
+client.ts	3,905	Monolithic StarpeaceClient class with 15+ concerns: building details, trade, roads, chat, politics, voting, ministry actions all in one file
+server.ts	2,916	Single WebSocket message router with 74+ case statements in one switch block
+spo_session.ts	3,045	God-object facade — 70+ type imports, mixes RDO session mgmt with domain routing. Already partially decomposed to session/ handlers but still massive
+HIGH — Oversized Components
+File	Lines	Problem
+PropertyGroup.tsx	2,447	Combines property rows, editable controls (text/currency/slider), research panel, revenue graph, supply/product tables
+PropertyGroup.module.css	1,392	Input + row + table + tab styles all mixed together
+ProfilePanel.tsx	824	6 hardcoded tabs (Curriculum, Bank, P&L, Companies, Suppliers, Strategy)
+building-details-handler.ts	767	8 private helpers mixing supply/product/money-graph parsing
+profile-finance-handler.ts	711	HTML parsers mixed with RDO request logic
+building-property-handler.ts	677	Mixed RDO logic + property parsing
+MEDIUM — Structural Improvements
+File	Lines	Problem
+client-bridge.ts	768	Single class with 50+ methods pushing state into 11 different Zustand stores
+message-types.ts	1,410	All WebSocket message types in one file — could split by domain
+Scattered parsers in src/server/	—	classes-bin-parser.ts, mail-list-parser.ts, map-parsers.ts, search-menu-parser.ts could move to parsers/ subdirectory
+LOW — Cleanup
+Item	Problem
+NUL file at project root	Empty stale file (Windows device name artifact) — remove from git
+Test file placement	Mixed conventions: some inline .test.tsx, some in __tests__/ subdirectories
+Green Zones (No Action Needed)
+src/client/store/ — Clean, well-sized (33–333 lines), good test coverage
+src/shared/ — Healthy organization, appropriate file sizes
+src/client/renderer/ — Large files but domain-appropriate (canvas rendering)
+Root configs — Lean tsconfigs, minimal package.json, clean vite/jest configs
+src/client/hooks/, layouts/, context/, styles/ — All well-organized
+Recommended Attack Order
+client.ts → Extract into src/client/handlers/ (building, trade, road, politics, chat, etc.)
+server.ts → Extract message handlers from switch block into modular handler files
+PropertyGroup.tsx + CSS → Split into row renderer + specialized editor components
+client-bridge.ts → Modularize per-domain (easy after client.ts refactor)
+spo_session.ts → Continue moving remaining inline parsers to session/ handlers
+Skills Used
+context-master (planning workflow)
+3x Explore subagents (server audit, client audit, shared/root audit)
