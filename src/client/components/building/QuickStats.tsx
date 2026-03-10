@@ -4,6 +4,7 @@
 
 import type { BuildingFocusInfo } from '@/shared/types';
 import { ProgressBar } from '../common';
+import { parseSalesLines, salesVariant } from './StatusOverlay';
 import styles from './QuickStats.module.css';
 
 interface QuickStatsProps {
@@ -39,12 +40,31 @@ export function QuickStats({ focus }: QuickStatsProps) {
           <ProgressBar value={constructionPct / 100} variant="warning" height={4} />
         </div>
       ) : (
-        focus.salesInfo && (
-          <div className={styles.stat}>
-            <span className={styles.value}>{focus.salesInfo}</span>
-            <span className={styles.label}>Sales</span>
-          </div>
-        )
+        focus.salesInfo && (() => {
+          const lines = parseSalesLines(focus.salesInfo);
+          if (lines.length > 0) {
+            return (
+              <div className={styles.salesList}>
+                <span className={styles.label}>Sales</span>
+                {lines.map((line, i) => (
+                  <div key={i} className={styles.salesRow}>
+                    <div className={styles.salesRowHeader}>
+                      <span className={styles.salesCategory}>{line.category}</span>
+                      <span className={styles.salesPct}>{line.percent}%</span>
+                    </div>
+                    <ProgressBar value={line.percent / 100} variant={salesVariant(line.percent)} height={3} />
+                  </div>
+                ))}
+              </div>
+            );
+          }
+          return (
+            <div className={styles.stat}>
+              <span className={styles.value}>{focus.salesInfo}</span>
+              <span className={styles.label}>Sales</span>
+            </div>
+          );
+        })()
       )}
 
       {focus.detailsText && (

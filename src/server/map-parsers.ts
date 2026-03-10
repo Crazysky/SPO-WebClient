@@ -202,64 +202,70 @@ export function parseBuildingFocusResponse(
     throw new Error('Invalid building focus response format');
   }
 
-  // Parse header section (before first "-:")
+  // Parse header section (before first "-:") using blank-line groups.
+  // SwitchFocusEx responses use blank lines as natural group separators:
+  //   Group 0: ID \n Name
+  //   Group 1: Company name
+  //   Group 2: Status/sales lines (1 or many)
+  //   Group 3: Revenue line
+  // RefreshObject ExtraInfo uses single newlines (no blank-line separators),
+  // so we fall back to line-by-line parsing when only 1 group is found.
   // CRITICAL FIX: Handle both \r\n AND \n\r line endings
-  const allHeaderLines = sections[0].split(/\r?\n\r?/);
+  const headerText = sections[0];
+  const groups = headerText
+    .split(/(?:\r?\n\r?){2,}/)  // Split on 2+ consecutive newlines (blank lines)
+    .map(g => g.trim())
+    .filter(g => g.length > 0);
 
-  // Filter out empty lines
-  const headerLines = allHeaderLines.map((l) => l.trim()).filter((l) => l.length > 0);
-
-  console.log(`[MapParser] Header lines:`, headerLines);
-
-  if (headerLines.length < 1) {
+  if (groups.length < 1) {
     throw new Error('Invalid building focus header format - no data');
   }
 
-  // First line is ALWAYS the numeric building ID
-  const buildingId = headerLines[0];
-
+  let buildingId = '';
   let buildingName = '';
   let ownerName = '';
   let salesInfo = '';
   let revenue = '';
 
-  // CORRECTED: Flexible parsing based on number of lines
-  if (headerLines.length >= 5) {
-    // Full format: ID, name, owner, salesInfo, revenue
-    buildingName = headerLines[1];
-    ownerName = headerLines[2];
-    salesInfo = headerLines[3];
-    revenue = extractRevenue(headerLines[4]);
-  } else if (headerLines.length === 4) {
-    // Format: ID, name, owner, revenue (no separate salesInfo)
-    buildingName = headerLines[1];
-    ownerName = headerLines[2];
-    // Check if line 3 contains revenue pattern
-    if (headerLines[3].includes('$')) {
-      revenue = extractRevenue(headerLines[3]);
-      salesInfo = '';
-    } else {
-      salesInfo = headerLines[3];
-      revenue = '';
+  if (groups.length >= 3) {
+    // Blank-line separated format (SwitchFocusEx):
+    // Group 0: "ID\nName", Group 1: "Company", Group 2: "sales lines", Group 3: "revenue"
+    const idNameLines = groups[0].split(/\r?\n\r?/).map(l => l.trim()).filter(l => l.length > 0);
+    buildingId = idNameLines[0] || '';
+    buildingName = idNameLines[1] || '';
+    ownerName = groups[1].split(/\r?\n\r?/)[0]?.trim() || '';
+    salesInfo = groups[2]
+      .split(/\r?\n\r?/)
+      .map(l => l.trim())
+      .filter(l => l.length > 0)
+      .join('\n');
+    if (groups.length >= 4) {
+      revenue = extractRevenue(groups[3]);
     }
-  } else if (headerLines.length === 3) {
-    // Format: ID, name, owner/revenue
-    buildingName = headerLines[1];
-    if (headerLines[2].includes('$')) {
-      revenue = extractRevenue(headerLines[2]);
-      ownerName = '';
-      salesInfo = '';
-    } else {
-      ownerName = headerLines[2];
-      salesInfo = '';
-      revenue = '';
+  } else {
+    // Single-group fallback (RefreshObject ExtraInfo — no blank lines):
+    // Lines: ID, Name, Company, salesInfo..., Revenue
+    const headerLines = headerText.split(/\r?\n\r?/).map(l => l.trim()).filter(l => l.length > 0);
+    buildingId = headerLines[0] || '';
+    if (headerLines.length >= 2) buildingName = headerLines[1];
+    if (headerLines.length >= 3) ownerName = headerLines[2];
+    if (headerLines.length >= 4) {
+      // Scan from end to find revenue line, collect middle as salesInfo
+      let revenueIdx = -1;
+      for (let i = headerLines.length - 1; i >= 3; i--) {
+        if (extractRevenue(headerLines[i])) {
+          revenueIdx = i;
+          break;
+        }
+      }
+      if (revenueIdx >= 0) {
+        revenue = extractRevenue(headerLines[revenueIdx]);
+        const salesLines = headerLines.slice(3, revenueIdx);
+        salesInfo = salesLines.join('\n');
+      } else {
+        salesInfo = headerLines.slice(3).join('\n');
+      }
     }
-  } else if (headerLines.length === 2) {
-    // Minimal format: ID, name
-    buildingName = headerLines[1];
-    ownerName = '';
-    salesInfo = '';
-    revenue = '';
   }
 
   // Details text (section 1 after "-:" - may be empty)

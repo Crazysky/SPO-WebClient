@@ -36,6 +36,19 @@ const CAPTURED_FARM: CapturedBuildingFocusData = {
   ],
 };
 
+/** Market building captured data (multi-line sales) */
+const CAPTURED_MARKET: CapturedBuildingFocusData = {
+  objectId: '127393296',
+  name: 'Satoi Market 2',
+  ownerCompany: 'Blue Inc.',
+  statusLine: 'Fresh Food sales at 0%\nProcessed Food sales at 100%\nClothing and Footwear sales at 70%\nHousehold Appliances sales at 29%',
+  financialLine: '($1,398/h)',
+  detailSections: [
+    'Upgrade Level: 1  Items Sold: 18/h  Potential customers (per day): 53 hi, 119 mid, 1174 low. Actual customers: 36 hi, 44 mid, 219 low.  Efficiency: 92%  Desirability: 53',
+    'No hints for this facility.',
+  ],
+};
+
 /** Drug Store building captured data */
 const CAPTURED_DRUG_STORE: CapturedBuildingFocusData = {
   objectId: '127839460',
@@ -173,4 +186,4 @@ export function createSwitchFocusScenario(
   return { ws, rdo };
 }
 
-export { CAPTURED_FARM, CAPTURED_DRUG_STORE, buildFocusResponse };
+export { CAPTURED_FARM, CAPTURED_DRUG_STORE, CAPTURED_MARKET, buildFocusResponse };

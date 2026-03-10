@@ -28,6 +28,8 @@ import {
   createSwitchFocusScenario,
   CAPTURED_FARM,
   CAPTURED_DRUG_STORE,
+  CAPTURED_MARKET,
+  buildFocusResponse,
 } from '../../../mock-server/scenarios/switch-focus-scenario';
 import { parseBuildingFocusResponse } from '../../../server/map-parsers';
 import { parsePropertyResponse } from '../../../server/rdo-helpers';
@@ -219,6 +221,57 @@ describe('Protocol Validation: focusBuilding() / SwitchFocusEx', () => {
 
       expect(buildingInfo.x).toBe(472);
       expect(buildingInfo.y).toBe(392);
+    });
+  });
+
+  describe('Multi-line salesInfo parsing', () => {
+    it('should capture all sales lines from market building with multi-line salesInfo', () => {
+      const responsePayload = buildFocusResponse(CAPTURED_MARKET);
+      const buildingInfo = parseBuildingFocusResponse(responsePayload, 500, 400);
+
+      expect(buildingInfo.buildingId).toBe(CAPTURED_MARKET.objectId);
+      expect(buildingInfo.buildingName).toBe(CAPTURED_MARKET.name);
+      expect(buildingInfo.ownerName).toBe(CAPTURED_MARKET.ownerCompany);
+      expect(buildingInfo.salesInfo).toBe(
+        'Fresh Food sales at 0%\nProcessed Food sales at 100%\nClothing and Footwear sales at 70%\nHousehold Appliances sales at 29%',
+      );
+    });
+
+    it('should extract revenue correctly from market building (not a sales line)', () => {
+      const responsePayload = buildFocusResponse(CAPTURED_MARKET);
+      const buildingInfo = parseBuildingFocusResponse(responsePayload, 500, 400);
+
+      expect(buildingInfo.revenue).toBe('$1,398/h');
+    });
+
+    it('should still parse single-line salesInfo from farm building', () => {
+      const responsePayload = buildFocusResponse(CAPTURED_FARM);
+      const buildingInfo = parseBuildingFocusResponse(responsePayload, 472, 392);
+
+      expect(buildingInfo.salesInfo).toBe(CAPTURED_FARM.statusLine);
+      expect(buildingInfo.revenue).toBe('-$29/h');
+    });
+
+    it('should still parse single-line salesInfo from drug store building', () => {
+      const responsePayload = buildFocusResponse(CAPTURED_DRUG_STORE);
+      const buildingInfo = parseBuildingFocusResponse(responsePayload, 477, 392);
+
+      expect(buildingInfo.salesInfo).toBe(CAPTURED_DRUG_STORE.statusLine);
+      expect(buildingInfo.revenue).toBe('-$36/h');
+    });
+
+    it('should extract detailsText from market building', () => {
+      const responsePayload = buildFocusResponse(CAPTURED_MARKET);
+      const buildingInfo = parseBuildingFocusResponse(responsePayload, 500, 400);
+
+      expect(buildingInfo.detailsText).toBe(CAPTURED_MARKET.detailSections[0]);
+    });
+
+    it('should extract hintsText from market building', () => {
+      const responsePayload = buildFocusResponse(CAPTURED_MARKET);
+      const buildingInfo = parseBuildingFocusResponse(responsePayload, 500, 400);
+
+      expect(buildingInfo.hintsText).toBe(CAPTURED_MARKET.detailSections[1]);
     });
   });
 });

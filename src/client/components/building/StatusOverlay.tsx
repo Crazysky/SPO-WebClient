@@ -14,10 +14,40 @@ import { useBuildingStore } from '../../store/building-store';
 import { worldToScreenCentered } from '../../bridge/client-bridge';
 import { useClient } from '../../context/ClientContext';
 import { isCivicBuilding } from '@/shared/building-details/civic-buildings';
+import { ProgressBar } from '../common';
 import styles from './StatusOverlay.module.css';
 
 /** Gap between caret tip and texture top (pixels). */
 const CARET_GAP = 8;
+
+/** Max visible sales rows in the overlay (full details via INSPECT). */
+const MAX_SALES_ROWS = 4;
+
+/** Parsed sales line from "Category sales at N%" format. */
+export interface SalesLine {
+  category: string;
+  percent: number;
+}
+
+/** Parse multi-line salesInfo into structured data. */
+export function parseSalesLines(salesInfo: string): SalesLine[] {
+  return salesInfo
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .map(line => {
+      const match = line.match(/^(.+?)\s+sales\s+at\s+(\d+)%$/i);
+      return match ? { category: match[1], percent: parseInt(match[2], 10) } : null;
+    })
+    .filter((item): item is SalesLine => item !== null);
+}
+
+/** Determine ProgressBar variant from sales percentage. */
+export function salesVariant(percent: number): 'error' | 'warning' | 'success' {
+  if (percent <= 25) return 'error';
+  if (percent <= 60) return 'warning';
+  return 'success';
+}
 
 export function revenueClass(revenue: string): string {
   if (!revenue) return styles.revenueNeutral;
@@ -81,9 +111,33 @@ export function StatusOverlay() {
     >
       <div className={styles.buildingName}>{building.buildingName}</div>
 
-      {building.salesInfo && (
-        <div className={styles.salesInfo}>{building.salesInfo}</div>
-      )}
+      {building.salesInfo && (() => {
+        const lines = parseSalesLines(building.salesInfo);
+        if (lines.length > 0) {
+          const visible = lines.slice(0, MAX_SALES_ROWS);
+          const remaining = lines.length - MAX_SALES_ROWS;
+          return (
+            <div className={styles.salesList}>
+              {visible.map((line, i) => (
+                <div key={i} className={styles.salesRow}>
+                  <div className={styles.salesHeader}>
+                    <span className={styles.salesCategory}>{line.category}</span>
+                    <span className={`${styles.salesPercent} ${styles[salesVariant(line.percent)]}`}>
+                      {line.percent}%
+                    </span>
+                  </div>
+                  <ProgressBar value={line.percent / 100} variant={salesVariant(line.percent)} height={2} />
+                </div>
+              ))}
+              {remaining > 0 && (
+                <span className={styles.salesMore}>+{remaining} more</span>
+              )}
+            </div>
+          );
+        }
+        // Fallback: single-line display for non-sales formats
+        return <div className={styles.salesInfo}>{building.salesInfo}</div>;
+      })()}
 
       <div className={styles.infoRow}>
         {building.ownerName && (

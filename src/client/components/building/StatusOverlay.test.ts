@@ -15,10 +15,19 @@ jest.mock('./StatusOverlay.module.css', () => ({
   revenueNegative: 'revenueNegative',
   revenueNeutral: 'revenueNeutral',
   salesInfo: 'salesInfo',
+  salesList: 'salesList',
+  salesRow: 'salesRow',
+  salesHeader: 'salesHeader',
+  salesCategory: 'salesCategory',
+  salesPercent: 'salesPercent',
+  salesMore: 'salesMore',
+  error: 'error',
+  warning: 'warning',
+  success: 'success',
 }));
 
 // Import after mock
-import { revenueClass, revenueDirection } from './StatusOverlay';
+import { revenueClass, revenueDirection, parseSalesLines, salesVariant } from './StatusOverlay';
 
 const mockBuilding: BuildingFocusInfo = {
   buildingId: '12345',
@@ -189,5 +198,77 @@ describe('StatusOverlay — visibility logic via store', () => {
     const state = useBuildingStore.getState();
     expect(state.focusedBuilding?.salesInfo).toBe('');
     // Component skips rendering salesInfo div when falsy
+  });
+
+  it('overlay stores multi-line salesInfo from focused building', () => {
+    const multiSales: BuildingFocusInfo = {
+      ...mockBuilding,
+      salesInfo: 'Fresh Food sales at 0%\nProcessed Food sales at 100%\nClothing and Footwear sales at 70%\nHousehold Appliances sales at 29%',
+    };
+    useBuildingStore.getState().setFocus(multiSales);
+    useBuildingStore.getState().setOverlayMode(true);
+    const state = useBuildingStore.getState();
+    expect(state.focusedBuilding?.salesInfo).toContain('\n');
+    expect(state.focusedBuilding?.salesInfo?.split('\n')).toHaveLength(4);
+  });
+});
+
+describe('StatusOverlay — parseSalesLines()', () => {
+  it('parses single sales line', () => {
+    expect(parseSalesLines('Pharmaceutics sales at 80%'))
+      .toEqual([{ category: 'Pharmaceutics', percent: 80 }]);
+  });
+
+  it('parses multiple sales lines', () => {
+    const input = 'Fresh Food sales at 0%\nProcessed Food sales at 100%\nClothing and Footwear sales at 70%\nHousehold Appliances sales at 29%';
+    const result = parseSalesLines(input);
+    expect(result).toHaveLength(4);
+    expect(result[0]).toEqual({ category: 'Fresh Food', percent: 0 });
+    expect(result[1]).toEqual({ category: 'Processed Food', percent: 100 });
+    expect(result[2]).toEqual({ category: 'Clothing and Footwear', percent: 70 });
+    expect(result[3]).toEqual({ category: 'Household Appliances', percent: 29 });
+  });
+
+  it('returns empty array for construction percentage format', () => {
+    expect(parseSalesLines('45% completed.')).toEqual([]);
+  });
+
+  it('returns empty array for empty string', () => {
+    expect(parseSalesLines('')).toEqual([]);
+  });
+
+  it('returns empty array for non-sales format like hiring', () => {
+    expect(parseSalesLines('Hiring workforce at 39%')).toEqual([]);
+  });
+
+  it('handles mixed valid and invalid lines', () => {
+    const input = 'Fresh Food sales at 50%\nSome random text\nClothing sales at 30%';
+    const result = parseSalesLines(input);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ category: 'Fresh Food', percent: 50 });
+    expect(result[1]).toEqual({ category: 'Clothing', percent: 30 });
+  });
+
+  it('trims whitespace from lines', () => {
+    const input = '  Fresh Food sales at 50%  \n  Clothing sales at 30%  ';
+    const result = parseSalesLines(input);
+    expect(result).toHaveLength(2);
+  });
+});
+
+describe('StatusOverlay — salesVariant()', () => {
+  it('returns error for 0-25%', () => {
+    expect(salesVariant(0)).toBe('error');
+    expect(salesVariant(25)).toBe('error');
+  });
+
+  it('returns warning for 26-60%', () => {
+    expect(salesVariant(26)).toBe('warning');
+    expect(salesVariant(60)).toBe('warning');
+  });
+
+  it('returns success for 61-100%', () => {
+    expect(salesVariant(61)).toBe('success');
+    expect(salesVariant(100)).toBe('success');
   });
 });

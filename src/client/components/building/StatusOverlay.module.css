@@ -6,7 +6,7 @@
   z-index: 250;
   pointer-events: auto;
   transform: translateX(-50%) translateY(-100%);
-  max-width: 280px;
+  max-width: 300px;
   min-width: 180px;
   padding: var(--space-2) var(--space-3);
 
@@ -77,6 +77,56 @@
   text-overflow: ellipsis;
   margin-top: 1px;
   line-height: var(--leading-tight);
+}
+
+/* Multi-line structured sales list */
+.salesList {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.salesRow {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.salesHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.salesCategory {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.salesPercent {
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.error   { color: var(--error); }
+.warning { color: var(--warning); }
+.success { color: var(--success); }
+
+.salesMore {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.6;
+  text-align: center;
 }
 
 /* Owner + revenue row */
