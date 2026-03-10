@@ -40,6 +40,9 @@ Never read screenshot images in the main conversation context — each costs ~3-
 - `worldContextId` = world operations (map focus, queries); `interfaceServerId` = building operations
 - WebSocket: Client->Server = `WsReq*` types, Server->Client = `WsResp*` types
 
+**Transparency**
+Always inform the user the list of skills used to respond to each request when you post the summary of all changes or end report or plan.
+
 ## Project
 
 **Starpeace Online WebClient** — Browser-based multiplayer tycoon game client
