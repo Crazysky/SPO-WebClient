@@ -85,7 +85,7 @@ const MAX_TURNS_ALLOWED = 5;
 const VIEWPORT_MARGIN = 3;
 
 /** Minimum tiles a vehicle must be able to travel from spawn point */
-const MIN_SPAWN_PATH_LENGTH = 3;
+const MIN_SPAWN_PATH_LENGTH = 2;
 
 /**
  * Direction offsets for tile adjacency.
@@ -212,6 +212,8 @@ export class VehicleAnimationSystem {
   getVehicles(): ReadonlyArray<Readonly<AnimatedVehicle>> {
     return this.vehicles;
   }
+
+
 
   clear(): void {
     this.vehicles = [];
@@ -513,8 +515,11 @@ export class VehicleAnimationSystem {
   // ==========================================================================
 
   /**
-   * Build cached list of road tiles in the viewport margin band.
-   * These are tiles within VIEWPORT_MARGIN tiles outside the visible area.
+   * Build cached list of road tiles eligible for vehicle spawning.
+   * Includes both:
+   * 1. Tiles in the outer margin band (outside viewport, within VIEWPORT_MARGIN)
+   * 2. Tiles at the viewport edges (inside viewport, within VIEWPORT_MARGIN of boundary)
+   * This ensures spawning works even when road data barely extends past the viewport.
    */
   private buildMarginCandidates(bounds: TileBounds): Array<{ col: number; row: number }> {
     const result: Array<{ col: number; row: number }> = [];
@@ -527,13 +532,24 @@ export class VehicleAnimationSystem {
       const col = parseInt(colStr, 10);
       const row = parseInt(rowStr, 10);
 
+      // Outer margin: outside viewport but within margin distance
+      const inExpandedArea = col >= bounds.minJ - margin && col <= bounds.maxJ + margin &&
+                             row >= bounds.minI - margin && row <= bounds.maxI + margin;
+      if (!inExpandedArea) continue;
+
       const inViewport = col >= bounds.minJ && col <= bounds.maxJ &&
                          row >= bounds.minI && row <= bounds.maxI;
-      const inMargin = col >= bounds.minJ - margin && col <= bounds.maxJ + margin &&
-                       row >= bounds.minI - margin && row <= bounds.maxI + margin;
 
-      if (inMargin && !inViewport) {
+      if (!inViewport) {
+        // Outside viewport, in margin band — always a candidate
         result.push({ col, row });
+      } else {
+        // Inside viewport but near an edge — also a candidate
+        const nearEdge = col < bounds.minJ + margin || col > bounds.maxJ - margin ||
+                         row < bounds.minI + margin || row > bounds.maxI - margin;
+        if (nearEdge) {
+          result.push({ col, row });
+        }
       }
     }
 

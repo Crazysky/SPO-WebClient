@@ -191,11 +191,11 @@ describe('SoundManager', () => {
 
     it('should play from buffer cache on second call', async () => {
       sm.initOnInteraction();
-      sm.play('mail');
+      // Use playFile directly to test buffer caching (bypasses event debounce)
+      sm.playFile('/sounds/come-here-notification.ogg');
       await new Promise(r => setTimeout(r, 10));
-      const fetchCount = (fetch as jest.Mock).mock.calls.length;
 
-      sm.play('mail');
+      sm.playFile('/sounds/come-here-notification.ogg');
       await new Promise(r => setTimeout(r, 10));
       // Should not fetch again — served from cache
       // (preload also fetches, so just check sources grew)

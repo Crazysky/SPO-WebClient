@@ -34,9 +34,10 @@ export const useLogStore = create<LogState>((set) => ({
         source,
         message,
       };
+      // Avoid spreading the full array on every call — only trim when at capacity
       const entries = state.entries.length >= MAX_ENTRIES
-        ? [...state.entries.slice(1), entry]
-        : [...state.entries, entry];
+        ? state.entries.slice(-(MAX_ENTRIES - 1)).concat(entry)
+        : state.entries.concat(entry);
       return { entries, nextId: state.nextId + 1 };
     }),
 

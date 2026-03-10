@@ -120,15 +120,34 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
   }, []);
 
   // Auto-refresh building details while panel is open (prevents stale QuickStats)
+  // Pauses when browser tab is hidden to avoid wasting resources
   const refreshTimer = useRef<ReturnType<typeof setInterval>>(undefined);
   useEffect(() => {
     if (!details) return;
     const x = details.x;
     const y = details.y;
-    refreshTimer.current = setInterval(() => {
-      client.onRefreshBuilding(x, y);
-    }, AUTO_REFRESH_INTERVAL);
-    return () => clearInterval(refreshTimer.current);
+
+    const startTimer = () => {
+      clearInterval(refreshTimer.current);
+      refreshTimer.current = setInterval(() => {
+        client.onRefreshBuilding(x, y);
+      }, AUTO_REFRESH_INTERVAL);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        clearInterval(refreshTimer.current);
+      } else {
+        startTimer();
+      }
+    };
+
+    startTimer();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      clearInterval(refreshTimer.current);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [details?.x, details?.y, client]);
 
   // Loading state

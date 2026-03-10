@@ -511,6 +511,16 @@ export class IsometricMapRenderer {
   private animationLoopRunning: boolean = false;
   private hasAnimatedBuildings: boolean = false;
   private lastRenderTime: number = 0;
+  private lastPulseRenderTime: number = 0;
+  private lastVehicleFrameTime: number = 0;
+  // Bound event handlers for proper cleanup
+  private boundMouseDown = (e: MouseEvent) => this.onMouseDown(e);
+  private boundMouseMove = (e: MouseEvent) => this.onMouseMove(e);
+  private boundMouseUp = (e: MouseEvent) => this.onMouseUp(e);
+  private boundMouseLeave = () => this.onMouseLeave();
+  private boundWheel = (e: WheelEvent) => this.onWheel(e);
+  private boundContextMenu = (e: MouseEvent) => e.preventDefault();
+  private boundKeyDown: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(canvasId: string) {
     const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
@@ -592,7 +602,7 @@ export class IsometricMapRenderer {
    * (those keys are handled by useKeyboardShortcuts).
    */
   private setupKeyboardControls() {
-    document.addEventListener('keydown', (e) => {
+    this.boundKeyDown = (e: KeyboardEvent) => {
       // Skip when typing in form fields
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -631,7 +641,8 @@ export class IsometricMapRenderer {
         this.debugShowRoadInfo = !this.debugShowRoadInfo;
         this.requestRender();
       }
-    });
+    };
+    document.addEventListener('keydown', this.boundKeyDown);
   }
 
   /**
@@ -938,9 +949,13 @@ export class IsometricMapRenderer {
       if (!this.animationLoopRunning) return;
 
       const zoom = this.terrainRenderer.getZoomLevel();
-      // Only animate at Z2 and Z3
+      // Only animate at Z2 and Z3, throttled to 30fps (33ms between frames)
       if (zoom >= 2 && this.vehicleSystemReady && this.vehicleSystem) {
-        this.requestRender();
+        const now = performance.now();
+        if (now - this.lastVehicleFrameTime >= 33) {
+          this.lastVehicleFrameTime = now;
+          this.requestRender();
+        }
         requestAnimationFrame(loop);
       } else {
         this.animationLoopRunning = false;
@@ -2160,8 +2175,18 @@ export class IsometricMapRenderer {
     // Game info overlay removed — stats available via debug mode (D key)
 
     // Keep rendering for animated buildings or selected building pulse
-    if (this.hasAnimatedBuildings || this.selectedBuilding) {
+    // Throttle selection pulse to 15fps (66ms) — no visual difference for a slow sine wave
+    if (this.hasAnimatedBuildings) {
       this.requestRender();
+    } else if (this.selectedBuilding) {
+      const now = performance.now();
+      if (now - this.lastPulseRenderTime >= 66) {
+        this.lastPulseRenderTime = now;
+        this.requestRender();
+      } else {
+        // Schedule next pulse frame at the right time
+        setTimeout(() => this.requestRender(), 66 - (now - this.lastPulseRenderTime));
+      }
     }
   }
 
@@ -4382,12 +4407,12 @@ export class IsometricMapRenderer {
     // Disable terrain renderer's built-in mouse controls (we'll handle them)
     // The terrain renderer has its own pan/zoom which we need to coordinate with
 
-    this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
-    this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
-    this.canvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
-    this.canvas.addEventListener('mouseleave', () => this.onMouseLeave());
-    this.canvas.addEventListener('wheel', (e) => this.onWheel(e));
-    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.canvas.addEventListener('mousedown', this.boundMouseDown);
+    this.canvas.addEventListener('mousemove', this.boundMouseMove);
+    this.canvas.addEventListener('mouseup', this.boundMouseUp);
+    this.canvas.addEventListener('mouseleave', this.boundMouseLeave);
+    this.canvas.addEventListener('wheel', this.boundWheel);
+    this.canvas.addEventListener('contextmenu', this.boundContextMenu);
 
   }
 
@@ -4746,6 +4771,18 @@ export class IsometricMapRenderer {
     if (this.cameraStopTimer !== null) {
       clearTimeout(this.cameraStopTimer);
       this.cameraStopTimer = null;
+    }
+
+    // Remove event listeners
+    this.canvas.removeEventListener('mousedown', this.boundMouseDown);
+    this.canvas.removeEventListener('mousemove', this.boundMouseMove);
+    this.canvas.removeEventListener('mouseup', this.boundMouseUp);
+    this.canvas.removeEventListener('mouseleave', this.boundMouseLeave);
+    this.canvas.removeEventListener('wheel', this.boundWheel);
+    this.canvas.removeEventListener('contextmenu', this.boundContextMenu);
+    if (this.boundKeyDown) {
+      document.removeEventListener('keydown', this.boundKeyDown);
+      this.boundKeyDown = null;
     }
 
     // Destroy touch handler

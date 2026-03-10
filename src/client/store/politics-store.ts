@@ -51,6 +51,11 @@ export const usePoliticsStore = create<PoliticsState>((set, get) => ({
   setTycoonRole: (role) => set((state) => {
     const newMap = new Map(state.politicalRoles);
     newMap.set(role.tycoonName.toLowerCase(), role);
+    // Cap at 100 entries to prevent unbounded growth
+    if (newMap.size > 100) {
+      const firstKey = newMap.keys().next().value;
+      if (firstKey !== undefined) newMap.delete(firstKey);
+    }
     return { politicalRoles: newMap };
   }),
 

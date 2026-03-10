@@ -796,7 +796,20 @@ export class IsometricTerrainRenderer {
    * Set zoom level (0-3)
    */
   setZoomLevel(level: number): void {
-    this.zoomLevel = Math.max(0, Math.min(3, level));
+    const newZoom = Math.max(0, Math.min(3, level));
+    const oldZoom = this.zoomLevel;
+    this.zoomLevel = newZoom;
+
+    // Clear chunk caches for distant zoom levels to reduce memory pressure
+    // (e.g., zooming to Z3 clears Z0 and Z1 caches)
+    if (this.chunkCache && oldZoom !== newZoom) {
+      for (let z = 0; z <= 3; z++) {
+        if (Math.abs(z - newZoom) >= 2) {
+          this.chunkCache.clearZoomLevel(z);
+        }
+      }
+    }
+
     this.render();
   }
 

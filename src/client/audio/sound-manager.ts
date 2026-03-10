@@ -44,6 +44,7 @@ export class SoundManager {
   private volume = 1.0;
   private userInteracted = false;
   private activeSources = 0;
+  private lastPlayTime: Map<string, number> = new Map();
 
   /**
    * Call on first user interaction (click/keydown) to unlock AudioContext.
@@ -79,10 +80,19 @@ export class SoundManager {
     return this.enabled;
   }
 
-  /** Play a named sound event */
+  /** Minimum interval between repeated plays of the same event (ms) */
+  private static readonly DEBOUNCE_MS = 3000;
+
+  /** Play a named sound event (debounced — max once per 3s per event) */
   public play(event: SoundEvent): void {
     const filename = SOUND_MAP[event];
     if (!filename) return;
+
+    const now = performance.now();
+    const last = this.lastPlayTime.get(event) ?? 0;
+    if (now - last < SoundManager.DEBOUNCE_MS) return;
+    this.lastPlayTime.set(event, now);
+
     this.playFile(filename);
   }
 

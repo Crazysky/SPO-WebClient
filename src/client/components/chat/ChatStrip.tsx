@@ -6,11 +6,28 @@
  * z-150, centered at bottom of viewport.
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo, memo } from 'react';
 import { ChevronUp, ChevronDown, ChevronUp as ChevronUpIcon, Send, Users } from 'lucide-react';
 import { useChatStore } from '../../store/chat-store';
 import { useClient } from '../../context';
 import styles from './ChatStrip.module.css';
+
+interface ChatMessageProps {
+  id: string;
+  from: string;
+  text: string;
+  isSystem?: boolean;
+  isGM?: boolean;
+}
+
+const ChatMessage = memo(function ChatMessage({ from, text, isSystem, isGM }: ChatMessageProps) {
+  return (
+    <div className={`${styles.message} ${isSystem ? styles.system : ''} ${isGM ? styles.gm : ''}`}>
+      {!isSystem && <span className={styles.sender}>{from}</span>}
+      <span className={styles.text}>{text}</span>
+    </div>
+  );
+});
 
 export function ChatStrip() {
   const currentChannel = useChatStore((s) => s.currentChannel);
@@ -31,9 +48,9 @@ export function ChatStrip() {
 
   const channelMessages = messages[currentChannel] ?? [];
   const lastMessage = channelMessages[channelMessages.length - 1];
-  const visibleMessages = channelMessages.slice(-50);
-  const onlineCount = Object.keys(users).length;
-  const userList = Object.values(users);
+  const visibleMessages = useMemo(() => channelMessages.slice(-50), [channelMessages]);
+  const onlineCount = useMemo(() => Object.keys(users).length, [users]);
+  const userList = useMemo(() => Object.values(users), [users]);
 
   // Auto-scroll on new messages when expanded
   useEffect(() => {
@@ -76,9 +93,9 @@ export function ChatStrip() {
   );
 
   // Typing indicator text
-  const typingText = typingUsers.size > 0
+  const typingText = useMemo(() => typingUsers.size > 0
     ? Array.from(typingUsers).slice(0, 3).join(', ') + (typingUsers.size > 3 ? '...' : '') + ' typing...'
-    : null;
+    : null, [typingUsers]);
 
   return (
     <div className={`${styles.strip} ${isExpanded ? styles.expanded : ''}`}>
@@ -138,15 +155,14 @@ export function ChatStrip() {
           {/* Chat messages (left) */}
           <div className={styles.messageArea}>
             {visibleMessages.map((msg) => (
-              <div
+              <ChatMessage
                 key={msg.id}
-                className={`${styles.message} ${msg.isSystem ? styles.system : ''} ${msg.isGM ? styles.gm : ''}`}
-              >
-                {!msg.isSystem && (
-                  <span className={styles.sender}>{msg.from}</span>
-                )}
-                <span className={styles.text}>{msg.text}</span>
-              </div>
+                id={msg.id}
+                from={msg.from}
+                text={msg.text}
+                isSystem={msg.isSystem}
+                isGM={msg.isGM}
+              />
             ))}
             <div ref={messagesEndRef} />
           </div>
