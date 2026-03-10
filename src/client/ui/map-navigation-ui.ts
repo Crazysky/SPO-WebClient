@@ -19,6 +19,7 @@ export class MapNavigationUI {
   private onBuildingClick: ((x: number, y: number, visualClass?: string) => void) | null = null;
   private onEmptyMapClick: (() => void) | null = null;
   private onFetchFacilityDimensions: ((visualClass: string) => Promise<FacilityDimensions | null>) | null = null;
+  private onViewportChanged: (() => void) | null = null;
 
   constructor(private gamePanel: HTMLElement, private worldName: string = 'Shamba') {}
 
@@ -55,6 +56,14 @@ export class MapNavigationUI {
    */
   public setOnFetchFacilityDimensions(callback: (visualClass: string) => Promise<FacilityDimensions | null>) {
     this.onFetchFacilityDimensions = callback;
+  }
+
+  /**
+   * Set callback for viewport changes (pan-end, zoom, rotation).
+   * Used to send SetViewedArea to the game server so it pushes facility updates.
+   */
+  public setOnViewportChanged(callback: () => void) {
+    this.onViewportChanged = callback;
   }
 
   /**
@@ -117,6 +126,10 @@ export class MapNavigationUI {
         return await this.onFetchFacilityDimensions(visualClass);
       }
       return null;
+    });
+
+    this.renderer.setViewportChangedCallback(() => {
+      if (this.onViewportChanged) this.onViewportChanged();
     });
   }
 

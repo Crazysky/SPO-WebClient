@@ -243,6 +243,7 @@ export class StarpeaceClient {
   private savedPlayerY: number | undefined;
   private worldSeason: number | null = null;
   private cameraUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+  private viewportHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   // Building focus state
   private currentFocusedBuilding: BuildingFocusInfo | null = null;
@@ -563,6 +564,12 @@ export class StarpeaceClient {
         this.sendCameraPositionDebounced();
       });
 
+      // Send SetViewedArea on every viewport change (pan-end, zoom, rotation)
+      // so the game server knows which area to push RefreshArea/RefreshObject for.
+      this.mapNavigationUI.setOnViewportChanged(() => {
+        this.sendCameraPositionDebounced();
+      });
+
       this.mapNavigationUI.setOnBuildingClick((x, y, visualClass) => {
         this.handleMapClick(x, y, visualClass);
       });
@@ -613,6 +620,10 @@ export class StarpeaceClient {
 
     this.ws.onclose = () => {
       this.isConnected = false;
+      if (this.viewportHeartbeatTimer !== null) {
+        clearInterval(this.viewportHeartbeatTimer);
+        this.viewportHeartbeatTimer = null;
+      }
       ClientBridge.log('System', 'Gateway Disconnected.');
     };
 
@@ -1463,6 +1474,14 @@ export class StarpeaceClient {
     this.mapNavigationUI = new MapNavigationUI(this.uiGamePanel, this.currentWorldName);
     await this.mapNavigationUI.init();
     this.setupGameUICallbacks();
+
+    // Send initial SetViewedArea immediately so the server starts pushing facility updates
+    this.sendCameraPositionNow();
+
+    // Periodic heartbeat: re-send SetViewedArea every 30s as a safety net for idle sessions
+    this.viewportHeartbeatTimer = setInterval(() => {
+      this.sendCameraPositionNow();
+    }, 30_000);
 
     // Tycoon stats: push initial username to React TopBar via Zustand
     ClientBridge.updateTycoonStats({

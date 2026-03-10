@@ -423,6 +423,7 @@ export class IsometricMapRenderer {
   private onRoadDemolishClick: ((x: number, y: number) => void) | null = null;
   private onCancelRoadDemolish: (() => void) | null = null;
   private onEmptyMapClick: (() => void) | null = null;
+  private onViewportChanged: (() => void) | null = null;
 
   // Zone overlay
   private zoneOverlayEnabled: boolean = false;
@@ -1435,6 +1436,10 @@ export class IsometricMapRenderer {
 
   public setEmptyMapClickCallback(callback: () => void) {
     this.onEmptyMapClick = callback;
+  }
+
+  public setViewportChangedCallback(callback: () => void) {
+    this.onViewportChanged = callback;
   }
 
   /** Convert world coordinates to screen pixel position. */
@@ -4721,6 +4726,9 @@ export class IsometricMapRenderer {
       cameraPos,
       currentZoom
     );
+
+    // Notify listener that the viewport changed (used to send SetViewedArea to game server)
+    if (this.onViewportChanged) this.onViewportChanged();
   }
 
   // =========================================================================
@@ -4773,6 +4781,7 @@ export class IsometricMapRenderer {
     this.onLoadZone = null;
     this.onBuildingClick = null;
     this.onEmptyMapClick = null;
+    this.onViewportChanged = null;
     this.onCancelPlacement = null;
     this.onPlacementConfirm = null;
     this.onFetchFacilityDimensions = null;
