@@ -1,0 +1,100 @@
+/**
+ * Zone Handler — extracted from StarpeaceClient.
+ *
+ * Handles zone painting mode and zone definition.
+ */
+
+import {
+  WsMessageType,
+  WsReqDefineZone,
+  WsRespDefineZone,
+  SurfaceType,
+} from '../../shared/types';
+import { toErrorMessage } from '../../shared/error-utils';
+import { ClientBridge } from '../bridge/client-bridge';
+import type { ClientHandlerContext } from './client-context';
+
+export function toggleZonePaintingMode(ctx: ClientHandlerContext, zoneType: number): void {
+  if (ctx.isZonePaintingMode && ctx.selectedZoneType === zoneType) {
+    cancelZonePaintingMode(ctx);
+    return;
+  }
+
+  if (ctx.isRoadBuildingMode) ctx.cancelRoadBuildingMode();
+  if (ctx.isRoadDemolishMode) ctx.cancelRoadDemolishMode();
+  if (ctx.currentBuildingToPlace) ctx.cancelBuildingPlacement();
+
+  ctx.isZonePaintingMode = true;
+  ctx.selectedZoneType = zoneType;
+
+  const renderer = ctx.getRenderer();
+  if (renderer) {
+    renderer.setZonePaintingMode(true, zoneType);
+    renderer.setZoneAreaCompleteCallback((x1, y1, x2, y2) => {
+      defineZoneArea(ctx, x1, y1, x2, y2);
+    });
+    renderer.setCancelZonePaintingCallback(() => {
+      cancelZonePaintingMode(ctx);
+    });
+  }
+
+  ctx.toggleZoneOverlay(true, SurfaceType.ZONES);
+  setupZonePaintingKeyboardHandler(ctx);
+
+  ClientBridge.setZonePaintingMode(true);
+  ClientBridge.setSelectedZoneType(zoneType);
+  ClientBridge.log('Zone', `Zone painting mode enabled: type ${zoneType}`);
+}
+
+export function cancelZonePaintingMode(ctx: ClientHandlerContext): void {
+  ctx.isZonePaintingMode = false;
+
+  const renderer = ctx.getRenderer();
+  if (renderer) {
+    renderer.setZonePaintingMode(false);
+    renderer.setZoneAreaCompleteCallback(null);
+    renderer.setCancelZonePaintingCallback(null);
+  }
+
+  if (!ctx.isCityZonesEnabled) {
+    ctx.toggleZoneOverlay(false, SurfaceType.ZONES);
+  }
+
+  ClientBridge.setZonePaintingMode(false);
+  ClientBridge.log('Zone', 'Zone painting mode disabled');
+}
+
+function setupZonePaintingKeyboardHandler(ctx: ClientHandlerContext): void {
+  const handler = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && ctx.isZonePaintingMode) {
+      cancelZonePaintingMode(ctx);
+      document.removeEventListener('keydown', handler);
+    }
+  };
+  document.addEventListener('keydown', handler);
+}
+
+async function defineZoneArea(ctx: ClientHandlerContext, x1: number, y1: number, x2: number, y2: number): Promise<void> {
+  ClientBridge.log('Zone', `Defining zone ${ctx.selectedZoneType} from (${x1},${y1}) to (${x2},${y2})...`);
+
+  try {
+    const req: WsReqDefineZone = {
+      type: WsMessageType.REQ_DEFINE_ZONE,
+      zoneId: ctx.selectedZoneType,
+      x1, y1, x2, y2,
+    };
+
+    const response = await ctx.sendRequest(req) as WsRespDefineZone;
+
+    if (response.success) {
+      const tileCount = (Math.abs(x2 - x1) + 1) * (Math.abs(y2 - y1) + 1);
+      ctx.showNotification(`Zone defined: ${tileCount} tiles`, 'success');
+      ctx.toggleZoneOverlay(true, SurfaceType.ZONES);
+    } else {
+      ctx.showNotification(response.message || 'Failed to define zone', 'error');
+    }
+  } catch (err: unknown) {
+    ClientBridge.log('Error', `Failed to define zone: ${toErrorMessage(err)}`);
+    ctx.showNotification(`Failed to define zone: ${toErrorMessage(err)}`, 'error');
+  }
+}

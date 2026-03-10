@@ -1,0 +1,321 @@
+/**
+ * Push Dispatcher — extracted from StarpeaceSession.handlePush().
+ *
+ * Handles all server-initiated push commands (events sent without a request).
+ * Each push type is parsed and forwarded as a typed WebSocket event.
+ */
+
+import type { RdoPacket, ChatUser } from '../../shared/types';
+import {
+  WsMessageType,
+  type WsEventChatMsg,
+  type WsEventTycoonUpdate,
+  type WsEventEndOfPeriod,
+  type WsEventRefreshDate,
+  type WsEventRdoPush,
+  type WsEventNewMail,
+  type WsEventChatUserTyping,
+  type WsEventChatChannelChange,
+  type WsEventChatUserListChange,
+  type WsEventShowNotification,
+  type WsEventCacheRefresh,
+} from '../../shared/types';
+import { RdoParser } from '../../shared/rdo-types';
+
+// ── Push Context ────────────────────────────────────────────────────────────
+
+/**
+ * Narrow interface for push dispatcher state access.
+ * StarpeaceSession implements this so the dispatcher can read/write
+ * the fields it needs without importing the full class.
+ */
+export interface PushContext {
+  // ── Logging ──
+  readonly log: {
+    debug(...args: unknown[]): void;
+    warn(...args: unknown[]): void;
+    error(...args: unknown[]): void;
+  };
+
+  // ── Event Emission ──
+  emit(event: string, ...args: unknown[]): boolean;
+
+  // ── InitClient synchronization ──
+  getWaitingForInitClient(): boolean;
+  setWaitingForInitClient(value: boolean): void;
+  getInitClientResolver(): (() => void) | null;
+  setInitClientResolver(value: (() => void) | null): void;
+
+  // ── Session state (read/write) ──
+  getVirtualDate(): number | null;
+  setVirtualDate(value: number | null): void;
+  getAccountMoney(): string | null;
+  setAccountMoney(value: string): void;
+  getFailureLevel(): number | null;
+  setFailureLevel(value: number | null): void;
+  getFTycoonProxyId(): number | null;
+  setFTycoonProxyId(value: number | null): void;
+  getCurrentChannel(): string;
+  setCurrentChannel(channel: string): void;
+
+  // ── Cached push data ──
+  getLastRanking(): number;
+  setLastRanking(value: number): void;
+  getLastBuildingCount(): number;
+  setLastBuildingCount(value: number): void;
+  getLastMaxBuildings(): number;
+  setLastMaxBuildings(value: number): void;
+}
+
+// ── Dispatcher ──────────────────────────────────────────────────────────────
+
+/**
+ * Dispatch a server-initiated push command to the appropriate handler.
+ * Each push type is parsed and emitted as a typed WebSocket event.
+ */
+export function dispatchPush(ctx: PushContext, _socketName: string, packet: RdoPacket): void {
+  // CRITICAL: Detect InitClient push during login
+  if (ctx.getWaitingForInitClient()) {
+    const hasInitClient = packet.member === 'InitClient' ||
+      (packet.raw && packet.raw.includes('InitClient'));
+    if (hasInitClient) {
+      ctx.log.debug(`[Session] Server sent InitClient push (detected in ${packet.member ? 'member' : 'raw'})`);
+
+      // Parse InitClient data
+      // Example: C sel 44917624 call InitClient "*" "@78006","%419278163478","#0","#223892356";
+      // Args: [Date, Money, FailureLevel, fTycoonProxyId]
+      if (packet.args && packet.args.length >= 4) {
+        try {
+          ctx.setVirtualDate(RdoParser.asFloat(packet.args[0]));
+          ctx.setAccountMoney(RdoParser.getValue(packet.args[1]));
+          ctx.setFailureLevel(RdoParser.asInt(packet.args[2]));
+          ctx.setFTycoonProxyId(RdoParser.asInt(packet.args[3]));
+
+          ctx.log.debug(`[Session] InitClient parsed - Date: ${ctx.getVirtualDate()}, Money: ${ctx.getAccountMoney()}, FailureLevel: ${ctx.getFailureLevel()}, fTycoonProxyId: ${ctx.getFTycoonProxyId()}`);
+
+          // Forward initial game date to client
+          const vDate = ctx.getVirtualDate();
+          if (vDate !== null) {
+            ctx.emit('ws_event', {
+              type: WsMessageType.EVENT_REFRESH_DATE,
+              dateDouble: vDate,
+            } as WsEventRefreshDate);
+          }
+        } catch (error) {
+          ctx.log.error(`[Session] Failed to parse InitClient data:`, error);
+          ctx.log.debug(`[Session] Raw args:`, packet.args);
+        }
+      } else {
+        ctx.log.warn(`[Session] InitClient packet has insufficient args (expected 4, got ${packet.args?.length || 0})`);
+      }
+
+      ctx.setWaitingForInitClient(false);
+      const resolver = ctx.getInitClientResolver();
+      if (resolver) {
+        resolver();
+        ctx.setInitClientResolver(null);
+      }
+      return;
+    }
+  }
+
+  // Server-initiated SetLanguage (just log it, no action needed)
+  if (packet.member === 'SetLanguage') {
+    ctx.log.debug(`[Session] Server sent SetLanguage push (ignored)`);
+    return;
+  }
+
+  // NewMail notification — push from InterfaceServer via fClientEventsProxy.NewMail(MsgCount)
+  if (packet.member === 'NewMail') {
+    const count = packet.args?.[0] ? parseInt(packet.args[0].replace(/^#/, ''), 10) : 0;
+    ctx.log.debug(`[Session] NewMail notification: ${count} unread message(s)`);
+    const event: WsEventNewMail = {
+      type: WsMessageType.EVENT_NEW_MAIL,
+      unreadCount: count,
+    };
+    ctx.emit('ws_event', event);
+    return;
+  }
+
+  // 1. ChatMsg parsing
+  if (packet.member === 'ChatMsg') {
+    ctx.log.debug(`[Chat] Raw ChatMsg packet:`, packet);
+    ctx.log.debug(`[Chat] Args:`, packet.args);
+    ctx.log.debug(`[Chat] Args length:`, packet.args?.length);
+
+    if (packet.args && packet.args.length >= 2) {
+      let from = packet.args[0].replace(/^[%#@$]/, '');
+      const message = packet.args[1].replace(/^[%#@$]/, '');
+
+      if (from.includes('/')) {
+        from = from.split('/')[0];
+      }
+
+      ctx.log.debug(`[Chat] Parsed - from: "${from}", message: "${message}"`);
+
+      const event: WsEventChatMsg = {
+        type: WsMessageType.EVENT_CHAT_MSG,
+        channel: ctx.getCurrentChannel() || 'Lobby',
+        from: from,
+        message: message,
+      };
+
+      ctx.log.debug(`[Chat] Emitting event:`, event);
+      ctx.emit('ws_event', event);
+      return;
+    } else {
+      ctx.log.warn(`[Chat] ChatMsg packet has insufficient args:`, packet);
+    }
+  }
+
+  // 2. NotifyMsgCompositionState - User typing status
+  if (packet.member === 'NotifyMsgCompositionState' && packet.args && packet.args.length >= 2) {
+    const username = packet.args[0].replace(/^[%#@$]/, '');
+    const statusStr = packet.args[1].replace(/^[%#@$]/, '');
+    const isTyping = statusStr === '1';
+
+    ctx.log.debug(`[Chat] ${username} is ${isTyping ? 'typing' : 'idle'}`);
+
+    const event: WsEventChatUserTyping = {
+      type: WsMessageType.EVENT_CHAT_USER_TYPING,
+      username,
+      isTyping,
+    };
+
+    ctx.emit('ws_event', event);
+    return;
+  }
+
+  // 3. NotifyChannelChange - Channel switched
+  if (packet.member === 'NotifyChannelChange' && packet.args && packet.args.length >= 1) {
+    const channelName = packet.args[0].replace(/^[%#@$]/, '');
+    ctx.setCurrentChannel(channelName);
+
+    ctx.log.debug(`[Chat] Channel changed to: ${channelName || 'Lobby'}`);
+
+    const event: WsEventChatChannelChange = {
+      type: WsMessageType.EVENT_CHAT_CHANNEL_CHANGE,
+      channelName: channelName || 'Lobby',
+    };
+
+    ctx.emit('ws_event', event);
+    return;
+  }
+
+  // 4. NotifyUserListChange - User joined/left
+  // Delphi sends Name as "name", "name/id", or "name/id/afk" — handle all formats
+  if (packet.member === 'NotifyUserListChange' && packet.args && packet.args.length >= 2) {
+    const userInfo = packet.args[0].replace(/^[%#@$]/, '');
+    const actionCode = packet.args[1].replace(/^[%#@$]/, '');
+    const userParts = userInfo.split('/');
+
+    if (userParts[0]?.trim()) {
+      const user: ChatUser = {
+        name: userParts[0],
+        id: userParts[1] ?? userParts[0],
+        status: parseInt(userParts[2], 10) || 0,
+      };
+
+      const action = actionCode === '0' ? 'JOIN' : 'LEAVE';
+      ctx.log.debug(`[Chat] User ${user.name} ${action === 'JOIN' ? 'joined' : 'left'} (format: ${userParts.length}-field)`);
+
+      const event: WsEventChatUserListChange = {
+        type: WsMessageType.EVENT_CHAT_USER_LIST_CHANGE,
+        user,
+        action,
+      };
+
+      ctx.emit('ws_event', event);
+    }
+    return;
+  }
+
+  // 5. RefreshTycoon parsing
+  if (packet.member === 'RefreshTycoon' && packet.args && packet.args.length >= 5) {
+    try {
+      const cleanArgs = packet.args.map(arg => arg.replace(/^[%#@$]/, ''));
+
+      const tycoonUpdate: WsEventTycoonUpdate = {
+        type: WsMessageType.EVENT_TYCOON_UPDATE,
+        cash: cleanArgs[0],
+        incomePerHour: cleanArgs[1],
+        ranking: parseInt(cleanArgs[2], 10) || 0,
+        buildingCount: parseInt(cleanArgs[3], 10) || 0,
+        maxBuildings: parseInt(cleanArgs[4], 10) || 0,
+        failureLevel: ctx.getFailureLevel() ?? undefined,
+      };
+
+      // Cache push data for profile queries
+      ctx.setAccountMoney(tycoonUpdate.cash);
+      ctx.setLastRanking(tycoonUpdate.ranking);
+      ctx.setLastBuildingCount(tycoonUpdate.buildingCount);
+      ctx.setLastMaxBuildings(tycoonUpdate.maxBuildings);
+
+      ctx.log.debug(`[Push] Tycoon Update: Cash=${tycoonUpdate.cash}, Income/h=${tycoonUpdate.incomePerHour}, Rank=${tycoonUpdate.ranking}, Buildings=${tycoonUpdate.buildingCount}/${tycoonUpdate.maxBuildings}`);
+      ctx.emit('ws_event', tycoonUpdate);
+      return;
+    } catch (e) {
+      ctx.log.error('[Push] Error parsing RefreshTycoon:', e);
+      // Fallback to generic push
+    }
+  }
+
+  // 6. EndOfPeriod — server signals a financial period has ended
+  if (packet.member === 'EndOfPeriod') {
+    ctx.log.debug('[Push] EndOfPeriod received');
+    const endOfPeriodEvent: WsEventEndOfPeriod = {
+      type: WsMessageType.EVENT_END_OF_PERIOD,
+    };
+    ctx.emit('ws_event', endOfPeriodEvent);
+    return;
+  }
+
+  // 7. RefreshDate — server sends updated virtual date periodically
+  if (packet.member === 'RefreshDate' && packet.args && packet.args.length >= 1) {
+    const dateDouble = RdoParser.asFloat(packet.args[0]);
+    ctx.setVirtualDate(dateDouble);
+    ctx.log.debug(`[Push] RefreshDate: ${dateDouble}`);
+    const dateEvent: WsEventRefreshDate = {
+      type: WsMessageType.EVENT_REFRESH_DATE,
+      dateDouble,
+    };
+    ctx.emit('ws_event', dateEvent);
+    return;
+  }
+
+  // 8. ShowNotification — server game notification (research complete, events, etc.)
+  if (packet.member === 'ShowNotification') {
+    const kind = packet.args?.[0] ? RdoParser.asInt(packet.args[0]) : 0;
+    const title = packet.args?.[1] ? RdoParser.getValue(packet.args[1]) : '';
+    const body = packet.args?.[2] ? RdoParser.getValue(packet.args[2]) : '';
+    const options = packet.args?.[3] ? RdoParser.asInt(packet.args[3]) : 0;
+    ctx.log.debug(`[Push] ShowNotification: kind=${kind}, title="${title}", body="${body}", options=${options}`);
+    const notifEvent: WsEventShowNotification = {
+      type: WsMessageType.EVENT_SHOW_NOTIFICATION,
+      kind,
+      title,
+      body,
+      options,
+    };
+    ctx.emit('ws_event', notifEvent);
+    return;
+  }
+
+  // 9. Refresh — cache proxy invalidation (server tells client to re-fetch building data)
+  if (packet.member === 'Refresh' && (!packet.args || packet.args.length === 0)) {
+    ctx.log.debug('[Push] Cache Refresh received — building data invalidated');
+    const refreshEvent: WsEventCacheRefresh = {
+      type: WsMessageType.EVENT_CACHE_REFRESH,
+    };
+    ctx.emit('ws_event', refreshEvent);
+    return;
+  }
+
+  // 10. Generic push fallback (for unhandled events)
+  const event: WsEventRdoPush = {
+    type: WsMessageType.EVENT_RDO_PUSH,
+    rawPacket: packet.raw,
+  };
+
+  ctx.emit('ws_event', event);
+}

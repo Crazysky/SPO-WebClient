@@ -1,0 +1,360 @@
+/**
+ * Event Handler — extracted from StarpeaceClient.handleMessage().
+ *
+ * Handles the switch block for incoming server events and push messages.
+ */
+
+import {
+  WsMessageType,
+  WsMessage,
+  WsRespError,
+  WsEventChatMsg,
+  WsRespMapData,
+  WsEventChatUserTyping,
+  WsEventChatChannelChange,
+  WsEventChatUserListChange,
+  WsEventBuildingRefresh,
+  WsEventAreaRefresh,
+  WsEventTycoonUpdate,
+  WsEventRefreshDate,
+  WsEventShowNotification,
+  WsEventNewMail,
+  WsRespMailConnected,
+  WsRespCapitolCoords,
+  WsRespGetProfile,
+  WsRespSearchConnections,
+  WsRespClusterInfo,
+  WsRespClusterFacilities,
+  WsRespResearchInventory,
+  WsRespResearchDetails,
+} from '../../shared/types';
+import { toErrorMessage } from '../../shared/error-utils';
+import { ClientBridge } from '../bridge/client-bridge';
+import { useGameStore, delphiTDateTimeToJsDate } from '../store/game-store';
+import { useUiStore } from '../store/ui-store';
+import { useBuildingStore } from '../store/building-store';
+import { useProfileStore } from '../store/profile-store';
+import { getFacilityDimensionsCache } from '../facility-dimensions-cache';
+import type { ClientHandlerContext } from './client-context';
+
+/**
+ * Dispatch incoming server events and push messages.
+ * Returns true if the message was handled, false otherwise.
+ */
+export function dispatchEvent(ctx: ClientHandlerContext, msg: WsMessage): void {
+  switch (msg.type) {
+    case WsMessageType.EVENT_CHAT_MSG: {
+      const chat = msg as WsEventChatMsg;
+      const isSystem = chat.from === 'SYSTEM';
+      ClientBridge.addChatMessage(chat.channel, {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        from: chat.from,
+        text: chat.message,
+        timestamp: Date.now(),
+        isSystem,
+        isGM: chat.from === 'GM',
+      });
+      ClientBridge.log('Chat', `[${chat.channel}] ${chat.from}: ${chat.message}`);
+      ctx.soundManager.play('chat-message');
+      break;
+    }
+
+    case WsMessageType.EVENT_CHAT_USER_TYPING: {
+      const typing = msg as WsEventChatUserTyping;
+      ClientBridge.setChatUserTyping(typing.username, typing.isTyping);
+      break;
+    }
+
+    case WsMessageType.EVENT_CHAT_CHANNEL_CHANGE: {
+      const channelChange = msg as WsEventChatChannelChange;
+      ClientBridge.setCurrentChannel(channelChange.channelName);
+      ctx.requestUserList();
+      break;
+    }
+
+    case WsMessageType.EVENT_CHAT_USER_LIST_CHANGE: {
+      const userChange = msg as WsEventChatUserListChange;
+      if (userChange.action === 'JOIN') {
+        ClientBridge.addChatUser(userChange.user);
+      } else {
+        ClientBridge.removeChatUser(userChange.user.name);
+      }
+      break;
+    }
+
+    case WsMessageType.EVENT_MAP_DATA:
+    case WsMessageType.RESP_MAP_DATA: {
+      const mapMsg = msg as WsRespMapData;
+      ClientBridge.log('Map', `Received area (${mapMsg.data.x}, ${mapMsg.data.y}): ${mapMsg.data.buildings.length} buildings, ${mapMsg.data.segments.length} segments`);
+      ctx.getRenderer()?.updateMapData(mapMsg.data);
+      break;
+    }
+
+    case WsMessageType.EVENT_AREA_REFRESH: {
+      const areaEvt = msg as WsEventAreaRefresh;
+      ClientBridge.log('Map', `Area refresh at (${areaEvt.x}, ${areaEvt.y}) ${areaEvt.width}x${areaEvt.height}`);
+      const areaRenderer = ctx.getRenderer();
+      if (areaRenderer) {
+        areaRenderer.invalidateArea(
+          areaEvt.x,
+          areaEvt.y,
+          areaEvt.x + areaEvt.width,
+          areaEvt.y + areaEvt.height
+        );
+        areaRenderer.triggerZoneCheck();
+      }
+      break;
+    }
+
+    case WsMessageType.EVENT_BUILDING_REFRESH: {
+      const refreshEvt = msg as WsEventBuildingRefresh;
+      const kind = refreshEvt.kindOfChange;
+
+      if (kind === 1 || kind === 2) {
+        const renderer = ctx.getRenderer();
+        if (renderer) {
+          ClientBridge.log('Map', `Building ${refreshEvt.building.buildingId} ${kind === 1 ? 'structure changed' : 'destroyed'}, invalidating zone at (${refreshEvt.building.x}, ${refreshEvt.building.y})`);
+          renderer.invalidateZone(refreshEvt.building.x, refreshEvt.building.y);
+          renderer.triggerZoneCheck();
+        }
+      }
+
+      if (ctx.currentFocusedBuilding &&
+          ctx.currentFocusedBuilding.buildingId === refreshEvt.building.buildingId) {
+        const refreshVc = ctx.currentFocusedVisualClass || '0';
+        const refreshDims = getFacilityDimensionsCache().getFacility(refreshVc);
+        refreshEvt.building.xsize = refreshDims?.xsize ?? 1;
+        refreshEvt.building.ysize = refreshDims?.ysize ?? 1;
+        refreshEvt.building.visualClass = refreshVc;
+
+        ctx.currentFocusedBuilding = refreshEvt.building;
+        ClientBridge.setFocusedBuilding(refreshEvt.building);
+        ctx.requestBuildingDetails(
+          ctx.currentFocusedBuilding.x,
+          ctx.currentFocusedBuilding.y,
+          ctx.currentFocusedVisualClass || '0'
+        ).then(refreshedDetails => {
+          if (refreshedDetails) {
+            ClientBridge.updateBuildingDetails(refreshedDetails);
+          }
+        }).catch(err => {
+          ClientBridge.log('Error', `Failed to refresh building: ${toErrorMessage(err)}`);
+        });
+      }
+      break;
+    }
+
+    case WsMessageType.EVENT_TYCOON_UPDATE: {
+      const tycoonUpdate = msg as WsEventTycoonUpdate;
+      ctx.currentTycoonData = {
+        cash: tycoonUpdate.cash,
+        incomePerHour: tycoonUpdate.incomePerHour,
+        ranking: tycoonUpdate.ranking,
+        buildingCount: tycoonUpdate.buildingCount,
+        maxBuildings: tycoonUpdate.maxBuildings
+      };
+      ClientBridge.log('Tycoon', `Cash: ${tycoonUpdate.cash} | Income/h: ${tycoonUpdate.incomePerHour} | Rank: ${tycoonUpdate.ranking} | Buildings: ${tycoonUpdate.buildingCount}/${tycoonUpdate.maxBuildings}`);
+      ClientBridge.updateTycoonStats({
+        username: ctx.storedUsername,
+        ...ctx.currentTycoonData,
+        failureLevel: tycoonUpdate.failureLevel,
+      });
+      break;
+    }
+
+    case WsMessageType.EVENT_RDO_PUSH: {
+      const pushData = (msg as Record<string, unknown>).rawPacket || msg;
+      ClientBridge.log('Push', `Received: ${JSON.stringify(pushData).substring(0, 100)}...`);
+      break;
+    }
+
+    case WsMessageType.EVENT_END_OF_PERIOD:
+      ClientBridge.log('Period', 'Financial period ended — refreshing data');
+      ctx.showNotification('Financial period ended', 'info');
+      ctx.soundManager.play('period-end');
+      ctx.getProfile().catch(err => {
+        ClientBridge.log('Error', `Failed to refresh tycoon data: ${toErrorMessage(err)}`);
+      });
+      break;
+
+    case WsMessageType.EVENT_REFRESH_DATE: {
+      const dateEvent = msg as WsEventRefreshDate;
+      useGameStore.getState().setGameDate(delphiTDateTimeToJsDate(dateEvent.dateDouble));
+      break;
+    }
+
+    case WsMessageType.EVENT_SHOW_NOTIFICATION: {
+      const notif = msg as WsEventShowNotification;
+      ClientBridge.log('Notification', `Kind=${notif.kind}, Options=${notif.options}: ${notif.body || notif.title}`);
+      const displayText = notif.body || notif.title || 'Server notification';
+      const variant = notif.kind === 4 ? 'success' as const : 'info' as const;
+      ctx.showNotification(displayText, variant);
+
+      if (notif.kind === 4 && notif.options === 1) {
+        ClientBridge.log('Notification', 'Research event — invalidating build catalog cache');
+        ctx.buildingCategories = [];
+        ClientBridge.setBuildMenuCategories([]);
+      }
+      break;
+    }
+
+    case WsMessageType.EVENT_CACHE_REFRESH: {
+      ClientBridge.log('Cache', 'Server invalidated cache — re-fetching building details');
+      if (ctx.currentFocusedBuilding) {
+        ctx.requestBuildingDetails(
+          ctx.currentFocusedBuilding.x,
+          ctx.currentFocusedBuilding.y,
+          ctx.currentFocusedVisualClass || '0'
+        ).then(refreshedDetails => {
+          if (refreshedDetails) {
+            ClientBridge.updateBuildingDetails(refreshedDetails);
+          }
+        }).catch(err => {
+          ClientBridge.log('Error', `Failed to refresh building after cache invalidation: ${toErrorMessage(err)}`);
+        });
+      }
+      break;
+    }
+
+    case WsMessageType.EVENT_NEW_MAIL: {
+      const newMail = msg as WsEventNewMail;
+      ClientBridge.log('Mail', `New mail! ${newMail.unreadCount} unread message(s)`);
+      ctx.soundManager.play('mail');
+      ClientBridge.setMailUnreadCount(newMail.unreadCount);
+      break;
+    }
+
+    case WsMessageType.RESP_MAIL_CONNECTED: {
+      const mailConn = msg as WsRespMailConnected;
+      ClientBridge.log('Mail', `Mail service connected. ${mailConn.unreadCount} unread.`);
+      ClientBridge.setMailUnreadCount(mailConn.unreadCount);
+      break;
+    }
+
+    case WsMessageType.RESP_MAIL_FOLDER:
+    case WsMessageType.RESP_MAIL_MESSAGE:
+    case WsMessageType.RESP_MAIL_SENT:
+    case WsMessageType.RESP_MAIL_DELETED:
+    case WsMessageType.RESP_MAIL_UNREAD_COUNT:
+    case WsMessageType.RESP_MAIL_DRAFT_SAVED:
+      ClientBridge.handleMailResponse(msg);
+      break;
+
+    case WsMessageType.RESP_SEARCH_MENU_HOME:
+    case WsMessageType.RESP_SEARCH_MENU_TOWNS:
+    case WsMessageType.RESP_SEARCH_MENU_PEOPLE_SEARCH:
+    case WsMessageType.RESP_SEARCH_MENU_TYCOON_PROFILE:
+    case WsMessageType.RESP_SEARCH_MENU_RANKINGS:
+    case WsMessageType.RESP_SEARCH_MENU_RANKING_DETAIL:
+    case WsMessageType.RESP_SEARCH_MENU_BANKS:
+      ClientBridge.handleSearchMenuResponse(msg);
+      break;
+
+    case WsMessageType.RESP_CAPITOL_COORDS: {
+      const capitolMsg = msg as WsRespCapitolCoords;
+      if (capitolMsg.hasCapitol) {
+        useGameStore.getState().setCapitolCoords({ x: capitolMsg.x, y: capitolMsg.y });
+        ClientBridge.log('Capitol', `Capitol located at (${capitolMsg.x}, ${capitolMsg.y})`);
+      } else {
+        useGameStore.getState().setCapitolCoords(null);
+        ClientBridge.log('Capitol', 'No Capitol in this world');
+      }
+      break;
+    }
+
+    case WsMessageType.RESP_PROFILE_CURRICULUM:
+    case WsMessageType.RESP_PROFILE_BANK:
+    case WsMessageType.RESP_PROFILE_BANK_ACTION:
+    case WsMessageType.RESP_PROFILE_PROFITLOSS:
+    case WsMessageType.RESP_PROFILE_COMPANIES:
+    case WsMessageType.RESP_PROFILE_AUTOCONNECTIONS:
+    case WsMessageType.RESP_PROFILE_AUTOCONNECTION_ACTION:
+    case WsMessageType.RESP_PROFILE_POLICY:
+    case WsMessageType.RESP_PROFILE_POLICY_SET:
+    case WsMessageType.RESP_PROFILE_CURRICULUM_ACTION:
+      ClientBridge.handleProfileResponse(msg);
+      break;
+
+    case WsMessageType.RESP_POLITICS_DATA:
+      ClientBridge.handlePoliticsResponse(msg);
+      break;
+
+    case WsMessageType.RESP_POLITICS_LAUNCH_CAMPAIGN:
+    case WsMessageType.RESP_POLITICS_CANCEL_CAMPAIGN:
+      ClientBridge.handlePoliticsCampaignResponse(msg);
+      break;
+
+    case WsMessageType.RESP_TYCOON_ROLE:
+      ClientBridge.handleTycoonRoleResponse(msg);
+      break;
+
+    case WsMessageType.RESP_TRANSPORT_DATA:
+      ClientBridge.handleTransportResponse(msg);
+      break;
+
+    case WsMessageType.RESP_EMPIRE_FACILITIES:
+      ClientBridge.handleEmpireResponse(msg);
+      break;
+
+    case WsMessageType.RESP_RESEARCH_INVENTORY: {
+      const resInv = msg as WsRespResearchInventory;
+      useBuildingStore.getState().setResearchInventory(resInv.data);
+      break;
+    }
+    case WsMessageType.RESP_RESEARCH_DETAILS: {
+      const resDet = msg as WsRespResearchDetails;
+      useBuildingStore.getState().setResearchDetails(resDet.details);
+      break;
+    }
+
+    case WsMessageType.RESP_SEARCH_CONNECTIONS: {
+      const searchResp = msg as WsRespSearchConnections;
+      if (useUiStore.getState().modal === 'supplierSearch') {
+        useProfileStore.getState().setSupplierSearchResults(searchResp.results);
+      } else {
+        ClientBridge.updateConnectionResults(searchResp.results);
+      }
+      break;
+    }
+
+    case WsMessageType.RESP_CLUSTER_INFO: {
+      const clusterResp = msg as WsRespClusterInfo;
+      ClientBridge.handleClusterInfoResponse(clusterResp.clusterInfo);
+      break;
+    }
+    case WsMessageType.RESP_CLUSTER_FACILITIES: {
+      const facResp = msg as WsRespClusterFacilities;
+      ClientBridge.handleClusterFacilitiesResponse(facResp.facilities);
+      break;
+    }
+
+    case WsMessageType.RESP_GET_PROFILE: {
+      const profile = (msg as WsRespGetProfile).profile;
+      ClientBridge.log('Profile', `Profile loaded: ${profile.name} (${profile.levelName})`);
+      const baseStats = ctx.currentTycoonData ?? {
+        cash: profile.budget,
+        incomePerHour: '0',
+        ranking: profile.ranking,
+        buildingCount: profile.facCount,
+        maxBuildings: profile.facMax,
+      };
+      ClientBridge.updateTycoonStats({
+        username: ctx.storedUsername,
+        ...baseStats,
+        prestige: profile.prestige,
+        levelName: profile.levelName,
+        levelTier: profile.levelTier,
+        area: profile.area,
+      });
+      ClientBridge.setProfile(profile);
+      break;
+    }
+
+    case WsMessageType.RESP_ERROR: {
+      const errorResp = msg as WsRespError;
+      ClientBridge.log('Error', errorResp.errorMessage || 'Unknown error');
+      ClientBridge.handleSearchMenuError(errorResp.errorMessage || 'Request failed');
+      break;
+    }
+  }
+}

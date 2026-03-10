@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.1-beta] - 2026-03-10
+
+### Added
+- redesign build menu with expandable blueprint cards and tile dimensions
+
+### Fixed
+- grey out unavailable buildings in Build menu with locked blueprint treatment
+
+### Changed
+- split spo_session.ts into focused handler modules
+
 ## [1.0.0] - 2026-03-09
 
 ### Added

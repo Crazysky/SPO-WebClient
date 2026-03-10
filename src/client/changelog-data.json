@@ -1,27 +1,84 @@
 [
   {
+    "version": "1.0.1-beta",
+    "date": "2026-03-10",
+    "entries": [
+      {
+        "type": "fixed",
+        "text": "grey out unavailable buildings in Build menu with locked blueprint treatment"
+      },
+      {
+        "type": "changed",
+        "text": "split spo_session.ts into focused handler modules"
+      },
+      {
+        "type": "added",
+        "text": "redesign build menu with expandable blueprint cards and tile dimensions"
+      }
+    ]
+  },
+  {
     "version": "1.0.0",
     "date": "2026-03-09",
     "entries": [
-      { "type": "added", "text": "Search people results wired to tycoon profile view" },
-      { "type": "added", "text": "In-app versioning workflow and changelog for players" },
-      { "type": "changed", "text": "Promoted from Alpha to Beta 1.0.0" }
+      {
+        "type": "added",
+        "text": "Search people results wired to tycoon profile view"
+      },
+      {
+        "type": "added",
+        "text": "In-app versioning workflow and changelog for players"
+      },
+      {
+        "type": "changed",
+        "text": "Promoted from Alpha to Beta 1.0.0"
+      }
     ]
   },
   {
     "version": "0.1.0",
     "date": "2026-03-09",
     "entries": [
-      { "type": "added", "text": "Isometric canvas renderer with terrain, roads, and buildings" },
-      { "type": "added", "text": "RDO protocol communication with game servers" },
-      { "type": "added", "text": "Building inspector with property details and supplier search" },
-      { "type": "added", "text": "In-game mail system with compose, reply, and folder management" },
-      { "type": "added", "text": "User profile panel with company overview" },
-      { "type": "added", "text": "Real-time chat system" },
-      { "type": "added", "text": "Map navigation with zoom, pan, and keyboard shortcuts" },
-      { "type": "added", "text": "Build menu with categorized facility placement" },
-      { "type": "added", "text": "Transport route viewer" },
-      { "type": "added", "text": "Command palette for quick actions" }
+      {
+        "type": "added",
+        "text": "Isometric canvas renderer with terrain, roads, and buildings"
+      },
+      {
+        "type": "added",
+        "text": "RDO protocol communication with game servers"
+      },
+      {
+        "type": "added",
+        "text": "Building inspector with property details and supplier search"
+      },
+      {
+        "type": "added",
+        "text": "In-game mail system with compose, reply, and folder management"
+      },
+      {
+        "type": "added",
+        "text": "User profile panel with company overview"
+      },
+      {
+        "type": "added",
+        "text": "Real-time chat system"
+      },
+      {
+        "type": "added",
+        "text": "Map navigation with zoom, pan, and keyboard shortcuts"
+      },
+      {
+        "type": "added",
+        "text": "Build menu with categorized facility placement"
+      },
+      {
+        "type": "added",
+        "text": "Transport route viewer"
+      },
+      {
+        "type": "added",
+        "text": "Command palette for quick actions"
+      }
     ]
   }
 ]

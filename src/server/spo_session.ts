@@ -9,19 +9,10 @@ import {
   RDO_PORTS,
   SessionPhase,
   WorldInfo,
-  DIRECTORY_QUERY,
   WsMessageType,
-  WsEventChatMsg,
-  WsEventTycoonUpdate,
   CompanyInfo,
   MapData,
-  WsEventRdoPush,
-  WsEventEndOfPeriod,
-  WsEventRefreshDate,
   ChatUser,
-  WsEventChatUserTyping,
-  WsEventChatChannelChange,
-  WsEventChatUserListChange,
   BuildingFocusInfo,
   WsEventBuildingRefresh,
   WsEventAreaRefresh,
@@ -35,7 +26,6 @@ import {
   BuildingProductData,
   BuildingConnectionData,
   CompInputData,
-  WsEventNewMail,
   MailMessageHeader,
   MailMessageFull,
   MailAttachment,
@@ -61,8 +51,6 @@ import {
   ResearchCategoryData,
   ResearchInventionItem,
   ResearchInventionDetails,
-  WsEventShowNotification,
-  WsEventCacheRefresh,
   ClusterInfo,
   ClusterCategory,
   ClusterFacilityPreview,
@@ -82,7 +70,6 @@ import { config } from '../shared/config';
 import { createLogger } from '../shared/logger';
 import { toProxyUrl, isProxyUrl } from '../shared/proxy-utils';
 import { toErrorMessage } from '../shared/error-utils';
-import { AuthError } from '../shared/auth-error';
 import {
   cleanPayload as cleanPayloadHelper,
   splitMultilinePayload as splitMultilinePayloadHelper,
@@ -111,14 +98,9 @@ import * as buildingDetailsHandler from './session/building-details-handler';
 import * as buildingPropertyHandler from './session/building-property-handler';
 import * as researchHandler from './session/research-handler';
 import type { SessionContext } from './session/session-context';
+import { dispatchPush } from './session/push-dispatcher';
+import * as loginHandler from './session/login-handler';
 
-/** Parse WorldSeason value — real server sends integer (#2), test harness sends string (%Spring) */
-function parseSeasonValue(value: string): number {
-  const num = parseInt(value, 10);
-  if (!isNaN(num) && num >= 0 && num <= 3) return num;
-  const map: Record<string, number> = { winter: 0, spring: 1, summer: 2, autumn: 3, fall: 3 };
-  return map[value.toLowerCase()] ?? 2; // default Summer
-}
 
 // Favorites protocol constants (from Delphi FavProtocol.pas)
 const FAV_PROP_SEP = '\x01';  // chrPropSeparator = char(1)
@@ -384,6 +366,67 @@ export class StarpeaceSession extends EventEmitter {
     this.currentFocusedCoords = null;
   }
 
+  // -- PushContext implementation -------------------------------------------
+  public getWaitingForInitClient(): boolean { return this.waitingForInitClient; }
+  public setWaitingForInitClient(value: boolean): void { this.waitingForInitClient = value; }
+  public getInitClientResolver(): (() => void) | null { return this.initClientResolver; }
+  public setInitClientResolver(value: (() => void) | null): void { this.initClientResolver = value; }
+  public setVirtualDate(value: number | null): void { this.virtualDate = value; }
+  public setFailureLevel(value: number | null): void { this.failureLevel = value; }
+  public setFTycoonProxyId(value: number | null): void { this.fTycoonProxyId = value; }
+  public getLastRanking(): number { return this.lastRanking; }
+  public setLastRanking(value: number): void { this.lastRanking = value; }
+  public getLastBuildingCount(): number { return this.lastBuildingCount; }
+  public setLastBuildingCount(value: number): void { this.lastBuildingCount = value; }
+  public getLastMaxBuildings(): number { return this.lastMaxBuildings; }
+  public setLastMaxBuildings(value: number): void { this.lastMaxBuildings = value; }
+
+  // -- LoginContext implementation ------------------------------------------
+  public getPhase(): SessionPhase { return this.phase; }
+  public setPhase(value: SessionPhase): void { this.phase = value; }
+  public setWorldContextId(value: string | null): void { this.worldContextId = value; }
+  public setInterfaceServerId(value: string | null): void { this.interfaceServerId = value; }
+  public setTycoonId(value: string | null): void { this.tycoonId = value; }
+  public setRdoCnntId(value: string | null): void { this.rdoCnntId = value; }
+  public setCacherId(value: string | null): void { this.cacherId = value; }
+  public setWorldId(value: string | null): void { this.worldId = value; }
+  public setDaPort(value: number | null): void { this.daPort = value; }
+  public setDaAddr(value: string | null): void { this.daAddr = value; }
+  public setMailAccount(value: string | null): void { this.mailAccount = value; }
+  public setMailAddr(value: string | null): void { this.mailAddr = value; }
+  public setMailPort(value: number | null): void { this.mailPort = value; }
+  public setWorldXSize(value: number | null): void { this.worldXSize = value; }
+  public setWorldYSize(value: number | null): void { this.worldYSize = value; }
+  public setWorldSeason(value: number | null): void { this.worldSeason = value; }
+  public setCurrentWorldInfo(value: WorldInfo | null): void { this.currentWorldInfo = value; }
+  public setCachedUsername(value: string | null): void { this.cachedUsername = value; }
+  public setCachedPassword(value: string | null): void { this.cachedPassword = value; }
+  public setCachedZonePath(value: string): void { this.cachedZonePath = value; }
+  public setActiveUsername(value: string | null): void { this.activeUsername = value; }
+  public setCurrentCompany(value: CompanyInfo | null): void { this.currentCompany = value; }
+  public setLastPlayerX(value: number): void { this.lastPlayerX = value; }
+  public setLastPlayerY(value: number): void { this.lastPlayerY = value; }
+  public getAvailableWorlds(): Map<string, WorldInfo> { return this.availableWorlds; }
+  public setAvailableWorlds(worlds: Map<string, WorldInfo>): void { this.availableWorlds = worlds; }
+  public getAvailableCompanies(): CompanyInfo[] { return this.availableCompanies; }
+  public setAvailableCompanies(companies: CompanyInfo[]): void { this.availableCompanies = companies; }
+  public pushAvailableCompany(company: CompanyInfo): void { this.availableCompanies.push(company); }
+  public setKnownObject(name: string, id: string): void { this.knownObjects.set(name, id); }
+  public getInitClientReceived(): Promise<void> | null { return this.initClientReceived; }
+  public setInitClientReceived(value: Promise<void> | null): void { this.initClientReceived = value; }
+  public deleteSocket(name: string): void { this.sockets.delete(name); }
+  public getSocketNames(): string[] { return Array.from(this.sockets.keys()); }
+  public removeAllSocketListeners(name: string): void {
+    const socket = this.sockets.get(name);
+    if (socket) socket.removeAllListeners();
+  }
+  public destroySocket(name: string): void {
+    const socket = this.sockets.get(name);
+    if (socket) socket.destroy();
+  }
+  public deleteFramer(name: string): void { this.framers.delete(name); }
+  public clearAspActionCache(): void { this.aspActionCache.clear(); }
+
   /**
    * Get Directory Agent address for HTTP requests
    */
@@ -443,191 +486,21 @@ export class StarpeaceSession extends EventEmitter {
     return this.worldSeason;
   }
 
-  /**
-   * Connects to Directory Service in two ephemeral phases:
-   * 1. Authentication Check
-   * 2. World List Retrieval
-   */
-  /**
-   * Auth-only check: validates credentials against the Directory Server
-   * without querying the world list. Throws AuthError on failure.
-   */
+  // -- LOGIN/DIRECTORY (facade -> login-handler) ----------------------------
   public async checkAuth(username: string, password: string): Promise<void> {
-    return this.performDirectoryAuth(username, password);
+    return loginHandler.checkAuth(this, username, password);
   }
 
   public async connectDirectory(username: string, pass: string, zonePath?: string): Promise<WorldInfo[]> {
-    this.phase = SessionPhase.DIRECTORY_CONNECTED;
-    this.cachedUsername = username;
-    this.activeUsername = username;
-    this.cachedPassword = pass;
-    this.cachedZonePath = zonePath || 'Root/Areas/Asia/Worlds';
-
-    // Run auth and world query in parallel (independent sockets & sessions)
-    this.log.info('Directory: connecting...');
-    const [, worlds] = await Promise.all([
-      this.performDirectoryAuth(username, pass),
-      this.performDirectoryQuery(zonePath)
-    ]);
-    this.log.info('Directory: auth + query complete');
-    return worlds;
-  }
-
-  /**
-   * Helper Phase 1: Auth -> EndSession
-   */
-  private async performDirectoryAuth(username: string, pass: string): Promise<void> {
-    const socket = await this.createSocket('directory_auth', config.rdo.directoryHost, config.rdo.ports.directory);
-    try {
-      // 1. Resolve & Open Session
-      const idPacket = await this.sendRdoRequest('directory_auth', { verb: RdoVerb.IDOF, targetId: 'DirectoryServer' });
-      const directoryServerId = parseIdOfResponseHelper(idPacket.payload);
-      const sessionPacket = await this.sendRdoRequest('directory_auth', {
-        verb: RdoVerb.SEL, targetId: directoryServerId, action: RdoAction.GET, member: 'RDOOpenSession'
-      });
-      const sessionId = parsePropertyResponseHelper(sessionPacket.payload || '', 'RDOOpenSession');
-
-      // 2. Map & Logon
-      await this.sendRdoRequest('directory_auth', {
-        verb: RdoVerb.SEL, targetId: sessionId, action: RdoAction.CALL, member: 'RDOMapSegaUser',
-        args: [username]
-      });
-      const logonPacket = await this.sendRdoRequest('directory_auth', {
-        verb: RdoVerb.SEL, targetId: sessionId, action: RdoAction.CALL, member: 'RDOLogonUser',
-        args: [username, pass]
-      });
-      const res = parsePropertyResponseHelper(logonPacket.payload || '', 'res');
-      const authCode = parseInt(res, 10);
-      if (authCode !== 0) throw new AuthError(authCode);
-
-      // 3. End Session & Close (fire-and-forget — void push, no RID)
-      socket.write(`C sel ${sessionId} call RDOEndSession "*";`);
-      this.log.debug('[Session] Directory Authentication Success');
-    } finally {
-      socket.end();
-      this.sockets.delete('directory_auth');
-    }
-  }
-
-  /**
-   * Helper Phase 2: OpenSession -> QueryKey -> EndSession
-   */
-  private async performDirectoryQuery(zonePath?: string): Promise<WorldInfo[]> {
-    const socket = await this.createSocket('directory_query', config.rdo.directoryHost, config.rdo.ports.directory);
-    try {
-      // 1. Resolve & Open NEW Session
-      const idPacket = await this.sendRdoRequest('directory_query', { verb: RdoVerb.IDOF, targetId: 'DirectoryServer' });
-      const directoryServerId = parseIdOfResponseHelper(idPacket.payload);
-      const sessionPacket = await this.sendRdoRequest('directory_query', {
-        verb: RdoVerb.SEL, targetId: directoryServerId, action: RdoAction.GET, member: 'RDOOpenSession'
-      });
-      const sessionId = parsePropertyResponseHelper(sessionPacket.payload || '', 'RDOOpenSession');
-
-      // 2. Query Worlds - Use provided zonePath or default to BETA (Asia/Worlds)
-      const worldPath = zonePath || 'Root/Areas/Asia/Worlds';
-      const queryPacket = await this.sendRdoRequest('directory_query', {
-        verb: RdoVerb.SEL, targetId: sessionId, action: RdoAction.CALL, member: 'RDOQueryKey',
-        args: [worldPath, DIRECTORY_QUERY.QUERY_BLOCK]
-      });
-      const resValue = parsePropertyResponseHelper(queryPacket.payload || '', 'res');
-      const worlds = this.parseDirectoryResult(resValue);
-      this.availableWorlds.clear();
-      for (const w of worlds) {
-        this.availableWorlds.set(w.name, w);
-      }
-
-      // 3. End Session & Close (fire-and-forget — void push, no RID)
-      socket.write(`C sel ${sessionId} call RDOEndSession "*";`);
-      return worlds;
-    } finally {
-      socket.end();
-      this.sockets.delete('directory_query');
-    }
+    return loginHandler.connectDirectory(this, username, pass, zonePath);
   }
 
   public getWorldInfo(name: string): WorldInfo | undefined {
     return this.availableWorlds.get(name);
   }
 
-  /**
-   * Search for people/tycoons via RDOSearchKey on the Directory Server.
-   * Opens an ephemeral directory session, searches, and closes.
-   */
   public async searchPeople(searchStr: string): Promise<string[]> {
-    const socket = await this.createSocket('directory_search', config.rdo.directoryHost, config.rdo.ports.directory);
-    try {
-      // 1. Resolve DirectoryServer object
-      const idPacket = await this.sendRdoRequest('directory_search', {
-        verb: RdoVerb.IDOF, targetId: 'DirectoryServer'
-      });
-      const directoryServerId = parseIdOfResponseHelper(idPacket.payload);
-
-      // 2. Open Session
-      const sessionPacket = await this.sendRdoRequest('directory_search', {
-        verb: RdoVerb.SEL, targetId: directoryServerId, action: RdoAction.GET, member: 'RDOOpenSession'
-      });
-      const sessionId = parsePropertyResponseHelper(sessionPacket.payload || '', 'RDOOpenSession');
-
-      // 3. Navigate to the world's directory root
-      const worldName = this.currentWorldInfo?.name || '';
-      const worldPath = `${this.cachedZonePath}/${worldName}`;
-      await this.sendRdoRequest('directory_search', {
-        verb: RdoVerb.SEL, targetId: sessionId, action: RdoAction.CALL, member: 'RDOSetCurrentKey',
-        args: [worldPath]
-      });
-
-      // 4. Search for matching keys under the world
-      const searchPacket = await this.sendRdoRequest('directory_search', {
-        verb: RdoVerb.SEL, targetId: sessionId, action: RdoAction.CALL, member: 'RDOSearchKey',
-        args: [`*${searchStr}*`, '']
-      });
-      const resValue = parsePropertyResponseHelper(searchPacket.payload || '', 'res');
-
-      // 5. Parse results (Count=N, Key0=name0, Key1=name1, ...)
-      const names = this.parseSearchKeyResults(resValue);
-
-      // 6. End Session (fire-and-forget — void push, no RID)
-      socket.write(`C sel ${sessionId} call RDOEndSession "*";`);
-
-      return names;
-    } catch (err: unknown) {
-      this.log.error('[Session] searchPeople failed:', toErrorMessage(err));
-      return [];
-    } finally {
-      socket.end();
-      this.sockets.delete('directory_search');
-    }
-  }
-
-  private parseSearchKeyResults(payload: string): string[] {
-    let raw = payload.trim();
-    raw = raw.replace(/^[%#$@]/, '');
-    const lines = raw.split(/\n/);
-    const data: Map<string, string> = new Map();
-
-    for (const line of lines) {
-      if (!line.includes('=')) continue;
-      const parts = line.split('=');
-      const key = parts[0].trim().toLowerCase();
-      const value = parts.slice(1).join('=').trim();
-      data.set(key, value);
-    }
-
-    const countStr = data.get('count');
-    if (!countStr) {
-      this.log.warn('[Session] SearchKey: no "count" key in response');
-      return [];
-    }
-
-    const count = parseInt(countStr, 10);
-    const names: string[] = [];
-
-    for (let i = 0; i < count; i++) {
-      const name = data.get(`key${i}`);
-      if (name) names.push(name);
-    }
-
-    return names;
+    return loginHandler.searchPeople(this, searchStr, this.cachedZonePath);
   }
 
 public async loginWorld(username: string, pass: string, world: WorldInfo): Promise<{
@@ -638,414 +511,22 @@ public async loginWorld(username: string, pass: string, world: WorldInfo): Promi
   worldYSize: number | null;
   worldSeason: number | null;
 }> {
-  this.phase = SessionPhase.WORLD_CONNECTING;
-  this.currentWorldInfo = world;
-
-  this.log.info(`Connecting to world ${world.name} (${world.ip}:${world.port})`);
-
-  // Connect to World Server
-  await this.createSocket("world", world.ip, world.port);
-
-  // Generate Virtual Client ID for InterfaceEvents BEFORE any requests
-  const virtualEventId = (Math.floor(Math.random() * 6000000) + 38000000).toString();
-  this.knownObjects.set("InterfaceEvents", virtualEventId);
-  this.log.debug(`[Session] Virtual InterfaceEvents ID: ${virtualEventId}`);
-
-  // 1. Resolve InterfaceServer
-  const idPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.IDOF,
-    targetId: "InterfaceServer"
-  });
-  this.interfaceServerId = parseIdOfResponseHelper(idPacket.payload);
-  this.log.debug(`[Session] InterfaceServer ID: ${this.interfaceServerId}`);
-
-  // 2. Retrieve World Properties (10 properties)
-  await this.fetchWorldProperties(this.interfaceServerId);
-
-  // 3. Check AccountStatus
-  const statusPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL,
-    targetId: this.interfaceServerId,
-    action: RdoAction.CALL,
-    member: "AccountStatus",
-    args: [username, pass]
-  });
-  const statusPayload = parsePropertyResponseHelper(statusPacket.payload!, "res");
-  this.log.debug(`[Session] AccountStatus: ${statusPayload}`);
-
-  // 4. Authenticate (call Logon)
-  const logonPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL,
-    targetId: this.interfaceServerId,
-    action: RdoAction.CALL,
-    member: "Logon",
-    args: [username, pass]
-  });
-
-  let contextId = cleanPayloadHelper(logonPacket.payload!);
-  if (contextId.includes("res")) {
-    contextId = parsePropertyResponseHelper(logonPacket.payload!, "res");
-  }
-
-  if (!contextId || contextId === "0" || contextId.startsWith("error")) {
-    throw new Error(`Login failed: ${logonPacket.payload}`);
-  }
-
-  this.worldContextId = contextId;
-  this.log.debug(`[Session] Authenticated. Context RDO: ${this.worldContextId}`);
-
-  // 5. Retrieve User Properties — sequential (legacy client sends one at a time)
-  const mailPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL, targetId: this.worldContextId,
-    action: RdoAction.GET, member: "MailAccount"
-  });
-  this.mailAccount = parsePropertyResponseHelper(mailPacket.payload!, "MailAccount");
-  this.log.debug(`[Session] MailAccount: ${this.mailAccount}`);
-
-  const tycoonPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL, targetId: this.worldContextId,
-    action: RdoAction.GET, member: "TycoonId"
-  });
-  this.tycoonId = parsePropertyResponseHelper(tycoonPacket.payload!, "TycoonId");
-
-  const cnntPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL, targetId: this.worldContextId,
-    action: RdoAction.GET, member: "RDOCnntId"
-  });
-  this.rdoCnntId = parsePropertyResponseHelper(cnntPacket.payload!, "RDOCnntId");
-
-  // 6. Setup InitClient waiter BEFORE RegisterEventsById
-  this.waitingForInitClient = true;
-  this.initClientReceived = new Promise<void>((resolve) => {
-    this.initClientResolver = resolve;
-  });
-
-  // 7. Register Events - This triggers server's "C <rid> idof InterfaceEvents"
-  // IMPORTANT: Don't await this! The server sends InitClient push BEFORE responding
-  // to RegisterEventsById, so we'd timeout waiting for the response.
-  this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL,
-    targetId: this.worldContextId,
-    action: RdoAction.CALL,
-    member: "RegisterEventsById",
-    args: [this.rdoCnntId]
-  }).catch(err => {
-    // RegisterEventsById may timeout because server responds after InitClient push
-    // This is expected behavior, ignore the timeout
-    this.log.debug(`[Session] RegisterEventsById completed (or timed out, which is normal)`);
-  });
-
-  // CRITICAL: Wait for server to send InitClient push command (with timeout)
-  this.log.debug(`[Session] Waiting for server InitClient push...`);
-  let initTimeoutHandle: ReturnType<typeof setTimeout>;
-  const initClientTimeout = new Promise<never>((_, reject) =>
-    initTimeoutHandle = setTimeout(() => reject(new Error('InitClient push timeout after 15s')), 15000)
-  );
-  await Promise.race([this.initClientReceived, initClientTimeout]);
-  clearTimeout(initTimeoutHandle!);
-  this.log.debug(`[Session] InitClient received, continuing...`);
-
-  // 8. SetLanguage - CLIENT sends this as PUSH command (no RID)
-  const socket = this.sockets.get('world');
-  if (socket) {
-    const setLangCmd = RdoCommand.sel(this.worldContextId!)
-      .call('SetLanguage')
-      .push()
-      .args(RdoValue.string('0'))
-      .build();
-    socket.write(setLangCmd);
-    this.log.debug(`[Session] Sent SetLanguage push command`);
-  }
-
-  // 9. GetCompanyCount
-  const companyCountPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL,
-    targetId: this.worldContextId,
-    action: RdoAction.GET,
-    member: "GetCompanyCount"
-  });
-  const companyCountStr = parsePropertyResponseHelper(companyCountPacket.payload!, "GetCompanyCount");
-  const companyCount = parseInt(companyCountStr, 10) || 0;
-  this.log.debug(`[Session] Company Count: ${companyCount}`);
-
-  // 10. Fetch companies via HTTP for UI
-  const { companies } = await this.fetchCompaniesViaHttp(world.ip, username);
-  this.availableCompanies = companies;
-
-  this.log.info('Login phase complete. Waiting for company selection...');
-
-  // NOTE: Phase remains WORLD_CONNECTING until selectCompany() is called
-  return {
-    contextId: this.worldContextId, tycoonId: this.tycoonId, companies,
-    worldXSize: this.worldXSize, worldYSize: this.worldYSize, worldSeason: this.worldSeason,
-  };
+  return loginHandler.loginWorld(this, username, pass, world);
 }
 
 public async selectCompany(companyId: string): Promise<void> {
-  if (!this.worldContextId) {
-    throw new Error('Not logged into world');
-  }
-
-  this.log.debug(`[Session] Selecting company ID: ${companyId}`);
-
-  // Store the selected company for ASP requests (bank, profile, etc.)
-  const matched = this.availableCompanies.find(c => c.id === companyId);
-  if (matched) {
-    this.currentCompany = matched;
-    this.log.debug(`[Session] Current company set: ${matched.name}`);
-  }
-
-  // 1. EnableEvents (set to -1 to activate)
-  await this.sendRdoRequest('world', {
-    verb: RdoVerb.SEL,
-    targetId: this.worldContextId,
-    action: RdoAction.SET,
-    member: 'EnableEvents',
-    args: ['-1']
-  });
-  this.log.debug(`[Session] EnableEvents activated`);
-
-  // 2. First PickEvent - Subscribe to Tycoon updates
-  await this.sendRdoRequest('world', {
-    verb: RdoVerb.SEL,
-    targetId: this.worldContextId,
-    action: RdoAction.CALL,
-    member: 'PickEvent',
-    args: [this.tycoonId!]
-  });
-  this.log.debug(`[Session] PickEvent #1 sent`);
-
-  // 3. Get Tycoon Cookies — sequential (legacy client sends one at a time)
-  const lastYPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL, targetId: this.worldContextId,
-    action: RdoAction.CALL, member: "GetTycoonCookie",
-    args: [this.tycoonId!, "LastY.0"]
-  });
-  const lastY = parsePropertyResponseHelper(lastYPacket.payload!, "res");
-  this.lastPlayerY = parseInt(lastY, 10) || 0;
-  this.log.debug(`[Session] Cookie LastY.0: ${this.lastPlayerY}`);
-
-  const lastXPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL, targetId: this.worldContextId,
-    action: RdoAction.CALL, member: "GetTycoonCookie",
-    args: [this.tycoonId!, "LastX.0"]
-  });
-  const lastX = parsePropertyResponseHelper(lastXPacket.payload!, "res");
-  this.lastPlayerX = parseInt(lastX, 10) || 0;
-  this.log.debug(`[Session] Cookie LastX.0: ${this.lastPlayerX}`);
-
-  const allCookiesPacket = await this.sendRdoRequest("world", {
-    verb: RdoVerb.SEL, targetId: this.worldContextId,
-    action: RdoAction.CALL, member: "GetTycoonCookie",
-    args: [this.tycoonId!, ""]
-  });
-  const allCookies = parsePropertyResponseHelper(allCookiesPacket.payload!, "res");
-  this.log.debug(`[Session] All Cookies:\n${allCookies}`);
-
-  // 4. ClientAware - Notify ready (first call)
-  const socket = this.sockets.get('world');
-  if (socket) {
-    const clientAwareCmd = RdoCommand.sel(this.worldContextId!)
-      .call('ClientAware')
-      .push()
-      .build();
-    socket.write(clientAwareCmd);
-    this.log.debug(`[Session] Sent ClientAware #1`);
-  }
-
-  // 5. Second PickEvent
-  await this.sendRdoRequest('world', {
-    verb: RdoVerb.SEL,
-    targetId: this.worldContextId,
-    action: RdoAction.CALL,
-    member: 'PickEvent',
-    args: [this.tycoonId!]
-  });
-  this.log.debug(`[Session] PickEvent #2 sent`);
-
-  // 6. Second ClientAware
-  if (socket) {
-    const clientAwareCmd2 = RdoCommand.sel(this.worldContextId!)
-      .call('ClientAware')
-      .push()
-      .build();
-    socket.write(clientAwareCmd2);
-    this.log.debug(`[Session] Sent ClientAware #2`);
-  }
-
-  // NOW the session is fully ready for game
-  this.phase = SessionPhase.WORLD_CONNECTED;
-
-  // Start ServerBusy polling now that we're fully connected
-  this.startServerBusyPolling();
-
-  this.log.info(`Company ${companyId} selected - Ready for game!`);
-  this.log.info(`Player spawn: (${this.lastPlayerX}, ${this.lastPlayerY})`);
+  return loginHandler.selectCompany(this, companyId);
 }
 
-/**
- * Create a new company via RDO on the InterfaceServer.
- *
- * The legacy client calls rdoCreateCompany.asp which internally calls:
- *   InterfaceServer.NewCompany(name, cluster) — 2 params, username from IS session.
- *
- * Our gateway calls the same method directly via RDO socket:
- *   sel <worldContextId> call NewCompany "^" "%<name>","%<cluster>"
- *
- * The InterfaceServer internally calls:
- *   World.RDONewCompany(username, name, cluster) — 3 params, adds username.
- *
- * Response is always a widestring (IS casts to widestring):
- *   Success: res="%[CompanyName,CompanyId]"
- *   Error:   res="%<errorCode>"  (e.g. "%6" for unknown cluster)
- */
 public async createCompany(
   companyName: string,
-  cluster: string
+  cluster: string,
 ): Promise<{ success: boolean; companyName: string; companyId: string; message?: string }> {
-  if (!this.worldContextId) {
-    return { success: false, companyName: '', companyId: '', message: 'Not connected to world' };
-  }
-
-  const username = this.cachedUsername || '';
-  this.log.debug(`[Session] Creating company: "${companyName}" in cluster "${cluster}" for user "${username}"`);
-
-  try {
-    // InterfaceServer.NewCompany(name, cluster) — only 2 args.
-    // Username is filled from the IS session automatically.
-    const packet = await this.sendRdoRequest('world', {
-      verb: RdoVerb.SEL,
-      targetId: this.worldContextId,
-      action: RdoAction.CALL,
-      member: 'NewCompany',
-      separator: '"^"',
-      args: [RdoValue.string(companyName).format(), RdoValue.string(cluster).format()]
-    });
-
-    const payload = packet.payload || '';
-    this.log.debug(`[Session] NewCompany response: ${payload}`);
-
-    // Response is always a widestring (InterfaceServer casts to widestring):
-    //   Success: res="%[CompanyName,CompanyId]"
-    //   Error:   res="%<errorCode>"
-    const resMatch = /res="%(.*)"/.exec(payload);
-    if (resMatch) {
-      const resultStr = resMatch[1];
-
-      // Success: "[Name,Id]"
-      const companyMatch = /^\[(.+),(\d+)]$/.exec(resultStr);
-      if (companyMatch) {
-        const newName = companyMatch[1];
-        const newId = companyMatch[2];
-        this.log.info(`[Session] Company created: "${newName}" (ID: ${newId})`);
-        this.availableCompanies.push({ id: newId, name: newName, ownerRole: username });
-        return { success: true, companyName: newName, companyId: newId };
-      }
-
-      // Error: numeric error code as string (e.g. "6", "11")
-      const errorCode = parseInt(resultStr, 10);
-      if (!isNaN(errorCode)) {
-        const errorMessages: Record<number, string> = {
-          6: 'Unknown cluster',
-          11: 'Company name already taken',
-          28: 'Zone tier mismatch',
-          33: 'Maximum number of companies reached',
-        };
-        const msg = errorMessages[errorCode] || `Failed with error code ${errorCode}`;
-        this.log.warn(`[Session] Company creation failed: ${msg}`);
-        return { success: false, companyName: '', companyId: '', message: msg };
-      }
-
-      // Non-numeric, non-bracket string — unexpected
-      this.log.warn(`[Session] Unexpected NewCompany result: "${resultStr}"`);
-      return { success: false, companyName: '', companyId: '', message: `Unexpected result: ${resultStr}` };
-    }
-
-    // Fallback: integer-typed error
-    const intMatch = /res="#(-?\d+)"/.exec(payload);
-    if (intMatch) {
-      const errorCode = parseInt(intMatch[1], 10);
-      this.log.warn(`[Session] Company creation failed with integer error: ${errorCode}`);
-      return { success: false, companyName: '', companyId: '', message: `Failed with error code ${errorCode}` };
-    }
-
-    this.log.warn(`[Session] Unexpected NewCompany payload: ${payload}`);
-    return { success: false, companyName: '', companyId: '', message: 'Unexpected response from server' };
-  } catch (e: unknown) {
-    this.log.error('[Session] Failed to create company:', e);
-    return { success: false, companyName: '', companyId: '', message: toErrorMessage(e) };
-  }
+  return loginHandler.createCompany(this, companyName, cluster);
 }
 
-/**
- * Switch to a different company (public role or player company)
- * Performs a full re-login using the ownerRole as username
- */
 public async switchCompany(company: CompanyInfo): Promise<void> {
-  if (!this.currentWorldInfo || !this.cachedPassword) {
-    throw new Error('Cannot switch company: world or credentials not available');
-  }
-
-  this.log.debug(`[Session] Switching to company: ${company.name} (ownerRole: ${company.ownerRole})`);
-
-  // Store the company we're switching to
-  this.currentCompany = company;
-
-  // Determine the username to use for login
-  const loginUsername = company.ownerRole || this.cachedUsername || '';
-
-  // Update the active identity so ASP page fetches use the correct tycoon
-  this.activeUsername = loginUsername;
-
-  // If ownerRole is different from original username, we need to do a "role switch"
-  if (company.ownerRole && company.ownerRole !== this.cachedUsername) {
-    this.log.debug(`[Session] Role-based login detected: switching from "${this.cachedUsername}" to role "${company.ownerRole}"`);
-  }
-
-  // Stop cacher KeepAlive before closing sockets
-  this.stopCacherKeepAlive();
-
-  // Close existing sockets except directory
-  this.log.debug('[Session] Closing existing world connections for company switch...');
-  const socketsToClose = Array.from(this.sockets.keys()).filter(name => name !== 'directory_auth' && name !== 'directory_query');
-
-  for (const socketName of socketsToClose) {
-    const socket = this.sockets.get(socketName);
-    if (socket) {
-      // CRITICAL: Remove all event listeners before destroying
-      // Otherwise the 'close' event will delete the NEW socket from the Map
-      socket.removeAllListeners();
-      socket.destroy();
-      this.sockets.delete(socketName);
-      this.framers.delete(socketName);
-    }
-  }
-
-  // Reset session state
-  this.worldContextId = null;
-  this.tycoonId = null;
-  this.interfaceServerId = null;
-  this.rdoCnntId = null;
-  this.cacherId = null;
-  this.worldId = null;
-  this.daPort = null;
-  this.aspActionCache.clear();
-  this.currentFocusedBuildingId = null;
-  this.currentFocusedCoords = null;
-
-  // Re-login to world with the role username
-  const result = await this.loginWorld(loginUsername, this.cachedPassword, this.currentWorldInfo);
-
-  this.log.debug(`[Session] Re-logged in as "${loginUsername}", contextId: ${result.contextId}`);
-  this.log.debug(`[Session] After switchCompany - interfaceServerId: ${this.interfaceServerId}, worldId: ${this.worldId}`);
-
-  // Small delay to ensure socket is fully ready before selecting company
-  await new Promise(resolve => setTimeout(resolve, 200));
-
-  // Select the specific company
-  await this.selectCompany(company.id);
-
-  this.log.debug(`[Session] Company switch complete - now playing as ${company.name}`);
+  return loginHandler.switchCompany(this, company);
 }
 
 	/**
@@ -1326,85 +807,6 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
     return response.text();
   }
 
-  /**
-   * Fetch companies via HTTP (ASP endpoint) [CRIT-02]
-   */
-  private async fetchCompaniesViaHttp(
-    worldIp: string,
-    username: string
-  ): Promise<{ companies: CompanyInfo[], realContextId: string | null }> {
-    const params = new URLSearchParams({
-      frame_Id: 'LogonView',
-      frame_Class: 'HTMLView',
-      frame_Align: 'client',
-      ResultType: 'NORMAL',
-      Logon: 'FALSE',
-      frame_NoBorder: 'True',
-      frame_NoScrollBars: 'true',
-      ClientViewId: '0',
-      WorldName: this.currentWorldInfo?.name || 'Shamba',
-      UserName: username,
-      DSAddr: config.rdo.directoryHost,
-      DSPort: String(config.rdo.ports.directory),
-      ISAddr: worldIp,
-      ISPort: '8000',
-      LangId: '0'
-    });
-
-    const url = `http://${worldIp}/Five/0/Visual/Voyager/NewLogon/logonComplete.asp?${params.toString().replace(/\+/g, '%20')}`;
-    this.log.debug(`[HTTP] Fetching companies from ${url}`);
-
-    try {
-      const response = await fetch(url, { redirect: 'follow' });
-      const text = await response.text();
-      const finalUrl = response.url;
-
-      // Extract ClientViewId (priority: URL > body)
-      let realId: string | null = null;
-      const matchUrl = /ClientViewId=(\d+)/i.exec(finalUrl);
-      if (matchUrl) realId = matchUrl[1];
-
-      if (!realId) {
-        const matchBody = /ClientViewId=(\d+)/i.exec(text);
-        if (matchBody) realId = matchBody[1];
-      }
-
-      // Parse companies with regex (include companyOwnerRole)
-      // Note: Attributes can appear in any order in HTML, so we need to capture them separately
-      const companies: CompanyInfo[] = [];
-
-      // Match all <td> elements with company attributes
-      const tdRegex = /<td[^>]*companyId="(\d+)"[^>]*>/gi;
-      let tdMatch;
-
-      while ((tdMatch = tdRegex.exec(text)) !== null) {
-        const companyId = tdMatch[1];
-        const tdElement = tdMatch[0]; // Full <td> tag
-
-        // Extract companyName from this specific <td>
-        const nameMatch = /companyName="([^"]+)"/i.exec(tdElement);
-        const companyName = nameMatch ? nameMatch[1] : `Company ${companyId}`;
-
-        // Extract companyOwnerRole from this specific <td>
-        const roleMatch = /companyOwnerRole="([^"]*)"/i.exec(tdElement);
-        const ownerRole = roleMatch ? roleMatch[1] : username;
-
-        this.log.debug(`[HTTP] Company parsed - ID: ${companyId}, Name: ${companyName}, ownerRole: ${ownerRole} ${roleMatch ? '(from HTML)' : '(defaulted to username)'}`);
-
-        companies.push({
-          id: companyId,
-          name: companyName,
-          ownerRole: ownerRole
-        });
-      }
-
-      this.log.debug(`[HTTP] Found ${companies.length} companies, realContextId: ${realId}`);
-      return { companies, realContextId: realId };
-    } catch (e) {
-      this.log.error('[HTTP] Failed to fetch companies:', e);
-      return { companies: [], realContextId: null };
-    }
-  }
   public async connectMapService(): Promise<void> {
     if (this.sockets.has('map')) return;
     this.log.debug('[Session] Connecting to Map Service...');
@@ -1953,64 +1355,7 @@ public async loadMapArea(x?: number, y?: number, w: number = 64, h: number = 64)
   // INTERNAL HELPERS
   // =========================================================================
 
-  /**
-   * Fetch world properties from InterfaceServer
-   */
-  private async fetchWorldProperties(interfaceServerId: string): Promise<void> {
-    // Legacy Delphi client sends GET commands one at a time, waiting for each
-    // response before sending the next. The RDO server is single-threaded and
-    // crashes or deadlocks when bombarded with concurrent requests on one socket.
-    const props = [
-      "WorldName", "WorldURL", "DAAddr", "DAPort", "DALockPort",
-      "MailAddr", "MailPort", "WorldXSize", "WorldYSize", "WorldSeason"
-    ] as const;
-
-    // Sequential: send one GET, wait for response, then send the next
-    for (const prop of props) {
-      const packet = await this.sendRdoRequest("world", {
-        verb: RdoVerb.SEL,
-        targetId: interfaceServerId,
-        action: RdoAction.GET,
-        member: prop
-      });
-      const value = parsePropertyResponseHelper(packet.payload!, prop);
-      this.log.debug(`[Session] ${prop}: ${value}`);
-
-      if (prop === "WorldName" && value && this.currentWorldInfo) {
-        // Use InterfaceServer's proper-case WorldName (e.g., "Shamba" not "shamba")
-        this.currentWorldInfo.name = value;
-      }
-      if (prop === "DAAddr") {
-        this.daAddr = value;
-      }
-      if (prop === "DAPort") {
-        this.daPort = parseInt(value, 10);
-      }
-      if (prop === "MailAddr") {
-        this.mailAddr = value;
-      }
-      if (prop === "MailPort") {
-        this.mailPort = parseInt(value, 10);
-      }
-      if (prop === "WorldXSize") {
-        this.worldXSize = parseInt(value, 10) || null;
-        if (this.currentWorldInfo) this.currentWorldInfo.mapSizeX = this.worldXSize ?? undefined;
-      }
-      if (prop === "WorldYSize") {
-        this.worldYSize = parseInt(value, 10) || null;
-        if (this.currentWorldInfo) this.currentWorldInfo.mapSizeY = this.worldYSize ?? undefined;
-      }
-      if (prop === "WorldSeason") {
-        this.worldSeason = parseSeasonValue(value);
-      }
-    }
-  }
-
-  /**
-   * Retrieve Tycoon cookies (last position, etc.)
-   */
-  
-private createSocket(name: string, host: string, port: number): Promise<net.Socket> {
+public createSocket(name: string, host: string, port: number): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
     const framer = new RdoFramer();
@@ -2043,7 +1388,7 @@ private createSocket(name: string, host: string, port: number): Promise<net.Sock
    * NEW: Start ServerBusy polling (every 2 seconds)
    * When server is busy, pause all requests except ServerBusy checks
    */
-  private startServerBusyPolling(): void {
+  public startServerBusyPolling(): void {
     if (this.serverBusyCheckInterval) return; // Already running
 
     this.log.debug('[ServerBusy] Starting 2-second polling...');
@@ -2151,7 +1496,7 @@ private createSocket(name: string, host: string, port: number): Promise<net.Sock
   /**
    * Stop the KeepAlive timer for the Map Service cacher.
    */
-  private stopCacherKeepAlive(): void {
+  public stopCacherKeepAlive(): void {
     if (this.keepAliveInterval) {
       clearInterval(this.keepAliveInterval);
       this.keepAliveInterval = null;
@@ -2354,323 +1699,9 @@ private handleIncomingMessage(socketName: string, raw: string) {
   }
 
 private handlePush(socketName: string, packet: RdoPacket) {
-  // CRITICAL: Detect InitClient push during login
-  if (this.waitingForInitClient) {
-    const hasInitClient = packet.member === "InitClient" ||
-      (packet.raw && packet.raw.includes("InitClient"));
-    if (hasInitClient) {
-      this.log.debug(`[Session] Server sent InitClient push (detected in ${packet.member ? 'member' : 'raw'})`);
-
-      // Parse InitClient data
-      // Example: C sel 44917624 call InitClient "*" "@78006","%419278163478","#0","#223892356";
-      // Args: [Date, Money, FailureLevel, fTycoonProxyId]
-      if (packet.args && packet.args.length >= 4) {
-        try {
-          // Parse virtual date (Double: @value)
-          this.virtualDate = RdoParser.asFloat(packet.args[0]);
-
-          // Parse money (OLEString: %value - can be very large number)
-          this.accountMoney = RdoParser.getValue(packet.args[1]);
-
-          // Parse failure level (Integer: #value)
-          this.failureLevel = RdoParser.asInt(packet.args[2]);
-
-          // Parse fTycoonProxyId (Integer: #value)
-          this.fTycoonProxyId = RdoParser.asInt(packet.args[3]);
-
-          this.log.debug(`[Session] InitClient parsed - Date: ${this.virtualDate}, Money: ${this.accountMoney}, FailureLevel: ${this.failureLevel}, fTycoonProxyId: ${this.fTycoonProxyId}`);
-
-          // Forward initial game date to client
-          if (this.virtualDate !== null) {
-            this.emit('ws_event', {
-              type: WsMessageType.EVENT_REFRESH_DATE,
-              dateDouble: this.virtualDate,
-            } as WsEventRefreshDate);
-          }
-        } catch (error) {
-          this.log.error(`[Session] Failed to parse InitClient data:`, error);
-          this.log.debug(`[Session] Raw args:`, packet.args);
-        }
-      } else {
-        this.log.warn(`[Session] InitClient packet has insufficient args (expected 4, got ${packet.args?.length || 0})`);
-      }
-
-      this.waitingForInitClient = false;
-      if (this.initClientResolver) {
-        this.initClientResolver();
-        this.initClientResolver = null;
-      }
-      return;
-    }
-  }
-
-  // Server-initiated SetLanguage (just log it, no action needed)
-  if (packet.member === "SetLanguage") {
-    this.log.debug(`[Session] Server sent SetLanguage push (ignored)`);
-    return;
-  }
-
-  // NewMail notification — push from InterfaceServer via fClientEventsProxy.NewMail(MsgCount)
-  if (packet.member === "NewMail") {
-    const count = packet.args?.[0] ? parseInt(packet.args[0].replace(/^#/, ''), 10) : 0;
-    this.log.debug(`[Session] NewMail notification: ${count} unread message(s)`);
-    const event: WsEventNewMail = {
-      type: WsMessageType.EVENT_NEW_MAIL,
-      unreadCount: count,
-    };
-    this.emit('ws_event', event);
-    return;
-  }
-
-	// 1. ChatMsg parsing 
-    if (packet.member === 'ChatMsg') {
-      this.log.debug(`[Chat] Raw ChatMsg packet:`, packet);
-      this.log.debug(`[Chat] Args:`, packet.args);
-      this.log.debug(`[Chat] Args length:`, packet.args?.length);
-      
-      if (packet.args && packet.args.length >= 2) {
-        // Parse from field (format: "name/id/status" or just "name")
-        let from = packet.args[0].replace(/^[%#@$]/, '');
-        const message = packet.args[1].replace(/^[%#@$]/, '');
-        
-        // Extract just the name if format is "name/id/status"
-        if (from.includes('/')) {
-          from = from.split('/')[0];
-        }
-        
-        this.log.debug(`[Chat] Parsed - from: "${from}", message: "${message}"`);
-        
-        const event: WsEventChatMsg = {
-          type: WsMessageType.EVENT_CHAT_MSG,
-          channel: this.currentChannel || 'Lobby',
-          from: from,
-          message: message
-        };
-        
-        this.log.debug(`[Chat] Emitting event:`, event);
-        this.emit('ws_event', event);
-        return;
-      } else {
-        this.log.warn(`[Chat] ChatMsg packet has insufficient args:`, packet);
-      }
-    }
-
-  // 2. NotifyMsgCompositionState - User typing status
-  if (packet.member === 'NotifyMsgCompositionState' && packet.args && packet.args.length >= 2) {
-    const username = packet.args[0].replace(/^[%#@$]/, '');
-    const statusStr = packet.args[1].replace(/^[%#@$]/, '');
-    const isTyping = statusStr === '1';
-
-    this.log.debug(`[Chat] ${username} is ${isTyping ? 'typing' : 'idle'}`);
-
-    const event: WsEventChatUserTyping = {
-      type: WsMessageType.EVENT_CHAT_USER_TYPING,
-      username,
-      isTyping
-    };
-
-    this.emit('ws_event', event);
-    return;
-  }
-
-  // 3. NotifyChannelChange - Channel switched
-  if (packet.member === 'NotifyChannelChange' && packet.args && packet.args.length >= 1) {
-    const channelName = packet.args[0].replace(/^[%#@$]/, '');
-    this.currentChannel = channelName;
-
-    this.log.debug(`[Chat] Channel changed to: ${channelName || 'Lobby'}`);
-
-    const event: WsEventChatChannelChange = {
-      type: WsMessageType.EVENT_CHAT_CHANNEL_CHANGE,
-      channelName: channelName || 'Lobby'
-    };
-
-    this.emit('ws_event', event);
-    return;
-  }
-
-  // 4. NotifyUserListChange - User joined/left
-  // Delphi sends Name as "name", "name/id", or "name/id/afk" — handle all formats
-  if (packet.member === 'NotifyUserListChange' && packet.args && packet.args.length >= 2) {
-    const userInfo = packet.args[0].replace(/^[%#@$]/, '');
-    const actionCode = packet.args[1].replace(/^[%#@$]/, '');
-    const userParts = userInfo.split('/');
-
-    if (userParts[0]?.trim()) {
-      const user: ChatUser = {
-        name: userParts[0],
-        id: userParts[1] ?? userParts[0],
-        status: parseInt(userParts[2], 10) || 0
-      };
-
-      const action = actionCode === '0' ? 'JOIN' : 'LEAVE';
-      this.log.debug(`[Chat] User ${user.name} ${action === 'JOIN' ? 'joined' : 'left'} (format: ${userParts.length}-field)`);
-
-      const event: WsEventChatUserListChange = {
-        type: WsMessageType.EVENT_CHAT_USER_LIST_CHANGE,
-        user,
-        action
-      };
-
-      this.emit('ws_event', event);
-    }
-    return;
-  }
-
-  // 5. RefreshTycoon parsing
-  if (packet.member === 'RefreshTycoon' && packet.args && packet.args.length >= 5) {
-    try {
-      // Clean type prefixes (%, #, @, $) from args
-      const cleanArgs = packet.args.map(arg => arg.replace(/^[%#@$]/, ''));
-
-      const tycoonUpdate: WsEventTycoonUpdate = {
-        type: WsMessageType.EVENT_TYCOON_UPDATE,
-        cash: cleanArgs[0],
-        incomePerHour: cleanArgs[1],
-        ranking: parseInt(cleanArgs[2], 10) || 0,
-        buildingCount: parseInt(cleanArgs[3], 10) || 0,
-        maxBuildings: parseInt(cleanArgs[4], 10) || 0,
-        // Include last-known failureLevel from InitClient (0=nominal, >0=debt)
-        failureLevel: this.failureLevel ?? undefined,
-      };
-
-      // Cache push data for profile queries
-      this.accountMoney = tycoonUpdate.cash;
-      this.lastRanking = tycoonUpdate.ranking;
-      this.lastBuildingCount = tycoonUpdate.buildingCount;
-      this.lastMaxBuildings = tycoonUpdate.maxBuildings;
-
-      this.log.debug(`[Push] Tycoon Update: Cash=${tycoonUpdate.cash}, Income/h=${tycoonUpdate.incomePerHour}, Rank=${tycoonUpdate.ranking}, Buildings=${tycoonUpdate.buildingCount}/${tycoonUpdate.maxBuildings}`);
-      this.emit('ws_event', tycoonUpdate);
-      return;
-    } catch (e) {
-      this.log.error('[Push] Error parsing RefreshTycoon:', e);
-      // Fallback to generic push
-    }
-  }
-
-  // 6. EndOfPeriod — server signals a financial period has ended
-  if (packet.member === 'EndOfPeriod') {
-    this.log.debug('[Push] EndOfPeriod received');
-    const endOfPeriodEvent: WsEventEndOfPeriod = {
-      type: WsMessageType.EVENT_END_OF_PERIOD,
-    };
-    this.emit('ws_event', endOfPeriodEvent);
-    return;
-  }
-
-  // 7. RefreshDate — server sends updated virtual date periodically
-  if (packet.member === 'RefreshDate' && packet.args && packet.args.length >= 1) {
-    const dateDouble = RdoParser.asFloat(packet.args[0]);
-    this.virtualDate = dateDouble;
-    this.log.debug(`[Push] RefreshDate: ${dateDouble}`);
-    const dateEvent: WsEventRefreshDate = {
-      type: WsMessageType.EVENT_REFRESH_DATE,
-      dateDouble,
-    };
-    this.emit('ws_event', dateEvent);
-    return;
-  }
-
-  // 8. ShowNotification — server game notification (research complete, events, etc.)
-  // Format: C sel <proxy> call ShowNotification "*" "#<kind>","%<title>","%<body>","#<options>";
-  // Kind: 0=MessageBox, 1=URLFrame, 2=ChatMessage, 3=Sound, 4=GenericEvent
-  if (packet.member === 'ShowNotification') {
-    const kind = packet.args?.[0] ? RdoParser.asInt(packet.args[0]) : 0;
-    const title = packet.args?.[1] ? RdoParser.getValue(packet.args[1]) : '';
-    const body = packet.args?.[2] ? RdoParser.getValue(packet.args[2]) : '';
-    const options = packet.args?.[3] ? RdoParser.asInt(packet.args[3]) : 0;
-    this.log.debug(`[Push] ShowNotification: kind=${kind}, title="${title}", body="${body}", options=${options}`);
-    const notifEvent: WsEventShowNotification = {
-      type: WsMessageType.EVENT_SHOW_NOTIFICATION,
-      kind,
-      title,
-      body,
-      options,
-    };
-    this.emit('ws_event', notifEvent);
-    return;
-  }
-
-  // 9. Refresh — cache proxy invalidation (server tells client to re-fetch building data)
-  // Format: C <connId> sel <objectId> call Refresh "*" ;
-  if (packet.member === 'Refresh' && (!packet.args || packet.args.length === 0)) {
-    this.log.debug('[Push] Cache Refresh received — building data invalidated');
-    const refreshEvent: WsEventCacheRefresh = {
-      type: WsMessageType.EVENT_CACHE_REFRESH,
-    };
-    this.emit('ws_event', refreshEvent);
-    return;
-  }
-
-  // 10. Generic push fallback (for unhandled events)
-  const event: WsEventRdoPush = {
-    type: WsMessageType.EVENT_RDO_PUSH,
-    rawPacket: packet.raw
-  };
-
-  this.emit('ws_event', event);
+  dispatchPush(this, socketName, packet);
 }
 
-
-  // =========================================================================
-  // PARSING UTILS
-  // =========================================================================
-
-  private parseDirectoryResult(payload: string): WorldInfo[] {
-    let raw = payload.trim();
-    raw = raw.replace(/^[%#$@]/, '');
-    const lines = raw.split(/\n/);
-    const data: Map<string, string> = new Map();
-
-    for (const line of lines) {
-      if (!line.includes('=')) continue;
-      const parts = line.split('=');
-      const key = parts[0].trim().toLowerCase();
-      const value = parts.slice(1).join('=').trim();
-      data.set(key, value);
-    }
-
-    const countStr = data.get('count');
-    if (!countStr) {
-      this.log.warn('[Session] Directory Parse Error: "count" key not found in response.');
-      this.log.warn('[Session] First 5 keys:', Array.from(data.keys()).slice(0, 5));
-      return [];
-    }
-
-    const count = parseInt(countStr, 10);
-    const worlds: WorldInfo[] = [];
-
-    for (let i = 0; i < count; i++) {
-      const name = data.get(`key${i}`) || 'Unknown';
-      const url = data.get(`interface/url${i}`) || '';
-      const ip = data.get(`interface/ip${i}`) || '127.0.0.1';
-      const port = parseInt(data.get(`interface/port${i}`) || '0', 10);
-      const date = data.get(`general/date${i}`);
-      const population = parseInt(data.get(`general/population${i}`) || '0', 10);
-      const investors = parseInt(data.get(`general/investors${i}`) || '0', 10);
-      const online = parseInt(data.get(`general/online${i}`) || '0', 10);
-      const runningStr = data.get(`interface/running${i}`) || '';
-      const running3 = runningStr.toLowerCase() === 'true';
-
-      if (port === 0) continue;
-
-      worlds.push({
-        name, url, ip, port,
-        season: date,
-        date: date,
-        population: population,
-        investors: investors,
-        online: online,
-        players: online,  // online and players are the same
-        mapSizeX: 0,
-        mapSizeY: 0,
-        running3: running3
-      });
-    }
-
-    return worlds;
-  }
 
   // -- CHAT (facade -> chat-handler) ----------------------------------------
   public async getChatUserList(): Promise<ChatUser[]> {

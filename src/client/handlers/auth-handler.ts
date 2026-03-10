@@ -1,0 +1,334 @@
+/**
+ * Auth Handler — extracted from StarpeaceClient.
+ *
+ * Handles authentication, directory login, world login, company selection,
+ * company creation, server switching, and logout.
+ */
+
+import {
+  WsMessageType,
+  WsReqAuthCheck,
+  WsReqConnectDirectory,
+  WsRespConnectSuccess,
+  WsReqLoginWorld,
+  WsRespLoginSuccess,
+  WsReqSelectCompany,
+  WsReqSwitchCompany,
+  WsReqCreateCompany,
+  WsRespCreateCompany,
+  WsReqClusterInfo,
+  WsReqClusterFacilities,
+  WsReqLogout,
+  WsRespLogout,
+  CompanyInfo,
+} from '../../shared/types';
+import { toErrorMessage } from '../../shared/error-utils';
+import { ClientBridge } from '../bridge/client-bridge';
+import { useGameStore } from '../store/game-store';
+import { useProfileStore } from '../store/profile-store';
+import { useBuildingStore } from '../store/building-store';
+import type { ClientHandlerContext } from './client-context';
+
+export async function performAuthCheck(ctx: ClientHandlerContext, username: string, password: string): Promise<void> {
+  ClientBridge.setLoginLoading(true);
+  ClientBridge.log('Auth', 'Checking credentials...');
+
+  try {
+    const req: WsReqAuthCheck = {
+      type: WsMessageType.REQ_AUTH_CHECK,
+      username,
+      password,
+    };
+    await ctx.sendRequest(req);
+
+    ctx.storedUsername = username;
+    ctx.storedPassword = password;
+    ClientBridge.setCredentials(username);
+    ClientBridge.log('Auth', 'Credentials valid');
+    useGameStore.getState().setLoginStage('zones');
+  } catch (err: unknown) {
+    ClientBridge.log('Auth', `Failed: ${toErrorMessage(err)}`);
+    const code = (err as { code?: number }).code ?? 0;
+    ClientBridge.setAuthError({ code, message: toErrorMessage(err) });
+  } finally {
+    ClientBridge.setLoginLoading(false);
+  }
+}
+
+export async function performDirectoryLogin(ctx: ClientHandlerContext, username: string, password: string, zonePath?: string): Promise<void> {
+  ctx.storedUsername = username;
+  ctx.storedPassword = password;
+  ClientBridge.setCredentials(username);
+  const zoneDisplay = zonePath?.split('/').pop() || 'BETA';
+  ClientBridge.log('Directory', `Authenticating for ${zoneDisplay}...`);
+
+  try {
+    const req: WsReqConnectDirectory = {
+      type: WsMessageType.REQ_CONNECT_DIRECTORY,
+      username,
+      password,
+      zonePath
+    };
+
+    const resp = (await ctx.sendRequest(req)) as WsRespConnectSuccess;
+    ClientBridge.log('Directory', `Authentication Success. Found ${resp.worlds.length} world(s) in ${zoneDisplay}.`);
+    ClientBridge.showWorlds(resp.worlds);
+  } catch (err: unknown) {
+    ClientBridge.log('Error', `Directory Auth Failed: ${toErrorMessage(err)}`);
+    ClientBridge.showError('Login Failed: ' + toErrorMessage(err));
+    ClientBridge.setLoginLoading(false);
+  }
+}
+
+export async function login(ctx: ClientHandlerContext, worldName: string): Promise<void> {
+  if (!ctx.storedUsername || !ctx.storedPassword) {
+    ClientBridge.showError('Session lost, please reconnect');
+    return;
+  }
+
+  ClientBridge.log('Login', `Joining world ${worldName}...`);
+  ctx.currentWorldName = worldName;
+
+  try {
+    const req: WsReqLoginWorld = {
+      type: WsMessageType.REQ_LOGIN_WORLD,
+      username: ctx.storedUsername,
+      password: ctx.storedPassword,
+      worldName
+    };
+    const resp = (await ctx.sendRequest(req)) as WsRespLoginSuccess;
+    ClientBridge.log('Login', `Success! Tycoon: ${resp.tycoonId}`);
+
+    if (resp.worldXSize !== undefined) ctx.worldXSize = resp.worldXSize;
+    if (resp.worldYSize !== undefined) ctx.worldYSize = resp.worldYSize;
+    if (resp.worldSeason !== undefined) ctx.worldSeason = resp.worldSeason;
+
+    if (resp.companies && resp.companies.length > 0) {
+      ctx.availableCompanies = resp.companies;
+      ClientBridge.log('Login', `Found ${resp.companies.length} compan${resp.companies.length > 1 ? 'ies' : 'y'}`);
+      ClientBridge.showCompanies(resp.companies || []);
+    } else {
+      ClientBridge.log('Error', 'No companies found - cannot proceed');
+      ctx.showNotification('No companies available for this account', 'error');
+    }
+
+  } catch (err: unknown) {
+    ClientBridge.log('Error', `Login failed: ${toErrorMessage(err)}`);
+    ClientBridge.setLoginLoading(false);
+    ctx.showNotification(`World login failed: ${toErrorMessage(err)}`, 'error');
+  }
+}
+
+export async function selectCompanyAndStart(ctx: ClientHandlerContext, companyId: string): Promise<void> {
+  if (ctx.isSelectingCompany) return;
+
+  ctx.isSelectingCompany = true;
+  ClientBridge.log('Company', `Selecting company ID: ${companyId}...`);
+
+  try {
+    const company = ctx.availableCompanies.find(c => c.id === companyId);
+    if (!company) throw new Error('Company not found');
+
+    const needsSwitch = company.ownerRole && company.ownerRole !== ctx.storedUsername;
+
+    if (needsSwitch) {
+      ClientBridge.log('Company', `Switching to role-based company: ${company.name} (${company.ownerRole})...`);
+
+      const req: WsReqSwitchCompany = {
+        type: WsMessageType.REQ_SWITCH_COMPANY,
+        company: company
+      };
+
+      const switchResp = await ctx.sendRequest(req);
+      ClientBridge.log('Company', 'Company switch successful');
+
+      const switchRespAny = switchResp as unknown as Record<string, unknown>;
+      if (typeof switchRespAny.playerX === 'number' && typeof switchRespAny.playerY === 'number'
+          && (switchRespAny.playerX !== 0 || switchRespAny.playerY !== 0)) {
+        ctx.savedPlayerX = switchRespAny.playerX;
+        ctx.savedPlayerY = switchRespAny.playerY;
+        ClientBridge.log('Map', `Restoring camera to saved position (${ctx.savedPlayerX}, ${ctx.savedPlayerY})`);
+      }
+    } else {
+      const req: WsReqSelectCompany = {
+        type: WsMessageType.REQ_SELECT_COMPANY,
+        companyId
+      };
+
+      const selectResp = await ctx.sendRequest(req);
+      ClientBridge.log('Company', 'Company selected successfully');
+
+      const respAny = selectResp as unknown as Record<string, unknown>;
+      if (typeof respAny.playerX === 'number' && typeof respAny.playerY === 'number'
+          && (respAny.playerX !== 0 || respAny.playerY !== 0)) {
+        ctx.savedPlayerX = respAny.playerX;
+        ctx.savedPlayerY = respAny.playerY;
+        ClientBridge.log('Map', `Restoring camera to saved position (${ctx.savedPlayerX}, ${ctx.savedPlayerY})`);
+      }
+    }
+
+    ctx.currentCompanyName = company.name;
+
+    const roleRaw = company.ownerRole ?? '';
+    const roleLower = roleRaw.toLowerCase();
+    const isPublicOffice = roleLower.includes('president') || roleLower.includes('minister') || roleLower.includes('mayor');
+    ClientBridge.setPublicOfficeRole(isPublicOffice, roleRaw);
+
+    if (ctx.storedUsername) {
+      ctx.sendMessage({ type: WsMessageType.REQ_TYCOON_ROLE, tycoonName: ctx.storedUsername });
+    }
+
+    await ctx.preloadFacilityDimensions();
+
+    ClientBridge.setConnected();
+    ClientBridge.setWorld(ctx.currentWorldName);
+    ClientBridge.setCompany(company.name, company.id);
+
+    if (useGameStore.getState().serverSwitchMode) {
+      useGameStore.getState().completeServerSwitch();
+    }
+
+    await ctx.switchToGameView();
+
+    if (ctx.worldSeason !== null) {
+      const renderer = ctx.getRenderer();
+      if (renderer) {
+        renderer.setSeason(ctx.worldSeason as import('../../shared/map-config').Season);
+      }
+    }
+
+    if (ctx.savedPlayerX !== undefined && ctx.savedPlayerY !== undefined) {
+      const renderer = ctx.getRenderer();
+      if (renderer) {
+        renderer.centerOn(ctx.savedPlayerX, ctx.savedPlayerY);
+      }
+    }
+
+    ctx.connectMailService().catch(err => {
+      ClientBridge.log('Mail', `Mail service connection failed: ${toErrorMessage(err)}`);
+    });
+
+    ctx.getProfile().catch(err => {
+      ClientBridge.log('Profile', `Profile fetch failed: ${toErrorMessage(err)}`);
+    });
+
+    ctx.initChatChannels().catch(err => {
+      ClientBridge.log('Chat', `Chat init failed: ${toErrorMessage(err)}`);
+    });
+
+  } catch (err: unknown) {
+    ClientBridge.log('Error', `Company selection failed: ${toErrorMessage(err)}`);
+    ClientBridge.setLoginLoading(false);
+    ctx.showNotification(`Company selection failed: ${toErrorMessage(err)}`, 'error');
+  } finally {
+    ctx.isSelectingCompany = false;
+  }
+}
+
+export async function handleCreateCompany(ctx: ClientHandlerContext, companyName: string, cluster: string): Promise<void> {
+  const req: WsReqCreateCompany = {
+    type: WsMessageType.REQ_CREATE_COMPANY,
+    companyName,
+    cluster,
+  };
+
+  const resp = await ctx.sendRequest(req) as WsRespCreateCompany;
+  ClientBridge.log('Company', `Company created: "${resp.companyName}" (ID: ${resp.companyId})`);
+  ctx.showNotification(`Company "${resp.companyName}" created!`, 'success');
+  ctx.soundManager.play('notification');
+
+  const newCompany: CompanyInfo = {
+    id: resp.companyId,
+    name: resp.companyName,
+    ownerRole: ctx.storedUsername,
+  };
+  ctx.availableCompanies.push(newCompany);
+
+  if (ctx.getMapNavigationUI()) {
+    ClientBridge.setCompany(resp.companyName, resp.companyId);
+    ctx.currentCompanyName = resp.companyName;
+    useProfileStore.getState().reset();
+    return;
+  }
+
+  selectCompanyAndStart(ctx, resp.companyId);
+}
+
+export function requestClusterInfo(ctx: ClientHandlerContext, clusterName: string): void {
+  useGameStore.getState().setClusterInfoLoading(true);
+  const req: WsReqClusterInfo = {
+    type: WsMessageType.REQ_CLUSTER_INFO,
+    clusterName,
+  };
+  ctx.rawSend(req);
+}
+
+export function requestClusterFacilities(ctx: ClientHandlerContext, cluster: string, folder: string): void {
+  useGameStore.getState().setClusterFacilitiesLoading(true);
+  const req: WsReqClusterFacilities = {
+    type: WsMessageType.REQ_CLUSTER_FACILITIES,
+    cluster,
+    folder,
+  };
+  ctx.rawSend(req);
+}
+
+export function startServerSwitch(): void {
+  useGameStore.getState().enterServerSwitch();
+}
+
+export function cancelServerSwitch(): void {
+  useGameStore.getState().cancelServerSwitch();
+}
+
+export function serverSwitchZoneSelect(ctx: ClientHandlerContext, zonePath: string): void {
+  if (!ctx.storedUsername || !ctx.storedPassword) {
+    ClientBridge.log('Error', 'Session lost — cannot switch server');
+    useGameStore.getState().cancelServerSwitch();
+    return;
+  }
+  performDirectoryLogin(ctx, ctx.storedUsername, ctx.storedPassword, zonePath);
+}
+
+export function profileSwitchCompany(ctx: ClientHandlerContext, companyId: string, companyName: string, ownerRole: string): void {
+  const company: CompanyInfo = { id: String(companyId), name: companyName, ownerRole };
+  useGameStore.getState().setSwitchingCompany(true);
+  ctx.sendRequest({
+    type: WsMessageType.REQ_SWITCH_COMPANY,
+    company,
+  } as WsReqSwitchCompany).then(() => {
+    ClientBridge.setCompany(companyName, String(companyId));
+    ClientBridge.showSuccess(`Switched to ${companyName}`);
+    useProfileStore.getState().reset();
+    useBuildingStore.getState().clearFocus();
+  }).catch((err: unknown) => {
+    ClientBridge.showError(`Failed to switch company: ${toErrorMessage(err)}`);
+  }).finally(() => {
+    useGameStore.getState().setSwitchingCompany(false);
+  });
+}
+
+export async function logout(ctx: ClientHandlerContext): Promise<void> {
+  if (ctx.isLoggingOut) return;
+
+  ctx.isLoggingOut = true;
+  ClientBridge.log('System', 'Logging out...');
+
+  try {
+    const req: WsReqLogout = {
+      type: WsMessageType.REQ_LOGOUT
+    };
+
+    const response = await ctx.sendRequest(req) as WsRespLogout;
+
+    if (response.success) {
+      ClientBridge.log('System', 'Logged out successfully');
+    } else {
+      ClientBridge.log('Error', response.message || 'Logout failed');
+    }
+  } catch (err: unknown) {
+    ClientBridge.log('Error', `Logout error: ${toErrorMessage(err)}`);
+  } finally {
+    ctx.isLoggingOut = false;
+  }
+}
