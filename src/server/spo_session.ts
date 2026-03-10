@@ -2918,6 +2918,11 @@ public async switchCompany(company: CompanyInfo): Promise<void> {
       let url: string;
       if (cachedAction) {
         url = cachedAction.url;
+        // For upgradeLevel, the cached URL has an empty Value= (dynamic in ASP JS).
+        // Substitute with the actual boolean value.
+        if (action === 'upgradeLevel' && value !== undefined) {
+          url = url.replace(/Value=[^&]*/, `Value=${value}`);
+        }
         this.log.debug(`[Curriculum] Using cached URL for ${action}`);
       } else {
         // Fallback: reconstruct URL from session state

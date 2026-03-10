@@ -4,6 +4,7 @@ import {
   extractFormActions,
   extractHrefUrls,
   extractOnClickUrls,
+  extractScriptNavigateUrls,
   extractAllActionUrls,
 } from './asp-url-extractor';
 
@@ -299,6 +300,85 @@ describe('asp-url-extractor', () => {
     });
   });
 
+  // ===== extractScriptNavigateUrls =====
+  describe('extractScriptNavigateUrls', () => {
+    it('extracts URL from onAdvanceClick with getBaseURL()', () => {
+      const html = `<html><head><script language="JScript">
+        function getBaseURL()
+        {
+          return (
+            "http://" +
+            "158.69.153.134:80" + "/" +
+            "/Five/0/Visual/Voyager/NewTycoon/"
+            )
+        }
+
+        function onAdvanceClick()
+        {
+          var URL = getBaseURL() +
+            "rdoSetAdvanceLevel.asp" +
+            "?TycoonId=132445236" +
+            "&Password=SIMCITY99" +
+            "&Value=" + event.srcElement.checked +
+            "&WorldName=Shamba" +
+            "&DAAddr=158.69.153.134" +
+            "&DAPort=7001" +
+            "&Tycoon=Crazz";
+          hiddenFrame.navigate( URL );
+        }
+      </script></head></html>`;
+
+      const results = extractScriptNavigateUrls(html, BASE_URL);
+      // Should find the advance level URL
+      const advance = results.find(r => r.key === 'rdoSetAdvanceLevel.asp');
+      expect(advance).toBeDefined();
+      expect(advance!.url).toContain('TycoonId=132445236');
+      expect(advance!.url).toContain('Password=SIMCITY99');
+      expect(advance!.url).toContain('DAPort=7001');
+      expect(advance!.url).toContain('Tycoon=Crazz');
+      // Value= is empty because event.srcElement.checked is a JS expression, not a string literal
+      expect(advance!.url).toContain('Value=');
+      expect(advance!.method).toBe('GET');
+    });
+
+    it('extracts simple string URL from script block', () => {
+      const html = `<html><head><script language="JScript">
+        function onBtnClick()
+        {
+          switch (td.command)
+          {
+            case "reset" :
+              var URL = "resetTycoon.asp?Tycoon=Crazz&WorldName=Shamba&DAAddr=158.69.153.134&DAPort=7001&TycoonId=&Password=SIMCITY99";
+              window.navigate(URL);
+              break;
+          }
+        }
+      </script></head></html>`;
+
+      const results = extractScriptNavigateUrls(html, BASE_URL);
+      const reset = results.find(r => r.key === 'resetTycoon.asp');
+      expect(reset).toBeDefined();
+      expect(reset!.url).toContain('Tycoon=Crazz');
+      expect(reset!.url).toContain('DAPort=7001');
+    });
+
+    it('returns empty array for script without .asp URLs', () => {
+      const html = `<script>var x = "hello"; var y = 42;</script>`;
+      const results = extractScriptNavigateUrls(html, BASE_URL);
+      expect(results).toHaveLength(0);
+    });
+
+    it('returns empty array for empty input', () => {
+      expect(extractScriptNavigateUrls('', BASE_URL)).toEqual([]);
+    });
+
+    it('handles HTML without script blocks', () => {
+      const html = '<html><body><p>No scripts</p></body></html>';
+      const results = extractScriptNavigateUrls(html, BASE_URL);
+      expect(results).toHaveLength(0);
+    });
+  });
+
   // ===== extractAllActionUrls =====
   describe('extractAllActionUrls', () => {
     it('merges results from all extractors', () => {
@@ -425,6 +505,64 @@ describe('asp-url-extractor', () => {
       expect(results[0].url).toContain('DAPort=7001');
       expect(results[1].key).toBe('ModifyTradeCenterStatus.asp');
       expect(results[1].url).toContain('DAPort=7001');
+    });
+
+    it('handles curriculum page with script-based advance level URL', () => {
+      const html = `<html><head>
+<script language="JScript">
+  function getBaseURL()
+  {
+    return (
+      "http://" +
+      "158.69.153.134:80" + "/" +
+      "/Five/0/Visual/Voyager/NewTycoon/"
+      )
+  }
+
+  function onBtnClick()
+  {
+    var td = getCell( event.srcElement );
+    if (td != null && td.tagName == "TD")
+      switch (td.command)
+      {
+        case "reset" :
+          var URL = "resetTycoon.asp?Tycoon=Crazz&WorldName=Shamba&DAAddr=158.69.153.134&DAPort=7001&TycoonId=&Password=SIMCITY99";
+          window.navigate(URL);
+          break;
+        case "abandon" :
+          var URL = "abandonRole.asp?Tycoon=Crazz&WorldName=Shamba&DAAddr=158.69.153.134&DAPort=7001&TycoonId=&Password=SIMCITY99";
+          window.navigate(URL);
+          break;
+      }
+  }
+
+  function onAdvanceClick()
+  {
+    var URL = getBaseURL() +
+      "rdoSetAdvanceLevel.asp" +
+      "?TycoonId=132445236" +
+      "&Password=SIMCITY99" +
+      "&Value=" + event.srcElement.checked +
+      "&WorldName=Shamba" +
+      "&DAAddr=158.69.153.134" +
+      "&DAPort=7001" +
+      "&Tycoon=Crazz";
+    hiddenFrame.navigate( URL );
+  }
+</script>
+</head><body>
+  <input type="checkbox" onClick="onAdvanceClick()">Upgrade to next level
+</body></html>`;
+
+      const map = extractAllActionUrls(html, BASE_URL);
+      // Should find all three action URLs from script block
+      expect(map.has('resetTycoon.asp')).toBe(true);
+      expect(map.has('abandonRole.asp')).toBe(true);
+      expect(map.has('rdoSetAdvanceLevel.asp')).toBe(true);
+
+      const advance = map.get('rdoSetAdvanceLevel.asp')!;
+      expect(advance.url).toContain('TycoonId=132445236');
+      expect(advance.url).toContain('DAPort=7001');
     });
 
     it('handles bank page with multiple forms', () => {

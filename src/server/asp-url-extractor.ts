@@ -228,6 +228,75 @@ export function extractOnClickUrls(html: string, baseUrl: string): AspActionUrl[
 }
 
 /**
+ * Extract URLs built via string concatenation inside <script> block functions.
+ * Handles patterns like:
+ *   var URL = getBaseURL() + "file.asp" + "?Param=value" + ...;
+ *   var URL = "file.asp?Param=value&...";
+ *
+ * Also resolves getBaseURL() if its function definition is in the same script block.
+ * Dynamic expressions (e.g. `event.srcElement.checked`) are omitted — only string
+ * literals are extracted, leaving dynamic parameter values empty in the URL.
+ */
+export function extractScriptNavigateUrls(html: string, baseUrl: string): AspActionUrl[] {
+  const results: AspActionUrl[] = [];
+  if (!html || typeof html !== 'string') return results;
+
+  const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script>/gi;
+  let scriptMatch;
+  while ((scriptMatch = scriptRegex.exec(html)) !== null) {
+    const scriptBody = scriptMatch[1];
+
+    // Find getBaseURL() return value if defined in this script block
+    let scriptBaseUrl = '';
+    const baseUrlFnMatch = scriptBody.match(
+      /function\s+getBaseURL\s*\(\s*\)\s*\{[\s\S]*?return\s*\(([\s\S]*?)\)/i,
+    );
+    if (baseUrlFnMatch) {
+      const literals: string[] = [];
+      const litRegex = /"([^"]*)"/g;
+      let litMatch;
+      while ((litMatch = litRegex.exec(baseUrlFnMatch[1])) !== null) {
+        literals.push(litMatch[1]);
+      }
+      scriptBaseUrl = literals.join('');
+    }
+
+    // Find `var URL = ...;` assignments containing .asp references
+    const urlAssignRegex = /var\s+URL\s*=\s*([\s\S]*?);/gi;
+    let urlMatch;
+    while ((urlMatch = urlAssignRegex.exec(scriptBody)) !== null) {
+      const expr = urlMatch[1];
+      if (!/\.asp/i.test(expr)) continue;
+
+      // Extract all string literals and join them
+      const literals: string[] = [];
+      const litRegex = /"([^"]*)"/g;
+      let litMatch;
+      while ((litMatch = litRegex.exec(expr)) !== null) {
+        literals.push(litMatch[1]);
+      }
+      if (literals.length === 0) continue;
+
+      // Prepend script base URL if getBaseURL() is called in the expression
+      let rawUrl: string;
+      if (/getBaseURL\s*\(\s*\)/.test(expr) && scriptBaseUrl) {
+        rawUrl = scriptBaseUrl + literals.join('');
+      } else {
+        rawUrl = literals.join('');
+      }
+
+      if (!rawUrl || !/\.asp/i.test(rawUrl)) continue;
+
+      const url = resolveUrl(rawUrl, baseUrl);
+      const key = deriveKey(url);
+      results.push({ key, url, method: 'GET' });
+    }
+  }
+
+  return results;
+}
+
+/**
  * Run all extractors and return a deduplicated Map keyed by ASP filename.
  * Later entries overwrite earlier ones if they share the same key.
  */
@@ -245,6 +314,9 @@ export function extractAllActionUrls(
     map.set(entry.key, entry);
   }
   for (const entry of extractOnClickUrls(html, baseUrl)) {
+    map.set(entry.key, entry);
+  }
+  for (const entry of extractScriptNavigateUrls(html, baseUrl)) {
     map.set(entry.key, entry);
   }
 
