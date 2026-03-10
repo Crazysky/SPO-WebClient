@@ -145,3 +145,50 @@ describe('ClientBridge existing methods', () => {
     expect(useBuildingStore.getState().focusedBuilding).toEqual(info);
   });
 });
+
+describe('ClientBridge building overlay (stale data prevention)', () => {
+  beforeEach(() => {
+    useBuildingStore.getState().clearFocus();
+    useUiStore.getState().closeRightPanel();
+  });
+
+  it('showBuildingOverlay should clear old details when rightPanel is building', () => {
+    // Setup: stale details in store + panel already open
+    useBuildingStore.getState().setDetails({
+      buildingId: 'OLD', buildingName: 'Old Building', ownerName: 'OldCorp',
+      x: 50, y: 60, visualClass: '1000', templateName: 'Building',
+      securityId: '', tabs: [], groups: {}, timestamp: Date.now(),
+    } as never);
+    useUiStore.getState().openRightPanel('building');
+
+    // Act: overlay a new building
+    const newInfo = { x: 10, y: 20, buildingId: 'NEW', buildingName: 'New Building' };
+    ClientBridge.showBuildingOverlay(newInfo as never);
+
+    // Assert: old details cleared, new focus set
+    const state = useBuildingStore.getState();
+    expect(state.details).toBeNull();
+    expect(state.isLoading).toBe(true);
+    expect(state.focusedBuilding).toEqual(newInfo);
+    expect(state.isOverlayMode).toBe(true);
+  });
+
+  it('showBuildingOverlay should NOT clear details when no panel is open', () => {
+    // Setup: details set but no panel open
+    useBuildingStore.getState().setDetails({
+      buildingId: 'OLD', buildingName: 'Old Building', ownerName: 'OldCorp',
+      x: 50, y: 60, visualClass: '1000', templateName: 'Building',
+      securityId: '', tabs: [], groups: {}, timestamp: Date.now(),
+    } as never);
+
+    // Act: overlay a new building (no panel open)
+    const newInfo = { x: 10, y: 20, buildingId: 'NEW' };
+    ClientBridge.showBuildingOverlay(newInfo as never);
+
+    // Assert: details still present (overlay doesn't interfere with closed panels)
+    const state = useBuildingStore.getState();
+    expect(state.details).not.toBeNull();
+    expect(state.focusedBuilding).toEqual(newInfo);
+    expect(state.isOverlayMode).toBe(true);
+  });
+});

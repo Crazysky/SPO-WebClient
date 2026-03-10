@@ -278,6 +278,8 @@ export class StarpeaceClient {
 
   // Speculative prefetch: first click caches a details promise for instant second-click
   private speculativeBuildingDetails = new Map<string, Promise<BuildingDetailsResponse | null>>();
+  // Resolved prefetch results: avoids skeleton flash when data is already available
+  private speculativeBuildingResolved = new Map<string, BuildingDetailsResponse | null>();
 
   // Generation counters: discard stale responses when a newer request supersedes
   private requestGeneration = new Map<string, number>();
@@ -1675,7 +1677,15 @@ export class StarpeaceClient {
       // Speculative prefetch: start loading details in background so second click is instant
       const cacheKey = `${x},${y}`;
       this.speculativeBuildingDetails.clear();
-      this.speculativeBuildingDetails.set(cacheKey, this.requestBuildingDetails(x, y, vc));
+      this.speculativeBuildingResolved.clear();
+      const detailsPromise = this.requestBuildingDetails(x, y, vc);
+      this.speculativeBuildingDetails.set(cacheKey, detailsPromise);
+      detailsPromise.then((result) => {
+        // Only store if this cache entry hasn't been cleared/replaced
+        if (this.speculativeBuildingDetails.has(cacheKey)) {
+          this.speculativeBuildingResolved.set(cacheKey, result);
+        }
+      });
 
       ClientBridge.log('Building', `Overlay: ${response.building.buildingName}`);
     } catch (err: unknown) {
@@ -1693,9 +1703,21 @@ export class StarpeaceClient {
     this.isFocusingBuilding = true;
     ClientBridge.log('Building', `Opening inspector at (${x}, ${y})`);
 
-    // Open panel/modal with skeleton immediately (animates in parallel with network)
     const vc = visualClass || this.currentFocusedVisualClass || '0';
-    useBuildingStore.getState().setLoading(true);
+    const cacheKey = `${x},${y}`;
+
+    // Check if speculative prefetch already completed (skip skeleton flash)
+    const resolvedDetails = this.speculativeBuildingResolved.get(cacheKey);
+    this.speculativeBuildingResolved.delete(cacheKey);
+    const cachedPromise = this.speculativeBuildingDetails.get(cacheKey);
+    this.speculativeBuildingDetails.delete(cacheKey);
+
+    // Only show skeleton if data isn't ready yet
+    if (!resolvedDetails) {
+      useBuildingStore.getState().setLoading(true);
+    }
+
+    // Open panel/modal (animates in parallel with network if still loading)
     if (isCivicBuilding(vc)) {
       useUiStore.getState().openModal('buildingInspector');
     } else {
@@ -1705,11 +1727,9 @@ export class StarpeaceClient {
     try {
       const gen = this.nextGeneration('buildingDetails');
 
-      // Consume speculative prefetch if available, otherwise fire fresh request
-      const cacheKey = `${x},${y}`;
-      const cached = this.speculativeBuildingDetails.get(cacheKey);
-      this.speculativeBuildingDetails.delete(cacheKey);
-      const details = cached ? await cached : await this.requestBuildingDetails(x, y, vc);
+      // Use resolved data, pending prefetch, or fire fresh request
+      const details = resolvedDetails
+        ?? (cachedPromise ? await cachedPromise : await this.requestBuildingDetails(x, y, vc));
 
       // Discard if a newer request superseded this one
       if (!this.isCurrentGeneration('buildingDetails', gen)) return;
@@ -1811,6 +1831,7 @@ export class StarpeaceClient {
 
     ClientBridge.log('Building', 'Unfocusing building');
     this.speculativeBuildingDetails.clear();
+    this.speculativeBuildingResolved.clear();
 
     try {
       const req: WsReqBuildingUnfocus = {

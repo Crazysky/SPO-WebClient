@@ -403,6 +403,11 @@ export const ClientBridge = {
   /** Show overlay above building (first click in two-click flow). */
   showBuildingOverlay(info: BuildingFocusInfo): void {
     const bld = useBuildingStore.getState();
+    const ui = useUiStore.getState();
+    // Clear stale details if inspector panel is currently showing another building
+    if (ui.rightPanel === 'building' || ui.modal === 'buildingInspector') {
+      bld.clearDetails();
+    }
     bld.setFocus(info);
     bld.setOverlayMode(true);
   },

@@ -89,6 +89,7 @@ interface BuildingState {
   setLoading: (loading: boolean) => void;
   setCurrentCompanyName: (name: string) => void;
   clearFocus: () => void;
+  clearDetails: () => void;
   clearOverlay: () => void;
   setConnectionPicker: (data: { fluidName: string; fluidId: string; direction: 'input' | 'output'; buildingX: number; buildingY: number }) => void;
   setConnectionResults: (results: ConnectionSearchResult[]) => void;
@@ -178,6 +179,18 @@ export const useBuildingStore = create<BuildingState>((set) => ({
       details: null,
       currentTab: 'overview',
       isLoading: false,
+      isOwner: false,
+      research: null,
+      pendingUpdates: new Map(),
+      failedUpdates: new Map(),
+      confirmedUpdates: new Map(),
+    }),
+
+  clearDetails: () =>
+    set({
+      details: null,
+      currentTab: 'overview',
+      isLoading: true,
       isOwner: false,
       research: null,
       pendingUpdates: new Map(),

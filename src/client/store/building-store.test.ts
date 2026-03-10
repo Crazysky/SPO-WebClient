@@ -133,6 +133,59 @@ describe('Building Store — Overlay state', () => {
   });
 });
 
+describe('Building Store — clearDetails (stale data prevention)', () => {
+  beforeEach(resetStore);
+
+  it('clearDetails nulls details and sets isLoading=true', () => {
+    const store = useBuildingStore.getState();
+    store.setDetails({
+      buildingId: '12345', buildingName: 'Drug Store', ownerName: 'TestCorp',
+      x: 100, y: 200, visualClass: '1234', templateName: 'Building',
+      securityId: '', tabs: [], groups: {}, timestamp: Date.now(),
+    });
+
+    store.clearDetails();
+
+    const state = useBuildingStore.getState();
+    expect(state.details).toBeNull();
+    expect(state.isLoading).toBe(true);
+    expect(state.currentTab).toBe('overview');
+    expect(state.isOwner).toBe(false);
+    expect(state.research).toBeNull();
+  });
+
+  it('clearDetails preserves focusedBuilding and isOverlayMode', () => {
+    const store = useBuildingStore.getState();
+    store.setFocus(mockFocusInfo);
+    store.setOverlayMode(true);
+    store.setDetails({
+      buildingId: '12345', buildingName: 'Drug Store', ownerName: 'TestCorp',
+      x: 100, y: 200, visualClass: '1234', templateName: 'Building',
+      securityId: '', tabs: [], groups: {}, timestamp: Date.now(),
+    });
+
+    store.clearDetails();
+
+    const state = useBuildingStore.getState();
+    expect(state.focusedBuilding).toBe(mockFocusInfo);
+    expect(state.isOverlayMode).toBe(true);
+    expect(state.details).toBeNull();
+  });
+
+  it('clearDetails clears optimistic update maps', () => {
+    const store = useBuildingStore.getState();
+    store.setPending('price', '100');
+    store.failPending('other', '50', 'rejected');
+
+    store.clearDetails();
+
+    const state = useBuildingStore.getState();
+    expect(state.pendingUpdates.size).toBe(0);
+    expect(state.failedUpdates.size).toBe(0);
+    expect(state.confirmedUpdates.size).toBe(0);
+  });
+});
+
 describe('Building Store — Ownership for under-construction buildings', () => {
   beforeEach(resetStore);
 
