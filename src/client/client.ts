@@ -756,7 +756,7 @@ export class StarpeaceClient {
         if (userChange.action === 'JOIN') {
           ClientBridge.addChatUser(userChange.user);
         } else {
-          ClientBridge.removeChatUser(userChange.user.id);
+          ClientBridge.removeChatUser(userChange.user.name);
         }
         break;
       }

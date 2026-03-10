@@ -40,7 +40,7 @@ interface ChatState {
   addMessage: (channel: string, message: ChatMessage) => void;
   setUsers: (users: ChatUser[]) => void;
   addUser: (user: ChatUser) => void;
-  removeUser: (userId: string) => void;
+  removeUser: (userName: string) => void;
   setUserTyping: (username: string, isTyping: boolean) => void;
   setExpanded: (expanded: boolean) => void;
   toggleExpanded: () => void;
@@ -73,19 +73,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setUsers: (users) => {
     const map: Record<string, ChatUser> = {};
     for (const u of users) {
-      map[u.id] = u;
+      map[u.name] = u;
     }
     set({ users: map });
   },
 
   addUser: (user) =>
     set((state) => ({
-      users: { ...state.users, [user.id]: user },
+      users: { ...state.users, [user.name]: user },
     })),
 
-  removeUser: (userId) =>
+  removeUser: (userName) =>
     set((state) => {
-      const { [userId]: _, ...rest } = state.users;
+      const { [userName]: _, ...rest } = state.users;
       return { users: rest };
     }),
 

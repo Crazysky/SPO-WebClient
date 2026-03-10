@@ -4940,20 +4940,21 @@ private handlePush(socketName: string, packet: RdoPacket) {
   }
 
   // 4. NotifyUserListChange - User joined/left
+  // Delphi sends Name as "name", "name/id", or "name/id/afk" — handle all formats
   if (packet.member === 'NotifyUserListChange' && packet.args && packet.args.length >= 2) {
     const userInfo = packet.args[0].replace(/^[%#@$]/, '');
     const actionCode = packet.args[1].replace(/^[%#@$]/, '');
     const userParts = userInfo.split('/');
 
-    if (userParts.length >= 3) {
+    if (userParts[0]?.trim()) {
       const user: ChatUser = {
         name: userParts[0],
-        id: userParts[1],
+        id: userParts[1] ?? userParts[0],
         status: parseInt(userParts[2], 10) || 0
       };
 
       const action = actionCode === '0' ? 'JOIN' : 'LEAVE';
-      this.log.debug(`[Chat] User ${user.name} ${action === 'JOIN' ? 'joined' : 'left'}`);
+      this.log.debug(`[Chat] User ${user.name} ${action === 'JOIN' ? 'joined' : 'left'} (format: ${userParts.length}-field)`);
 
       const event: WsEventChatUserListChange = {
         type: WsMessageType.EVENT_CHAT_USER_LIST_CHANGE,
@@ -5520,13 +5521,13 @@ private handlePush(socketName: string, packet: RdoPacket) {
   private parseChatUserList(rawData: string): ChatUser[] {
     const users: ChatUser[] = [];
     const lines = rawData.split(/\r?\n/).filter(l => l.trim().length > 0);
-    
+
     for (const line of lines) {
       const parts = line.split('/');
-      if (parts.length >= 3) {
+      if (parts[0]?.trim()) {
         users.push({
           name: parts[0].trim(),
-          id: parts[1].trim(),
+          id: parts[1]?.trim() ?? parts[0].trim(),
           status: parseInt(parts[2], 10) || 0
         });
       }

@@ -21,15 +21,15 @@ function resetStore() {
 describe('Chat Store — User list', () => {
   beforeEach(resetStore);
 
-  it('setUsers populates the users record keyed by id', () => {
+  it('setUsers populates the users record keyed by name', () => {
     useChatStore.getState().setUsers([
       { name: 'Alice', id: 'u1', status: 0 },
       { name: 'Bob', id: 'u2', status: 0 },
     ]);
     const { users } = useChatStore.getState();
     expect(Object.keys(users)).toHaveLength(2);
-    expect(users['u1'].name).toBe('Alice');
-    expect(users['u2'].name).toBe('Bob');
+    expect(users['Alice'].id).toBe('u1');
+    expect(users['Bob'].id).toBe('u2');
   });
 
   it('addUser adds a new user to the record', () => {
@@ -39,40 +39,62 @@ describe('Chat Store — User list', () => {
     useChatStore.getState().addUser({ name: 'Bob', id: 'u2', status: 0 });
     const { users } = useChatStore.getState();
     expect(Object.keys(users)).toHaveLength(2);
-    expect(users['u2'].name).toBe('Bob');
+    expect(users['Bob'].id).toBe('u2');
   });
 
-  it('addUser overwrites an existing user with the same id', () => {
+  it('addUser overwrites an existing user with the same name', () => {
     useChatStore.getState().setUsers([
       { name: 'Alice', id: 'u1', status: 0 },
     ]);
-    useChatStore.getState().addUser({ name: 'Alice-Updated', id: 'u1', status: 1 });
+    useChatStore.getState().addUser({ name: 'Alice', id: 'u1', status: 1 });
     const { users } = useChatStore.getState();
     expect(Object.keys(users)).toHaveLength(1);
-    expect(users['u1'].name).toBe('Alice-Updated');
-    expect(users['u1'].status).toBe(1);
+    expect(users['Alice'].status).toBe(1);
   });
 
-  it('removeUser removes a user by id', () => {
+  it('removeUser removes a user by name', () => {
     useChatStore.getState().setUsers([
       { name: 'Alice', id: 'u1', status: 0 },
       { name: 'Bob', id: 'u2', status: 0 },
     ]);
-    useChatStore.getState().removeUser('u1');
+    useChatStore.getState().removeUser('Alice');
     const { users } = useChatStore.getState();
     expect(Object.keys(users)).toHaveLength(1);
-    expect(users['u1']).toBeUndefined();
-    expect(users['u2'].name).toBe('Bob');
+    expect(users['Alice']).toBeUndefined();
+    expect(users['Bob'].id).toBe('u2');
   });
 
-  it('removeUser is a no-op for unknown id', () => {
+  it('removeUser is a no-op for unknown name', () => {
     useChatStore.getState().setUsers([
       { name: 'Alice', id: 'u1', status: 0 },
     ]);
-    useChatStore.getState().removeUser('unknown-id');
+    useChatStore.getState().removeUser('Unknown');
     const { users } = useChatStore.getState();
     expect(Object.keys(users)).toHaveLength(1);
-    expect(users['u1'].name).toBe('Alice');
+    expect(users['Alice'].name).toBe('Alice');
+  });
+
+  it('addUser with name-only fallback (id defaults to name)', () => {
+    useChatStore.getState().addUser({ name: 'Player1', id: 'Player1', status: 0 });
+    const { users } = useChatStore.getState();
+    expect(users['Player1'].id).toBe('Player1');
+    expect(users['Player1'].name).toBe('Player1');
+  });
+
+  it('addUser with 2-field format (name + id, no status)', () => {
+    useChatStore.getState().addUser({ name: 'Player1', id: '12345', status: 0 });
+    const { users } = useChatStore.getState();
+    expect(users['Player1'].id).toBe('12345');
+    expect(users['Player1'].status).toBe(0);
+  });
+
+  it('removeUser by name works when user was added with different id', () => {
+    useChatStore.getState().setUsers([
+      { name: 'Alice', id: '99999', status: 0 },
+    ]);
+    useChatStore.getState().removeUser('Alice');
+    const { users } = useChatStore.getState();
+    expect(Object.keys(users)).toHaveLength(0);
   });
 });
 
