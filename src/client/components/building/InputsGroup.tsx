@@ -60,11 +60,10 @@ function CompInputSection({
   buildingY: number;
 }) {
   const client = useClient();
-  const [localDemand, setLocalDemand] = useState(data.ratio);
-  const demandTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
-
   const barMax = data.maxDemand > 0 ? data.maxDemand : data.demanded;
   const demPct = barMax > 0 ? Math.min(100, (data.demanded / barMax) * 100) : 0;
+  const [localDemand, setLocalDemand] = useState(Math.round(demPct));
+  const demandTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const fillPct = data.demanded > 0 ? Math.min(100, (data.supplied / data.demanded) * 100) : 0;
 
   const handleDemandChange = useCallback(

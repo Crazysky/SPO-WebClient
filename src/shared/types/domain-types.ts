@@ -502,7 +502,7 @@ export interface CompInputData {
   supplied: number;
   /** Amount demanded — cInputDem{i} */
   demanded: number;
-  /** Demand percentage setting 0-100 — cInputRatio{i} */
+  /** Supply/demand ratio 0-100 — cInputRatio{i} = min(100, round(100 * supplied / demanded)) */
   ratio: number;
   /** Maximum demand capacity — cInputMax{i} */
   maxDemand: number;
