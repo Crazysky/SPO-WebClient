@@ -313,7 +313,23 @@ export async function placeBuilding(ctx: ClientHandlerContext, x: number, y: num
     const buildingMargin = Math.max(ctx.currentBuildingXSize, ctx.currentBuildingYSize);
     ctx.loadAlignedMapArea(x, y, buildingMargin);
 
-    cancelBuildingPlacement(ctx);
+    // Keep placement mode active so the user can place the same building again.
+    // Callbacks, keyboard handler, and zone overlay are already set up — just
+    // reset the renderer preview so the ghost reappears on the next mouse move.
+    const renderer = ctx.getRenderer();
+    if (renderer) {
+      renderer.setPlacementMode(
+        true,
+        building.name,
+        building.cost,
+        building.area,
+        building.zoneRequirement,
+        ctx.currentBuildingXSize,
+        ctx.currentBuildingYSize,
+        building.visualClassId,
+        building.iconPath
+      );
+    }
   } catch (err: unknown) {
     const errorMsg = toErrorMessage(err);
     ClientBridge.log('Error', `Failed to place ${building.name}: ${errorMsg}`);
