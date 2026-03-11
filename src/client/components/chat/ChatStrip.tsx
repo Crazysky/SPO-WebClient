@@ -10,6 +10,7 @@ import { useState, useRef, useCallback, useEffect, useMemo, memo } from 'react';
 import { ChevronUp, ChevronDown, ChevronUp as ChevronUpIcon, Send, Users } from 'lucide-react';
 import { useChatStore } from '../../store/chat-store';
 import { useClient } from '../../context';
+import { NobilityBadge } from './NobilityBadge';
 import styles from './ChatStrip.module.css';
 
 interface ChatMessageProps {
@@ -21,9 +22,15 @@ interface ChatMessageProps {
 }
 
 const ChatMessage = memo(function ChatMessage({ from, text, isSystem, isGM }: ChatMessageProps) {
+  const user = useChatStore((s) => s.users[from]);
   return (
     <div className={`${styles.message} ${isSystem ? styles.system : ''} ${isGM ? styles.gm : ''}`}>
-      {!isSystem && <span className={styles.sender}>{from}</span>}
+      {!isSystem && (
+        <>
+          {user && <NobilityBadge nobilityTier={user.nobilityTier} modifiers={user.modifiers} size="md" />}
+          <span className={styles.sender}>{from}</span>
+        </>
+      )}
       <span className={styles.text}>{text}</span>
     </div>
   );
@@ -178,6 +185,7 @@ export function ChatStrip() {
                 userList.map((user) => (
                   <div key={user.id} className={styles.userRow}>
                     <span className={`${styles.statusDot} ${user.status === 1 ? styles.statusDotTyping : ''}`} />
+                    <NobilityBadge nobilityTier={user.nobilityTier} modifiers={user.modifiers} size="sm" />
                     <span className={styles.userName}>{user.name}</span>
                   </div>
                 ))

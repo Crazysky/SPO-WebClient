@@ -4,7 +4,12 @@
 
 import { describe, it, expect, beforeEach } from '@jest/globals';
 import { useChatStore } from './chat-store';
-import type { ChatTab } from './chat-store';
+import type { ChatUser, ChatTab } from './chat-store';
+
+/** Shorthand: create a ChatUser with default nobility fields. */
+function user(name: string, id: string, status = 0): ChatUser {
+  return { name, id, status, nobilityPoints: 0, nobilityTier: 'Commoner', modifiers: 0 };
+}
 
 function resetStore() {
   useChatStore.setState({
@@ -22,10 +27,7 @@ describe('Chat Store — User list', () => {
   beforeEach(resetStore);
 
   it('setUsers populates the users record keyed by name', () => {
-    useChatStore.getState().setUsers([
-      { name: 'Alice', id: 'u1', status: 0 },
-      { name: 'Bob', id: 'u2', status: 0 },
-    ]);
+    useChatStore.getState().setUsers([user('Alice', 'u1'), user('Bob', 'u2')]);
     const { users } = useChatStore.getState();
     expect(Object.keys(users)).toHaveLength(2);
     expect(users['Alice'].id).toBe('u1');
@@ -33,30 +35,23 @@ describe('Chat Store — User list', () => {
   });
 
   it('addUser adds a new user to the record', () => {
-    useChatStore.getState().setUsers([
-      { name: 'Alice', id: 'u1', status: 0 },
-    ]);
-    useChatStore.getState().addUser({ name: 'Bob', id: 'u2', status: 0 });
+    useChatStore.getState().setUsers([user('Alice', 'u1')]);
+    useChatStore.getState().addUser(user('Bob', 'u2'));
     const { users } = useChatStore.getState();
     expect(Object.keys(users)).toHaveLength(2);
     expect(users['Bob'].id).toBe('u2');
   });
 
   it('addUser overwrites an existing user with the same name', () => {
-    useChatStore.getState().setUsers([
-      { name: 'Alice', id: 'u1', status: 0 },
-    ]);
-    useChatStore.getState().addUser({ name: 'Alice', id: 'u1', status: 1 });
+    useChatStore.getState().setUsers([user('Alice', 'u1')]);
+    useChatStore.getState().addUser(user('Alice', 'u1', 1));
     const { users } = useChatStore.getState();
     expect(Object.keys(users)).toHaveLength(1);
     expect(users['Alice'].status).toBe(1);
   });
 
   it('removeUser removes a user by name', () => {
-    useChatStore.getState().setUsers([
-      { name: 'Alice', id: 'u1', status: 0 },
-      { name: 'Bob', id: 'u2', status: 0 },
-    ]);
+    useChatStore.getState().setUsers([user('Alice', 'u1'), user('Bob', 'u2')]);
     useChatStore.getState().removeUser('Alice');
     const { users } = useChatStore.getState();
     expect(Object.keys(users)).toHaveLength(1);
@@ -65,9 +60,7 @@ describe('Chat Store — User list', () => {
   });
 
   it('removeUser is a no-op for unknown name', () => {
-    useChatStore.getState().setUsers([
-      { name: 'Alice', id: 'u1', status: 0 },
-    ]);
+    useChatStore.getState().setUsers([user('Alice', 'u1')]);
     useChatStore.getState().removeUser('Unknown');
     const { users } = useChatStore.getState();
     expect(Object.keys(users)).toHaveLength(1);
@@ -75,23 +68,21 @@ describe('Chat Store — User list', () => {
   });
 
   it('addUser with name-only fallback (id defaults to name)', () => {
-    useChatStore.getState().addUser({ name: 'Player1', id: 'Player1', status: 0 });
+    useChatStore.getState().addUser(user('Player1', 'Player1'));
     const { users } = useChatStore.getState();
     expect(users['Player1'].id).toBe('Player1');
     expect(users['Player1'].name).toBe('Player1');
   });
 
   it('addUser with 2-field format (name + id, no status)', () => {
-    useChatStore.getState().addUser({ name: 'Player1', id: '12345', status: 0 });
+    useChatStore.getState().addUser(user('Player1', '12345'));
     const { users } = useChatStore.getState();
     expect(users['Player1'].id).toBe('12345');
     expect(users['Player1'].status).toBe(0);
   });
 
   it('removeUser by name works when user was added with different id', () => {
-    useChatStore.getState().setUsers([
-      { name: 'Alice', id: '99999', status: 0 },
-    ]);
+    useChatStore.getState().setUsers([user('Alice', '99999')]);
     useChatStore.getState().removeUser('Alice');
     const { users } = useChatStore.getState();
     expect(Object.keys(users)).toHaveLength(0);

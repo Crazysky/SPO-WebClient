@@ -3,6 +3,9 @@
  */
 
 import { create } from 'zustand';
+import type { ChatUser } from '../../shared/types/domain-types';
+
+export type { ChatUser };
 
 export interface ChatMessage {
   id: string;
@@ -11,13 +14,6 @@ export interface ChatMessage {
   timestamp: number;
   isSystem: boolean;
   isGM: boolean;
-}
-
-export interface ChatUser {
-  name: string;
-  id: string;
-  /** 0 = normal, 1 = typing */
-  status: number;
 }
 
 const MAX_MESSAGES_PER_CHANNEL = 100;

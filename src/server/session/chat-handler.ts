@@ -8,7 +8,7 @@
 
 import type { SessionContext } from './session-context';
 import type { ChatUser } from '../../shared/types';
-import { RdoVerb, RdoAction } from '../../shared/types';
+import { RdoVerb, RdoAction, parseAccDesc } from '../../shared/types';
 import { RdoValue, RdoCommand } from '../../shared/rdo-types';
 import { parsePropertyResponse as parsePropertyResponseHelper } from '../rdo-helpers';
 
@@ -26,10 +26,15 @@ function parseChatUserList(ctx: SessionContext, rawData: string): ChatUser[] {
   for (const line of lines) {
     const parts = line.split('/');
     if (parts[0]?.trim()) {
+      const accDescStr = parts[1]?.trim() ?? '0';
+      const { nobilityPoints, modifiers, nobilityTier } = parseAccDesc(accDescStr);
       users.push({
         name: parts[0].trim(),
-        id: parts[1]?.trim() ?? parts[0].trim(),
-        status: parseInt(parts[2], 10) || 0
+        id: accDescStr,
+        status: parseInt(parts[2], 10) || 0,
+        nobilityPoints,
+        nobilityTier,
+        modifiers,
       });
     }
   }

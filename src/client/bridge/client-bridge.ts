@@ -8,7 +8,7 @@
 
 import { useGameStore, type GameSettings } from '../store/game-store';
 import { useBuildingStore } from '../store/building-store';
-import { useChatStore } from '../store/chat-store';
+import { useChatStore, type ChatUser } from '../store/chat-store';
 import { useMailStore } from '../store/mail-store';
 import { useProfileStore } from '../store/profile-store';
 import { useSearchStore } from '../store/search-store';
@@ -473,11 +473,11 @@ export const ClientBridge = {
     useChatStore.getState().addMessage(channel, message);
   },
 
-  setChatUsers(users: Array<{ name: string; id: string; status: number }>): void {
+  setChatUsers(users: ChatUser[]): void {
     useChatStore.getState().setUsers(users);
   },
 
-  addChatUser(user: { name: string; id: string; status: number }): void {
+  addChatUser(user: ChatUser): void {
     useChatStore.getState().addUser(user);
   },
 

@@ -1,0 +1,47 @@
+/* NobilityBadge — tier icons + modifier dots */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  cursor: default;
+  transition: opacity 150ms var(--ease-default);
+}
+
+.badge:hover {
+  opacity: 0.8;
+}
+
+/* Tier icon */
+.tierIcon {
+  flex-shrink: 0;
+}
+
+.tierGold { color: var(--accent-gold); }
+.tierSilver { color: #B0BEC5; }
+.tierBronze { color: #CD7F32; }
+
+/* Modifier dots */
+.modDot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.modSupport { background: var(--success); }
+.modDeveloper { background: var(--info); }
+.modPublisher { background: var(--accent-gold); }
+.modAmbassador { background: #A78BFA; }
+.modGameMaster { background: var(--error); }
+.modTrial { background: var(--text-disabled); }
+.modNewbie { background: var(--text-disabled); }
+.modVeteran { background: #B0BEC5; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .badge {
+    transition: none;
+  }
+}

@@ -8,6 +8,7 @@
 import type { RdoPacket, ChatUser } from '../../shared/types';
 import {
   WsMessageType,
+  parseAccDesc,
   type WsEventChatMsg,
   type WsEventTycoonUpdate,
   type WsEventEndOfPeriod,
@@ -210,10 +211,12 @@ export function dispatchPush(ctx: PushContext, _socketName: string, packet: RdoP
     const userParts = userInfo.split('/');
 
     if (userParts[0]?.trim()) {
+      const accDescStr = userParts[1] ?? '0';
       const user: ChatUser = {
         name: userParts[0],
-        id: userParts[1] ?? userParts[0],
+        id: accDescStr,
         status: parseInt(userParts[2], 10) || 0,
+        ...parseAccDesc(accDescStr),
       };
 
       const action = actionCode === '0' ? 'JOIN' : 'LEAVE';

@@ -26,6 +26,9 @@ export {
   ZoneType,
   ZONE_TYPES,
   OVERLAY_LIST,
+  NOBILITY_TIERS,
+  CHAT_MODIFIER_FLAGS,
+  parseAccDesc,
 } from './domain-types';
 
 export type { ZoneTypeInfo, OverlayInfo } from './domain-types';

@@ -104,10 +104,56 @@ export interface MapData {
 // CHAT STRUCTURES
 // =============================================================================
 
+/** Nobility tier thresholds — sorted descending for reverse lookup. */
+export const NOBILITY_TIERS = [
+  { minPoints: 16000, label: 'Sr. Duke' },
+  { minPoints: 8000,  label: 'Duke' },
+  { minPoints: 4000,  label: 'Marquess' },
+  { minPoints: 2000,  label: 'Earl' },
+  { minPoints: 1000,  label: 'Viscount' },
+  { minPoints: 500,   label: 'Baron' },
+  { minPoints: 0,     label: 'Commoner' },
+] as const;
+
+/** Account modifier bit flags (upper 16 bits of AccDesc). */
+export const CHAT_MODIFIER_FLAGS = {
+  SUPPORT:     0x0001,
+  DEVELOPER:   0x0002,
+  PUBLISHER:   0x0004,
+  AMBASSADOR:  0x0008,
+  GAME_MASTER: 0x0010,
+  TRIAL:       0x0020,
+  NEWBIE:      0x0040,
+  VETERAN:     0x0080,
+  UNKNOWN:     0x8000,
+} as const;
+
+/**
+ * Parse a packed AccDesc cardinal into nobility points, modifier flags, and tier label.
+ *
+ * AccDesc format (from Delphi Protocol.pas):
+ * - Lower 16 bits (0x0000FFFF) = nobility points
+ * - Upper 16 bits (0xFFFF0000) = modifier flags (shifted left 16)
+ */
+export function parseAccDesc(accDescStr: string): {
+  nobilityPoints: number;
+  modifiers: number;
+  nobilityTier: string;
+} {
+  const accDesc = parseInt(accDescStr, 10) || 0;
+  const nobilityPoints = accDesc & 0xFFFF;
+  const modifiers = (accDesc >>> 16) & 0xFFFF;
+  const tier = NOBILITY_TIERS.find(t => nobilityPoints >= t.minPoints) ?? NOBILITY_TIERS[NOBILITY_TIERS.length - 1];
+  return { nobilityPoints, modifiers, nobilityTier: tier.label };
+}
+
 export interface ChatUser {
   name: string;
   id: string;
   status: number; // 0 = normal, 1 = typing
+  nobilityPoints: number;
+  nobilityTier: string;
+  modifiers: number;
 }
 
 export interface ChatChannel {
