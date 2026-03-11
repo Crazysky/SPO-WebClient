@@ -29,12 +29,20 @@ interface MockContext {
   fillStyle: string;
   strokeStyle: string;
   lineWidth: number;
+  font: string;
+  textAlign: string;
+  textBaseline: string;
   fillRect: jest.Mock;
   strokeRect: jest.Mock;
   beginPath: jest.Mock;
+  closePath: jest.Mock;
   moveTo: jest.Mock;
   lineTo: jest.Mock;
   stroke: jest.Mock;
+  fill: jest.Mock;
+  arc: jest.Mock;
+  fillText: jest.Mock;
+  createLinearGradient: jest.Mock;
   save: jest.Mock;
   restore: jest.Mock;
   translate: jest.Mock;
@@ -79,12 +87,20 @@ function createMockCtx(): MockContext {
     fillStyle: '',
     strokeStyle: '',
     lineWidth: 0,
+    font: '',
+    textAlign: '',
+    textBaseline: '',
     fillRect: jest.fn(),
     strokeRect: jest.fn(),
     beginPath: jest.fn(),
+    closePath: jest.fn(),
     moveTo: jest.fn(),
     lineTo: jest.fn(),
     stroke: jest.fn(),
+    fill: jest.fn(),
+    arc: jest.fn(),
+    fillText: jest.fn(),
+    createLinearGradient: jest.fn(() => ({ addColorStop: jest.fn() })),
     save: jest.fn(),
     restore: jest.fn(),
     translate: jest.fn(),
@@ -471,6 +487,72 @@ describe('MinimapUI', () => {
 
       expect(mockCtx.createImageData).toHaveBeenCalled();
       expect(mockCtx.putImageData).toHaveBeenCalled();
+
+      minimap.destroy();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Screen-space overlay tests (compass, camera marker, border, resize dots)
+  // ---------------------------------------------------------------------------
+
+  describe('screen-space overlays', () => {
+    it('should draw compass labels in screen space after map rotation restore', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer({ getRotation: jest.fn(() => 0) }));
+
+      // drawCompassLabels calls fillText for each of the 4 cardinal direction labels
+      expect(mockCtx.fillText).toHaveBeenCalled();
+      const labelCalls = mockCtx.fillText.mock.calls.map((c: unknown[]) => c[0]);
+      // Each label is drawn twice (shadow + color), so 8 calls total for 4 directions
+      expect(labelCalls.filter((l: unknown) => l === 'N').length).toBeGreaterThanOrEqual(1);
+      expect(labelCalls.filter((l: unknown) => l === 'E').length).toBeGreaterThanOrEqual(1);
+      expect(labelCalls.filter((l: unknown) => l === 'S').length).toBeGreaterThanOrEqual(1);
+      expect(labelCalls.filter((l: unknown) => l === 'W').length).toBeGreaterThanOrEqual(1);
+
+      minimap.destroy();
+    });
+
+    it('should rotate compass labels for EAST rotation (top vertex = E)', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer({ getRotation: jest.fn(() => 1) }));
+
+      const labelCalls = mockCtx.fillText.mock.calls.map((c: unknown[]) => c[0]);
+      // For rotation=1 (EAST), top vertex shows 'E' first
+      expect(labelCalls[0]).toBe('E');
+
+      minimap.destroy();
+    });
+
+    it('should draw camera marker crosshair with arc (dot) and lines', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer());
+
+      // drawCameraMarker calls arc() for the center dot
+      expect(mockCtx.arc).toHaveBeenCalled();
+      // And moveTo/lineTo for the crosshair lines
+      const moveToCalls = mockCtx.moveTo.mock.calls.length;
+      expect(moveToCalls).toBeGreaterThan(0);
+
+      minimap.destroy();
+    });
+
+    it('should draw diamond border using createLinearGradient', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer());
+
+      // drawDiamondBorder calls createLinearGradient for the border stroke
+      expect(mockCtx.createLinearGradient).toHaveBeenCalled();
+
+      minimap.destroy();
+    });
+
+    it('should draw resize handle dots with 3 arc calls near bottom vertex', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer());
+
+      // drawResizeHandleDots + drawCameraMarker both call arc() — at least 4 total (1 crosshair + 3 dots)
+      expect(mockCtx.arc.mock.calls.length).toBeGreaterThanOrEqual(4);
 
       minimap.destroy();
     });

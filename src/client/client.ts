@@ -235,7 +235,7 @@ export class StarpeaceClient implements ClientHandlerContext {
       onRefreshMap: () => mapHandler.refreshMapData(this),
       onZoomIn: () => this.mapNavigationUI?.getRenderer()?.zoomIn(),
       onZoomOut: () => this.mapNavigationUI?.getRenderer()?.zoomOut(),
-      onToggleMinimap: () => { /* minimap is always visible */ },
+      onToggleMinimap: () => { this.minimapUI?.toggle(); },
       onToggleDebugOverlay: () => {
         const renderer = this.mapNavigationUI?.getRenderer();
         if (renderer) renderer.toggleDebugMode();

@@ -31,6 +31,9 @@ const MAX_SIZE = 500;
 const MINIMAP_PADDING = 12;
 const UPDATE_INTERVAL_MS = 500;
 
+/** Cardinal directions indexed by rotation (0=N, 1=E, 2=S, 3=W) */
+const CARDINAL_DIRS = ['N', 'E', 'S', 'W'] as const;
+
 /** Base rotation to match isometric map orientation (NW at top) */
 const ISO_BASE_ANGLE = -Math.PI / 4;
 /** Scale factor to fit 45°-rotated square inside canvas (1/√2) */
@@ -170,7 +173,7 @@ export class MinimapUI {
       cursor: crosshair;
       background: #0f172a;
       clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
-      filter: drop-shadow(0 0 1px rgba(148, 163, 184, 0.6)) drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
+      filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.35)) drop-shadow(0 0 2px rgba(148, 163, 184, 0.6)) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.65));
       transition: left 250ms cubic-bezier(0.16, 1, 0.3, 1);
     `;
 
@@ -315,7 +318,15 @@ export class MinimapUI {
     // Draw viewport rectangle
     this.drawViewport(ctx, scaleX, scaleY);
 
+    // Draw camera position crosshair (on top of viewport rect)
+    this.drawCameraMarker(ctx, scaleX, scaleY);
+
     ctx.restore();
+
+    // Screen-space overlays — drawn after restore, not affected by map rotation
+    this.drawDiamondBorder(ctx);
+    this.drawCompassLabels(ctx, rotation);
+    this.drawResizeHandleDots(ctx);
   }
 
   private drawTerrainBackground(ctx: CanvasRenderingContext2D): void {
@@ -410,13 +421,119 @@ export class MinimapUI {
     const h = y2 - y1;
 
     // Semi-transparent fill
-    ctx.fillStyle = 'rgba(56, 189, 248, 0.15)';
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
     ctx.fillRect(x1, y1, w, h);
 
-    // Border
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.8)';
+    // Main border
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.9)';
     ctx.lineWidth = 1.5;
     ctx.strokeRect(x1, y1, w, h);
+
+    // Corner tick marks for clarity
+    const tick = 4;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    // Top-left
+    ctx.moveTo(x1, y1 + tick); ctx.lineTo(x1, y1); ctx.lineTo(x1 + tick, y1);
+    // Top-right
+    ctx.moveTo(x2 - tick, y1); ctx.lineTo(x2, y1); ctx.lineTo(x2, y1 + tick);
+    // Bottom-right
+    ctx.moveTo(x2, y2 - tick); ctx.lineTo(x2, y2); ctx.lineTo(x2 - tick, y2);
+    // Bottom-left
+    ctx.moveTo(x1 + tick, y2); ctx.lineTo(x1, y2); ctx.lineTo(x1, y2 - tick);
+    ctx.stroke();
+  }
+
+  /** Crosshair at the current camera position (drawn in rotated map space). */
+  private drawCameraMarker(ctx: CanvasRenderingContext2D, scaleX: number, scaleY: number): void {
+    const cam = this.renderer!.getCameraPosition();
+    const px = cam.x * scaleX;
+    const py = cam.y * scaleY;
+    const size = 5;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(251, 191, 36, 0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(px - size, py);
+    ctx.lineTo(px + size, py);
+    ctx.moveTo(px, py - size);
+    ctx.lineTo(px, py + size);
+    ctx.stroke();
+
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.arc(px, py, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** Thin gradient diamond border drawn in screen space (after ctx.restore). */
+  private drawDiamondBorder(ctx: CanvasRenderingContext2D): void {
+    const cx = this.currentWidth / 2;
+    const cy = this.currentHeight / 2;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx, 1);
+    ctx.lineTo(this.currentWidth - 1, cy);
+    ctx.lineTo(cx, this.currentHeight - 1);
+    ctx.lineTo(1, cy);
+    ctx.closePath();
+
+    const grad = ctx.createLinearGradient(0, 0, this.currentWidth, this.currentHeight);
+    grad.addColorStop(0, 'rgba(56, 189, 248, 0.6)');
+    grad.addColorStop(0.5, 'rgba(148, 163, 184, 0.35)');
+    grad.addColorStop(1, 'rgba(56, 189, 248, 0.6)');
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Cardinal direction labels at the 4 diamond vertices (screen space, after ctx.restore). */
+  private drawCompassLabels(ctx: CanvasRenderingContext2D, rotation: number): void {
+    const cx = this.currentWidth / 2;
+    const cy = this.currentHeight / 2;
+
+    // Each diamond vertex and which direction is currently there based on rotation
+    const vertices: [string, number, number][] = [
+      [CARDINAL_DIRS[rotation % 4],           cx,                       10],      // top
+      [CARDINAL_DIRS[(rotation + 1) % 4],     this.currentWidth - 10,   cy],      // right
+      [CARDINAL_DIRS[(rotation + 2) % 4],     cx,                       this.currentHeight - 10], // bottom
+      [CARDINAL_DIRS[(rotation + 3) % 4],     10,                       cy],      // left
+    ];
+
+    ctx.save();
+    ctx.font = 'bold 10px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    for (const [label, x, y] of vertices) {
+      // Drop shadow for readability over any terrain color
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+      ctx.fillText(label, x + 1, y + 1);
+      // N gets sky-blue accent, other directions get white
+      ctx.fillStyle = label === 'N' ? '#38bdf8' : 'rgba(255, 255, 255, 0.8)';
+      ctx.fillText(label, x, y);
+    }
+    ctx.restore();
+  }
+
+  /** Three grip dots near the bottom vertex as a visible resize affordance (screen space). */
+  private drawResizeHandleDots(ctx: CanvasRenderingContext2D): void {
+    const cx = this.currentWidth / 2;
+    const y = this.currentHeight - 18;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.55)';
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.arc(cx + i * 5, y, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   // ---------------------------------------------------------------------------
