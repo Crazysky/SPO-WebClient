@@ -1308,7 +1308,8 @@
       const key = this.getKey(chunkI, chunkJ);
       const entry = cache.get(key);
       if (entry && entry.ready) {
-        entry.lastAccess = ++this.accessCounter;
+        cache.delete(key);
+        cache.set(key, entry);
         this.stats.cacheHits++;
         return entry.canvas;
       }
@@ -1613,7 +1614,8 @@
       const key = this.getKey(chunkI, chunkJ);
       const entry = cache.get(key);
       if (!entry || !entry.ready) return false;
-      entry.lastAccess = ++this.accessCounter;
+      cache.delete(key);
+      cache.set(key, entry);
       const config = ZOOM_LEVELS[zoomLevel];
       const screenPos = getChunkScreenPosition(
         chunkI,
@@ -1686,20 +1688,16 @@
       const cache = this.caches.get(zoomLevel);
       const maxChunks = MAX_CHUNKS_PER_ZOOM[zoomLevel] ?? 96;
       while (cache.size > maxChunks) {
-        let oldestKey = null;
-        let oldestAccess = Infinity;
-        for (const [key, entry] of cache) {
-          if (entry.ready && !entry.rendering && entry.lastAccess < oldestAccess) {
-            oldestAccess = entry.lastAccess;
-            oldestKey = key;
-          }
-        }
-        if (oldestKey) {
-          cache.delete(oldestKey);
-          this.stats.evictions++;
-        } else {
+        const firstKey = cache.keys().next().value;
+        if (firstKey === void 0) break;
+        const entry = cache.get(firstKey);
+        if (entry && (!entry.ready || entry.rendering)) {
+          cache.delete(firstKey);
+          cache.set(firstKey, entry);
           break;
         }
+        cache.delete(firstKey);
+        this.stats.evictions++;
       }
     }
     /**
