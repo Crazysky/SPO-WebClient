@@ -1,99 +1,191 @@
 ---
-name: checking-owasp-compliance
-description: "TRIGGER: When editing auth, session, or WebSocket code. Covers OWASP Top 10, XSS, injection, WebSocket security."
-version: 1.0.0
-allowed-tools: "Read, Write, Edit, Grep, Glob, Bash(security:*), Bash(scan:*), Bash(audit:*)"
-license: MIT
-author: Jeremy Longshore <jeremy@intentsolutions.io>
+name: security-audit-owasp-top-10
+description: "Performs comprehensive security audit of any codebase against OWASP Top 10 2025. Use when user asks for OWASP audit, OWASP Top 10 review, OWASP security check, or wants to audit code against OWASP categories. Do not trigger for PR review, npm/pip audit, SOC2 compliance, general security questions, or threat modeling."
 ---
-# Owasp Compliance Checker
 
-This skill provides automated assistance for owasp compliance checker tasks.
+# OWASP Top 10 2025 Security Audit
 
-## Overview
+## Goal
 
-This skill empowers Claude to assess your project's adherence to the OWASP Top 10 (2021) security guidelines. It automates the process of identifying potential vulnerabilities related to common web application security risks, providing actionable insights to improve your application's security posture.
+Systematic codebase audit against the OWASP Top 10 2025 framework. Produces a structured severity-rated report with evidence-backed findings. Emphasizes semantic code understanding over regex pattern matching — grep patterns are starting points, real analysis happens by reading and reasoning about code context.
 
-## How It Works
+## When to use
 
-1. **Initiate Scan**: The skill activates the owasp-compliance-checker plugin upon request.
-2. **Analyze Codebase**: The plugin scans the codebase for potential vulnerabilities related to each OWASP Top 10 category.
-3. **Generate Report**: A detailed report is generated, highlighting compliance gaps and providing specific remediation guidance for each identified issue.
+- "Run an OWASP audit on this codebase"
+- "Check for OWASP Top 10 vulnerabilities"
+- "Security audit against OWASP 2025"
+- "Audit A01 and A03 only"
+- "Check this repo for common vulnerabilities"
+- "OWASP security review"
 
-## When to Use This Skill
+## When not to use
 
-This skill activates when you need to:
-- Evaluate your application's security posture against the OWASP Top 10 (2021).
-- Identify potential vulnerabilities related to common web application security risks.
-- Obtain actionable remediation guidance to address identified vulnerabilities.
-- Generate a compliance report for auditing or reporting purposes.
+- PR code review (use review skill)
+- `npm audit` / `pip audit` / dependency scanning only
+- SOC2 / ISO 27001 compliance checks (use drata-api skill)
+- General security questions without audit intent
+- Threat modeling (use security-threat-model skill)
+- Single-file code review
 
-## Examples
+## Inputs
 
-### Example 1: Identifying SQL Injection Vulnerabilities
+- Codebase accessible via Glob/Grep/Read
+- Optional: specific OWASP categories (e.g. "A01 and A03 only")
+- Optional: focus areas or known concerns
 
-User request: "Check OWASP compliance for SQL injection vulnerabilities."
+## Outputs
 
-The skill will:
-1. Activate the owasp-compliance-checker plugin.
-2. Scan the codebase for potential SQL injection vulnerabilities.
-3. Generate a report highlighting any identified SQL injection vulnerabilities and providing remediation guidance.
+- Markdown report inline (write to file only if user requests)
+- Executive summary table
+- Per-category findings with severity/confidence/evidence/remediation
+- Summary statistics and next steps
 
-### Example 2: Assessing Overall OWASP Compliance
+## Workflow
 
-User request: "/owasp"
+### Phase 1: Reconnaissance
 
-The skill will:
-1. Activate the owasp-compliance-checker plugin.
-2. Scan the entire codebase for vulnerabilities across all OWASP Top 10 categories.
-3. Generate a comprehensive report detailing compliance gaps and remediation steps for each category.
+Classify the project before auditing. Use Glob/Read on key files:
 
-## Best Practices
+```
+Glob: package.json, requirements.txt, go.mod, Cargo.toml, *.tf, *.csproj, pom.xml
+Glob: Dockerfile*, docker-compose*, .github/workflows/*
+Glob: **/routes/*, **/api/*, **/controllers/*, **/handlers/*
+Read: README.md (first 100 lines), main entry points
+```
 
-- **Regular Scanning**: Integrate OWASP compliance checks into your development workflow for continuous security monitoring.
-- **Prioritize Remediation**: Address identified vulnerabilities based on their severity and potential impact.
-- **Stay Updated**: Keep your OWASP compliance checker plugin updated to benefit from the latest vulnerability detection rules and remediation guidance.
+Determine:
+- **Project type**: web-app | api | iac | library | cli | mobile | monorepo
+- **Languages/frameworks**: e.g. Node/Express, Python/Django, Go/Gin, Terraform/AWS
+- **Deployment model**: serverless, containers, VMs, static hosting
+- **Data sensitivity signals**: auth, PII, payments, healthcare, crypto
 
-## Integration
+### Phase 2: Relevance Filtering
 
-This skill can be integrated with other plugins to automate vulnerability remediation or generate comprehensive security reports. For example, it can be used in conjunction with a code modification plugin to automatically apply recommended fixes for identified vulnerabilities.
+Use project type to set audit depth per category. Prevents nonsensical checks (e.g. SQL injection on Terraform).
 
-## Prerequisites
+| Category | web-app | api | iac | library | cli | mobile |
+|----------|---------|-----|-----|---------|-----|--------|
+| A01 Broken Access Control | Full | Full | Full | Light | Light | Full |
+| A02 Security Misconfiguration | Full | Full | Full | Light | Light | Full |
+| A03 Supply Chain Failures | Full | Full | Light | Full | Full | Full |
+| A04 Cryptographic Failures | Full | Full | Light | Full | Light | Full |
+| A05 Injection | Full | Full | Skip | Light | Full | Full |
+| A06 Insecure Design | Full | Full | Light | Light | Light | Full |
+| A07 Authentication Failures | Full | Full | Skip | Light | Skip | Full |
+| A08 Data Integrity Failures | Full | Full | Light | Full | Light | Full |
+| A09 Logging & Alerting | Full | Full | Light | Light | Light | Full |
+| A10 Exceptional Conditions | Full | Full | Light | Full | Full | Full |
 
-- Access to codebase and configuration files in {baseDir}/
-- Security scanning tools installed as needed
-- Understanding of security standards and best practices
-- Permissions for security analysis operations
+- **Full**: run all grep patterns + semantic analysis
+- **Light**: grep patterns only, flag but don't deep-dive
+- **Skip**: mention as not applicable in report, move on
 
-## Instructions
+### Phase 3: Evidence Gathering
 
-1. Identify security scan scope and targets
-2. Configure scanning parameters and thresholds
-3. Execute security analysis systematically
-4. Analyze findings for vulnerabilities and compliance gaps
-5. Prioritize issues by severity and impact
-6. Generate detailed security report with remediation steps
+For each relevant category, run Grep/Glob patterns from `CATEGORIES.md`. Use parallel tool calls for independent categories. Collect file paths and matching lines as evidence.
 
-## Output
+### Phase 4: Semantic Analysis
 
-- Security scan results with vulnerability details
-- Compliance status reports by standard
-- Prioritized list of security issues by severity
-- Remediation recommendations with code examples
-- Executive summary for stakeholders
+For each flagged file/pattern:
+1. Read surrounding code context (not just matched line)
+2. Determine if finding is true positive or false positive
+3. Check for existing mitigations (guards, validators, middleware)
+4. Assign severity: Critical / High / Medium / Low
+5. Assign confidence: High / Medium / Low
+6. Note specific remediation
 
-## Error Handling
+**Severity criteria:**
+- **Critical**: exploitable without authentication, leads to data breach or RCE
+- **High**: exploitable with low-privilege access, significant data exposure
+- **Medium**: requires specific conditions, limited exposure
+- **Low**: defense-in-depth issue, minimal direct impact
 
-If security scanning fails:
-- Verify tool installation and configuration
-- Check file and directory permissions
-- Validate scan target paths
-- Review tool-specific error messages
-- Ensure network access for dependency checks
+### Phase 5: Report Generation
 
-## Resources
+Use this template:
 
-- Security standard documentation (OWASP, CWE, CVE)
-- Compliance framework guidelines (GDPR, HIPAA, PCI-DSS)
-- Security scanning tool documentation
-- Vulnerability remediation best practices
+```markdown
+# OWASP Top 10 2025 Security Audit Report
+
+**Project**: <name>
+**Type**: <project-type> | **Languages**: <langs> | **Date**: <date>
+**Scope**: <full audit | partial: categories listed>
+
+## Executive Summary
+
+| Severity | Count |
+|----------|-------|
+| Critical | N |
+| High     | N |
+| Medium   | N |
+| Low      | N |
+| Info     | N |
+
+<1-3 sentence summary of key findings and overall posture>
+
+## Findings
+
+### A0X: <Category Name> — <PASS | FINDINGS | N/A>
+
+> Relevance: Full | Light | Skip
+
+#### Finding X.1: <title>
+- **Severity**: Critical | High | Medium | Low
+- **Confidence**: High | Medium | Low
+- **Location**: `path/to/file:line`
+- **Evidence**: <code snippet or pattern match>
+- **Issue**: <what's wrong and why it matters>
+- **Remediation**: <specific fix>
+
+(repeat per finding)
+
+---
+
+## Summary Table
+
+| Category | Status | Critical | High | Medium | Low |
+|----------|--------|----------|------|--------|-----|
+| A01 | ... | ... | ... | ... | ... |
+(all 10 categories)
+
+## Methodology
+
+- Automated pattern matching via Grep/Glob
+- Semantic code analysis of flagged locations
+- False positive filtering based on code context
+- Project-type relevance filtering applied
+
+## Next Steps
+
+1. <prioritized remediation actions>
+2. <recommended tooling or processes>
+3. <categories needing deeper manual review>
+```
+
+## Partial Audit Support
+
+When user requests specific categories (e.g. "audit A01 and A03 only"):
+1. Skip Phase 2 (relevance filtering)
+2. Minimal Phase 1 — detect language/framework only
+3. Run only requested categories through Phases 3-5
+4. Report covers only requested categories, notes others as out-of-scope
+
+## Decision Points
+
+- **Large codebase (>500 files)**: Focus on entry points, auth boundaries, and config files. Note coverage limitations in report.
+- **Monorepo**: Run Phase 1 per sub-project. Produce per-project section or single unified report based on user preference.
+- **No findings**: Report as clean audit with methodology notes. Don't fabricate issues.
+
+## Validation Checklist
+
+- [ ] All 10 categories addressed (or noted as N/A/out-of-scope)
+- [ ] Every finding has severity + confidence + location + evidence + remediation
+- [ ] False positives filtered (not just raw grep output)
+- [ ] Project type correctly identified and relevance matrix applied
+- [ ] Report uses consistent severity definitions
+- [ ] Executive summary accurately reflects findings
+
+## References
+
+- Category details, grep patterns, semantic checks: `CATEGORIES.md`
+- Evaluation prompts: `EVALUATIONS.md`
