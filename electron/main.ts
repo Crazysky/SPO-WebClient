@@ -30,6 +30,7 @@ const ICON_PATH = path.join(__dirname, '../electron/assets/icon.png');
 // State
 // ---------------------------------------------------------------------------
 let mainWindow: BrowserWindow | null = null;
+let splashWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let serverReady = false;
 
@@ -46,7 +47,7 @@ function startGateway(): void {
 // ---------------------------------------------------------------------------
 // Wait for the gateway HTTP server to accept connections before loading URL
 // ---------------------------------------------------------------------------
-async function waitForServer(retries = 20, delayMs = 200): Promise<void> {
+async function waitForServer(retries = 300, delayMs = 1000): Promise<void> {
   const http = await import('http');
   return new Promise((resolve, reject) => {
     let attempts = 0;
@@ -57,6 +58,17 @@ async function waitForServer(retries = 20, delayMs = 200): Promise<void> {
       });
       req.on('error', () => {
         attempts++;
+        // Update splash message to reflect first-run download in progress
+        if (splashWindow && !splashWindow.isDestroyed()) {
+          const message = attempts < 15
+            ? 'Starting server…'
+            : attempts < 60
+              ? 'Downloading game assets — first launch may take a few minutes…'
+              : 'Finalizing setup…';
+          splashWindow.webContents
+            .executeJavaScript(`var el=document.getElementById('msg');if(el)el.textContent=${JSON.stringify(message)};`)
+            .catch(() => undefined);
+        }
         if (attempts >= retries) {
           reject(new Error(`Gateway not ready after ${retries} attempts`));
         } else {
@@ -67,6 +79,45 @@ async function waitForServer(retries = 20, delayMs = 200): Promise<void> {
     };
     check();
   });
+}
+
+// ---------------------------------------------------------------------------
+// Splash window
+// ---------------------------------------------------------------------------
+function createSplashWindow(): BrowserWindow {
+  const splash = new BrowserWindow({
+    width: 500,
+    height: 280,
+    frame: false,
+    resizable: false,
+    center: true,
+    backgroundColor: '#0d1117',
+    webPreferences: { contextIsolation: true },
+  });
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#0d1117;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;height:100vh;font-family:'Segoe UI',sans-serif;
+      color:#c8a96e;-webkit-app-region:drag;overflow:hidden}
+    .logo{font-size:32px;font-weight:300;letter-spacing:6px;color:#d4af37;
+      text-transform:uppercase;margin-bottom:4px}
+    .sub{font-size:11px;letter-spacing:3px;color:#3a4a5a;text-transform:uppercase;margin-bottom:48px}
+    .ring{width:40px;height:40px;border:2px solid #1e2a3a;border-top:2px solid #d4af37;
+      border-radius:50%;animation:spin .8s linear infinite;margin-bottom:28px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    #msg{font-size:13px;color:#6b7a8d;min-height:18px;text-align:center}
+    .hint{font-size:11px;color:#2d3748;margin-top:10px;text-align:center;max-width:380px}
+  </style></head><body>
+    <div class="logo">Starpeace</div>
+    <div class="sub">Online</div>
+    <div class="ring"></div>
+    <div id="msg">Starting up…</div>
+    <div class="hint">First launch downloads game assets and may take a few minutes.</div>
+  </body></html>`;
+
+  splash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  return splash;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,9 +212,13 @@ async function createWindow(): Promise<void> {
   // Hide menu bar (game UI handles navigation)
   mainWindow.setMenuBarVisibility(false);
 
-  // Show window once content is ready
+  // Show window once content is ready, close splash at the same time
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.close();
+      splashWindow = null;
+    }
   });
 
   // Minimize to tray on close instead of quitting
@@ -205,6 +260,16 @@ app.on('second-instance', () => {
 });
 
 app.on('ready', async () => {
+  // Point writable caches to userData so packaged builds can write outside the asar
+  if (app.isPackaged) {
+    const userData = app.getPath('userData');
+    process.env['SPO_CACHE_DIR'] = path.join(userData, 'cache');
+    process.env['SPO_WEBCLIENT_CACHE_DIR'] = path.join(userData, 'webclient-cache');
+  }
+
+  splashWindow = createSplashWindow();
+  splashWindow.show();
+
   startGateway();
   createTray();
   setupIpc();
@@ -215,6 +280,10 @@ app.on('ready', async () => {
     await createWindow();
   } catch (err) {
     console.error('[Electron] Failed to load app:', err);
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.close();
+      splashWindow = null;
+    }
     app.quit();
   }
 });

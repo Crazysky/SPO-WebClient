@@ -67,7 +67,7 @@ export class UpdateService implements Service {
   constructor(cacheRoot?: string) {
     // Default to cache/ directory in project root
     // This mirrors the exact structure from update.starpeaceonline.com/five/client/cache/
-    this.CACHE_ROOT = cacheRoot || path.join(__dirname, '../../cache');
+    this.CACHE_ROOT = cacheRoot || process.env['SPO_CACHE_DIR'] || path.join(__dirname, '../../cache');
     this.CAB_METADATA_FILE = path.join(this.CACHE_ROOT, '.cab-metadata.json');
     this.loadCabMetadata();
   }
