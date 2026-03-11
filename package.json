@@ -20,6 +20,11 @@
     "test:verbose": "jest --verbose",
     "test:changed": "jest --onlyChanged --bail",
     "test:smoke": "jest --selectProjects component --bail",
+    "generate-assets": "node --disable-warning=DEP0040 dist/server/server.js",
+    "prebake": "npm run build:server && node --disable-warning=DEP0040 dist/server/prebake.js",
+    "prebake:atlases": "npm run build:server && node --disable-warning=DEP0040 dist/server/prebake.js --only-atlases",
+    "prebake:chunks": "npm run build:server && node --disable-warning=DEP0040 dist/server/prebake.js --only-chunks",
+    "prebake:fast": "npm run build:server && node --disable-warning=DEP0040 dist/server/prebake.js --skip-download",
     "release": "node scripts/release.js"
   },
   "keywords": [
