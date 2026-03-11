@@ -27,6 +27,7 @@ import { ClientBridge } from '../bridge/client-bridge';
 import { useGameStore } from '../store/game-store';
 import { useProfileStore } from '../store/profile-store';
 import { useBuildingStore } from '../store/building-store';
+import { useUiStore } from '../store/ui-store';
 import type { ClientHandlerContext } from './client-context';
 
 export async function performAuthCheck(ctx: ClientHandlerContext, username: string, password: string): Promise<void> {
@@ -297,10 +298,18 @@ export function profileSwitchCompany(ctx: ClientHandlerContext, companyId: numbe
     type: WsMessageType.REQ_SWITCH_COMPANY,
     company,
   } as WsReqSwitchCompany).then(() => {
+    ctx.currentCompanyName = companyName;
     ClientBridge.setCompany(companyName, String(companyId));
     ClientBridge.showSuccess(`Switched to ${companyName}`);
+
+    // Recalculate public office role for the new company
+    const roleLower = ownerRole.toLowerCase();
+    const isPublicOffice = roleLower.includes('president') || roleLower.includes('minister') || roleLower.includes('mayor');
+    ClientBridge.setPublicOfficeRole(isPublicOffice, isPublicOffice ? ownerRole : '');
+
     useProfileStore.getState().reset();
     useBuildingStore.getState().clearFocus();
+    useUiStore.getState().clearBuildMenuData();
   }).catch((err: unknown) => {
     ClientBridge.showError(`Failed to switch company: ${toErrorMessage(err)}`);
   }).finally(() => {
