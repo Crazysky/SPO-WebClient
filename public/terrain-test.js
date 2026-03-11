@@ -2335,7 +2335,16 @@
      * Set zoom level (0-3)
      */
     setZoomLevel(level) {
-      this.zoomLevel = Math.max(0, Math.min(3, level));
+      const newZoom = Math.max(0, Math.min(3, level));
+      const oldZoom = this.zoomLevel;
+      this.zoomLevel = newZoom;
+      if (this.chunkCache && oldZoom !== newZoom) {
+        for (let z = 0; z <= 3; z++) {
+          if (Math.abs(z - newZoom) >= 2) {
+            this.chunkCache.clearZoomLevel(z);
+          }
+        }
+      }
       this.render();
     }
     /**
