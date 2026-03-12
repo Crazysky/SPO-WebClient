@@ -6,7 +6,7 @@
  * ClientContext) to trigger client.ts actions.
  */
 
-import { useGameStore, type GameSettings } from '../store/game-store';
+import { useGameStore, type GameSettings, type ServerStartupState, type MapLoadingState } from '../store/game-store';
 import { useBuildingStore } from '../store/building-store';
 import { useChatStore, type ChatUser } from '../store/chat-store';
 import { useMailStore } from '../store/mail-store';
@@ -755,6 +755,16 @@ export const ClientBridge = {
 
   handleClusterFacilitiesResponse(facilities: ClusterFacilityPreview[]): void {
     useGameStore.getState().setClusterFacilities(facilities);
+  },
+
+  // ---- Server startup / map loading progress ----
+
+  setServerStartupProgress(state: Partial<ServerStartupState>): void {
+    useGameStore.getState().setServerStartup(state);
+  },
+
+  setMapLoadingProgress(state: Partial<MapLoadingState>): void {
+    useGameStore.getState().setMapLoading(state);
   },
 
   // ---- Reset ----

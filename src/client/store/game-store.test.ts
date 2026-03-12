@@ -398,3 +398,65 @@ describe('game-store Capitol coords', () => {
     expect(useGameStore.getState().capitolCoords).toBeNull();
   });
 });
+
+describe('game-store serverStartup slice', () => {
+  beforeEach(() => {
+    useGameStore.getState().reset();
+  });
+
+  it('should have correct initial defaults', () => {
+    const { serverStartup } = useGameStore.getState();
+    expect(serverStartup.ready).toBe(false);
+    expect(serverStartup.progress).toBe(0);
+    expect(typeof serverStartup.message).toBe('string');
+    expect(Array.isArray(serverStartup.services)).toBe(true);
+  });
+
+  it('setServerStartup merges partial state', () => {
+    useGameStore.getState().setServerStartup({ progress: 0.5, message: 'Loading...' });
+    const { serverStartup } = useGameStore.getState();
+    expect(serverStartup.progress).toBe(0.5);
+    expect(serverStartup.message).toBe('Loading...');
+    expect(serverStartup.ready).toBe(false); // untouched
+  });
+
+  it('setServerStartup sets ready=true', () => {
+    useGameStore.getState().setServerStartup({ ready: true, progress: 1, message: 'Server ready' });
+    expect(useGameStore.getState().serverStartup.ready).toBe(true);
+  });
+
+  it('setServerStartup stores service list', () => {
+    const services = [{ name: 'update', status: 'complete' as const, progress: 1 }];
+    useGameStore.getState().setServerStartup({ services });
+    expect(useGameStore.getState().serverStartup.services).toEqual(services);
+  });
+});
+
+describe('game-store mapLoading slice', () => {
+  beforeEach(() => {
+    useGameStore.getState().reset();
+  });
+
+  it('should have correct initial defaults', () => {
+    const { mapLoading } = useGameStore.getState();
+    expect(mapLoading.active).toBe(false);
+    expect(mapLoading.progress).toBe(0);
+    expect(mapLoading.message).toBe('');
+  });
+
+  it('setMapLoading merges partial state', () => {
+    useGameStore.getState().setMapLoading({ active: true, progress: 0.3, message: 'Loading terrain...' });
+    const { mapLoading } = useGameStore.getState();
+    expect(mapLoading.active).toBe(true);
+    expect(mapLoading.progress).toBe(0.3);
+    expect(mapLoading.message).toBe('Loading terrain...');
+  });
+
+  it('setMapLoading clears active without touching progress', () => {
+    useGameStore.getState().setMapLoading({ active: true, progress: 0.9 });
+    useGameStore.getState().setMapLoading({ active: false });
+    const { mapLoading } = useGameStore.getState();
+    expect(mapLoading.active).toBe(false);
+    expect(mapLoading.progress).toBe(0.9); // preserved
+  });
+});

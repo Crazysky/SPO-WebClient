@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { ServiceRegistry, Service } from './service-registry';
+import { ServiceRegistry, Service, type StartupProgressEvent } from './service-registry';
 
 /** Minimal mock service that tracks lifecycle calls */
 class MockService implements Service {
@@ -247,6 +247,145 @@ describe('ServiceRegistry', () => {
       expect(svc2.initCalled).toBe(true);
       expect(registry.has('second')).toBe(true);
       expect(registry.has('first')).toBe(false);
+    });
+  });
+
+  describe('Parallel initialization', () => {
+    it('should run services at the same dependency depth in parallel', async () => {
+      // Barrier pattern: b and c each wait for the other to start.
+      // If they ran sequentially this would deadlock — proving parallel execution.
+      let bResolve!: () => void;
+      let cResolve!: () => void;
+      const bStarted = new Promise<void>(r => { bResolve = r; });
+      const cStarted = new Promise<void>(r => { cResolve = r; });
+
+      const b: Service = {
+        name: 'b',
+        async initialize() { bResolve(); await cStarted; },
+      };
+      const c: Service = {
+        name: 'c',
+        async initialize() { cResolve(); await bStarted; },
+      };
+
+      registry.register('a', new MockService('a'));
+      registry.register('b', b, { dependsOn: ['a'] });
+      registry.register('c', c, { dependsOn: ['a'] });
+
+      // Would hang forever if b and c ran sequentially
+      await expect(registry.initialize()).resolves.toBeUndefined();
+    });
+
+    it('should not start a service before its dependency completes', async () => {
+      const order: string[] = [];
+
+      const a: Service = {
+        name: 'a',
+        async initialize() { order.push('a'); },
+      };
+      const b: Service = {
+        name: 'b',
+        async initialize() { order.push('b'); },
+      };
+
+      registry.register('a', a);
+      registry.register('b', b, { dependsOn: ['a'] });
+
+      await registry.initialize();
+
+      expect(order).toEqual(['a', 'b']);
+    });
+
+    it('should propagate errors from parallel services', async () => {
+      const bad: Service = {
+        name: 'bad',
+        async initialize() { throw new Error('parallel failure'); },
+      };
+      const good: Service = {
+        name: 'good',
+        async initialize() { /* fine */ },
+      };
+
+      registry.register('root', new MockService('root'));
+      registry.register('bad', bad, { dependsOn: ['root'] });
+      registry.register('good', good, { dependsOn: ['root'] });
+
+      await expect(registry.initialize()).rejects.toThrow('parallel failure');
+    });
+  });
+
+  describe('Startup progress events', () => {
+    it('should emit startup-progress events during initialization', async () => {
+      const events: StartupProgressEvent[] = [];
+      registry.on('startup-progress', (evt: StartupProgressEvent) => events.push(evt));
+
+      registry.register('svc', new MockService('svc'));
+      await registry.initialize();
+
+      expect(events.length).toBeGreaterThan(0);
+      // Last event should be phase:'ready' with progress 1
+      const last = events[events.length - 1];
+      expect(last.phase).toBe('ready');
+      expect(last.progress).toBe(1);
+    });
+
+    it('should emit service-started and service-complete events', async () => {
+      const started: string[] = [];
+      const completed: string[] = [];
+
+      registry.on('service-started', ({ name }: { name: string }) => started.push(name));
+      registry.on('service-complete', ({ name }: { name: string }) => completed.push(name));
+
+      registry.register('svc', new MockService('svc'));
+      await registry.initialize();
+
+      expect(started).toContain('svc');
+      expect(completed).toContain('svc');
+    });
+
+    it('should calculate progress using progressWeight', async () => {
+      const progressValues: number[] = [];
+
+      registry.on('startup-progress', (evt: StartupProgressEvent) => {
+        if (evt.phase === 'initializing') progressValues.push(evt.progress);
+      });
+
+      // heavy=90, light=10 — after heavy completes progress should be ~0.9
+      registry.register('heavy', new MockService('heavy'), { progressWeight: 90 });
+      registry.register('light', new MockService('light'), { dependsOn: ['heavy'], progressWeight: 10 });
+
+      await registry.initialize();
+
+      // At some point progress should have been 90/(90+10) = 0.9 (after heavy completes)
+      expect(progressValues.some(p => Math.abs(p - 0.9) < 0.01)).toBe(true);
+    });
+
+    it('should include progressMessage in startup-progress events', async () => {
+      const messages: string[] = [];
+      registry.on('startup-progress', (evt: StartupProgressEvent) => {
+        if (evt.phase === 'initializing') messages.push(evt.message);
+      });
+
+      registry.register('svc', new MockService('svc'), {
+        progressMessage: 'Custom loading message...',
+      });
+      await registry.initialize();
+
+      expect(messages).toContain('Custom loading message...');
+    });
+
+    it('should report all services as complete in the ready event', async () => {
+      let readyEvent: StartupProgressEvent | null = null;
+      registry.on('startup-progress', (evt: StartupProgressEvent) => {
+        if (evt.phase === 'ready') readyEvent = evt;
+      });
+
+      registry.register('a', new MockService('a'));
+      registry.register('b', new MockService('b'), { dependsOn: ['a'] });
+      await registry.initialize();
+
+      expect(readyEvent).not.toBeNull();
+      expect(readyEvent!.services.every(s => s.status === 'complete')).toBe(true);
     });
   });
 

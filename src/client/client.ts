@@ -707,7 +707,49 @@ export class StarpeaceClient implements ClientHandlerContext {
     }
   }
 
+  /** Poll /api/startup-status via SSE; falls back to fetch polling if SSE unavailable. */
+  private pollServerStartup(): void {
+    const onReady = () => ClientBridge.setServerStartupProgress({ ready: true, progress: 1, message: 'Server ready' });
+
+    const startFetchPoll = () => {
+      const check = () => {
+        fetch('/api/startup-status', { headers: { Accept: 'application/json' } })
+          .then(r => r.json())
+          .then((data: { phase: string; progress: number; message: string; services?: Array<{ name: string; status: 'pending' | 'running' | 'complete' | 'failed'; progress: number }> }) => {
+            ClientBridge.setServerStartupProgress({
+              ready: data.phase === 'ready',
+              progress: data.progress,
+              message: data.message,
+              services: data.services ?? [],
+            });
+            if (data.phase !== 'ready') setTimeout(check, 2000);
+          })
+          .catch(() => setTimeout(check, 2000));
+      };
+      check();
+    };
+
+    try {
+      const es = new EventSource('/api/startup-status');
+      es.addEventListener('status', (e: MessageEvent) => {
+        const data = JSON.parse(e.data) as { phase: string; progress: number; message: string; services?: Array<{ name: string; status: 'pending' | 'running' | 'complete' | 'failed'; progress: number }> };
+        ClientBridge.setServerStartupProgress({
+          ready: data.phase === 'ready',
+          progress: data.progress,
+          message: data.message,
+          services: data.services ?? [],
+        });
+        if (data.phase === 'ready') { es.close(); onReady(); }
+      });
+      es.onerror = () => { es.close(); startFetchPoll(); };
+    } catch {
+      startFetchPoll();
+    }
+  }
+
   private init() {
+    this.pollServerStartup();
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = `${protocol}//${window.location.host}/ws`;
     ClientBridge.log('System', `Connecting to Gateway at ${url}...`);

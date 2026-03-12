@@ -50,26 +50,40 @@ const CACHE_DIR = path.join(__dirname, '../../cache');
 // Dependencies are declared to ensure proper initialization order
 
 // Update service (syncs files from update server) - no dependencies
-serviceRegistry.register('update', new UpdateService());
+serviceRegistry.register('update', new UpdateService(), {
+  progressWeight: 50,
+  progressMessage: 'Downloading game assets...',
+});
 
 // Facility dimensions cache - depends on update service (needs CLASSES.BIN)
+// Runs in parallel with textures and mapData (same dependency depth)
 serviceRegistry.register('facilities', new FacilityDimensionsCache(), {
-  dependsOn: ['update']
+  dependsOn: ['update'],
+  progressWeight: 10,
+  progressMessage: 'Loading building catalog...',
 });
 
 // Texture extractor - depends on update service (needs CAB archives)
+// Runs in parallel with facilities and mapData
 serviceRegistry.register('textures', new TextureExtractor(), {
-  dependsOn: ['update']
+  dependsOn: ['update'],
+  progressWeight: 30,
+  progressMessage: 'Processing terrain textures...',
 });
 
 // Map data service - depends on update service (needs map files)
+// Runs in parallel with facilities and textures
 serviceRegistry.register('mapData', new MapDataService(), {
-  dependsOn: ['update']
+  dependsOn: ['update'],
+  progressWeight: 5,
+  progressMessage: 'Indexing map data...',
 });
 
 // Terrain chunk renderer - depends on textures and mapData (needs atlas + map BMP data)
 serviceRegistry.register('terrainChunks', new TerrainChunkRenderer(), {
-  dependsOn: ['textures', 'mapData']
+  dependsOn: ['textures', 'mapData'],
+  progressWeight: 5,
+  progressMessage: 'Preparing terrain renderer...',
 });
 
 // Convenience getters for type-safe access to services
@@ -436,6 +450,39 @@ setInterval(() => {
 const server = http.createServer(async (req, res) => {
   setSecurityHeaders(res);
   const safePath = req.url === '/' ? '/index.html' : req.url || '/index.html';
+
+  // Startup status endpoint — SSE stream while initializing, JSON once ready
+  if (safePath === '/api/startup-status') {
+    if (serviceRegistry.isInitialized()) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ phase: 'ready', progress: 1, message: 'Server ready', services: [] }));
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.flushHeaders();
+    const send = (data: import('./service-registry').StartupProgressEvent) => {
+      res.write(`event: status\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    const onProgress = (evt: import('./service-registry').StartupProgressEvent) => send(evt);
+    const onReady = () => {
+      send({ phase: 'ready', progress: 1, message: 'Server ready', services: [] });
+      res.end();
+      serviceRegistry.off('startup-progress', onProgress);
+      serviceRegistry.off('initialized', onReady);
+    };
+    serviceRegistry.on('startup-progress', onProgress);
+    serviceRegistry.on('initialized', onReady);
+    req.on('close', () => {
+      serviceRegistry.off('startup-progress', onProgress);
+      serviceRegistry.off('initialized', onReady);
+    });
+    return;
+  }
 
   // Map data API endpoint: /api/map-data/:mapname
   if (safePath.startsWith('/api/map-data/')) {
@@ -1191,7 +1238,18 @@ async function startServer() {
       loadInventionIndex(),
     ]);
 
-    // Initialize all registered services (in dependency order)
+    // Start HTTP server FIRST so /api/startup-status is reachable during warm-up
+    await new Promise<void>((resolve) => {
+      server.listen(PORT, () => {
+        console.log(`[Gateway] HTTP server listening on port ${PORT} (initializing services...)`);
+        resolve();
+      });
+    });
+
+    // Setup graceful shutdown handlers (SIGTERM, SIGINT)
+    setupGracefulShutdown(serviceRegistry, server);
+
+    // Initialize services — facilities/textures/mapData run in parallel (same depth)
     console.log('[Gateway] Initializing services...');
     await serviceRegistry.initialize();
 
@@ -1206,14 +1264,7 @@ async function startServer() {
     console.log(`[Gateway] Texture extractor: ${textureStats.length} terrain/season combinations`);
     textureStats.forEach(s => console.log(`  - ${s.terrainType}/${s.seasonName}: ${s.textureCount} textures`));
 
-    // Setup graceful shutdown handlers (SIGTERM, SIGINT)
-    setupGracefulShutdown(serviceRegistry, server);
-
-    // Start HTTP server
-    server.listen(PORT, () => {
-      console.log(`[Gateway] Server running at http://localhost:${PORT}`);
-      console.log(`[Gateway] Serving static files from ${PUBLIC_DIR}`);
-    });
+    console.log(`[Gateway] Server ready at http://localhost:${PORT}`);
   } catch (error: unknown) {
     console.error('[Gateway] Failed to start server:', error);
     process.exit(1);

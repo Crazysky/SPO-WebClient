@@ -20,6 +20,8 @@
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
+import * as os from 'os';
+import { Worker } from 'worker_threads';
 import { decodePng, decodeBmpIndices, encodePng, downscaleRGBA2x, PngData } from './texture-alpha-baker';
 import { AtlasManifest, TileEntry } from './atlas-generator';
 import { isSpecialTile } from '../shared/land-utils';
@@ -184,6 +186,9 @@ export class TerrainChunkRenderer implements Service {
   /** Set to true before initialize() to skip background pre-generation (for tests) */
   public skipPreGeneration: boolean = false;
 
+  /** Active worker pool (non-null only while pre-generation is running) */
+  private workerPool: WorkerPool | null = null;
+
   constructor(
     cacheDir: string = path.join(__dirname, '../../webclient-cache'),
     mapCacheDir: string = path.join(__dirname, '../../cache'),
@@ -235,7 +240,10 @@ export class TerrainChunkRenderer implements Service {
 
     // Start background pre-generation (fire-and-forget, non-blocking)
     if (!this.skipPreGeneration) {
-      this.preGenerateAllChunks();
+      this.preGenerateAllChunks().catch((err: unknown) => {
+        console.error('[TerrainChunkRenderer] Pre-generation error:', err);
+        this.preGenerating = false;
+      });
     }
   }
 
@@ -553,141 +561,150 @@ export class TerrainChunkRenderer implements Service {
 
   /**
    * Pre-generate ALL chunks for all available maps and zoom levels.
-   * Runs in the background via setImmediate to avoid blocking the server.
+   * Uses a worker thread pool (one worker per CPU core, capped at 8) to
+   * render chunks in parallel, saturating available CPU resources.
+   * Runs fire-and-forget from initialize().
    */
-  private preGenerateAllChunks(): void {
+  private async preGenerateAllChunks(): Promise<void> {
     if (this.preGenerating) return;
     this.preGenerating = true;
 
-    // Discover available maps by scanning cache/Maps/
-    const mapsDir = path.join(this.mapCacheDir, 'Maps');
-    if (!fs.existsSync(mapsDir)) {
-      console.log('[TerrainChunkRenderer] No maps directory found, skipping pre-generation');
-      this.preGenerating = false;
-      return;
-    }
-
-    // TESTING: only pre-generate for these maps
-    const PREGENERATE_MAPS = new Set(['Shamba', 'Zorcon', 'Angelicus']);
-
-    const mapDirs = fs.readdirSync(mapsDir, { withFileTypes: true })
-      .filter(e => e.isDirectory())
-      .map(e => e.name)
-      .filter(name => {
-        if (!PREGENERATE_MAPS.has(name)) return false;
-        const bmpPath = path.join(mapsDir, name, `${name}.bmp`);
-        return fs.existsSync(bmpPath);
-      });
-
-    if (mapDirs.length === 0) {
-      console.log('[TerrainChunkRenderer] No maps with BMPs found, skipping pre-generation');
-      this.preGenerating = false;
-      return;
-    }
-
-    // Build work list: (mapName, terrainType, season)[]
-    const workItems: Array<{ mapName: string; terrainType: string; season: number }> = [];
-
-    for (const mapName of mapDirs) {
-      const terrainType = getTerrainTypeForMap(mapName);
-      // Find which seasons have atlases loaded for this terrain type
-      for (let s = 0; s <= 3; s++) {
-        if (this.hasAtlas(terrainType, s)) {
-          workItems.push({ mapName, terrainType, season: s });
-        }
-      }
-    }
-
-    console.log(`[TerrainChunkRenderer] Pre-generation: ${mapDirs.length} maps, ${workItems.length} map/season combos`);
-
-    // Process work items one at a time via setImmediate
-    let itemIdx = 0;
-    const processNextItem = () => {
-      if (this.stopRequested) {
-        console.log('[TerrainChunkRenderer] Pre-generation stopped (shutdown requested)');
-        this.preGenerating = false;
+    try {
+      const mapsDir = path.join(this.mapCacheDir, 'Maps');
+      if (!fs.existsSync(mapsDir)) {
+        console.log('[TerrainChunkRenderer] No maps directory found, skipping pre-generation');
         return;
       }
 
-      if (itemIdx >= workItems.length) {
-        console.log(`[TerrainChunkRenderer] Pre-generation complete for all ${workItems.length} map/season combos`);
-        this.preGenerating = false;
+      // TESTING: only pre-generate for these maps
+      const PREGENERATE_MAPS = new Set(['Shamba', 'Zorcon', 'Angelicus']);
+
+      const mapDirs = fs.readdirSync(mapsDir, { withFileTypes: true })
+        .filter(e => e.isDirectory())
+        .map(e => e.name)
+        .filter(name => PREGENERATE_MAPS.has(name) && fs.existsSync(path.join(mapsDir, name, `${name}.bmp`)));
+
+      if (mapDirs.length === 0) {
+        console.log('[TerrainChunkRenderer] No maps with BMPs found, skipping pre-generation');
         return;
       }
 
-      const item = workItems[itemIdx];
-      // Load map data
-      if (!this.loadMapData(item.mapName)) {
-        itemIdx++;
-        setImmediate(processNextItem);
-        return;
-      }
-
-      const map = this.mapData.get(item.mapName)!;
-      const chunksI = Math.ceil(map.height / CHUNK_SIZE);
-      const chunksJ = Math.ceil(map.width / CHUNK_SIZE);
-      const totalChunks = chunksI * chunksJ;
-
-      // Check how many chunks already exist (all 4 zoom levels)
-      let existingCount = 0;
-      for (let ci = 0; ci < chunksI; ci++) {
-        for (let cj = 0; cj < chunksJ; cj++) {
-          const z0Exists = fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, 0));
-          const z3Exists = fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, MAX_ZOOM));
-          if (z0Exists && z3Exists) existingCount++;
+      // Build work items: (mapName, terrainType, season)[]
+      const workItems: Array<{ mapName: string; terrainType: string; season: number }> = [];
+      for (const mapName of mapDirs) {
+        const terrainType = getTerrainTypeForMap(mapName);
+        for (let s = 0; s <= 3; s++) {
+          if (this.hasAtlas(terrainType, s)) workItems.push({ mapName, terrainType, season: s });
         }
       }
 
-      if (existingCount === totalChunks) {
-        console.log(`[TerrainChunkRenderer] ${item.mapName}/${SEASON_NAMES[item.season as Season]}: all ${totalChunks} chunks cached`);
-        itemIdx++;
-        setImmediate(processNextItem);
-        return;
-      }
+      console.log(`[TerrainChunkRenderer] Pre-generation: ${mapDirs.length} maps, ${workItems.length} map/season combos`);
 
-      console.log(`[TerrainChunkRenderer] Pre-generating ${item.mapName} (${item.terrainType}, ${SEASON_NAMES[item.season as Season]}): ${existingCount}/${totalChunks} cached`);
+      // Resolve the compiled worker path (works for both dev and packaged builds)
+      const workerPath = path.join(__dirname, 'terrain-chunk-worker.js');
 
-      const t0 = Date.now();
-      let generated = 0;
-      let chunkIdx = 0;
+      this.workerPool = new WorkerPool(this.atlasData, workerPath, this.mapData);
+      await this.workerPool.initialize();
 
-      const processNextChunk = () => {
+      const poolSize = Math.max(2, Math.min(os.cpus().length, 8));
+      console.log(`[TerrainChunkRenderer] Worker pool ready (${poolSize} workers)`);
+
+      const totalT0 = Date.now();
+      let totalGenerated = 0;
+
+      for (const item of workItems) {
         if (this.stopRequested) {
-          this.preGenerating = false;
-          return;
+          console.log('[TerrainChunkRenderer] Pre-generation stopped (shutdown requested)');
+          break;
         }
 
-        // Process a batch of chunks per tick to avoid starving the event loop
-        const batchSize = 4;
-        for (let b = 0; b < batchSize && chunkIdx < totalChunks; b++, chunkIdx++) {
-          const ci = Math.floor(chunkIdx / chunksJ);
-          const cj = chunkIdx % chunksJ;
+        if (!this.loadMapData(item.mapName)) continue;
 
-          // Skip if all 4 zoom levels already cached
-          const z0Exists = fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, 0));
-          const z3Exists = fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, MAX_ZOOM));
-          if (z0Exists && z3Exists) continue;
+        const map = this.mapData.get(item.mapName)!;
+        const chunksI = Math.ceil(map.height / CHUNK_SIZE);
+        const chunksJ = Math.ceil(map.width / CHUNK_SIZE);
+        const totalChunks = chunksI * chunksJ;
 
-          this.generateChunkAllZooms(item.mapName, item.terrainType, item.season, ci, cj);
-          generated++;
+        // Count already-cached chunks (check zoom-0 and zoom-3 as sentinels)
+        let existingCount = 0;
+        for (let ci = 0; ci < chunksI; ci++) {
+          for (let cj = 0; cj < chunksJ; cj++) {
+            if (
+              fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, 0)) &&
+              fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, MAX_ZOOM))
+            ) existingCount++;
+          }
         }
 
-        if (chunkIdx < totalChunks) {
-          // More chunks to process — yield and continue
-          setImmediate(processNextChunk);
-        } else {
-          // Done with this map/season
-          const dt = Date.now() - t0;
-          console.log(`[TerrainChunkRenderer] ${item.mapName}/${SEASON_NAMES[item.season as Season]}: generated ${generated} chunks (${totalChunks * 4} PNGs) in ${(dt / 1000).toFixed(1)}s`);
-          itemIdx++;
-          setImmediate(processNextItem);
+        if (existingCount === totalChunks) {
+          console.log(`[TerrainChunkRenderer] ${item.mapName}/${SEASON_NAMES[item.season as Season]}: all ${totalChunks} chunks cached`);
+          continue;
         }
-      };
 
-      setImmediate(processNextChunk);
-    };
+        console.log(`[TerrainChunkRenderer] Pre-generating ${item.mapName} (${item.terrainType}, ${SEASON_NAMES[item.season as Season]}): ${existingCount}/${totalChunks} cached`);
 
-    setImmediate(processNextItem);
+        const itemT0 = Date.now();
+        let itemGenerated = 0;
+
+        // Dispatch ALL missing chunks to the pool simultaneously.
+        // The pool's concurrency is bounded by worker count — no thundering herd.
+        const jobs: Promise<void>[] = [];
+
+        for (let ci = 0; ci < chunksI; ci++) {
+          for (let cj = 0; cj < chunksJ; cj++) {
+            if (this.stopRequested) break;
+
+            if (
+              fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, 0)) &&
+              fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, MAX_ZOOM))
+            ) continue;
+
+            const _ci = ci;
+            const _cj = cj;
+
+            jobs.push(
+              this.workerPool.dispatch({
+                mapName: item.mapName,
+                terrainType: item.terrainType,
+                season: item.season,
+                chunkI: _ci,
+                chunkJ: _cj,
+              }).then(async (pngs) => {
+                if (this.stopRequested) return;
+                // pngs[0]=zoom3, pngs[1]=zoom2, pngs[2]=zoom1, pngs[3]=zoom0
+                const writes: Promise<void>[] = [];
+                for (let z = MAX_ZOOM; z >= 0; z--) {
+                  const pngIdx = MAX_ZOOM - z;
+                  const cachePath = this.getChunkCachePath(item.mapName, item.terrainType, item.season, _ci, _cj, z);
+                  writes.push(
+                    fsp.mkdir(path.dirname(cachePath), { recursive: true })
+                      .then(() => fsp.writeFile(cachePath, pngs[pngIdx]))
+                  );
+                }
+                await Promise.all(writes);
+                itemGenerated++;
+              }).catch((err: unknown) => {
+                console.error(`[TerrainChunkRenderer] Failed chunk ${_ci},${_cj} for ${item.mapName}:`, err);
+              })
+            );
+          }
+        }
+
+        await Promise.all(jobs);
+
+        totalGenerated += itemGenerated;
+        const dt = Date.now() - itemT0;
+        console.log(`[TerrainChunkRenderer] ${item.mapName}/${SEASON_NAMES[item.season as Season]}: generated ${itemGenerated} chunks in ${(dt / 1000).toFixed(1)}s`);
+      }
+
+      await this.workerPool.terminate();
+      this.workerPool = null;
+
+      const totalDt = Date.now() - totalT0;
+      console.log(`[TerrainChunkRenderer] Pre-generation complete: ${totalGenerated} total chunks in ${(totalDt / 1000).toFixed(1)}s`);
+    } finally {
+      this.preGenerating = false;
+    }
   }
 
   /**
@@ -872,13 +889,19 @@ export class TerrainChunkRenderer implements Service {
   }
 
   /**
-   * Graceful shutdown: stop background pre-generation and release memory.
+   * Graceful shutdown: stop background pre-generation, terminate workers, release memory.
    */
   async shutdown(): Promise<void> {
     console.log('[TerrainChunkRenderer] Shutting down...');
     this.stopRequested = true;
 
-    // Wait for pre-generation to stop (it checks stopRequested each tick)
+    // Terminate worker pool immediately (rejects pending dispatches)
+    if (this.workerPool) {
+      await this.workerPool.terminate();
+      this.workerPool = null;
+    }
+
+    // Wait for pre-generation async function to finish its finally block
     let waitMs = 0;
     while (this.preGenerating && waitMs < 3000) {
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -903,5 +926,172 @@ export class TerrainChunkRenderer implements Service {
       generatingCount: this.generating.size,
       preGenerating: this.preGenerating
     };
+  }
+}
+
+// ============================================================================
+// WorkerPool — manages a pool of terrain-chunk-worker threads
+// ============================================================================
+
+interface ChunkJobParams {
+  mapName: string;
+  terrainType: string;
+  season: number;
+  chunkI: number;
+  chunkJ: number;
+}
+
+interface PendingJob {
+  params: ChunkJobParams;
+  resolve: (pngs: Buffer[]) => void;
+  reject: (err: Error) => void;
+}
+
+interface WorkerEntry {
+  worker: Worker;
+  idle: boolean;
+  /** Maps that have already been sent to this worker (lazy init) */
+  sentMaps: Set<string>;
+}
+
+type WorkerOutMsg =
+  | { type: 'ready' }
+  | { type: 'chunkDone'; jobId: string; pngs: Buffer[] }
+  | { type: 'error'; jobId: string; message: string };
+
+/**
+ * Fixed-size pool of Worker threads for parallel chunk rendering.
+ * Atlas data is sent to each worker once at initialization.
+ * Map data is sent lazily on first use per worker.
+ * Concurrency is bounded by pool size (Math.min(cpuCount, 8)).
+ */
+export class WorkerPool {
+  private entries: WorkerEntry[] = [];
+  private queue: PendingJob[] = [];
+  private active = new Map<string, PendingJob>();
+  private jobSeq = 0;
+  private terminated = false;
+
+  constructor(
+    private readonly atlasData: Map<string, AtlasPixelData>,
+    private readonly workerPath: string,
+    private readonly mapData: Map<string, MapPixelData>,
+  ) {}
+
+  /** Spawn all workers and wait for each to confirm 'ready'. */
+  async initialize(): Promise<void> {
+    const count = Math.max(2, Math.min(os.cpus().length, 8));
+
+    // Serialise all atlas data once (structured-clone copies it to each worker)
+    const atlases = Array.from(this.atlasData.entries()).map(([key, d]) => ({
+      key,
+      pixels: d.pixels,
+      width: d.width,
+      height: d.height,
+      manifest: d.manifest,
+    }));
+
+    const readyAll: Promise<void>[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const worker = new Worker(this.workerPath);
+      const entry: WorkerEntry = { worker, idle: false, sentMaps: new Set() };
+      this.entries.push(entry);
+
+      // Resolve once the worker echoes 'ready' after processing init
+      readyAll.push(new Promise<void>((resolve, reject) => {
+        const onInit = (msg: WorkerOutMsg) => {
+          if (msg.type === 'ready') {
+            entry.idle = true;
+            worker.off('message', onInit);
+            resolve();
+          }
+        };
+        worker.once('error', reject);
+        worker.on('message', onInit);
+      }));
+
+      // Register ongoing message handler (fires after onInit removes itself)
+      worker.on('message', (msg: WorkerOutMsg) => this._onMessage(entry, msg));
+      worker.on('error', (err) => {
+        console.error('[WorkerPool] Uncaught worker error:', err);
+        entry.idle = true;
+        this._drain();
+      });
+
+      worker.postMessage({ type: 'init', atlases });
+    }
+
+    await Promise.all(readyAll);
+  }
+
+  /** Dispatch a chunk render job. Resolves with 4 PNG buffers [z3, z2, z1, z0]. */
+  dispatch(params: ChunkJobParams): Promise<Buffer[]> {
+    if (this.terminated) return Promise.reject(new Error('WorkerPool is terminated'));
+    return new Promise<Buffer[]>((resolve, reject) => {
+      this.queue.push({ params, resolve, reject });
+      this._drain();
+    });
+  }
+
+  /** Terminate all workers. Pending jobs are rejected. */
+  async terminate(): Promise<void> {
+    this.terminated = true;
+    for (const { reject } of this.queue) reject(new Error('WorkerPool terminated'));
+    this.queue = [];
+    await Promise.all(this.entries.map(e => e.worker.terminate()));
+    this.entries = [];
+  }
+
+  private _drain(): void {
+    while (this.queue.length > 0) {
+      const entry = this.entries.find(e => e.idle);
+      if (!entry) break;
+
+      const job = this.queue.shift()!;
+      const jobId = String(++this.jobSeq);
+      this.active.set(jobId, job);
+      entry.idle = false;
+
+      const { mapName, terrainType, season, chunkI, chunkJ } = job.params;
+
+      // Send map data lazily — once per worker per map name
+      if (!entry.sentMaps.has(mapName)) {
+        const mapEntry = this.mapData.get(mapName);
+        if (mapEntry) {
+          entry.worker.postMessage({
+            type: 'mapData',
+            mapName,
+            indices: mapEntry.indices,
+            width: mapEntry.width,
+            height: mapEntry.height,
+          });
+          entry.sentMaps.add(mapName);
+        }
+      }
+
+      entry.worker.postMessage({ type: 'renderChunk', jobId, mapName, terrainType, season, chunkI, chunkJ });
+    }
+  }
+
+  private _onMessage(entry: WorkerEntry, msg: WorkerOutMsg): void {
+    // 'ready' is handled by the one-shot init listener; ignore here
+    if (msg.type === 'ready') return;
+
+    const job = this.active.get(msg.jobId);
+    this.active.delete(msg.jobId);
+    entry.idle = true;
+
+    if (job) {
+      if (msg.type === 'chunkDone') {
+        // postMessage delivers Buffers/Uint8Arrays via structured clone;
+        // wrap each element as a proper Buffer for downstream callers.
+        job.resolve(msg.pngs.map(p => Buffer.isBuffer(p) ? p : Buffer.from(p)));
+      } else {
+        job.reject(new Error(msg.message));
+      }
+    }
+
+    this._drain();
   }
 }

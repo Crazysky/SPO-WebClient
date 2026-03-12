@@ -179,8 +179,10 @@ export async function selectCompanyAndStart(ctx: ClientHandlerContext, companyId
       ctx.sendMessage({ type: WsMessageType.REQ_TYCOON_ROLE, tycoonName: ctx.storedUsername });
     }
 
-    await ctx.preloadFacilityDimensions();
+    // Signal map loading start — overlay appears before GameScreen transitions in
+    ClientBridge.setMapLoadingProgress({ active: true, progress: 0, message: 'Loading game data...' });
 
+    // Transition to connected so GameScreen renders (MapLoadingScreen overlays it)
     ClientBridge.setConnected();
     ClientBridge.setWorld(ctx.currentWorldName);
     ClientBridge.setCompany(company.name, company.id);
@@ -189,7 +191,23 @@ export async function selectCompanyAndStart(ctx: ClientHandlerContext, companyId
       useGameStore.getState().completeServerSwitch();
     }
 
-    await ctx.switchToGameView();
+    // Fire-and-forget safe: connectMailService + getProfile use sendMessage (no timeout)
+    ctx.connectMailService().catch((err: unknown) => {
+      ClientBridge.log('Mail', `Mail service connection failed: ${toErrorMessage(err)}`);
+    });
+    ctx.getProfile().catch((err: unknown) => {
+      ClientBridge.log('Profile', `Profile fetch failed: ${toErrorMessage(err)}`);
+    });
+
+    // Parallel: facility dimensions + terrain load are independent — run concurrently
+    await Promise.all([
+      ctx.preloadFacilityDimensions().then(() => {
+        ClientBridge.setMapLoadingProgress({ progress: 0.3, message: 'Building data ready...' });
+      }),
+      ctx.switchToGameView().then(() => {
+        ClientBridge.setMapLoadingProgress({ progress: 0.9, message: 'Entering world...' });
+      }),
+    ]);
 
     if (ctx.worldSeason !== null) {
       const renderer = ctx.getRenderer();
@@ -205,17 +223,16 @@ export async function selectCompanyAndStart(ctx: ClientHandlerContext, companyId
       }
     }
 
-    ctx.connectMailService().catch((err: unknown) => {
-      ClientBridge.log('Mail', `Mail service connection failed: ${toErrorMessage(err)}`);
-    });
-
-    ctx.getProfile().catch((err: unknown) => {
-      ClientBridge.log('Profile', `Profile fetch failed: ${toErrorMessage(err)}`);
-    });
-
+    // Chat init runs AFTER terrain + facility dims are loaded.
+    // initChatChannels() makes 3 sequential sendRequest() calls internally — launching
+    // it concurrently with preloadFacilityDimensions() overwhelmed the RDO connection
+    // and caused timeouts.  Fire-and-forget here so it doesn't block the overlay dismiss.
     ctx.initChatChannels().catch((err: unknown) => {
       ClientBridge.log('Chat', `Chat init failed: ${toErrorMessage(err)}`);
     });
+
+    // Map is fully ready — dismiss the loading overlay
+    ClientBridge.setMapLoadingProgress({ active: false, progress: 1, message: '' });
 
   } catch (err: unknown) {
     ClientBridge.log('Error', `Company selection failed: ${toErrorMessage(err)}`);

@@ -1,0 +1,61 @@
+/* MapLoadingScreen — full-viewport overlay while map resources load */
+
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: 300; /* var(--z-overlay): above canvas, below HUD panels */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  transition: opacity 400ms var(--ease-out);
+}
+
+.exiting {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-8);
+  width: 100%;
+  max-width: 400px;
+  animation: stageEnter 400ms var(--ease-out) both;
+}
+
+/* Smaller logo — secondary context */
+.logo {
+  font-size: clamp(1.25rem, 3vw, 2rem);
+  font-weight: var(--font-bold);
+  letter-spacing: 0.12em;
+  background: linear-gradient(
+    135deg,
+    var(--color-primary-light),
+    var(--color-primary),
+    var(--color-primary-dark)
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin: 0;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.progressWrap {
+  width: 100%;
+}
+
+.message {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  text-align: center;
+  min-height: 1.25em;
+  animation: pulse 1.5s ease-in-out infinite;
+}

@@ -35,6 +35,21 @@ export interface TycoonStats {
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 
+export type ServiceStatus = 'pending' | 'running' | 'complete' | 'failed';
+
+export interface ServerStartupState {
+  ready: boolean;
+  progress: number;
+  message: string;
+  services: Array<{ name: string; status: ServiceStatus; progress: number }>;
+}
+
+export interface MapLoadingState {
+  active: boolean;
+  progress: number;
+  message: string;
+}
+
 export interface GameSettings {
   hideVegetationOnMove: boolean;
   vehicleAnimations: boolean;
@@ -105,6 +120,12 @@ interface GameState {
   // Capitol location (from DirectoryMain.asp)
   capitolCoords: { x: number; y: number } | null;
 
+  // Server startup progress (SSE-driven)
+  serverStartup: ServerStartupState;
+
+  // Map loading progress (company select → playable)
+  mapLoading: MapLoadingState;
+
   // Settings
   settings: GameSettings;
 
@@ -135,6 +156,8 @@ interface GameState {
   setClusterFacilities: (facilities: ClusterFacilityPreview[]) => void;
   setClusterFacilitiesLoading: (loading: boolean) => void;
   setCapitolCoords: (coords: { x: number; y: number } | null) => void;
+  setServerStartup: (partial: Partial<ServerStartupState>) => void;
+  setMapLoading: (partial: Partial<MapLoadingState>) => void;
   updateSettings: (partial: Partial<GameSettings>) => void;
   enterServerSwitch: () => void;
   cancelServerSwitch: () => void;
@@ -174,6 +197,8 @@ export const useGameStore = create<GameState>((set) => ({
   clusterFacilitiesLoading: false,
   capitolCoords: null,
   settings: { ...DEFAULT_SETTINGS },
+  serverStartup: { ready: false, progress: 0, message: 'Connecting...', services: [] },
+  mapLoading: { active: false, progress: 0, message: '' },
 
   // Actions
   setStatus: (status) => set({ status }),
@@ -207,6 +232,12 @@ export const useGameStore = create<GameState>((set) => ({
   setClusterFacilitiesLoading: (loading) => set({ clusterFacilitiesLoading: loading }),
 
   setCapitolCoords: (coords) => set({ capitolCoords: coords }),
+
+  setServerStartup: (partial) =>
+    set((state) => ({ serverStartup: { ...state.serverStartup, ...partial } })),
+
+  setMapLoading: (partial) =>
+    set((state) => ({ mapLoading: { ...state.mapLoading, ...partial } })),
 
   updateSettings: (partial) =>
     set((state) => ({

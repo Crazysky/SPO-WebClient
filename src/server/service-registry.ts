@@ -32,6 +32,30 @@ export interface Service {
 }
 
 /**
+ * Service initialization status
+ */
+export type ServiceStatus = 'pending' | 'running' | 'complete' | 'failed';
+
+/**
+ * Per-service entry in a startup progress event
+ */
+export interface ServiceStatusEntry {
+  name: string;
+  status: ServiceStatus;
+  progress: number;
+}
+
+/**
+ * Emitted on the registry EventEmitter as 'startup-progress'
+ */
+export interface StartupProgressEvent {
+  phase: 'initializing' | 'ready';
+  progress: number;   // 0–1
+  message: string;
+  services: ServiceStatusEntry[];
+}
+
+/**
  * Service registration options
  */
 export interface ServiceRegistration {
@@ -43,6 +67,18 @@ export interface ServiceRegistration {
 
   /** Priority for shutdown order (higher = shutdown first) */
   shutdownPriority?: number;
+
+  /**
+   * Relative weight used to calculate overall startup progress (default 1).
+   * Higher weight = this service represents a larger share of total work.
+   */
+  progressWeight?: number;
+
+  /**
+   * User-friendly message shown while this service is initializing.
+   * E.g. "Downloading game assets..."
+   */
+  progressMessage?: string;
 }
 
 /**
@@ -82,6 +118,8 @@ export class ServiceRegistry extends EventEmitter {
       service,
       dependsOn: options?.dependsOn ?? [],
       shutdownPriority: options?.shutdownPriority ?? 0,
+      progressWeight: options?.progressWeight ?? 1,
+      progressMessage: options?.progressMessage,
     });
   }
 
@@ -104,7 +142,8 @@ export class ServiceRegistry extends EventEmitter {
   }
 
   /**
-   * Initialize all registered services in dependency order
+   * Initialize all registered services in dependency order.
+   * Services at the same dependency depth run in parallel via Promise.all.
    */
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -114,33 +153,73 @@ export class ServiceRegistry extends EventEmitter {
     console.log('[ServiceRegistry] Starting initialization...');
     this.startTime = Date.now();
 
-    // Build initialization order based on dependencies
-    const initOrder = this.resolveInitializationOrder();
+    const levels = this.resolveInitializationLevels();
 
-    // Initialize services in order
-    for (const name of initOrder) {
-      const registration = this.services.get(name)!;
-      const service = registration.service;
+    // Build progress-tracking state
+    const totalWeight = [...this.services.values()]
+      .reduce((sum, reg) => sum + (reg.progressWeight ?? 1), 0);
 
-      if (service.initialize) {
-        console.log(`[ServiceRegistry] Initializing ${name}...`);
-        const start = Date.now();
+    const statuses = new Map<string, ServiceStatus>();
+    for (const name of this.services.keys()) statuses.set(name, 'pending');
 
-        try {
-          await service.initialize();
-          const elapsed = Date.now() - start;
-          console.log(`[ServiceRegistry] ${name} initialized (${elapsed}ms)`);
-        } catch (error: unknown) {
-          console.error(`[ServiceRegistry] Failed to initialize ${name}:`, error);
-          throw error;
-        }
+    const buildProgressEvent = (message: string): StartupProgressEvent => {
+      let completedWeight = 0;
+      for (const [name, status] of statuses) {
+        if (status === 'complete') completedWeight += this.services.get(name)!.progressWeight ?? 1;
       }
+      return {
+        phase: 'initializing',
+        progress: totalWeight > 0 ? Math.min(1, completedWeight / totalWeight) : 0,
+        message,
+        services: [...statuses.entries()].map(([name, status]) => ({
+          name,
+          status,
+          progress: status === 'complete' ? 1 : 0,
+        })),
+      };
+    };
+
+    // Initialize level by level; services within a level run in parallel
+    for (const level of levels) {
+      await Promise.all(level.map(async (name) => {
+        const registration = this.services.get(name)!;
+        const service = registration.service;
+        const startMsg = registration.progressMessage ?? `Initializing ${name}...`;
+
+        statuses.set(name, 'running');
+        this.emit('service-started', { name, weight: registration.progressWeight ?? 1 });
+        this.emit('startup-progress', buildProgressEvent(startMsg));
+
+        if (service.initialize) {
+          console.log(`[ServiceRegistry] Initializing ${name}...`);
+          const start = Date.now();
+          try {
+            await service.initialize();
+            const elapsed = Date.now() - start;
+            console.log(`[ServiceRegistry] ${name} initialized (${elapsed}ms)`);
+          } catch (error: unknown) {
+            statuses.set(name, 'failed');
+            console.error(`[ServiceRegistry] Failed to initialize ${name}:`, error);
+            throw error;
+          }
+        }
+
+        statuses.set(name, 'complete');
+        this.emit('service-complete', { name, elapsed: Date.now() - this.startTime });
+        this.emit('startup-progress', buildProgressEvent(startMsg));
+      }));
     }
 
     this.initialized = true;
     const totalTime = Date.now() - this.startTime;
     console.log(`[ServiceRegistry] All services initialized (${totalTime}ms)`);
 
+    this.emit('startup-progress', {
+      phase: 'ready',
+      progress: 1,
+      message: 'Server ready',
+      services: [...statuses.entries()].map(([name, status]) => ({ name, status, progress: 1 })),
+    } satisfies StartupProgressEvent);
     this.emit('initialized');
   }
 
@@ -250,40 +329,43 @@ export class ServiceRegistry extends EventEmitter {
   }
 
   /**
-   * Resolve initialization order based on dependencies (topological sort)
+   * Resolve initialization levels via BFS topological grouping.
+   * Services at the same depth have no inter-dependencies and can run in parallel.
+   * Throws on circular dependencies or unknown dependency references.
    */
-  private resolveInitializationOrder(): string[] {
+  private resolveInitializationLevels(): string[][] {
+    if (this.services.size === 0) return [];
+
+    // --- cycle detection (DFS) ---
     const visited = new Set<string>();
     const visiting = new Set<string>();
-    const order: string[] = [];
-
-    const visit = (name: string) => {
+    const detectCycles = (name: string) => {
       if (visited.has(name)) return;
-      if (visiting.has(name)) {
-        throw new Error(`Circular dependency detected: ${name}`);
-      }
-
+      if (visiting.has(name)) throw new Error(`Circular dependency detected: ${name}`);
       visiting.add(name);
-
-      const registration = this.services.get(name);
-      if (!registration) {
-        throw new Error(`Unknown service dependency: ${name}`);
-      }
-
-      for (const dep of registration.dependsOn ?? []) {
-        visit(dep);
-      }
-
+      const reg = this.services.get(name);
+      if (!reg) throw new Error(`Unknown service dependency: ${name}`);
+      for (const dep of reg.dependsOn ?? []) detectCycles(dep);
       visiting.delete(name);
       visited.add(name);
-      order.push(name);
     };
+    for (const name of this.services.keys()) detectCycles(name);
 
-    for (const name of this.services.keys()) {
-      visit(name);
-    }
+    // --- depth assignment (longest path from roots) ---
+    const depth = new Map<string, number>();
+    const computeDepth = (name: string): number => {
+      if (depth.has(name)) return depth.get(name)!;
+      const deps = this.services.get(name)!.dependsOn ?? [];
+      const d = deps.length === 0 ? 0 : Math.max(...deps.map(computeDepth)) + 1;
+      depth.set(name, d);
+      return d;
+    };
+    for (const name of this.services.keys()) computeDepth(name);
 
-    return order;
+    const maxDepth = Math.max(...depth.values());
+    const levels: string[][] = Array.from({ length: maxDepth + 1 }, () => []);
+    for (const [name, d] of depth) levels[d].push(name);
+    return levels;
   }
 }
 

@@ -1,0 +1,129 @@
+/* ServerStartupScreen — full-viewport branded startup overlay */
+
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  transition: opacity var(--duration-slow) var(--ease-out);
+}
+
+.exiting {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-8);
+  width: 100%;
+  max-width: 480px;
+  animation: stageEnter 500ms var(--ease-out) both;
+}
+
+/* Gold gradient logo — matches AuthStage */
+.logo {
+  font-size: clamp(1.75rem, 4.5vw, 3rem);
+  font-weight: var(--font-bold);
+  letter-spacing: 0.12em;
+  background: linear-gradient(
+    135deg,
+    var(--accent-gold-light),
+    var(--accent-gold),
+    var(--accent-gold-dark)
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin: 0;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.tagline {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: calc(-1 * var(--space-2)) 0 0;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.progressWrap {
+  width: 100%;
+}
+
+.message {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  text-align: center;
+  min-height: 1.25em;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Service list */
+.serviceList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  backdrop-filter: var(--glass-blur);
+}
+
+.serviceRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  transition: color var(--duration-base);
+}
+
+.serviceIcon {
+  width: 1rem;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: var(--text-base);
+}
+
+.serviceName {
+  flex: 1;
+}
+
+.serviceStatus {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* Status colour overrides */
+.status_running {
+  color: var(--color-primary);
+}
+
+.status_running .serviceIcon {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+.status_complete {
+  color: var(--color-success);
+}
+
+.status_failed {
+  color: var(--color-error);
+}

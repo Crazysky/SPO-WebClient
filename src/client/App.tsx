@@ -11,6 +11,8 @@ import { useGameStore } from './store';
 import { LoginScreen } from './layouts/LoginScreen';
 import { GameScreen } from './layouts/GameScreen';
 import { ToastContainer } from './components/common';
+import { ServerStartupScreen } from './components/startup/ServerStartupScreen';
+import { MapLoadingScreen } from './components/startup/MapLoadingScreen';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useClient } from './context';
 
@@ -21,14 +23,26 @@ const CompanyCreationModal = lazy(() =>
 
 export function App() {
   const status = useGameStore((s) => s.status);
+  const serverReady = useGameStore((s) => s.serverStartup.ready);
   const client = useClient();
 
   // Register global keyboard shortcuts (B, E, M, R, D, Escape, Cmd+K)
   useKeyboardShortcuts(client);
 
+  // Block all interaction until the server has finished initialising
+  if (!serverReady) {
+    return (
+      <>
+        <ServerStartupScreen />
+        <ToastContainer />
+      </>
+    );
+  }
+
   return (
     <>
       {status !== 'connected' ? <LoginScreen /> : <GameScreen />}
+      <MapLoadingScreen />
       <Suspense fallback={null}>
         <CompanyCreationModal />
       </Suspense>
