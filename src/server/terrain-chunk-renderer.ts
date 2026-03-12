@@ -22,7 +22,7 @@ import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { Worker } from 'worker_threads';
-import { decodePng, decodeBmpIndices, encodePng, downscaleRGBA2x, PngData } from './texture-alpha-baker';
+import { decodePng, decodeWebP, decodeBmpIndices, encodePng, encodeWebP, downscaleRGBA2x, PngData } from './texture-alpha-baker';
 import { AtlasManifest, TileEntry } from './atlas-generator';
 import { isSpecialTile } from '../shared/land-utils';
 import { Season, SEASON_NAMES, getTerrainTypeForMap } from '../shared/map-config';
@@ -153,6 +153,21 @@ export function blitTileWithAlpha(
 }
 
 // ============================================================================
+// Per-map generation progress (emitted to listeners)
+// ============================================================================
+
+export interface MapGenProgress {
+  mapName: string;
+  status: 'queued' | 'generating' | 'complete' | 'error';
+  totalChunks: number;
+  completedChunks: number;
+  startTime: number;
+  errorMessage?: string;
+}
+
+export type MapGenProgressListener = (progress: MapGenProgress) => void;
+
+// ============================================================================
 // TerrainChunkRenderer Service
 // ============================================================================
 
@@ -177,17 +192,20 @@ export class TerrainChunkRenderer implements Service {
   /** Dedup in-flight chunk generation */
   private generating: Map<string, Promise<Buffer | null>> = new Map();
 
-  /** Background pre-generation state */
-  private preGenerating: boolean = false;
-
-  /** Set to true to stop the background pre-generation loop */
+  /** Set to true to stop background generation loops */
   private stopRequested: boolean = false;
 
-  /** Set to true before initialize() to skip background pre-generation (for tests) */
-  public skipPreGeneration: boolean = false;
-
-  /** Active worker pool (non-null only while pre-generation is running) */
+  /** Active worker pool — created lazily on first generation, persists until shutdown */
   private workerPool: WorkerPool | null = null;
+
+  /** Maps currently being generated (idempotency guard) */
+  private generatingMaps: Set<string> = new Set();
+
+  /** Per-map generation progress tracking */
+  private mapGenProgress: Map<string, MapGenProgress> = new Map();
+
+  /** Registered progress listeners */
+  private progressListeners: MapGenProgressListener[] = [];
 
   constructor(
     cacheDir: string = path.join(__dirname, '../../webclient-cache'),
@@ -200,8 +218,9 @@ export class TerrainChunkRenderer implements Service {
   }
 
   /**
-   * Initialize: load available atlas PNGs into memory, then start background pre-generation.
+   * Initialize: load available atlas PNGs into memory.
    * Called by ServiceRegistry after textures service is ready.
+   * Chunk generation is triggered on-demand via generateMapChunks().
    */
   async initialize(): Promise<void> {
     console.log('[TerrainChunkRenderer] Initializing...');
@@ -236,15 +255,7 @@ export class TerrainChunkRenderer implements Service {
       fs.mkdirSync(chunkRoot, { recursive: true });
     }
 
-    console.log(`[TerrainChunkRenderer] Loaded ${loadedCount} terrain atlases`);
-
-    // Start background pre-generation (fire-and-forget, non-blocking)
-    if (!this.skipPreGeneration) {
-      this.preGenerateAllChunks().catch((err: unknown) => {
-        console.error('[TerrainChunkRenderer] Pre-generation error:', err);
-        this.preGenerating = false;
-      });
-    }
+    console.log(`[TerrainChunkRenderer] Loaded ${loadedCount} terrain atlases (on-demand generation ready)`);
   }
 
   /**
@@ -315,7 +326,7 @@ export class TerrainChunkRenderer implements Service {
   }
 
   /**
-   * Get or generate a chunk PNG buffer at a specific zoom level.
+   * Get or generate a chunk WebP buffer at a specific zoom level.
    * Checks disk cache first, generates on-demand if not cached.
    */
   async getChunk(
@@ -437,9 +448,9 @@ export class TerrainChunkRenderer implements Service {
       let z3H = CHUNK_CANVAS_HEIGHT;
 
       try {
-        // Decode from cached PNG
-        const pngBuf = await fsp.readFile(z3CachePath);
-        const decoded = decodePng(pngBuf);
+        // Decode from cached WebP
+        const webpBuf = await fsp.readFile(z3CachePath);
+        const decoded = await decodeWebP(webpBuf);
         z3Pixels = decoded.pixels;
         z3W = decoded.width;
         z3H = decoded.height;
@@ -447,10 +458,10 @@ export class TerrainChunkRenderer implements Service {
         // Generate zoom-3 from atlas and cache it
         z3Pixels = this.generateChunkRGBA(terrainType, season, chunkI, chunkJ, mapName);
         if (z3Pixels) {
-          const z3Png = encodePng(z3W, z3H, z3Pixels);
+          const z3Webp = await encodeWebP(z3W, z3H, z3Pixels);
           const z3Dir = path.dirname(z3CachePath);
           await fsp.mkdir(z3Dir, { recursive: true });
-          await fsp.writeFile(z3CachePath, z3Png);
+          await fsp.writeFile(z3CachePath, z3Webp);
         }
       }
 
@@ -470,16 +481,16 @@ export class TerrainChunkRenderer implements Service {
 
     if (!pixels) return null;
 
-    // Encode as PNG
-    const png = encodePng(width, height, pixels);
+    // Encode as WebP
+    const webp = await encodeWebP(width, height, pixels);
 
     // Write to disk cache
     const cachePath = this.getChunkCachePath(mapName, terrainType, season, chunkI, chunkJ, zoomLevel);
     const cacheDir = path.dirname(cachePath);
     await fsp.mkdir(cacheDir, { recursive: true });
-    await fsp.writeFile(cachePath, png);
+    await fsp.writeFile(cachePath, webp);
 
-    return png;
+    return webp;
   }
 
   /**
@@ -554,20 +565,20 @@ export class TerrainChunkRenderer implements Service {
    * Generate ALL zoom levels for a single chunk and cache to disk.
    * Renders zoom 3 from atlas, then cascades 2× downscale for 2→1→0.
    */
-  generateChunkAllZooms(
+  async generateChunkAllZooms(
     mapName: string,
     terrainType: string,
     season: number,
     chunkI: number,
     chunkJ: number
-  ): boolean {
+  ): Promise<boolean> {
     // Generate zoom-3 RGBA
     const z3Pixels = this.generateChunkRGBA(terrainType, season, chunkI, chunkJ, mapName);
     if (!z3Pixels) return false;
 
     // Encode and cache zoom 3
-    const z3Png = encodePng(CHUNK_CANVAS_WIDTH, CHUNK_CANVAS_HEIGHT, z3Pixels);
-    this._writeChunkCache(mapName, terrainType, season, chunkI, chunkJ, MAX_ZOOM, z3Png);
+    const z3Webp = await encodeWebP(CHUNK_CANVAS_WIDTH, CHUNK_CANVAS_HEIGHT, z3Pixels);
+    this._writeChunkCache(mapName, terrainType, season, chunkI, chunkJ, MAX_ZOOM, z3Webp);
 
     // Cascade downscale: 3→2→1→0
     let pixels = z3Pixels;
@@ -580,8 +591,8 @@ export class TerrainChunkRenderer implements Service {
       width = scaled.width;
       height = scaled.height;
 
-      const png = encodePng(width, height, pixels);
-      this._writeChunkCache(mapName, terrainType, season, chunkI, chunkJ, z, png);
+      const webp = await encodeWebP(width, height, pixels);
+      this._writeChunkCache(mapName, terrainType, season, chunkI, chunkJ, z, webp);
     }
 
     return true;
@@ -603,151 +614,198 @@ export class TerrainChunkRenderer implements Service {
     fs.writeFileSync(cachePath, png);
   }
 
+  // ==========================================================================
+  // Progress listener API
+  // ==========================================================================
+
+  /** Register a listener for map generation progress updates. */
+  onProgress(listener: MapGenProgressListener): void {
+    this.progressListeners.push(listener);
+  }
+
+  /** Remove a progress listener. */
+  offProgress(listener: MapGenProgressListener): void {
+    const idx = this.progressListeners.indexOf(listener);
+    if (idx >= 0) this.progressListeners.splice(idx, 1);
+  }
+
+  private emitProgress(progress: MapGenProgress): void {
+    for (const listener of this.progressListeners) {
+      listener(progress);
+    }
+  }
+
+  // ==========================================================================
+  // On-demand chunk generation (replaces preGenerateAllChunks)
+  // ==========================================================================
+
   /**
-   * Pre-generate ALL chunks for all available maps and zoom levels.
-   * Uses a worker thread pool (one worker per CPU core, capped at 8) to
-   * render chunks in parallel, saturating available CPU resources.
-   * Runs fire-and-forget from initialize().
+   * Get or create the worker pool. Created on first generation request,
+   * kept alive for subsequent requests. Terminated on shutdown().
    */
-  private async preGenerateAllChunks(): Promise<void> {
-    if (this.preGenerating) return;
-    this.preGenerating = true;
+  private async ensureWorkerPool(): Promise<WorkerPool> {
+    if (this.workerPool) return this.workerPool;
+
+    const workerPath = path.join(__dirname, 'terrain-chunk-worker.js');
+    this.workerPool = new WorkerPool(this.atlasData, workerPath, this.mapData);
+    await this.workerPool.initialize();
+
+    const poolSize = Math.max(2, Math.min(os.cpus().length, 8));
+    console.log(`[TerrainChunkRenderer] Worker pool ready (${poolSize} workers)`);
+
+    return this.workerPool;
+  }
+
+  /**
+   * Trigger on-demand chunk generation for a specific map.
+   * Idempotent: if chunks exist or generation is already in progress, returns immediately.
+   * Creates worker pool on first call, keeps it alive for reuse.
+   */
+  async generateMapChunks(mapName: string): Promise<void> {
+    // Idempotent guard
+    if (this.generatingMaps.has(mapName)) return;
+    this.generatingMaps.add(mapName);
+
+    const terrainType = getTerrainTypeForMap(mapName);
 
     try {
-      const mapsDir = path.join(this.mapCacheDir, 'Maps');
-      if (!fs.existsSync(mapsDir)) {
-        console.log('[TerrainChunkRenderer] No maps directory found, skipping pre-generation');
+      // Load map data
+      if (!this.loadMapData(mapName)) {
+        console.warn(`[TerrainChunkRenderer] Cannot generate chunks for ${mapName}: map data not found`);
         return;
       }
 
-      // TESTING: only pre-generate for these maps
-      const PREGENERATE_MAPS = new Set(['Shamba', 'Zorcon', 'Angelicus']);
+      // Build work items: all seasons with available atlases
+      const workItems: Array<{ season: number }> = [];
+      for (let s = 0; s <= 3; s++) {
+        if (this.hasAtlas(terrainType, s)) workItems.push({ season: s });
+      }
 
-      const mapDirs = fs.readdirSync(mapsDir, { withFileTypes: true })
-        .filter(e => e.isDirectory())
-        .map(e => e.name)
-        .filter(name => PREGENERATE_MAPS.has(name) && fs.existsSync(path.join(mapsDir, name, `${name}.bmp`)));
-
-      if (mapDirs.length === 0) {
-        console.log('[TerrainChunkRenderer] No maps with BMPs found, skipping pre-generation');
+      if (workItems.length === 0) {
+        console.warn(`[TerrainChunkRenderer] No atlases available for ${mapName} (${terrainType})`);
         return;
       }
 
-      // Build work items: (mapName, terrainType, season)[]
-      const workItems: Array<{ mapName: string; terrainType: string; season: number }> = [];
-      for (const mapName of mapDirs) {
-        const terrainType = getTerrainTypeForMap(mapName);
-        for (let s = 0; s <= 3; s++) {
-          if (this.hasAtlas(terrainType, s)) workItems.push({ mapName, terrainType, season: s });
+      const map = this.mapData.get(mapName)!;
+      const chunksI = Math.ceil(map.height / CHUNK_SIZE);
+      const chunksJ = Math.ceil(map.width / CHUNK_SIZE);
+      const chunksPerSeason = chunksI * chunksJ;
+
+      // Count total and already-cached chunks across all seasons
+      let totalChunks = 0;
+      let totalCached = 0;
+      const missingWork: Array<{ season: number; chunkI: number; chunkJ: number }> = [];
+
+      for (const { season } of workItems) {
+        for (let ci = 0; ci < chunksI; ci++) {
+          for (let cj = 0; cj < chunksJ; cj++) {
+            totalChunks++;
+            if (
+              fs.existsSync(this.getChunkCachePath(mapName, terrainType, season, ci, cj, 0)) &&
+              fs.existsSync(this.getChunkCachePath(mapName, terrainType, season, ci, cj, MAX_ZOOM))
+            ) {
+              totalCached++;
+            } else {
+              missingWork.push({ season, chunkI: ci, chunkJ: cj });
+            }
+          }
         }
       }
 
-      console.log(`[TerrainChunkRenderer] Pre-generation: ${mapDirs.length} maps, ${workItems.length} map/season combos`);
-
-      // Resolve the compiled worker path (works for both dev and packaged builds)
-      const workerPath = path.join(__dirname, 'terrain-chunk-worker.js');
-
-      this.workerPool = new WorkerPool(this.atlasData, workerPath, this.mapData);
-      await this.workerPool.initialize();
-
-      const poolSize = Math.max(2, Math.min(os.cpus().length, 8));
-      console.log(`[TerrainChunkRenderer] Worker pool ready (${poolSize} workers)`);
-
-      const totalT0 = Date.now();
-      let totalGenerated = 0;
-
-      for (const item of workItems) {
-        if (this.stopRequested) {
-          console.log('[TerrainChunkRenderer] Pre-generation stopped (shutdown requested)');
-          break;
-        }
-
-        if (!this.loadMapData(item.mapName)) continue;
-
-        const map = this.mapData.get(item.mapName)!;
-        const chunksI = Math.ceil(map.height / CHUNK_SIZE);
-        const chunksJ = Math.ceil(map.width / CHUNK_SIZE);
-        const totalChunks = chunksI * chunksJ;
-
-        // Count already-cached chunks (check zoom-0 and zoom-3 as sentinels)
-        let existingCount = 0;
-        for (let ci = 0; ci < chunksI; ci++) {
-          for (let cj = 0; cj < chunksJ; cj++) {
-            if (
-              fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, 0)) &&
-              fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, MAX_ZOOM))
-            ) existingCount++;
-          }
-        }
-
-        if (existingCount === totalChunks) {
-          console.log(`[TerrainChunkRenderer] ${item.mapName}/${SEASON_NAMES[item.season as Season]}: all ${totalChunks} chunks cached`);
-          continue;
-        }
-
-        console.log(`[TerrainChunkRenderer] Pre-generating ${item.mapName} (${item.terrainType}, ${SEASON_NAMES[item.season as Season]}): ${existingCount}/${totalChunks} cached`);
-
-        const itemT0 = Date.now();
-        let itemGenerated = 0;
-
-        // Dispatch ALL missing chunks to the pool simultaneously.
-        // The pool's concurrency is bounded by worker count — no thundering herd.
-        const jobs: Promise<void>[] = [];
-
-        for (let ci = 0; ci < chunksI; ci++) {
-          for (let cj = 0; cj < chunksJ; cj++) {
-            if (this.stopRequested) break;
-
-            if (
-              fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, 0)) &&
-              fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, MAX_ZOOM))
-            ) continue;
-
-            const _ci = ci;
-            const _cj = cj;
-
-            jobs.push(
-              this.workerPool.dispatch({
-                mapName: item.mapName,
-                terrainType: item.terrainType,
-                season: item.season,
-                chunkI: _ci,
-                chunkJ: _cj,
-              }).then(async (pngs) => {
-                if (this.stopRequested) return;
-                // pngs[0]=zoom3, pngs[1]=zoom2, pngs[2]=zoom1, pngs[3]=zoom0
-                const writes: Promise<void>[] = [];
-                for (let z = MAX_ZOOM; z >= 0; z--) {
-                  const pngIdx = MAX_ZOOM - z;
-                  const cachePath = this.getChunkCachePath(item.mapName, item.terrainType, item.season, _ci, _cj, z);
-                  writes.push(
-                    fsp.mkdir(path.dirname(cachePath), { recursive: true })
-                      .then(() => fsp.writeFile(cachePath, pngs[pngIdx]))
-                  );
-                }
-                await Promise.all(writes);
-                itemGenerated++;
-              }).catch((err: unknown) => {
-                console.error(`[TerrainChunkRenderer] Failed chunk ${_ci},${_cj} for ${item.mapName}:`, err);
-              })
-            );
-          }
-        }
-
-        await Promise.all(jobs);
-
-        totalGenerated += itemGenerated;
-        const dt = Date.now() - itemT0;
-        console.log(`[TerrainChunkRenderer] ${item.mapName}/${SEASON_NAMES[item.season as Season]}: generated ${itemGenerated} chunks in ${(dt / 1000).toFixed(1)}s`);
+      if (missingWork.length === 0) {
+        console.log(`[TerrainChunkRenderer] ${mapName}: all ${totalChunks} chunks cached (${workItems.length} seasons × ${chunksPerSeason} chunks)`);
+        return;
       }
 
-      await this.workerPool.terminate();
-      this.workerPool = null;
+      console.log(`[TerrainChunkRenderer] Generating ${mapName}: ${totalCached}/${totalChunks} cached, ${missingWork.length} to generate`);
 
-      const totalDt = Date.now() - totalT0;
-      console.log(`[TerrainChunkRenderer] Pre-generation complete: ${totalGenerated} total chunks in ${(totalDt / 1000).toFixed(1)}s`);
+      // Initialize progress tracking
+      const progress: MapGenProgress = {
+        mapName,
+        status: 'generating',
+        totalChunks: missingWork.length,
+        completedChunks: 0,
+        startTime: Date.now(),
+      };
+      this.mapGenProgress.set(mapName, progress);
+      this.emitProgress({ ...progress, status: 'queued' });
+
+      // Ensure worker pool is ready
+      const pool = await this.ensureWorkerPool();
+
+      // Emit 'generating' status
+      this.emitProgress({ ...progress });
+
+      // Throttled progress emission: at most every 500ms
+      let lastEmitTime = Date.now();
+      const THROTTLE_MS = 500;
+
+      // Dispatch all missing chunks to the pool
+      const jobs: Promise<void>[] = [];
+
+      for (const work of missingWork) {
+        if (this.stopRequested) break;
+
+        jobs.push(
+          pool.dispatch({
+            mapName,
+            terrainType,
+            season: work.season,
+            chunkI: work.chunkI,
+            chunkJ: work.chunkJ,
+          }).then(async (pngs) => {
+            if (this.stopRequested) return;
+            // pngs[0]=zoom3, pngs[1]=zoom2, pngs[2]=zoom1, pngs[3]=zoom0
+            const writes: Promise<void>[] = [];
+            for (let z = MAX_ZOOM; z >= 0; z--) {
+              const pngIdx = MAX_ZOOM - z;
+              const cachePath = this.getChunkCachePath(mapName, terrainType, work.season, work.chunkI, work.chunkJ, z);
+              writes.push(
+                fsp.mkdir(path.dirname(cachePath), { recursive: true })
+                  .then(() => fsp.writeFile(cachePath, pngs[pngIdx]))
+              );
+            }
+            await Promise.all(writes);
+
+            // Update progress with throttled emission
+            progress.completedChunks++;
+            const now = Date.now();
+            if (now - lastEmitTime >= THROTTLE_MS) {
+              lastEmitTime = now;
+              this.emitProgress({ ...progress });
+            }
+          }).catch((err: unknown) => {
+            console.error(`[TerrainChunkRenderer] Failed chunk ${work.chunkI},${work.chunkJ} s${work.season} for ${mapName}:`, err);
+          })
+        );
+      }
+
+      await Promise.all(jobs);
+
+      // Emit completion
+      progress.status = 'complete';
+      progress.completedChunks = missingWork.length;
+      this.mapGenProgress.set(mapName, progress);
+      this.emitProgress({ ...progress });
+
+      const dt = Date.now() - progress.startTime;
+      console.log(`[TerrainChunkRenderer] ${mapName}: generated ${missingWork.length} chunks in ${(dt / 1000).toFixed(1)}s`);
+
+    } catch (err: unknown) {
+      // Emit error
+      const errorProgress: MapGenProgress = {
+        mapName,
+        status: 'error',
+        totalChunks: 0,
+        completedChunks: 0,
+        startTime: Date.now(),
+        errorMessage: err instanceof Error ? err.message : String(err),
+      };
+      this.mapGenProgress.set(mapName, errorProgress);
+      this.emitProgress(errorProgress);
+      throw err;
     } finally {
-      this.preGenerating = false;
+      this.generatingMaps.delete(mapName);
     }
   }
 
@@ -795,11 +853,11 @@ export class TerrainChunkRenderer implements Service {
   }
 
   /**
-   * Get the disk cache path for a chunk PNG.
-   * Format: chunks/{mapName}/{terrainType}/{season}/z{zoom}/chunk_{i}_{j}.png
+   * Get the disk cache path for a chunk image.
+   * Format: chunks/{mapName}/{terrainType}/{season}/z{zoom}/chunk_{i}_{j}.webp
    */
   getChunkCachePath(mapName: string, terrainType: string, season: number, chunkI: number, chunkJ: number, zoomLevel: number = MAX_ZOOM): string {
-    return path.join(this.cacheDir, 'chunks', mapName, terrainType, String(season), `z${zoomLevel}`, `chunk_${chunkI}_${chunkJ}.png`);
+    return path.join(this.cacheDir, 'chunks', mapName, terrainType, String(season), `z${zoomLevel}`, `chunk_${chunkI}_${chunkJ}.webp`);
   }
 
   /**
@@ -891,8 +949,8 @@ export class TerrainChunkRenderer implements Service {
         const chunkPng = await this.getChunk(mapName, terrainType, season, ci, cj, 0);
         if (!chunkPng) continue;
 
-        // Decode the chunk PNG to RGBA
-        const decoded = decodePng(chunkPng);
+        // Decode the chunk WebP to RGBA
+        const decoded = await decodeWebP(chunkPng);
 
         // Calculate where this chunk goes in the preview
         const baseI = ci * CHUNK_SIZE;
@@ -933,7 +991,7 @@ export class TerrainChunkRenderer implements Service {
   }
 
   /**
-   * Graceful shutdown: stop background pre-generation, terminate workers, release memory.
+   * Graceful shutdown: stop generation, terminate workers, release memory.
    */
   async shutdown(): Promise<void> {
     console.log('[TerrainChunkRenderer] Shutting down...');
@@ -945,9 +1003,9 @@ export class TerrainChunkRenderer implements Service {
       this.workerPool = null;
     }
 
-    // Wait for pre-generation async function to finish its finally block
+    // Wait for any active generation to finish its finally block
     let waitMs = 0;
-    while (this.preGenerating && waitMs < 3000) {
+    while (this.generatingMaps.size > 0 && waitMs < 3000) {
       await new Promise(resolve => setTimeout(resolve, 50));
       waitMs += 50;
     }
@@ -956,19 +1014,22 @@ export class TerrainChunkRenderer implements Service {
     this.atlasData.clear();
     this.mapData.clear();
     this.generating.clear();
+    this.generatingMaps.clear();
+    this.mapGenProgress.clear();
+    this.progressListeners.length = 0;
 
     console.log('[TerrainChunkRenderer] Shutdown complete');
   }
 
   /**
-   * Get loaded atlas count for monitoring.
+   * Get loaded atlas count and active generation info for monitoring.
    */
-  getStats(): { atlasCount: number; mapCount: number; generatingCount: number; preGenerating: boolean } {
+  getStats(): { atlasCount: number; mapCount: number; generatingCount: number; activeGenerations: MapGenProgress[] } {
     return {
       atlasCount: this.atlasData.size,
       mapCount: this.mapData.size,
       generatingCount: this.generating.size,
-      preGenerating: this.preGenerating
+      activeGenerations: Array.from(this.mapGenProgress.values()),
     };
   }
 }

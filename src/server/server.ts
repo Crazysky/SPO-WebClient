@@ -14,7 +14,7 @@ import { SearchMenuService } from './search-menu-service';
 import { UpdateService } from './update-service';
 import { MapDataService } from './map-data-service';
 import { TextureExtractor } from './texture-extractor';
-import { TerrainChunkRenderer } from './terrain-chunk-renderer';
+import { TerrainChunkRenderer, type MapGenProgress } from './terrain-chunk-renderer';
 import { serviceRegistry, setupGracefulShutdown } from './service-registry';
 import {
   WsMessageType,
@@ -25,6 +25,7 @@ import {
   type WsReqSwitchCompany,
   type WsRespError,
   type WsRespCapitolCoords,
+  type WsEventChunkGenProgress,
 } from '../shared/types';
 import { toErrorMessage } from '../shared/error-utils';
 import { wsHandlerRegistry } from './ws-handlers';
@@ -677,7 +678,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Terrain chunk endpoint: /api/terrain-chunk/:mapName/:terrainType/:season/:zoom/:chunkI/:chunkJ
-  // Returns pre-rendered isometric terrain chunk as PNG at specified zoom level
+  // Returns pre-rendered isometric terrain chunk as WebP at specified zoom level
   // Example: /api/terrain-chunk/Antiqua/Earth/2/3/31/31
   if (safePath.startsWith('/api/terrain-chunk/') && !safePath.endsWith('/manifest')) {
     const parts = safePath.substring('/api/terrain-chunk/'.length).split('/');
@@ -720,7 +721,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       res.writeHead(200, {
-        'Content-Type': 'image/png',
+        'Content-Type': 'image/webp',
         'Cache-Control': 'public, max-age=31536000'
       });
       res.end(chunkPng);
@@ -1083,6 +1084,15 @@ wss.on('connection', (ws: WebSocket) => {
         };
         // Track for GM chat broadcast
         connectedClients.set(ws, loginMsg.username);
+
+        // Trigger on-demand chunk generation for the world the user is entering
+        try {
+          terrainChunkRenderer().generateMapChunks(loginMsg.worldName).catch((err: unknown) => {
+            console.error(`[Gateway] Chunk generation error for ${loginMsg.worldName}:`, toErrorMessage(err));
+          });
+        } catch (_: unknown) {
+          // Service not ready yet, skip
+        }
       }
 
       // Capture company selection

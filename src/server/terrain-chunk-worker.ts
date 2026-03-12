@@ -8,15 +8,15 @@
  *   2. Worker stores atlases in memory, replies 'ready'.
  *   3. Main thread sends 'mapData' lazily (first job for a given map).
  *   4. Main thread sends 'renderChunk' jobs.
- *   5. Worker renders zoom-3 RGBA, cascades downscale to zoom 0, encodes 4 PNGs.
- *   6. Worker replies 'chunkDone' with the 4 PNG buffers.
+ *   5. Worker renders zoom-3 RGBA, cascades downscale to zoom 0, encodes 4 WebPs.
+ *   6. Worker replies 'chunkDone' with the 4 WebP buffers.
  *
  * All pixel math is identical to TerrainChunkRenderer.generateChunkRGBA()
  * and generateChunkAllZooms() — kept in sync manually.
  */
 
 import { parentPort } from 'worker_threads';
-import { encodePng, downscaleRGBA2x } from './texture-alpha-baker';
+import { encodeWebP, downscaleRGBA2x } from './texture-alpha-baker';
 import { isSpecialTile } from '../shared/land-utils';
 import {
   blitTileWithAlpha,
@@ -113,22 +113,23 @@ parentPort.on('message', (msg: WorkerInMsg) => {
 
     case 'renderChunk': {
       const { jobId, mapName, terrainType, season, chunkI, chunkJ } = msg;
-      try {
-        const pngs = renderChunkAllZooms(terrainType, season, chunkI, chunkJ, mapName);
-        if (!pngs) {
+      renderChunkAllZooms(terrainType, season, chunkI, chunkJ, mapName)
+        .then(pngs => {
+          if (!pngs) {
+            (parentPort as NonNullable<typeof parentPort>).postMessage(
+              { type: 'error', jobId, message: `Atlas '${terrainType}-${season}' or map '${mapName}' not loaded` } satisfies WorkerOutMsg
+            );
+            return;
+          }
           (parentPort as NonNullable<typeof parentPort>).postMessage(
-            { type: 'error', jobId, message: `Atlas '${terrainType}-${season}' or map '${mapName}' not loaded` } satisfies WorkerOutMsg
+            { type: 'chunkDone', jobId, pngs } satisfies WorkerOutMsg
           );
-          return;
-        }
-        (parentPort as NonNullable<typeof parentPort>).postMessage(
-          { type: 'chunkDone', jobId, pngs } satisfies WorkerOutMsg
-        );
-      } catch (err: unknown) {
-        (parentPort as NonNullable<typeof parentPort>).postMessage(
-          { type: 'error', jobId, message: String(err) } satisfies WorkerOutMsg
-        );
-      }
+        })
+        .catch((err: unknown) => {
+          (parentPort as NonNullable<typeof parentPort>).postMessage(
+            { type: 'error', jobId, message: String(err) } satisfies WorkerOutMsg
+          );
+        });
       break;
     }
   }
@@ -140,15 +141,15 @@ parentPort.on('message', (msg: WorkerInMsg) => {
 
 /**
  * Render all zoom levels for a single chunk.
- * Returns [zoom3, zoom2, zoom1, zoom0] PNG buffers, or null if data missing.
+ * Returns [zoom3, zoom2, zoom1, zoom0] WebP buffers, or null if data missing.
  */
-function renderChunkAllZooms(
+async function renderChunkAllZooms(
   terrainType: string,
   season: number,
   chunkI: number,
   chunkJ: number,
   mapName: string,
-): Buffer[] | null {
+): Promise<Buffer[] | null> {
   const atlasKey = `${terrainType}-${season}`;
   const atlas = atlasStore.get(atlasKey);
   if (!atlas) return null;
@@ -186,9 +187,9 @@ function renderChunkAllZooms(
     }
   }
 
-  // pngs[0]=zoom3, pngs[1]=zoom2, pngs[2]=zoom1, pngs[3]=zoom0
-  const pngs: Buffer[] = [];
-  pngs.push(encodePng(CHUNK_CANVAS_WIDTH, CHUNK_CANVAS_HEIGHT, pixels));
+  // buffers[0]=zoom3, buffers[1]=zoom2, buffers[2]=zoom1, buffers[3]=zoom0
+  const buffers: Buffer[] = [];
+  buffers.push(await encodeWebP(CHUNK_CANVAS_WIDTH, CHUNK_CANVAS_HEIGHT, pixels));
 
   let curPixels: Buffer = pixels;
   let curW = CHUNK_CANVAS_WIDTH;
@@ -199,8 +200,8 @@ function renderChunkAllZooms(
     curPixels = scaled.pixels;
     curW = scaled.width;
     curH = scaled.height;
-    pngs.push(encodePng(curW, curH, curPixels));
+    buffers.push(await encodeWebP(curW, curH, curPixels));
   }
 
-  return pngs;
+  return buffers;
 }

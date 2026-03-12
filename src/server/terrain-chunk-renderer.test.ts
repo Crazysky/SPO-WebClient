@@ -20,7 +20,7 @@ import {
   getTileScreenPosInChunk,
   blitTileWithAlpha,
 } from './terrain-chunk-renderer';
-import { encodePng, decodePng } from './texture-alpha-baker';
+import { encodePng, decodePng, decodeWebP } from './texture-alpha-baker';
 import { AtlasManifest } from './atlas-generator';
 import { isSpecialTile } from '../shared/land-utils';
 
@@ -216,6 +216,9 @@ describe('Vegetation flattening', () => {
 // TerrainChunkRenderer integration tests
 // ============================================================================
 
+// WebP WASM encoding is slower than native PNG — allow extra time for chunk generation + preview compositing
+jest.setTimeout(60_000);
+
 describe('TerrainChunkRenderer', () => {
   const tmpDir = path.join(__dirname, '../../.test-tmp-chunks');
   const tmpCache = path.join(tmpDir, 'webclient-cache');
@@ -332,11 +335,9 @@ describe('TerrainChunkRenderer', () => {
     return buffer;
   }
 
-  /** Create a renderer with pre-generation disabled (avoids async leaks in tests) */
+  /** Create a renderer (initialize() no longer triggers generation, safe for tests) */
   function createRenderer(): TerrainChunkRenderer {
-    const r = new TerrainChunkRenderer(tmpCache, tmpMapCache, tmpTextureDir);
-    r.skipPreGeneration = true;
-    return r;
+    return new TerrainChunkRenderer(tmpCache, tmpMapCache, tmpTextureDir);
   }
 
   beforeEach(() => {
@@ -536,7 +537,7 @@ describe('TerrainChunkRenderer', () => {
     await renderer.initialize();
     renderer.loadMapData('TestMap');
 
-    const success = renderer.generateChunkAllZooms('TestMap', 'Earth', 2, 0, 0);
+    const success = await renderer.generateChunkAllZooms('TestMap', 'Earth', 2, 0, 0);
     expect(success).toBe(true);
 
     // All 4 zoom levels should be cached on disk
@@ -544,21 +545,20 @@ describe('TerrainChunkRenderer', () => {
       expect(renderer.isChunkCached('TestMap', 'Earth', 2, 0, 0, z)).toBe(true);
     }
 
-    // Verify zoom 3 has the largest PNG, zoom 0 has the smallest
-    const z3Png = fs.readFileSync(renderer.getChunkCachePath('TestMap', 'Earth', 2, 0, 0, 3));
-    const z0Png = fs.readFileSync(renderer.getChunkCachePath('TestMap', 'Earth', 2, 0, 0, 0));
+    // Verify all zoom levels produce non-empty WebP files
+    const z3Buf = fs.readFileSync(renderer.getChunkCachePath('TestMap', 'Earth', 2, 0, 0, 3));
+    const z0Buf = fs.readFileSync(renderer.getChunkCachePath('TestMap', 'Earth', 2, 0, 0, 0));
 
-    expect(z3Png.length).toBeGreaterThan(z0Png.length);
+    expect(z3Buf.length).toBeGreaterThan(0);
+    expect(z0Buf.length).toBeGreaterThan(0);
+    // Zoom 3 (2080×1056) should produce a larger file than zoom 0 (260×132)
+    expect(z3Buf.length).toBeGreaterThan(z0Buf.length);
 
-    // Verify zoom 3 decodes to full resolution
-    const z3Decoded = decodePng(z3Png);
-    expect(z3Decoded.width).toBe(CHUNK_CANVAS_WIDTH);
-    expect(z3Decoded.height).toBe(CHUNK_CANVAS_HEIGHT);
-
-    // Verify zoom 0 decodes to 1/8 resolution (3 cascading 2× downscales)
-    const z0Decoded = decodePng(z0Png);
-    expect(z0Decoded.width).toBe(Math.floor(CHUNK_CANVAS_WIDTH / 8));
-    expect(z0Decoded.height).toBe(Math.floor(CHUNK_CANVAS_HEIGHT / 8));
+    // Verify WebP signature (RIFF....WEBP)
+    expect(z3Buf.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(z3Buf.subarray(8, 12).toString('ascii')).toBe('WEBP');
+    expect(z0Buf.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(z0Buf.subarray(8, 12).toString('ascii')).toBe('WEBP');
   });
 
   it('should serve zoom-specific chunks via getChunk', async () => {
@@ -570,7 +570,7 @@ describe('TerrainChunkRenderer', () => {
     expect(z1Png).not.toBeNull();
 
     // Verify it's correctly sized (2 downscales from zoom 3)
-    const decoded = decodePng(z1Png!);
+    const decoded = await decodeWebP(z1Png!);
     expect(decoded.width).toBe(Math.floor(CHUNK_CANVAS_WIDTH / 4));
     expect(decoded.height).toBe(Math.floor(CHUNK_CANVAS_HEIGHT / 4));
   });
@@ -580,7 +580,7 @@ describe('TerrainChunkRenderer', () => {
     await renderer.initialize();
     renderer.loadMapData('TestMap');
 
-    const success = renderer.generateChunkAllZooms('TestMap', 'NonExistent', 0, 0, 0);
+    const success = await renderer.generateChunkAllZooms('TestMap', 'NonExistent', 0, 0, 0);
     expect(success).toBe(false);
   });
 

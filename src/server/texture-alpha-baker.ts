@@ -465,6 +465,68 @@ export function downscaleRGBA2x(
 }
 
 // ============================================================================
+// WebP Encoder/Decoder (via webp-wasm — pure WASM, no native deps)
+// ============================================================================
+
+// Lazy-loaded webp-wasm module (loaded on first use, ~2 MB WASM init)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let webpModule: any = null;
+
+async function getWebpModule(): Promise<{ encode: (imageData: { data: Uint8ClampedArray; width: number; height: number }, options: Record<string, number>) => Promise<Buffer>; decode: (buffer: Uint8Array) => Promise<{ data: Uint8ClampedArray; width: number; height: number } | null> }> {
+  if (!webpModule) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    webpModule = require('webp-wasm');
+  }
+  return webpModule;
+}
+
+/**
+ * Encode RGBA pixel data as a WebP lossless file.
+ * Uses webp-wasm (Squoosh codecs compiled to WASM) — cross-platform, no native deps.
+ *
+ * @param width - Image width in pixels
+ * @param height - Image height in pixels
+ * @param rgbaPixels - RGBA pixel data (4 bytes per pixel, top-to-bottom)
+ * @returns WebP file buffer
+ */
+export async function encodeWebP(width: number, height: number, rgbaPixels: Buffer): Promise<Buffer> {
+  const webp = await getWebpModule();
+  const imageData = {
+    data: new Uint8ClampedArray(rgbaPixels.buffer, rgbaPixels.byteOffset, rgbaPixels.byteLength),
+    width,
+    height,
+  };
+  const result = await webp.encode(imageData, {
+    lossless: 1,
+    quality: 100,
+    method: 6,  // best compression (0=fast, 6=best)
+    exact: 1,   // preserve RGB values in transparent pixels
+  });
+  return Buffer.isBuffer(result) ? result : Buffer.from(result);
+}
+
+/**
+ * Decode a WebP file to raw RGBA pixel data.
+ *
+ * @param buffer - Raw WebP file data
+ * @returns Decoded image with RGBA pixels (top-to-bottom, left-to-right)
+ */
+export async function decodeWebP(buffer: Buffer): Promise<PngData> {
+  const webp = await getWebpModule();
+  // webp-wasm expects a plain Uint8Array, not a Node.js Buffer subclass
+  const input = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  const decoded = await webp.decode(input);
+  if (!decoded) {
+    throw new Error(`Failed to decode WebP image (decoder returned null, input size: ${buffer.length})`);
+  }
+  return {
+    width: decoded.width,
+    height: decoded.height,
+    pixels: Buffer.from(decoded.data.buffer, decoded.data.byteOffset, decoded.data.byteLength),
+  };
+}
+
+// ============================================================================
 // PNG Decoder (minimal, RGBA only — decodes PNGs produced by encodePng)
 // ============================================================================
 
