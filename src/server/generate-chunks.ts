@@ -14,7 +14,6 @@
 
 import { UpdateService } from './update-service';
 import { TextureExtractor } from './texture-extractor';
-import { MapDataService } from './map-data-service';
 import { TerrainChunkRenderer } from './terrain-chunk-renderer';
 
 async function main(): Promise<void> {
@@ -29,7 +28,7 @@ async function main(): Promise<void> {
     }
   }
 
-  const stepCount = skipSync ? 3 : 4;
+  const stepCount = skipSync ? 2 : 3;
   let step = 1;
 
   if (!skipSync) {
@@ -43,11 +42,6 @@ async function main(): Promise<void> {
   const textures = new TextureExtractor();
   await textures.initialize();
   console.log('[cache] Texture extraction complete.');
-
-  console.log(`[cache] Step ${step++}/${stepCount}: Loading map data...`);
-  const mapData = new MapDataService();
-  await mapData.initialize();
-  console.log('[cache] Map data ready.');
 
   const mapsDesc = targetMaps.length > 0 ? targetMaps.join(', ') : 'all maps';
   console.log(`[cache] Step ${step++}/${stepCount}: Generating chunks for ${mapsDesc}...`);
