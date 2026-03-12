@@ -1735,6 +1735,20 @@ export class IsometricMapRenderer {
   }
 
   /**
+   * Get current map name (for minimap preview URL).
+   */
+  public getMapName(): string {
+    return this.mapName;
+  }
+
+  /**
+   * Get current season (for minimap preview URL).
+   */
+  public getSeason(): number {
+    return this.terrainRenderer.getSeason();
+  }
+
+  /**
    * Get the ChunkCache instance (for awaiting viewport readiness).
    */
   public getChunkCache(): import('./chunk-cache').ChunkCache | null {

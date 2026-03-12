@@ -1,8 +1,9 @@
 /**
- * MinimapUI — Small top-down overview map with viewport indicator and click-to-navigate.
+ * MinimapUI — Isometric terrain preview minimap with click-to-navigate.
  *
- * Renders terrain (colored by land class), buildings as dots, road segments as lines,
- * and the current camera viewport as a translucent rectangle. Rotates with the main map.
+ * Fetches the server-generated terrain preview image (stitched from Z0 chunks)
+ * and draws it scaled to fill a diamond-shaped canvas. Automatically refreshes
+ * when the season changes.
  *
  * Interaction:
  *  - Click/tap inside  → re-center main camera on that map position
@@ -15,7 +16,7 @@
  * The border is the only resize affordance; no buttons are shown on the minimap.
  */
 
-import { MapBuilding, MapSegment } from '../../shared/types';
+import { getTerrainTypeForMap } from '../../shared/map-config';
 import { useUiStore } from '../store/ui-store';
 
 // ---------------------------------------------------------------------------
@@ -26,13 +27,9 @@ import { useUiStore } from '../store/ui-store';
 export interface MinimapRendererAPI {
   getCameraPosition(): { x: number; y: number };
   centerOn(x: number, y: number): void;
-  getAllBuildings(): MapBuilding[];
-  getAllSegments(): MapSegment[];
   getMapDimensions(): { width: number; height: number };
-  getVisibleTileBounds(): { minI: number; maxI: number; minJ: number; maxJ: number };
-  getZoom(): number;
-  getRotation(): number; // 0=NORTH, 1=EAST, 2=SOUTH, 3=WEST
-  getTerrainPixelData(): { pixelData: Uint8Array; width: number; height: number } | null;
+  getMapName(): string;
+  getSeason(): number;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,23 +56,6 @@ const FILTER_BASE  = 'drop-shadow(0 0 10px rgba(56,189,248,0.28)) drop-shadow(0 
 const FILTER_HOVER = 'drop-shadow(0 0 18px rgba(56,189,248,0.75)) drop-shadow(0 0 4px rgba(56,189,248,0.9))  drop-shadow(0 4px 16px rgba(0,0,0,0.80))';
 
 // ---------------------------------------------------------------------------
-// Rendering constants
-// ---------------------------------------------------------------------------
-
-/** Base canvas rotation to align isometric NW to canvas-top. */
-const ISO_BASE_ANGLE = -Math.PI / 4;
-/** Scale to fit a 45°-rotated square inside the canvas (1/√2). */
-const ISO_SCALE = Math.SQRT1_2;
-
-/** RGB per LandClass (bits 7-6 of landId): Grass, MidGrass, DryGround, Water */
-const LAND_CLASS_COLORS: readonly [number, number, number][] = [
-  [74,  116,  50],   // ZoneA — Grass
-  [110, 140,  70],   // ZoneB — MidGrass
-  [160, 130,  80],   // ZoneC — DryGround
-  [40,   90, 160],   // ZoneD — Water
-];
-
-// ---------------------------------------------------------------------------
 // MinimapUI class
 // ---------------------------------------------------------------------------
 
@@ -93,8 +73,12 @@ export class MinimapUI {
   private currentSize: number = DESKTOP_SIZE;
 
   private unsubPanel: (() => void) | null = null;
-  private terrainCanvas: HTMLCanvasElement | null = null;
-  private terrainCacheKey = '';
+
+  /** Cached terrain preview image fetched from the server. */
+  private previewImage: HTMLImageElement | null = null;
+  private previewCacheKey = '';
+  private previewLoading = false;
+  private previewObjectUrl = '';
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -135,12 +119,13 @@ export class MinimapUI {
     if (this.wrapper?.parentElement) {
       this.wrapper.parentElement.removeChild(this.wrapper);
     }
+    this.revokePreviewUrl();
     this.wrapper = null;
     this.container = null;
     this.canvas = null;
     this.ctx = null;
-    this.terrainCanvas = null;
-    this.terrainCacheKey = '';
+    this.previewImage = null;
+    this.previewCacheKey = '';
   }
 
   // ---------------------------------------------------------------------------
@@ -383,7 +368,6 @@ export class MinimapUI {
       this.canvas.width  = clamped;
       this.canvas.height = clamped;
     }
-    this.terrainCanvas = null;
     this.render();
   }
 
@@ -405,147 +389,82 @@ export class MinimapUI {
   }
 
   // ---------------------------------------------------------------------------
+  // Preview image loading
+  // ---------------------------------------------------------------------------
+
+  private revokePreviewUrl(): void {
+    if (this.previewObjectUrl) {
+      URL.revokeObjectURL(this.previewObjectUrl);
+      this.previewObjectUrl = '';
+    }
+  }
+
+  private async loadPreview(mapName: string, season: number): Promise<void> {
+    if (this.previewLoading) return;
+    this.previewLoading = true;
+
+    const terrainType = getTerrainTypeForMap(mapName);
+    const url = `/api/terrain-preview/${encodeURIComponent(mapName)}/${encodeURIComponent(terrainType)}/${season}`;
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return;
+
+      const blob = await response.blob();
+      this.revokePreviewUrl();
+      this.previewObjectUrl = URL.createObjectURL(blob);
+
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Failed to decode preview image'));
+        img.src = this.previewObjectUrl;
+      });
+
+      this.previewImage = img;
+      this.previewCacheKey = `${mapName}:${season}`;
+      this.render();
+    } catch {
+      // Preview not available — minimap shows dark background
+    } finally {
+      this.previewLoading = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   private render(): void {
     if (!this.ctx || !this.renderer) return;
 
-    const ctx  = this.ctx;
-    const dims = this.renderer.getMapDimensions();
-    if (dims.width === 0 || dims.height === 0) return;
+    const ctx = this.ctx;
+    const mapName = this.renderer.getMapName();
+    if (!mapName) return;
 
-    const rotation = this.renderer.getRotation();
-    const angle    = (rotation * Math.PI) / 2;
-    const scaleX   = this.currentSize / dims.width;
-    const scaleY   = this.currentSize / dims.height;
+    // Check if preview needs (re)loading (season change or new map)
+    const season = this.renderer.getSeason();
+    const cacheKey = `${mapName}:${season}`;
+    if (this.previewCacheKey !== cacheKey && !this.previewLoading) {
+      this.loadPreview(mapName, season);
+    }
 
     // Clear
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, this.currentSize, this.currentSize);
 
-    // Isometric rotation
-    ctx.save();
-    ctx.translate(this.currentSize / 2, this.currentSize / 2);
-    ctx.rotate(ISO_BASE_ANGLE + angle);
-    ctx.scale(ISO_SCALE, ISO_SCALE);
-    ctx.translate(-this.currentSize / 2, -this.currentSize / 2);
-    ctx.translate(0, this.currentSize);
-    ctx.scale(1, -1);
+    // Draw preview image stretched to fill canvas
+    if (this.previewImage) {
+      ctx.drawImage(this.previewImage, 0, 0, this.currentSize, this.currentSize);
+    }
 
-    this.drawTerrainBackground(ctx);
-    this.drawRoads(ctx, scaleX, scaleY);
-    this.drawBuildings(ctx, scaleX, scaleY);
-    this.drawViewport(ctx, scaleX, scaleY);
-    this.drawCameraMarker(ctx, scaleX, scaleY);
-
-    ctx.restore();
-
-    // Screen-space overlays (after rotation restore)
+    // Screen-space diamond border
     this.drawDiamondBorder(ctx);
   }
 
   // ---------------------------------------------------------------------------
   // Draw helpers
   // ---------------------------------------------------------------------------
-
-  private drawTerrainBackground(ctx: CanvasRenderingContext2D): void {
-    const terrain = this.renderer!.getTerrainPixelData();
-    if (!terrain) return;
-    const key = `${terrain.width}x${terrain.height}`;
-    if (!this.terrainCanvas || this.terrainCacheKey !== key) {
-      this.terrainCanvas = this.buildTerrainCanvas(terrain.pixelData, terrain.width, terrain.height);
-      this.terrainCacheKey = key;
-    }
-    ctx.drawImage(this.terrainCanvas, 0, 0);
-  }
-
-  private buildTerrainCanvas(pixelData: Uint8Array, mapW: number, mapH: number): HTMLCanvasElement {
-    const out = this.currentSize;
-    const canvas = document.createElement('canvas');
-    canvas.width  = out;
-    canvas.height = out;
-    const tCtx = canvas.getContext('2d')!;
-    const img   = tCtx.createImageData(out, out);
-    const data  = img.data;
-
-    for (let py = 0; py < out; py++) {
-      for (let px = 0; px < out; px++) {
-        const mx  = Math.floor((px / out) * mapW);
-        const my  = Math.floor((py / out) * mapH);
-        const lc  = (pixelData[my * mapW + mx] >> 6) & 0x03;
-        const [r, g, b] = LAND_CLASS_COLORS[lc];
-        const i   = (py * out + px) * 4;
-        data[i]   = r; data[i+1] = g; data[i+2] = b; data[i+3] = 255;
-      }
-    }
-    tCtx.putImageData(img, 0, 0);
-    return canvas;
-  }
-
-  private drawRoads(ctx: CanvasRenderingContext2D, sx: number, sy: number): void {
-    const segs = this.renderer!.getAllSegments();
-    if (!segs.length) return;
-    ctx.strokeStyle = 'rgba(203,213,225,0.50)';
-    ctx.lineWidth   = 1;
-    ctx.beginPath();
-    for (const s of segs) {
-      ctx.moveTo(s.x1 * sx, s.y1 * sy);
-      ctx.lineTo(s.x2 * sx, s.y2 * sy);
-    }
-    ctx.stroke();
-  }
-
-  private drawBuildings(ctx: CanvasRenderingContext2D, sx: number, sy: number): void {
-    const buildings = this.renderer!.getAllBuildings();
-    if (!buildings.length) return;
-    const dot = Math.max(2, Math.min(sx, sy) * 2);
-    for (const b of buildings) {
-      ctx.fillStyle = b.alert ? '#f87171' : '#4ade80';
-      ctx.fillRect(b.x * sx - dot / 2, b.y * sy - dot / 2, dot, dot);
-    }
-  }
-
-  private drawViewport(ctx: CanvasRenderingContext2D, sx: number, sy: number): void {
-    const b  = this.renderer!.getVisibleTileBounds();
-    const x1 = b.minJ * sx, y1 = b.minI * sy;
-    const x2 = b.maxJ * sx, y2 = b.maxI * sy;
-    const w  = x2 - x1, h = y2 - y1;
-
-    ctx.fillStyle = 'rgba(56,189,248,0.10)';
-    ctx.fillRect(x1, y1, w, h);
-
-    ctx.strokeStyle = 'rgba(56,189,248,0.90)';
-    ctx.lineWidth   = 1.5;
-    ctx.strokeRect(x1, y1, w, h);
-
-    const tick = 4;
-    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-    ctx.lineWidth   = 1;
-    ctx.beginPath();
-    ctx.moveTo(x1, y1 + tick); ctx.lineTo(x1, y1); ctx.lineTo(x1 + tick, y1);
-    ctx.moveTo(x2 - tick, y1); ctx.lineTo(x2, y1); ctx.lineTo(x2, y1 + tick);
-    ctx.moveTo(x2, y2 - tick); ctx.lineTo(x2, y2); ctx.lineTo(x2 - tick, y2);
-    ctx.moveTo(x1 + tick, y2); ctx.lineTo(x1, y2); ctx.lineTo(x1, y2 - tick);
-    ctx.stroke();
-  }
-
-  private drawCameraMarker(ctx: CanvasRenderingContext2D, sx: number, sy: number): void {
-    const cam = this.renderer!.getCameraPosition();
-    const px  = cam.x * sx, py = cam.y * sy, r = 5;
-    ctx.save();
-    ctx.strokeStyle = 'rgba(251,191,36,0.9)';
-    ctx.lineWidth   = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(px - r, py); ctx.lineTo(px + r, py);
-    ctx.moveTo(px, py - r); ctx.lineTo(px, py + r);
-    ctx.stroke();
-    ctx.fillStyle = '#fbbf24';
-    ctx.beginPath();
-    ctx.arc(px, py, 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
 
   /**
    * Diamond border drawn in screen space.
@@ -616,19 +535,9 @@ export class MinimapUI {
     const dims = this.renderer.getMapDimensions();
     if (dims.width === 0 || dims.height === 0) return;
 
-    const totalAngle = ISO_BASE_ANGLE + (this.renderer.getRotation() * Math.PI) / 2;
-    const cx  = this.currentSize / 2;
-    const cy  = this.currentSize / 2;
-    const dx  = pixelX - cx;
-    const dy  = pixelY - cy;
-
-    const cos = Math.cos(-totalAngle), sin = Math.sin(-totalAngle);
-    const rx  = cx + (dx * cos - dy * sin) / ISO_SCALE;
-    const ry  = cy + (dx * sin + dy * cos) / ISO_SCALE;
-
     this.renderer.centerOn(
-      Math.max(0, Math.min(dims.width  - 1, Math.round((rx / this.currentSize) * dims.width))),
-      Math.max(0, Math.min(dims.height - 1, Math.round(((this.currentSize - ry) / this.currentSize) * dims.height))),
+      Math.max(0, Math.min(dims.width  - 1, Math.round((pixelX / this.currentSize) * dims.width))),
+      Math.max(0, Math.min(dims.height - 1, Math.round((pixelY / this.currentSize) * dims.height))),
     );
   }
 }
