@@ -335,9 +335,11 @@ describe('TerrainChunkRenderer', () => {
     return buffer;
   }
 
-  /** Create a renderer (initialize() no longer triggers generation, safe for tests) */
+  /** Create a renderer with pre-generation disabled (avoids async leaks in tests) */
   function createRenderer(): TerrainChunkRenderer {
-    return new TerrainChunkRenderer(tmpCache, tmpMapCache, tmpTextureDir);
+    const r = new TerrainChunkRenderer(tmpCache, tmpMapCache, tmpTextureDir);
+    r.skipPreGeneration = true;
+    return r;
   }
 
   beforeEach(() => {

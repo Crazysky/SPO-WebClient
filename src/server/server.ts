@@ -14,7 +14,7 @@ import { SearchMenuService } from './search-menu-service';
 import { UpdateService } from './update-service';
 import { MapDataService } from './map-data-service';
 import { TextureExtractor } from './texture-extractor';
-import { TerrainChunkRenderer, type MapGenProgress } from './terrain-chunk-renderer';
+import { TerrainChunkRenderer } from './terrain-chunk-renderer';
 import { serviceRegistry, setupGracefulShutdown } from './service-registry';
 import {
   WsMessageType,
@@ -25,7 +25,6 @@ import {
   type WsReqSwitchCompany,
   type WsRespError,
   type WsRespCapitolCoords,
-  type WsEventChunkGenProgress,
 } from '../shared/types';
 import { toErrorMessage } from '../shared/error-utils';
 import { wsHandlerRegistry } from './ws-handlers';
@@ -1084,15 +1083,6 @@ wss.on('connection', (ws: WebSocket) => {
         };
         // Track for GM chat broadcast
         connectedClients.set(ws, loginMsg.username);
-
-        // Trigger on-demand chunk generation for the world the user is entering
-        try {
-          terrainChunkRenderer().generateMapChunks(loginMsg.worldName).catch((err: unknown) => {
-            console.error(`[Gateway] Chunk generation error for ${loginMsg.worldName}:`, toErrorMessage(err));
-          });
-        } catch (_: unknown) {
-          // Service not ready yet, skip
-        }
       }
 
       // Capture company selection
