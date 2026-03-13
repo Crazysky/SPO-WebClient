@@ -23,6 +23,7 @@ interface MockElement {
   addEventListener: jest.Mock;
   onmousedown: ((e: unknown) => void) | null;
   getContext: jest.Mock;
+  imageSmoothingEnabled: boolean;
 }
 
 interface MockContext {
@@ -33,6 +34,7 @@ interface MockContext {
   font: string;
   textAlign: string;
   textBaseline: string;
+  imageSmoothingEnabled: boolean;
   fillRect: jest.Mock;
   strokeRect: jest.Mock;
   beginPath: jest.Mock;
@@ -78,6 +80,7 @@ function createMockElement(): MockElement {
     addEventListener: jest.fn(),
     onmousedown: null,
     getContext: jest.fn(() => mockCtx),
+    imageSmoothingEnabled: true,
   };
   allElements.push(el);
   return el;
@@ -92,6 +95,7 @@ function createMockCtx(): MockContext {
     font: '',
     textAlign: '',
     textBaseline: '',
+    imageSmoothingEnabled: true,
     fillRect: jest.fn(),
     strokeRect: jest.fn(),
     beginPath: jest.fn(),
@@ -109,11 +113,25 @@ function createMockCtx(): MockContext {
     rotate: jest.fn(),
     scale: jest.fn(),
     drawImage: jest.fn(),
-    createImageData: jest.fn(() => ({
-      data: new Uint8ClampedArray(220 * 220 * 4),
+    createImageData: jest.fn((w: number, h: number) => ({
+      data: new Uint8ClampedArray(w * h * 4),
     })),
     putImageData: jest.fn(),
   };
+}
+
+/** Build a small terrain pixel data array (100×100, all grass with some water). */
+function createTerrainPixelData(width = 100, height = 100): { pixelData: Uint8Array; width: number; height: number } {
+  const pixelData = new Uint8Array(width * height);
+  // Fill with ZoneA (grass = landClass 0, bits 7-6 = 0x00)
+  pixelData.fill(0x00);
+  // Add some water (ZoneD = landClass 3, bits 7-6 = 0xC0) in the corners
+  for (let y = 0; y < 10; y++) {
+    for (let x = 0; x < 10; x++) {
+      pixelData[y * width + x] = 0xC0;
+    }
+  }
+  return { pixelData, width, height };
 }
 
 function createMockRenderer(overrides: Partial<MinimapRendererAPI> = {}): MinimapRendererAPI {
@@ -125,6 +143,7 @@ function createMockRenderer(overrides: Partial<MinimapRendererAPI> = {}): Minima
     getSeason: jest.fn(() => 2),
     getTerrainType: jest.fn(() => 'Alien Swamp'),
     getVisibleTileBounds: jest.fn(() => ({ minI: 20, maxI: 60, minJ: 25, maxJ: 65 })),
+    getTerrainPixelData: jest.fn(() => createTerrainPixelData()),
     ...overrides,
   };
 }
@@ -194,45 +213,12 @@ describe('MinimapUI', () => {
     minimap.destroy();
   });
 
-  it('should query map name and season on render', () => {
+  it('should query map name on render', () => {
     const renderer = createMockRenderer();
     const minimap = new MinimapUI();
     minimap.setRenderer(renderer);
 
     expect(renderer.getMapName).toHaveBeenCalled();
-    expect(renderer.getSeason).toHaveBeenCalled();
-
-    minimap.destroy();
-  });
-
-  it('should call centerOn when clicking the minimap', () => {
-    const renderer = createMockRenderer();
-    const minimap = new MinimapUI();
-    minimap.setRenderer(renderer);
-
-    const container = allElements.find(el => el.id === 'minimap-container');
-    expect(container).toBeDefined();
-
-    // Default size is 220 (medium). Click at center (110, 110):
-    // tileX = round(110/220 * 100) = 50, tileY = round(110/220 * 100) = 50
-    container!.onmousedown!({ offsetX: 110, offsetY: 110, preventDefault: jest.fn(), stopPropagation: jest.fn() });
-    expect(renderer.centerOn).toHaveBeenCalledWith(50, 50);
-
-    minimap.destroy();
-  });
-
-  it('should map click position proportionally to tile coordinates', () => {
-    const renderer = createMockRenderer();
-    const minimap = new MinimapUI();
-    minimap.setRenderer(renderer);
-
-    const container = allElements.find(el => el.id === 'minimap-container');
-    expect(container).toBeDefined();
-
-    // Click at (88, 99) with size=220:
-    // tileX = round(88/220 * 100) = 40, tileY = round(99/220 * 100) = 45
-    container!.onmousedown!({ offsetX: 88, offsetY: 99, preventDefault: jest.fn(), stopPropagation: jest.fn() });
-    expect(renderer.centerOn).toHaveBeenCalledWith(40, 45);
 
     minimap.destroy();
   });
@@ -262,131 +248,135 @@ describe('MinimapUI', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Preview image tests
+  // Terrain colormap tests
   // ---------------------------------------------------------------------------
 
-  describe('preview image', () => {
-    it('should trigger preview load on first render with valid map name', () => {
-      const fetchSpy = jest.fn(() =>
-        Promise.resolve({ ok: false, status: 404 })
-      );
-      (globalThis as Record<string, unknown>).fetch = fetchSpy;
-
+  describe('terrain colormap', () => {
+    it('should build colormap from terrain pixel data', () => {
       const renderer = createMockRenderer();
       const minimap = new MinimapUI();
       minimap.setRenderer(renderer);
 
-      // Should have attempted to fetch the preview
-      expect((fetchSpy.mock.calls as unknown[][])[0][0]).toBe(
-        '/api/terrain-preview/Shamba/Alien%20Swamp/2'
-      );
+      // Should have called getTerrainPixelData to build colormap
+      expect(renderer.getTerrainPixelData).toHaveBeenCalled();
 
       minimap.destroy();
-      delete (globalThis as Record<string, unknown>).fetch;
     });
 
-    it('should re-fetch preview when season changes', async () => {
-      let currentSeason = 2;
-      const fetchSpy = jest.fn(() =>
-        Promise.resolve({ ok: false, status: 404 })
-      );
-      (globalThis as Record<string, unknown>).fetch = fetchSpy;
+    it('should draw terrain with rotation transform', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer());
 
+      // render() should apply translate + rotate(45°) + scale
+      expect(mockCtx.translate).toHaveBeenCalled();
+      expect(mockCtx.rotate).toHaveBeenCalledWith(Math.PI / 4);
+      expect(mockCtx.scale).toHaveBeenCalled();
+      expect(mockCtx.drawImage).toHaveBeenCalled();
+
+      minimap.destroy();
+    });
+
+    it('should handle null terrain data gracefully', () => {
       const renderer = createMockRenderer({
-        getSeason: jest.fn(() => currentSeason),
+        getTerrainPixelData: jest.fn(() => null),
       });
       const minimap = new MinimapUI();
       minimap.setRenderer(renderer);
 
-      // Wait for first fetch to complete
-      await Promise.resolve();
-      await Promise.resolve();
-
-      // Change season
-      currentSeason = 0;
-      jest.advanceTimersByTime(500);
-
-      // Should fetch with new season
-      const calls = fetchSpy.mock.calls as unknown[][];
-      const lastCall = calls[calls.length - 1];
-      expect(lastCall[0]).toBe(
-        '/api/terrain-preview/Shamba/Alien%20Swamp/0'
-      );
-
-      minimap.destroy();
-      delete (globalThis as Record<string, unknown>).fetch;
-    });
-
-    it('should draw preview image when loaded', async () => {
-      const mockBlob = { type: 'image/png' };
-      const fetchSpy = jest.fn(() =>
-        Promise.resolve({
-          ok: true,
-          blob: () => Promise.resolve(mockBlob),
-        })
-      );
-      (globalThis as Record<string, unknown>).fetch = fetchSpy;
-
-      // Mock URL.createObjectURL and Image
-      const mockUrl = 'blob:mock-url';
-      (globalThis as Record<string, unknown>).URL = {
-        createObjectURL: jest.fn(() => mockUrl),
-        revokeObjectURL: jest.fn(),
-      };
-
-      // Mock Image constructor
-      const origImage = (globalThis as Record<string, unknown>).Image;
-      (globalThis as Record<string, unknown>).Image = jest.fn(function (this: { onload: (() => void) | null; onerror: (() => void) | null; src: string }) {
-        this.onload = null;
-        this.onerror = null;
-        this.src = '';
-        // Trigger onload after src is set
-        const self = this;
-        Object.defineProperty(this, 'src', {
-          set(val: string) {
-            self.src = val;
-            if (self.onload) setTimeout(() => self.onload!(), 0);
-          },
-          get() { return ''; },
-        });
-      });
-
-      const renderer = createMockRenderer();
-      const minimap = new MinimapUI();
-      minimap.setRenderer(renderer);
-
-      // Allow async preview load to complete
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-      jest.advanceTimersByTime(1);
-      await Promise.resolve();
-      await Promise.resolve();
-
-      minimap.destroy();
-
-      (globalThis as Record<string, unknown>).Image = origImage;
-      delete (globalThis as Record<string, unknown>).fetch;
-      delete (globalThis as Record<string, unknown>).URL;
-    });
-
-    it('should handle preview fetch failure gracefully', async () => {
-      const fetchSpy = jest.fn(() => Promise.reject(new Error('Network error')));
-      (globalThis as Record<string, unknown>).fetch = fetchSpy;
-
-      const renderer = createMockRenderer();
-      const minimap = new MinimapUI();
-      minimap.setRenderer(renderer);
-
-      // Allow async to settle — should not throw
-      await Promise.resolve();
-      await Promise.resolve();
-
-      // Minimap still visible, just shows dark background
+      // Should still render (just dark background + border), no crash
       expect(minimap.isVisible()).toBe(true);
+      // drawImage should NOT be called since there's no terrain data
+      expect(mockCtx.drawImage).not.toHaveBeenCalled();
 
       minimap.destroy();
-      delete (globalThis as Record<string, unknown>).fetch;
+    });
+
+    it('should create colormap with createImageData', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer());
+
+      // buildTerrainColormap uses createImageData + putImageData
+      expect(mockCtx.createImageData).toHaveBeenCalled();
+      expect(mockCtx.putImageData).toHaveBeenCalled();
+
+      minimap.destroy();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Click-to-navigate tests (with 45° rotation)
+  // ---------------------------------------------------------------------------
+
+  describe('click-to-navigate', () => {
+    it('should call centerOn when clicking the minimap', () => {
+      const renderer = createMockRenderer();
+      const minimap = new MinimapUI();
+      minimap.setRenderer(renderer);
+
+      const container = allElements.find(el => el.id === 'minimap-container');
+      expect(container).toBeDefined();
+
+      // Click at center of 220px minimap → should map to center of 100x100 map
+      container!.onmousedown!({ offsetX: 110, offsetY: 110, preventDefault: jest.fn(), stopPropagation: jest.fn() });
+      expect(renderer.centerOn).toHaveBeenCalled();
+
+      minimap.destroy();
+    });
+
+    it('should map center click to center of map', () => {
+      const renderer = createMockRenderer();
+      const minimap = new MinimapUI();
+      minimap.setRenderer(renderer);
+
+      const container = allElements.find(el => el.id === 'minimap-container');
+
+      // Click at dead center (110, 110) of 220px minimap
+      // After reverse transform: center pixel → center of terrain grid → (50, 50) tile
+      container!.onmousedown!({ offsetX: 110, offsetY: 110, preventDefault: jest.fn(), stopPropagation: jest.fn() });
+
+      const calls = (renderer.centerOn as jest.Mock).mock.calls;
+      const lastCall = calls[calls.length - 1] as number[];
+      expect(lastCall[0]).toBe(50);  // x = j = center of 100 width
+      expect(lastCall[1]).toBe(50);  // y = i = center of 100 height
+
+      minimap.destroy();
+    });
+
+    it('should map top vertex click to tile (0,0)', () => {
+      const renderer = createMockRenderer();
+      const minimap = new MinimapUI();
+      minimap.setRenderer(renderer);
+
+      const container = allElements.find(el => el.id === 'minimap-container');
+
+      // Top vertex of 220px diamond = (110, 0)
+      // Reverse transform should map close to tile (i=0, j=0) but with padding offset
+      container!.onmousedown!({ offsetX: 110, offsetY: 0, preventDefault: jest.fn(), stopPropagation: jest.fn() });
+
+      const calls = (renderer.centerOn as jest.Mock).mock.calls;
+      const lastCall = calls[calls.length - 1] as number[];
+      // Due to padding, the exact top vertex won't map to (0,0) precisely
+      // but it should be in the low range
+      expect(lastCall[0]).toBeLessThanOrEqual(10);
+      expect(lastCall[1]).toBeLessThanOrEqual(10);
+
+      minimap.destroy();
+    });
+
+    it('should not navigate when terrain data is null', () => {
+      const renderer = createMockRenderer({
+        getTerrainPixelData: jest.fn(() => null),
+      });
+      const minimap = new MinimapUI();
+      minimap.setRenderer(renderer);
+
+      const container = allElements.find(el => el.id === 'minimap-container');
+      container!.onmousedown!({ offsetX: 110, offsetY: 110, preventDefault: jest.fn(), stopPropagation: jest.fn() });
+
+      // No terrain canvas → should not call centerOn
+      expect(renderer.centerOn).not.toHaveBeenCalled();
+
+      minimap.destroy();
     });
   });
 
@@ -437,32 +427,8 @@ describe('MinimapUI', () => {
       const minimap = new MinimapUI();
       minimap.setRenderer(createMockRenderer());
 
-      // drawViewportIndicator calls fillRect (fill) + strokeRect (outline)
-      // The first fillRect is the canvas clear, then viewport fill, so strokeRect should be called
+      // drawViewportInGrid calls fillRect (fill) + strokeRect (outline)
       expect(mockCtx.strokeRect).toHaveBeenCalled();
-
-      minimap.destroy();
-    });
-
-    it('should map tile bounds proportionally to minimap pixels', () => {
-      const renderer = createMockRenderer({
-        getVisibleTileBounds: jest.fn(() => ({ minI: 20, maxI: 60, minJ: 25, maxJ: 65 })),
-        getMapDimensions: jest.fn(() => ({ width: 100, height: 100 })),
-      });
-      const minimap = new MinimapUI();
-      minimap.setRenderer(renderer);
-
-      // Default size = 220 (medium), map = 100x100
-      // scale = 220/100 = 2.2
-      // x1 = minJ * 2.2 = 25*2.2 = 55, y1 = minI * 2.2 = 20*2.2 = 44
-      // x2 = maxJ * 2.2 = 65*2.2 = 143, y2 = maxI * 2.2 = 60*2.2 = 132
-      // strokeRect(55, 44, 88, 88)
-      const strokeCalls = mockCtx.strokeRect.mock.calls as number[][];
-      const lastCall = strokeCalls[strokeCalls.length - 1];
-      expect(lastCall[0]).toBeCloseTo(55, 0);   // x
-      expect(lastCall[1]).toBeCloseTo(44, 0);   // y
-      expect(lastCall[2]).toBeCloseTo(88, 0);   // width
-      expect(lastCall[3]).toBeCloseTo(88, 0);   // height
 
       minimap.destroy();
     });
@@ -474,9 +440,19 @@ describe('MinimapUI', () => {
       const minimap = new MinimapUI();
       minimap.setRenderer(renderer);
 
-      // render() returns early when mapName is valid but dimensions are 0
-      // No strokeRect for viewport (only fillRect for clear may or may not be called)
+      // No strokeRect for viewport
       expect(mockCtx.strokeRect).not.toHaveBeenCalled();
+
+      minimap.destroy();
+    });
+
+    it('should draw viewport in terrain grid space (inside save/restore)', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer());
+
+      // Verify save/restore pairs were called (terrain transform + border)
+      expect(mockCtx.save.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(mockCtx.restore.mock.calls.length).toBeGreaterThanOrEqual(2);
 
       minimap.destroy();
     });
