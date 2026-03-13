@@ -34,6 +34,8 @@ export interface TycoonStats {
   failureLevel?: number;
 }
 
+export type MinimapSize = 'small' | 'medium' | 'large';
+
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 
 export type ServiceStatus = 'pending' | 'running' | 'complete' | 'failed';
@@ -52,19 +54,13 @@ export interface MapLoadingState {
   message: string;
 }
 
-export interface ChunkLoadingState {
-  /** True while there are chunks still rendering in the current session */
-  active: boolean;
-  done: number;
-  total: number;
-}
-
 export interface GameSettings {
   hideVegetationOnMove: boolean;
   vehicleAnimations: boolean;
   soundEnabled: boolean;
   soundVolume: number;
   debugOverlay: boolean;
+  minimapSize: MinimapSize;
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -73,6 +69,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   soundEnabled: true,
   soundVolume: 0.5,
   debugOverlay: false,
+  minimapSize: 'medium',
 };
 
 /* ---- Store ---- */
@@ -135,9 +132,6 @@ interface GameState {
   // Map loading progress (company select → playable)
   mapLoading: MapLoadingState;
 
-  // Chunk loading progress (in-game terrain rendering sessions)
-  chunkLoading: ChunkLoadingState;
-
   // Settings
   settings: GameSettings;
 
@@ -170,7 +164,6 @@ interface GameState {
   setCapitolCoords: (coords: { x: number; y: number } | null) => void;
   setServerStartup: (partial: Partial<ServerStartupState>) => void;
   setMapLoading: (partial: Partial<MapLoadingState>) => void;
-  setChunkLoading: (state: ChunkLoadingState) => void;
   updateSettings: (partial: Partial<GameSettings>) => void;
   enterServerSwitch: () => void;
   cancelServerSwitch: () => void;
@@ -212,8 +205,6 @@ export const useGameStore = create<GameState>((set) => ({
   settings: { ...DEFAULT_SETTINGS },
   serverStartup: { ready: false, progress: 0, message: 'Connecting...', services: [] },
   mapLoading: { active: false, progress: 0, message: '' },
-  chunkLoading: { active: false, done: 0, total: 0 },
-
   // Actions
   setStatus: (status) => set({ status }),
   setCredentials: (username) => set({ username }),
@@ -252,8 +243,6 @@ export const useGameStore = create<GameState>((set) => ({
 
   setMapLoading: (partial) =>
     set((state) => ({ mapLoading: { ...state.mapLoading, ...partial } })),
-
-  setChunkLoading: (state) => set({ chunkLoading: state }),
 
   updateSettings: (partial) =>
     set((state) => ({

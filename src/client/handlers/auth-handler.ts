@@ -242,7 +242,6 @@ export async function selectCompanyAndStart(ctx: ClientHandlerContext, companyId
             progress: pct,
             message: `Loading terrain: ${done}/${total} chunks`,
           });
-          ClientBridge.setChunkLoading(done, total);
         });
       }
     }
