@@ -23,6 +23,10 @@ import { isSpecialTile } from '../../shared/land-utils';
 
 // Chunk configuration
 export const CHUNK_SIZE = 32; // tiles per chunk dimension (32×32 = 1024 tiles per chunk)
+/** Extra tiles rendered on each side of a chunk to eliminate seam artifacts at boundaries */
+export const CHUNK_PADDING = 1;
+/** Cooldown before retrying server chunks after a 404 (allows server atlas to finish loading) */
+const SERVER_RETRY_COOLDOWN_MS = 30_000;
 /**
  * Maximum cached chunks per zoom level.
  * Sized so visible chunks + preload buffer fit without LRU thrashing.
@@ -46,25 +50,25 @@ const FLAT_MASK = 0xC0;
 const isOffscreenCanvasSupported = typeof OffscreenCanvas !== 'undefined';
 
 /**
- * Calculate chunk canvas dimensions for isometric rendering
- * Based on seamless tiling formula where tiles overlap by half their dimensions
- * Flat-only: no extra height needed for tall textures
- *
- * Height: tile (0,0) at y = u*chunkSize extends to y = u*(chunkSize+1),
- * so canvas must be at least u*(chunkSize+1) = u*chunkSize + tileHeight.
+ * Calculate chunk canvas dimensions for isometric rendering.
+ * Includes CHUNK_PADDING extra tiles on each side to eliminate seam artifacts.
+ * Based on seamless tiling formula where tiles overlap by half their dimensions.
  */
 function calculateChunkCanvasDimensions(chunkSize: number, config: ZoomConfig): { width: number; height: number } {
   const u = config.u;
+  const paddedSize = chunkSize + 2 * CHUNK_PADDING;
 
-  const width = u * (2 * chunkSize - 1) + config.tileWidth;
-  const height = u * chunkSize + config.tileHeight;
+  const width = u * (2 * paddedSize - 1) + config.tileWidth;
+  const height = u * paddedSize + config.tileHeight;
 
   return { width, height };
 }
 
 /**
- * Calculate the screen offset for a tile within a chunk's local canvas
- * Uses seamless tiling formula where tiles overlap by half their dimensions
+ * Calculate the screen offset for a tile within a chunk's local canvas.
+ * Uses seamless tiling formula where tiles overlap by half their dimensions.
+ * localI/localJ are relative to the chunk's base tile (can be negative for padding tiles).
+ * The reference origin uses paddedSize = chunkSize + CHUNK_PADDING to center content in the padded canvas.
  */
 function getTileScreenPosInChunk(
   localI: number,
@@ -73,9 +77,10 @@ function getTileScreenPosInChunk(
   config: ZoomConfig
 ): Point {
   const u = config.u;
+  const ref = chunkSize + CHUNK_PADDING;
 
-  const x = u * (chunkSize - localI + localJ);
-  const y = (u / 2) * ((chunkSize - localI) + (chunkSize - localJ));
+  const x = u * (ref - localI + localJ);
+  const y = (u / 2) * ((ref - localI) + (ref - localJ));
 
   return { x, y };
 }
@@ -142,7 +147,7 @@ export class ChunkCache {
   private terrainType: string = '';
   private season: number = 2; // Default to Summer
   private useServerChunks: boolean = true;
-  private serverChunkFailed: boolean = false; // Set to true after first 404, disables server for session
+  private serverChunkFailedAt: number = 0; // Timestamp of last 404 — retries after SERVER_RETRY_COOLDOWN_MS
 
   // Rendering queue
   private renderQueue: ChunkRenderRequest[] = [];
@@ -210,7 +215,7 @@ export class ChunkCache {
     this.mapName = mapName;
     this.terrainType = terrainType;
     this.season = season;
-    this.serverChunkFailed = false; // Reset on map change
+    this.serverChunkFailedAt = 0; // Reset on map change
     if (changed) {
       console.log(`[ChunkCache] Map info set: ${mapName} / ${terrainType} / season=${season}, server chunks enabled`);
     }
@@ -440,7 +445,8 @@ export class ChunkCache {
    */
   private async renderChunk(chunkI: number, chunkJ: number, zoomLevel: number): Promise<void> {
     // Try server chunk first (only if map info is set and server hasn't failed)
-    if (this.useServerChunks && !this.serverChunkFailed && this.mapName) {
+    if (this.useServerChunks && this.mapName &&
+        (this.serverChunkFailedAt === 0 || Date.now() - this.serverChunkFailedAt >= SERVER_RETRY_COOLDOWN_MS)) {
       const success = await this.fetchServerChunk(chunkI, chunkJ, zoomLevel);
       if (success) return;
     }
@@ -468,8 +474,8 @@ export class ChunkCache {
       if (!response.ok) {
         if (response.status === 404) {
           // Server doesn't have chunks — disable for this session
-          console.warn('[ChunkCache] Server chunks not available, falling back to local rendering');
-          this.serverChunkFailed = true;
+          console.warn('[ChunkCache] Server chunks not available, will retry after cooldown');
+          this.serverChunkFailedAt = Date.now();
         }
         return false;
       }
@@ -481,7 +487,6 @@ export class ChunkCache {
 
       // Get target dimensions for this zoom level
       const config = ZOOM_LEVELS[zoomLevel];
-      const dims = calculateChunkCanvasDimensions(CHUNK_SIZE, config);
       const ctx = entry.canvas.getContext('2d');
       if (!ctx) {
         bitmap.close();
@@ -490,8 +495,14 @@ export class ChunkCache {
 
       ctx.clearRect(0, 0, entry.canvas.width, entry.canvas.height);
 
-      // Server provides correctly-sized chunk for each zoom level
-      ctx.drawImage(bitmap, 0, 0);
+      // Server chunks are rendered without padding — offset into the padded canvas
+      // so the content area aligns with locally-rendered chunks.
+      // Padding offset: the padded canvas reference is (chunkSize + pad), unpadded is chunkSize.
+      // Tile (0,0) in padded canvas: x = u*(chunkSize+pad), y = u*(chunkSize+pad)
+      // Tile (0,0) in unpadded canvas: x = u*chunkSize, y = u*chunkSize
+      // Offset = pad * u in both dimensions
+      const padOffset = CHUNK_PADDING * config.u;
+      ctx.drawImage(bitmap, padOffset, padOffset);
 
       const tDraw = performance.now();
       bitmap.close();
@@ -546,11 +557,13 @@ export class ChunkCache {
     // Clear canvas
     ctx.clearRect(0, 0, entry.canvas.width, entry.canvas.height);
 
-    // Calculate tile range for this chunk
-    const startI = chunkI * CHUNK_SIZE;
-    const startJ = chunkJ * CHUNK_SIZE;
-    const endI = Math.min(startI + CHUNK_SIZE, this.mapHeight);
-    const endJ = Math.min(startJ + CHUNK_SIZE, this.mapWidth);
+    // Calculate tile range for this chunk (with CHUNK_PADDING extra tiles on each side)
+    const baseI = chunkI * CHUNK_SIZE;
+    const baseJ = chunkJ * CHUNK_SIZE;
+    const startI = Math.max(0, baseI - CHUNK_PADDING);
+    const startJ = Math.max(0, baseJ - CHUNK_PADDING);
+    const endI = Math.min(baseI + CHUNK_SIZE + CHUNK_PADDING, this.mapHeight);
+    const endJ = Math.min(baseJ + CHUNK_SIZE + CHUNK_PADDING, this.mapWidth);
 
     const halfWidth = config.tileWidth / 2;
     const halfHeight = config.tileHeight / 2;
@@ -567,8 +580,8 @@ export class ChunkCache {
           const textureId = this.flattenTextureId(this.getTextureId(j, i));
 
           const rect = atlas.getTileRect(textureId);
-          const localI = i - startI;
-          const localJ = j - startJ;
+          const localI = i - baseI;
+          const localJ = j - baseJ;
           const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
           const x = Math.round(screenPos.x);
           const y = Math.round(screenPos.y);
@@ -612,8 +625,8 @@ export class ChunkCache {
           const textureId = this.flattenTextureId(this.getTextureId(j, i));
           const texture = this.textureCache.getTextureSync(textureId);
 
-          const localI = i - startI;
-          const localJ = j - startJ;
+          const localI = i - baseI;
+          const localJ = j - baseJ;
           const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
           const x = Math.round(screenPos.x);
           const y = Math.round(screenPos.y);
