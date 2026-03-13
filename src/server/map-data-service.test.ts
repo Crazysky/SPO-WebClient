@@ -169,6 +169,7 @@ describe('MapDataService', () => {
       expect(metadata.width).toBe(2000);
       expect(metadata.height).toBe(2000);
       expect(metadata.groundHref).toBe('Earth');
+      expect(metadata.terrainType).toBe('Earth'); // default when not specified
       expect(metadata.clusters).toEqual(['PGI', 'Dissidents']);
       expect(metadata.towns).toHaveLength(1);
       expect(metadata.towns[0]).toEqual({
@@ -177,6 +178,51 @@ describe('MapDataService', () => {
         x: 994,
         y: 493,
       });
+    });
+
+    it('should parse TerrainType from [Ground] section', async () => {
+      const mapName = 'Shamba';
+      const mapDir = path.join(tempDir, 'Maps', mapName);
+      fs.mkdirSync(mapDir, { recursive: true });
+
+      const iniContent = [
+        '[General]',
+        'Name=Shamba',
+        'Width=2000',
+        'Height=2000',
+        '',
+        '[Ground]',
+        'href=ground\\Shamba.bmp',
+        'TerrainType=Alien Swamp',
+      ].join('\n');
+
+      fs.writeFileSync(path.join(mapDir, `${mapName}.ini`), iniContent);
+
+      const metadata = await service.getMapMetadata(mapName);
+
+      expect(metadata.terrainType).toBe('Alien Swamp');
+    });
+
+    it('should default terrainType to Earth when not in INI', async () => {
+      const mapName = 'Zorcon';
+      const mapDir = path.join(tempDir, 'Maps', mapName);
+      fs.mkdirSync(mapDir, { recursive: true });
+
+      const iniContent = [
+        '[General]',
+        'Name=Zorcon',
+        'Width=1000',
+        'Height=1000',
+        '',
+        '[Ground]',
+        'href=ground\\Zorcon.bmp',
+      ].join('\n');
+
+      fs.writeFileSync(path.join(mapDir, `${mapName}.ini`), iniContent);
+
+      const metadata = await service.getMapMetadata(mapName);
+
+      expect(metadata.terrainType).toBe('Earth');
     });
   });
 

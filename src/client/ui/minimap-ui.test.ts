@@ -121,6 +121,7 @@ function createMockRenderer(overrides: Partial<MinimapRendererAPI> = {}): Minima
     getMapDimensions: jest.fn(() => ({ width: 100, height: 100 })),
     getMapName: jest.fn(() => 'Shamba'),
     getSeason: jest.fn(() => 2),
+    getTerrainType: jest.fn(() => 'Alien Swamp'),
     ...overrides,
   };
 }

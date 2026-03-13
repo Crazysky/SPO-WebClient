@@ -104,6 +104,7 @@ export class MapDataService implements Service {
       width: 2000,
       height: 2000,
       groundHref: '',
+      terrainType: 'Earth',
       towns: [],
       clusters: []
     };
@@ -139,6 +140,7 @@ export class MapDataService implements Service {
       }
       else if (currentSection === 'Ground') {
         if (key === 'href') metadata.groundHref = value;
+        else if (key === 'TerrainType') metadata.terrainType = value;
       }
       else if (currentSection === 'Clusters') {
         // Cluster0 = Moab, Cluster1 = Dissidents, ...

@@ -25,7 +25,8 @@ import { Worker } from 'worker_threads';
 import { decodePng, decodeWebP, decodeBmpIndices, encodePng, encodeWebP, downscaleRGBA2x, PngData } from './texture-alpha-baker';
 import { AtlasManifest, TileEntry } from './atlas-generator';
 import { isSpecialTile } from '../shared/land-utils';
-import { Season, SEASON_NAMES, getTerrainTypeForMap } from '../shared/map-config';
+import { Season, SEASON_NAMES } from '../shared/map-config';
+import { MapDataService } from './map-data-service';
 import type { Service } from './service-registry';
 
 // ============================================================================
@@ -671,9 +672,17 @@ export class TerrainChunkRenderer implements Service {
       }
 
       // Build work items: (mapName, terrainType, season)[]
+      // Read terrain type from each map's INI file instead of hardcoded mapping
+      const mapDataService = new MapDataService(this.mapCacheDir);
       const workItems: Array<{ mapName: string; terrainType: string; season: number }> = [];
       for (const mapName of mapDirs) {
-        const terrainType = getTerrainTypeForMap(mapName);
+        let terrainType = 'Earth';
+        try {
+          const metadata = await mapDataService.getMapMetadata(mapName);
+          terrainType = metadata.terrainType;
+        } catch {
+          console.warn(`[TerrainChunkRenderer] Could not read INI for ${mapName}, defaulting to Earth`);
+        }
         for (let s = 0; s <= 3; s++) {
           if (this.hasAtlas(terrainType, s)) workItems.push({ mapName, terrainType, season: s });
         }
@@ -723,16 +732,39 @@ export class TerrainChunkRenderer implements Service {
           console.log(`[TerrainChunkRenderer] ${item.mapName}/${SEASON_NAMES[item.season as Season]}: all ${totalChunks} chunks cached`);
           this.preGenDone += totalChunks;
           this.preGenTotal += totalChunks;
+          // Generate minimap preview even when all chunks are cached (idempotent, uses disk cache)
+          if (!this.stopRequested) {
+            try {
+              await this.getTerrainPreview(item.mapName, item.terrainType, item.season);
+            } catch (err: unknown) {
+              console.warn(`[TerrainChunkRenderer] Preview failed for ${item.mapName}/${SEASON_NAMES[item.season as Season]}:`, err);
+            }
+          }
           continue;
         }
 
         const missing = totalChunks - existingCount;
         this.preGenTotal += missing;
-        console.log(`[TerrainChunkRenderer] Pre-generating ${item.mapName} (${item.terrainType}, ${SEASON_NAMES[item.season as Season]}): ${existingCount}/${totalChunks} cached`);
+        console.log(`[TerrainChunkRenderer] Pre-generating ${item.mapName} (${item.terrainType}, ${SEASON_NAMES[item.season as Season]}): ${missing} missing of ${totalChunks}`);
 
         const itemT0 = Date.now();
         let itemGenerated = 0;
         let batch: Promise<void>[] = [];
+        let lastLoggedPct = -1;
+
+        /** Log progress at every 5% increment (works in any terminal). */
+        const logProgress = (): void => {
+          const pct = Math.round((itemGenerated / missing) * 100);
+          // Only log at 5% increments to avoid flooding
+          const bucket = Math.floor(pct / 5) * 5;
+          if (bucket > lastLoggedPct) {
+            lastLoggedPct = bucket;
+            const barLen = 30;
+            const filled = Math.round(barLen * pct / 100);
+            const bar = '#'.repeat(filled) + '-'.repeat(barLen - filled);
+            console.log(`  [${bar}] ${pct}%  (${itemGenerated}/${missing})`);
+          }
+        };
 
         for (let ci = 0; ci < chunksI; ci++) {
           for (let cj = 0; cj < chunksJ; cj++) {
@@ -777,6 +809,7 @@ export class TerrainChunkRenderer implements Service {
             if (batch.length >= DISPATCH_BATCH) {
               await Promise.all(batch);
               batch = [];
+              logProgress();
               await new Promise<void>(r => setImmediate(r));
             }
           }
@@ -787,11 +820,21 @@ export class TerrainChunkRenderer implements Service {
         if (batch.length > 0) {
           await Promise.all(batch);
           batch = [];
+          logProgress();
         }
 
         totalGenerated += itemGenerated;
         const dt = Date.now() - itemT0;
         console.log(`[TerrainChunkRenderer] ${item.mapName}/${SEASON_NAMES[item.season as Season]}: generated ${itemGenerated} chunks in ${(dt / 1000).toFixed(1)}s`);
+
+        // Generate minimap preview for this map/season (composites Z0 chunks)
+        if (!this.stopRequested) {
+          try {
+            await this.getTerrainPreview(item.mapName, item.terrainType, item.season);
+          } catch (err: unknown) {
+            console.warn(`[TerrainChunkRenderer] Preview failed for ${item.mapName}/${SEASON_NAMES[item.season as Season]}:`, err);
+          }
+        }
       }
 
       await this.workerPool.terminate();

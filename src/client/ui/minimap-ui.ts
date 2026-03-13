@@ -16,7 +16,6 @@
  * The border is the only resize affordance; no buttons are shown on the minimap.
  */
 
-import { getTerrainTypeForMap } from '../../shared/map-config';
 import { useUiStore } from '../store/ui-store';
 
 // ---------------------------------------------------------------------------
@@ -30,6 +29,7 @@ export interface MinimapRendererAPI {
   getMapDimensions(): { width: number; height: number };
   getMapName(): string;
   getSeason(): number;
+  getTerrainType(): string;
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +403,7 @@ export class MinimapUI {
     if (this.previewLoading) return;
     this.previewLoading = true;
 
-    const terrainType = getTerrainTypeForMap(mapName);
+    const terrainType = this.renderer?.getTerrainType() ?? 'Earth';
     const url = `/api/terrain-preview/${encodeURIComponent(mapName)}/${encodeURIComponent(terrainType)}/${season}`;
 
     try {

@@ -476,16 +476,6 @@
     [2 /* SUMMER */]: "Summer",
     [3 /* AUTUMN */]: "Autumn"
   };
-  var MAP_TERRAIN_TYPES = {
-    "Shamba": "Alien Swamp",
-    "Zorcon": "Earth",
-    "Angelicus": "Earth",
-    "Antiqua": "Earth",
-    "Zyrane": "Earth"
-  };
-  function getTerrainTypeForMap(mapName) {
-    return MAP_TERRAIN_TYPES[mapName] || "Earth";
-  }
 
   // src/client/renderer/coordinate-mapper.ts
   var CoordinateMapper = class {
@@ -1237,6 +1227,15 @@
       };
       // Callback when chunk becomes ready
       this.onChunkReady = null;
+      // Pending await for viewport-ready loading
+      this.pendingAwait = null;
+      this.pendingAwaitTimeout = null;
+      // Session progress tracking — session resets when the render queue goes idle→active.
+      // onChunkProgress is called with (done, total) on every chunk completion and on start.
+      this.sessionQueued = 0;
+      this.sessionDone = 0;
+      /** Called with (done, total) whenever chunk loading session progress changes. Public for external wiring. */
+      this.onChunkProgress = null;
       this.textureCache = textureCache;
       this.getTextureId = getTextureId;
       for (let i = 0; i <= 3; i++) {
@@ -1338,6 +1337,12 @@
         const entry = cache.get(key);
         entry.rendering = true;
       }
+      if (this.sessionQueued === this.sessionDone) {
+        this.sessionQueued = 0;
+        this.sessionDone = 0;
+      }
+      this.sessionQueued++;
+      this.onChunkProgress?.(this.sessionDone, this.sessionQueued);
       this.renderQueue.push({
         chunkI,
         chunkJ,
@@ -1406,6 +1411,9 @@
         }
       }
       this.scheduleChunkReadyNotification();
+      if (this.sessionQueued > 0 && this.sessionDone >= this.sessionQueued) {
+        this.onChunkProgress?.(this.sessionQueued, this.sessionQueued);
+      }
       const totalDt = performance.now() - queueStart;
       if (processed > 1) {
         console.log(`[ChunkCache] queue done: ${processed} chunks in ${totalDt.toFixed(0)}ms (avg ${(totalDt / processed).toFixed(0)}ms/chunk)`);
@@ -1426,7 +1434,7 @@
      * Render a single chunk: try server-side pre-rendered PNG first, fall back to local rendering.
      */
     async renderChunk(chunkI, chunkJ, zoomLevel) {
-      if (this.useServerChunks && !this.serverChunkFailed && this.mapName) {
+      if (this.useServerChunks && !this.serverChunkFailed && this.mapName && zoomLevel < 3) {
         const success = await this.fetchServerChunk(chunkI, chunkJ, zoomLevel);
         if (success) return;
       }
@@ -1473,6 +1481,7 @@
         this.stats.chunksRendered++;
         this.stats.serverChunksLoaded++;
         this.evictIfNeeded(zoomLevel);
+        this.notifyChunkComplete(key);
         const total = tDraw - t0;
         if (total > 30) {
           console.log(`[ChunkCache] fetch ${chunkI},${chunkJ} z${zoomLevel}: fetch=${(tFetch - t0).toFixed(0)}ms blob=${(tBlob - tFetch).toFixed(0)}ms bitmap=${(tBitmap - tBlob).toFixed(0)}ms draw=${(tDraw - tBitmap).toFixed(0)}ms total=${total.toFixed(0)}ms (${(blob.size / 1024).toFixed(0)} KB)`);
@@ -1583,6 +1592,7 @@
       entry.rendering = false;
       this.stats.chunksRendered++;
       this.evictIfNeeded(zoomLevel);
+      this.notifyChunkComplete(key);
     }
     /**
      * Draw a chunk to the main canvas
@@ -1682,6 +1692,71 @@
       }
     }
     /**
+     * Wait for specific chunks to become ready.
+     * Triggers loading for each chunk via getChunkSync(), then returns a Promise
+     * that resolves once all specified chunks have entry.ready === true.
+     * Includes a safety timeout (default 15s) to prevent infinite waiting.
+     */
+    awaitChunksReady(chunks, zoomLevel, timeoutMs = 15e3, onProgress) {
+      const cache = this.caches.get(zoomLevel);
+      if (!cache) return Promise.resolve();
+      const pendingKeys = /* @__PURE__ */ new Set();
+      for (const { i, j } of chunks) {
+        const key = this.getKey(i, j);
+        const entry = cache.get(key);
+        if (!entry || !entry.ready) {
+          pendingKeys.add(key);
+        }
+      }
+      if (pendingKeys.size === 0) {
+        onProgress?.(chunks.length, chunks.length);
+        return Promise.resolve();
+      }
+      onProgress?.(chunks.length - pendingKeys.size, chunks.length);
+      for (const { i, j } of chunks) {
+        const key = this.getKey(i, j);
+        if (pendingKeys.has(key)) {
+          this.getChunkSync(i, j, zoomLevel);
+        }
+      }
+      return new Promise((resolve) => {
+        this.pendingAwait = { keys: pendingKeys, total: chunks.length, resolve, onProgress };
+        this.pendingAwaitTimeout = setTimeout(() => {
+          if (this.pendingAwait) {
+            console.warn(`[ChunkCache] awaitChunksReady timed out with ${this.pendingAwait.keys.size} chunks remaining`);
+            this.pendingAwait.resolve();
+            this.pendingAwait = null;
+            this.pendingAwaitTimeout = null;
+          }
+        }, timeoutMs);
+      });
+    }
+    /**
+     * Called when a chunk becomes ready. Updates session progress and checks pending await.
+     */
+    notifyChunkComplete(key) {
+      this.sessionDone++;
+      this.onChunkProgress?.(this.sessionDone, this.sessionQueued);
+      this.checkPendingAwait(key);
+    }
+    /**
+     * Check if a newly-ready chunk satisfies a pending awaitChunksReady() call.
+     */
+    checkPendingAwait(key) {
+      if (!this.pendingAwait) return;
+      this.pendingAwait.keys.delete(key);
+      const done = this.pendingAwait.total - this.pendingAwait.keys.size;
+      this.pendingAwait.onProgress?.(done, this.pendingAwait.total);
+      if (this.pendingAwait.keys.size === 0) {
+        if (this.pendingAwaitTimeout !== null) {
+          clearTimeout(this.pendingAwaitTimeout);
+          this.pendingAwaitTimeout = null;
+        }
+        this.pendingAwait.resolve();
+        this.pendingAwait = null;
+      }
+    }
+    /**
      * LRU eviction for a specific zoom level
      */
     evictIfNeeded(zoomLevel) {
@@ -1720,6 +1795,14 @@
       if (this.chunkReadyTimer !== null) {
         clearTimeout(this.chunkReadyTimer);
         this.chunkReadyTimer = null;
+      }
+      if (this.pendingAwait) {
+        if (this.pendingAwaitTimeout !== null) {
+          clearTimeout(this.pendingAwaitTimeout);
+          this.pendingAwaitTimeout = null;
+        }
+        this.pendingAwait.resolve();
+        this.pendingAwait = null;
       }
       this.stats = {
         chunksRendered: 0,
@@ -1787,6 +1870,7 @@
       // State flags
       this.loaded = false;
       this.mapName = "";
+      this.terrainType = "Earth";
       // Z0 terrain preview — a single low-res image of the entire map used as an
       // instant backdrop while chunks stream in (eliminates blue triangle flicker)
       this.terrainPreview = null;
@@ -1812,6 +1896,9 @@
       // External render callback: when set, chunk-ready events delegate to the parent renderer
       // instead of triggering terrain-only renders (which cause blinking)
       this.onRenderNeeded = null;
+      // External chunk progress callback: wired to ChunkCache.onChunkProgress after map load.
+      // Set by the parent (client.ts or bridge) to receive (done, total) progress updates.
+      this.onChunkProgress = null;
       this.canvas = canvas;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
@@ -1833,7 +1920,9 @@
      * @param mapName - Name of the map (e.g., 'Shamba', 'Antiqua')
      */
     async loadMap(mapName) {
-      const terrainType = getTerrainTypeForMap(mapName);
+      const terrainData = await this.terrainLoader.loadMap(mapName);
+      const terrainType = terrainData.metadata.terrainType;
+      this.terrainType = terrainType;
       this.textureCache.setTerrainType(terrainType);
       this.atlasCache.setTerrainType(terrainType);
       await this.fetchAvailableSeasons(terrainType);
@@ -1844,7 +1933,6 @@
           this.requestRender();
         }
       });
-      const terrainData = await this.terrainLoader.loadMap(mapName);
       this.coordMapper = new CoordinateMapper(
         terrainData.width,
         terrainData.height
@@ -1863,6 +1951,9 @@
           this.requestRender();
         }
       });
+      if (this.onChunkProgress) {
+        this.chunkCache.onChunkProgress = this.onChunkProgress;
+      }
       this.cameraI = Math.floor(terrainData.height / 2);
       this.cameraJ = Math.floor(terrainData.width / 2);
       this.updateOrigin();
@@ -2483,6 +2574,12 @@
       return this.mapName;
     }
     /**
+     * Get terrain type (from map INI file, e.g. "Earth", "Alien Swamp")
+     */
+    getTerrainType() {
+      return this.terrainType;
+    }
+    /**
      * Get last render statistics
      */
     getRenderStats() {
@@ -2612,8 +2709,7 @@
         this.atlasCache.setSeason(season);
         this.chunkCache?.clearAll();
         if (this.mapName) {
-          const terrainType = getTerrainTypeForMap(this.mapName);
-          this.chunkCache?.setMapInfo(this.mapName, terrainType, season);
+          this.chunkCache?.setMapInfo(this.mapName, this.terrainType, season);
         }
         console.log(`[IsometricRenderer] Season changed to ${SEASON_NAMES[season]}`);
         this.atlasCache.loadAtlas().then(() => {

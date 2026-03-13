@@ -391,10 +391,24 @@ export class TextureExtractor implements Service {
     const terrainDir = path.join(this.landImagesDir, encodedTerrainType);
     const entries = fs.readdirSync(terrainDir, { withFileTypes: true });
 
-    return entries
+    const seasons = entries
       .filter(e => e.isDirectory() && /^[0-3]$/.test(e.name))
       .map(e => parseInt(e.name, 10) as Season)
       .sort();
+
+    // Server packaging bug: some terrain types (e.g. Alien Swamp) have a second
+    // season's CAB files loose in the root folder instead of in a numbered subfolder.
+    // Treat root-level CABs as Summer (season 2) when no "2/" subdirectory exists.
+    if (!seasons.includes(Season.SUMMER)) {
+      const rootCabs = entries.filter(e => e.isFile() && e.name.endsWith('.cab'));
+      if (rootCabs.length > 0) {
+        console.log(`[TextureExtractor] ${terrainType}: root-level CABs detected, treating as Summer (season 2)`);
+        seasons.push(Season.SUMMER);
+        seasons.sort();
+      }
+    }
+
+    return seasons;
   }
 
   /**
@@ -403,14 +417,22 @@ export class TextureExtractor implements Service {
   private async extractTerrainTextures(terrainType: string, season: Season): Promise<void> {
     // Use encoded name for filesystem access
     const encodedTerrainType = encodeURIComponent(terrainType);
-    const sourceDir = path.join(this.landImagesDir, encodedTerrainType, String(season));
+    let sourceDir = path.join(this.landImagesDir, encodedTerrainType, String(season));
     const targetDir = path.join(this.extractedDir, terrainType, String(season));
     const seasonName = SEASON_NAMES[season];
 
-    // Check if source directory exists
+    // Check if source directory exists; fall back to root-level CABs
+    // (handles server packaging bug where a season's CABs are loose in the terrain root)
     if (!fs.existsSync(sourceDir)) {
-      console.log(`[TextureExtractor] Source not found: ${sourceDir}`);
-      return;
+      const rootDir = path.join(this.landImagesDir, encodedTerrainType);
+      const rootCabs = fs.readdirSync(rootDir).filter(f => f.endsWith('.cab'));
+      if (rootCabs.length > 0) {
+        console.log(`[TextureExtractor] ${terrainType}/${seasonName}: using root-level CABs as source`);
+        sourceDir = rootDir;
+      } else {
+        console.log(`[TextureExtractor] Source not found: ${sourceDir}`);
+        return;
+      }
     }
 
     // Check if already extracted (by checking for index file with correct version)

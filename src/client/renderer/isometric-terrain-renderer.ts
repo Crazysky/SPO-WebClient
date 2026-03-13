@@ -24,8 +24,7 @@ import {
   Rotation,
   TerrainData,
   Season,
-  SEASON_NAMES,
-  getTerrainTypeForMap
+  SEASON_NAMES
 } from '../../shared/map-config';
 
 /** Bit mask to extract LandClass only (Center, variant 0) — flattens vegetation */
@@ -62,6 +61,7 @@ export class IsometricTerrainRenderer {
   // State flags
   private loaded: boolean = false;
   private mapName: string = '';
+  private terrainType: string = 'Earth';
 
   // Z0 terrain preview — a single low-res image of the entire map used as an
   // instant backdrop while chunks stream in (eliminates blue triangle flicker)
@@ -127,8 +127,12 @@ export class IsometricTerrainRenderer {
    * @param mapName - Name of the map (e.g., 'Shamba', 'Antiqua')
    */
   async loadMap(mapName: string): Promise<TerrainData> {
+    // Load terrain data first — metadata includes terrainType from the map's INI file
+    const terrainData = await this.terrainLoader.loadMap(mapName);
+    const terrainType = terrainData.metadata.terrainType;
+    this.terrainType = terrainType;
+
     // Set terrain type for texture loading
-    const terrainType = getTerrainTypeForMap(mapName);
     this.textureCache.setTerrainType(terrainType);
     this.atlasCache.setTerrainType(terrainType);
 
@@ -144,9 +148,6 @@ export class IsometricTerrainRenderer {
         this.requestRender();
       }
     });
-
-    // Load terrain data
-    const terrainData = await this.terrainLoader.loadMap(mapName);
 
     // Update coordinate mapper with actual map dimensions
     this.coordMapper = new CoordinateMapper(
@@ -982,6 +983,13 @@ export class IsometricTerrainRenderer {
   }
 
   /**
+   * Get terrain type (from map INI file, e.g. "Earth", "Alien Swamp")
+   */
+  getTerrainType(): string {
+    return this.terrainType;
+  }
+
+  /**
    * Get last render statistics
    */
   getRenderStats(): typeof this.lastRenderStats {
@@ -1130,8 +1138,7 @@ export class IsometricTerrainRenderer {
       // Clear chunk cache and update map info since textures changed
       this.chunkCache?.clearAll();
       if (this.mapName) {
-        const terrainType = getTerrainTypeForMap(this.mapName);
-        this.chunkCache?.setMapInfo(this.mapName, terrainType, season);
+        this.chunkCache?.setMapInfo(this.mapName, this.terrainType, season);
       }
       console.log(`[IsometricRenderer] Season changed to ${SEASON_NAMES[season]}`);
       // Trigger atlas reload for new season (non-blocking)

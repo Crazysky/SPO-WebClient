@@ -1749,6 +1749,13 @@ export class IsometricMapRenderer {
   }
 
   /**
+   * Get terrain type (from map INI, for minimap preview URL).
+   */
+  public getTerrainType(): string {
+    return this.terrainRenderer.getTerrainType();
+  }
+
+  /**
    * Get the ChunkCache instance (for awaiting viewport readiness).
    */
   public getChunkCache(): import('./chunk-cache').ChunkCache | null {
