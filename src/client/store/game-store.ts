@@ -28,6 +28,7 @@ export interface TycoonStats {
   prestige?: number;
   levelName?: string;
   levelTier?: number;
+  nobPoints?: number;
   area?: number;
   /** 0 = nominal, 1 = warning (debt), 2 = alert (near bankruptcy) */
   failureLevel?: number;

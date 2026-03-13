@@ -106,6 +106,84 @@ describe('InfoWidget', () => {
     expect(screen.getByText('12/50')).toBeTruthy();
   });
 
+  it('renders tycoon level badge when levelName is set', () => {
+    useGameStore.setState({
+      username: 'TestPlayer',
+      tycoonStats: {
+        username: 'TestPlayer',
+        ranking: 5,
+        cash: '1,000',
+        incomePerHour: '100',
+        buildingCount: 3,
+        maxBuildings: 10,
+        failureLevel: 0,
+        levelName: 'Entrepreneur',
+        levelTier: 1,
+      },
+    });
+    renderWithProviders(<InfoWidget />);
+    expect(screen.getByText('Entrepreneur')).toBeTruthy();
+  });
+
+  it('renders nobility badge when nobPoints >= 500 (Baron)', () => {
+    useGameStore.setState({
+      username: 'TestPlayer',
+      tycoonStats: {
+        username: 'TestPlayer',
+        ranking: 5,
+        cash: '1,000',
+        incomePerHour: '100',
+        buildingCount: 3,
+        maxBuildings: 10,
+        failureLevel: 0,
+        nobPoints: 1000,
+      },
+    });
+    renderWithProviders(<InfoWidget />);
+    // NobilityBadge renders a span with title containing the tier name
+    expect(screen.getByTitle('Viscount')).toBeTruthy();
+  });
+
+  it('hides badges row when levelName absent and nobPoints < 500', () => {
+    useGameStore.setState({
+      username: 'TestPlayer',
+      tycoonStats: {
+        username: 'TestPlayer',
+        ranking: 5,
+        cash: '1,000',
+        incomePerHour: '100',
+        buildingCount: 3,
+        maxBuildings: 10,
+        failureLevel: 0,
+        nobPoints: 100,
+      },
+    });
+    renderWithProviders(<InfoWidget />);
+    expect(screen.queryByText('Apprentice')).toBeNull();
+    expect(screen.queryByTitle('Commoner')).toBeNull();
+  });
+
+  it('renders both level and nobility when both available', () => {
+    useGameStore.setState({
+      username: 'TestPlayer',
+      tycoonStats: {
+        username: 'TestPlayer',
+        ranking: 1,
+        cash: '50,000,000',
+        incomePerHour: '5000',
+        buildingCount: 20,
+        maxBuildings: 50,
+        failureLevel: 0,
+        levelName: 'Paradigm',
+        levelTier: 4,
+        nobPoints: 8000,
+      },
+    });
+    renderWithProviders(<InfoWidget />);
+    expect(screen.getByText('Paradigm')).toBeTruthy();
+    expect(screen.getByTitle('Duke')).toBeTruthy();
+  });
+
   it('renders positive income with sign', () => {
     useGameStore.setState({
       tycoonStats: {

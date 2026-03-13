@@ -11,6 +11,8 @@
 
 import { useGameStore } from '../../store/game-store';
 import { useUiStore } from '../../store/ui-store';
+import { NobilityBadge } from '../chat/NobilityBadge';
+import { NOBILITY_TIERS } from '../../../shared/types/domain-types';
 import styles from './InfoWidget.module.css';
 
 const COMPACT_DATE: Intl.DateTimeFormatOptions = {
@@ -108,6 +110,24 @@ export function InfoWidget() {
                 <span className={styles.separator}>&middot;</span>
                 <span className={styles.role}>{ownerRole}</span>
               </>
+            )}
+          </div>
+        )}
+
+        {tycoonStats && (tycoonStats.levelName || (tycoonStats.nobPoints ?? 0) >= 500) && (
+          <div className={styles.row}>
+            {tycoonStats.levelName && (
+              <span className={styles.levelName}>{tycoonStats.levelName}</span>
+            )}
+            {(tycoonStats.nobPoints ?? 0) >= 500 && (
+              <NobilityBadge
+                nobilityTier={
+                  (NOBILITY_TIERS.find(t => (tycoonStats.nobPoints ?? 0) >= t.minPoints)
+                    ?? NOBILITY_TIERS[NOBILITY_TIERS.length - 1]).label
+                }
+                modifiers={0}
+                size="sm"
+              />
             )}
           </div>
         )}

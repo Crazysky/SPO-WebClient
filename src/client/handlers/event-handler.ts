@@ -344,6 +344,7 @@ export function dispatchEvent(ctx: ClientHandlerContext, msg: WsMessage): void {
         prestige: profile.prestige,
         levelName: profile.levelName,
         levelTier: profile.levelTier,
+        nobPoints: profile.nobPoints,
         area: profile.area,
       });
       ClientBridge.setProfile(profile);
