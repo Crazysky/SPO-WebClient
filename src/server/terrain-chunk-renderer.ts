@@ -724,7 +724,7 @@ export class TerrainChunkRenderer implements Service {
         let existingCount = 0;
         for (let ci = 0; ci < chunksI; ci++) {
           for (let cj = 0; cj < chunksJ; cj++) {
-            if (fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, 0))) {
+            if (fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, MAX_ZOOM))) {
               existingCount++;
             }
           }
@@ -772,7 +772,7 @@ export class TerrainChunkRenderer implements Service {
           for (let cj = 0; cj < chunksJ; cj++) {
             if (this.stopRequested) break;
 
-            if (fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, 0))) {
+            if (fs.existsSync(this.getChunkCachePath(item.mapName, item.terrainType, item.season, ci, cj, MAX_ZOOM))) {
               continue;
             }
 
