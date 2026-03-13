@@ -6,17 +6,17 @@
  * when the season changes.
  *
  * Interaction:
- *  - Click/tap inside  → re-center main camera on that map position
- *  - Click/tap border  → drag to resize the minimap (grab cursor, radial scaling)
+ *  - Click/tap inside → re-center main camera on that map position
  *
  * Layout:
  *  Desktop (≥ 640 px): top-left, shifts right when the left panel is open
  *  Mobile  (< 640 px): bottom-left, above the BottomNav safe area
  *
- * The border is the only resize affordance; no buttons are shown on the minimap.
+ * Size is controlled via Settings (Small / Medium / Large preset).
  */
 
 import { useUiStore } from '../store/ui-store';
+import type { MinimapSize } from '../store/game-store';
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -30,6 +30,7 @@ export interface MinimapRendererAPI {
   getMapName(): string;
   getSeason(): number;
   getTerrainType(): string;
+  getVisibleTileBounds(): { minI: number; maxI: number; minJ: number; maxJ: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -38,22 +39,21 @@ export interface MinimapRendererAPI {
 
 const DESKTOP_PAD   = 12;   // px — screen-edge gap (desktop)
 const MOBILE_PAD    = 8;    // px — screen-edge gap (mobile)
-const DESKTOP_SIZE  = 200;  // px — default diamond size (desktop)
-const MOBILE_SIZE   = 140;  // px — default diamond size (mobile)
-const MIN_SIZE      = 120;  // px — minimum size so the minimap cannot be accidentally hidden
+const MOBILE_SIZE   = 140;  // px — fixed diamond size (mobile)
+const MIN_SIZE      = 120;  // px — minimum size
 const MAX_SIZE      = 500;  // px — maximum size
 const MOBILE_BP     = 640;  // px — viewport width breakpoint
 const UPDATE_MS     = 500;  // ms — render interval
 
-/**
- * Hit zone for the border resize interaction.
- * Click within BORDER_HIT px of the diamond perimeter = resize intent.
- */
-const BORDER_HIT = 14; // px
+/** Pixel sizes for each preset. */
+const SIZE_MAP: Record<MinimapSize, number> = {
+  small:  160,
+  medium: 220,
+  large:  320,
+};
 
 // CSS filter strings for the container's drop-shadow glow
-const FILTER_BASE  = 'drop-shadow(0 0 10px rgba(56,189,248,0.28)) drop-shadow(0 0 2px rgba(148,163,184,0.5)) drop-shadow(0 4px 12px rgba(0,0,0,0.70))';
-const FILTER_HOVER = 'drop-shadow(0 0 18px rgba(56,189,248,0.75)) drop-shadow(0 0 4px rgba(56,189,248,0.9))  drop-shadow(0 4px 16px rgba(0,0,0,0.80))';
+const FILTER_BASE = 'drop-shadow(0 0 10px rgba(56,189,248,0.28)) drop-shadow(0 0 2px rgba(148,163,184,0.5)) drop-shadow(0 4px 12px rgba(0,0,0,0.70))';
 
 // ---------------------------------------------------------------------------
 // MinimapUI class
@@ -70,7 +70,7 @@ export class MinimapUI {
   private updateTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Current diamond bounding-box side (always square). */
-  private currentSize: number = DESKTOP_SIZE;
+  private currentSize: number = SIZE_MAP.medium;
 
   private unsubPanel: (() => void) | null = null;
 
@@ -110,6 +110,13 @@ export class MinimapUI {
 
   public isVisible(): boolean {
     return this.visible;
+  }
+
+  /** Apply a size preset from Settings. Mobile ignores this. */
+  public setSize(preset: MinimapSize): void {
+    if (this.isMobile()) return;
+    const px = SIZE_MAP[preset] ?? SIZE_MAP.medium;
+    this.applySize(px);
   }
 
   public destroy(): void {
@@ -210,7 +217,7 @@ export class MinimapUI {
     this.container.appendChild(this.canvas);
     this.wrapper.appendChild(this.container);
 
-    // ── Interaction: border-resize vs click-navigate ───────────────────────────
+    // ── Interaction: click-to-navigate ───────────────────────────────────────
     this.attachInteractionListeners();
 
     // ── Position + panel subscription ─────────────────────────────────────────
@@ -221,56 +228,20 @@ export class MinimapUI {
   }
 
   // ---------------------------------------------------------------------------
-  // Interaction: border resize + click navigate
+  // Interaction: click navigate
   // ---------------------------------------------------------------------------
-
-  /**
-   * Returns true when (pixelX, pixelY) — in container-local coords — is within
-   * BORDER_HIT pixels of the diamond perimeter.
-   *
-   * Diamond perimeter in L1 norm: |dx| + |dy| = size/2  (where dx,dy are offsets from center)
-   */
-  private isNearBorder(pixelX: number, pixelY: number): boolean {
-    const half = this.currentSize / 2;
-    const dx = Math.abs(pixelX - half);
-    const dy = Math.abs(pixelY - half);
-    return Math.abs(dx + dy - half) <= BORDER_HIT;
-  }
 
   private attachInteractionListeners(): void {
     if (!this.container) return;
 
-    // ── Mouse: hover feedback ──────────────────────────────────────────────────
-    this.container.addEventListener('mousemove', (e: MouseEvent) => {
-      if (!this.container) return;
-      if (this.isNearBorder(e.offsetX, e.offsetY)) {
-        this.container.style.cursor = 'grab';
-        this.container.style.filter = FILTER_HOVER;
-      } else {
-        this.container.style.cursor = 'crosshair';
-        this.container.style.filter = FILTER_BASE;
-      }
-    });
-
-    this.container.addEventListener('mouseleave', () => {
-      if (!this.container) return;
-      this.container.style.cursor = 'crosshair';
-      this.container.style.filter = FILTER_BASE;
-    });
-
-    // ── Mouse: click → resize or navigate ─────────────────────────────────────
-    // Use onmousedown (not just addEventListener) so tests can invoke the handler directly.
+    // ── Mouse: click → navigate ─────────────────────────────────────────────
     this.container.onmousedown = (e: MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      if (this.isNearBorder(e.offsetX, e.offsetY)) {
-        this.startMouseResize(e);
-      } else {
-        this.handleClick(e.offsetX, e.offsetY);
-      }
+      this.handleClick(e.offsetX, e.offsetY);
     };
 
-    // ── Touch: tap → navigate; border tap → resize ────────────────────────────
+    // ── Touch: tap → navigate ───────────────────────────────────────────────
     this.container.addEventListener('touchend', (e: TouchEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -279,79 +250,13 @@ export class MinimapUI {
       const rect = (this.container as HTMLElement & { getBoundingClientRect?(): DOMRect }).getBoundingClientRect?.();
       const ox = rect ? touch.clientX - rect.left : touch.clientX;
       const oy = rect ? touch.clientY - rect.top  : touch.clientY;
-      // Border tap starts resize; interior tap navigates
-      if (!this.isNearBorder(ox, oy)) {
-        this.handleClick(ox, oy);
-      }
-    }, { passive: false });
-
-    this.container.addEventListener('touchstart', (e: TouchEvent) => {
-      if (e.touches.length === 0) return;
-      const touch = e.touches[0];
-      const rect = (this.container as HTMLElement & { getBoundingClientRect?(): DOMRect }).getBoundingClientRect?.();
-      const ox = rect ? touch.clientX - rect.left : touch.clientX;
-      const oy = rect ? touch.clientY - rect.top  : touch.clientY;
-      if (this.isNearBorder(ox, oy)) {
-        e.preventDefault();
-        e.stopPropagation();
-        this.startTouchResize(e);
-      }
+      this.handleClick(ox, oy);
     }, { passive: false });
   }
 
   // ---------------------------------------------------------------------------
-  // Resize helpers
+  // Size helpers
   // ---------------------------------------------------------------------------
-
-  /**
-   * Resize by tracking the mouse/touch distance from the diamond center.
-   * newSize = 2 × distance-from-center (radial scaling).
-   * All 4 diamond vertices are exactly at distance = currentSize/2 from center,
-   * so dragging any vertex outward/inward naturally scales the minimap.
-   */
-  private startMouseResize(startEvent: MouseEvent): void {
-    // Capture center in page coordinates at drag start
-    const centerX = startEvent.clientX - startEvent.offsetX + this.currentSize / 2;
-    const centerY = startEvent.clientY - startEvent.offsetY + this.currentSize / 2;
-
-    if (this.container) this.container.style.cursor = 'grabbing';
-
-    const onMove = (e: MouseEvent) => {
-      const dist = Math.hypot(e.clientX - centerX, e.clientY - centerY);
-      this.applySize(Math.round(dist * 2));
-    };
-    const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      if (this.container) this.container.style.cursor = 'crosshair';
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  }
-
-  private startTouchResize(startEvent: TouchEvent): void {
-    if (startEvent.touches.length === 0) return;
-    const rect = (this.container as HTMLElement & { getBoundingClientRect?(): DOMRect }).getBoundingClientRect?.();
-    const centerX = rect
-      ? rect.left + this.currentSize / 2
-      : startEvent.touches[0].clientX; // fallback for test env
-    const centerY = rect
-      ? rect.top + this.currentSize / 2
-      : startEvent.touches[0].clientY;
-
-    const onMove = (e: TouchEvent) => {
-      if (e.touches.length === 0) return;
-      e.preventDefault();
-      const dist = Math.hypot(e.touches[0].clientX - centerX, e.touches[0].clientY - centerY);
-      this.applySize(Math.round(dist * 2));
-    };
-    const onEnd = () => {
-      document.removeEventListener('touchmove', onMove);
-      document.removeEventListener('touchend', onEnd);
-    };
-    document.addEventListener('touchmove', onMove, { passive: false });
-    document.addEventListener('touchend', onEnd);
-  }
 
   private applySize(newSize: number): void {
     const clamped = Math.max(MIN_SIZE, Math.min(MAX_SIZE, newSize));
@@ -458,6 +363,9 @@ export class MinimapUI {
       ctx.drawImage(this.previewImage, 0, 0, this.currentSize, this.currentSize);
     }
 
+    // Viewport indicator
+    this.drawViewportIndicator(ctx);
+
     // Screen-space diamond border
     this.drawDiamondBorder(ctx);
   }
@@ -467,12 +375,39 @@ export class MinimapUI {
   // ---------------------------------------------------------------------------
 
   /**
+   * Draw a gold/amber rectangle showing the currently visible area on the map.
+   */
+  private drawViewportIndicator(ctx: CanvasRenderingContext2D): void {
+    if (!this.renderer) return;
+    const dims = this.renderer.getMapDimensions();
+    if (dims.width === 0 || dims.height === 0) return;
+
+    const bounds = this.renderer.getVisibleTileBounds();
+    const scaleX = this.currentSize / dims.width;
+    const scaleY = this.currentSize / dims.height;
+
+    const x1 = bounds.minJ * scaleX;
+    const y1 = bounds.minI * scaleY;
+    const x2 = bounds.maxJ * scaleX;
+    const y2 = bounds.maxI * scaleY;
+
+    ctx.save();
+    // Subtle fill
+    ctx.fillStyle = 'rgba(245,158,11,0.10)';
+    ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+    // Outline
+    ctx.strokeStyle = 'rgba(245,158,11,0.85)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    ctx.restore();
+  }
+
+  /**
    * Diamond border drawn in screen space.
    *
-   * Three layers to communicate "this edge is interactive":
+   * Two layers for visual polish:
    *  1. Outer glow  — wide soft stroke in sky-blue
    *  2. Main edge   — crisp 2 px gradient stroke
-   *  3. Vertex dots — small filled circles at each vertex (resize handle affordance)
    */
   private drawDiamondBorder(ctx: CanvasRenderingContext2D): void {
     const s  = this.currentSize;
@@ -507,21 +442,6 @@ export class MinimapUI {
     ctx.strokeStyle = grad;
     ctx.lineWidth   = 2;
     ctx.stroke();
-
-    // Layer 3: vertex handle dots (resize affordance indicator)
-    const vertices: [number, number][] = [[cx, 3], [s - 3, cy], [cx, s - 3], [3, cy]];
-    for (const [vx, vy] of vertices) {
-      // Outer ring
-      ctx.beginPath();
-      ctx.arc(vx, vy, 4, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(15,23,42,0.80)';
-      ctx.fill();
-      // Inner dot
-      ctx.beginPath();
-      ctx.arc(vx, vy, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(56,189,248,0.90)';
-      ctx.fill();
-    }
 
     ctx.restore();
   }

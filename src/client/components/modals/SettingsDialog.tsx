@@ -6,7 +6,7 @@
 
 import { useCallback } from 'react';
 import { X } from 'lucide-react';
-import { useGameStore, type GameSettings } from '../../store/game-store';
+import { useGameStore, type GameSettings, type MinimapSize } from '../../store/game-store';
 import { useUiStore } from '../../store/ui-store';
 import { useClient } from '../../context';
 import styles from './SettingsDialog.module.css';
@@ -66,6 +66,11 @@ export function SettingsDialog() {
               label="Debug overlay"
               checked={settings.debugOverlay}
               onChange={(v) => handleSettingChange({ debugOverlay: v })}
+            />
+            <SizeSelector
+              label="Minimap size"
+              value={settings.minimapSize}
+              onChange={(v) => handleSettingChange({ minimapSize: v })}
             />
           </section>
 
@@ -136,6 +141,34 @@ function ToggleRow({
         <div className={styles.toggleThumb} />
       </div>
     </label>
+  );
+}
+
+function SizeSelector({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: MinimapSize;
+  onChange: (val: MinimapSize) => void;
+}) {
+  const options: MinimapSize[] = ['small', 'medium', 'large'];
+  return (
+    <div className={styles.sizeRow}>
+      <span className={styles.sizeLabel}>{label}</span>
+      <div className={styles.sizeButtons}>
+        {options.map((opt) => (
+          <button
+            key={opt}
+            className={`${styles.sizeBtn} ${value === opt ? styles.sizeBtnActive : ''}`}
+            onClick={() => onChange(opt)}
+          >
+            {opt.charAt(0).toUpperCase() + opt.slice(1)}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

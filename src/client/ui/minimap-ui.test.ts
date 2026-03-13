@@ -29,6 +29,7 @@ interface MockContext {
   fillStyle: string;
   strokeStyle: string;
   lineWidth: number;
+  lineJoin: string;
   font: string;
   textAlign: string;
   textBaseline: string;
@@ -87,6 +88,7 @@ function createMockCtx(): MockContext {
     fillStyle: '',
     strokeStyle: '',
     lineWidth: 0,
+    lineJoin: '',
     font: '',
     textAlign: '',
     textBaseline: '',
@@ -108,7 +110,7 @@ function createMockCtx(): MockContext {
     scale: jest.fn(),
     drawImage: jest.fn(),
     createImageData: jest.fn(() => ({
-      data: new Uint8ClampedArray(200 * 200 * 4),
+      data: new Uint8ClampedArray(220 * 220 * 4),
     })),
     putImageData: jest.fn(),
   };
@@ -122,6 +124,7 @@ function createMockRenderer(overrides: Partial<MinimapRendererAPI> = {}): Minima
     getMapName: jest.fn(() => 'Shamba'),
     getSeason: jest.fn(() => 2),
     getTerrainType: jest.fn(() => 'Alien Swamp'),
+    getVisibleTileBounds: jest.fn(() => ({ minI: 20, maxI: 60, minJ: 25, maxJ: 65 })),
     ...overrides,
   };
 }
@@ -207,13 +210,12 @@ describe('MinimapUI', () => {
     const minimap = new MinimapUI();
     minimap.setRenderer(renderer);
 
-    // onmousedown is set on the container (not the canvas) for border-vs-navigate routing
     const container = allElements.find(el => el.id === 'minimap-container');
     expect(container).toBeDefined();
 
-    // Center click (100, 100) is interior (L1=0), routes to navigate
-    // Simple proportional mapping: x = round(100/200 * 100) = 50, y = round(100/200 * 100) = 50
-    container!.onmousedown!({ offsetX: 100, offsetY: 100, preventDefault: jest.fn(), stopPropagation: jest.fn() });
+    // Default size is 220 (medium). Click at center (110, 110):
+    // tileX = round(110/220 * 100) = 50, tileY = round(110/220 * 100) = 50
+    container!.onmousedown!({ offsetX: 110, offsetY: 110, preventDefault: jest.fn(), stopPropagation: jest.fn() });
     expect(renderer.centerOn).toHaveBeenCalledWith(50, 50);
 
     minimap.destroy();
@@ -227,9 +229,9 @@ describe('MinimapUI', () => {
     const container = allElements.find(el => el.id === 'minimap-container');
     expect(container).toBeDefined();
 
-    // Click at (80, 90) — interior (L1 from border = |80-100|+|90-100|-100 = -70, well inside)
-    // tileX = round(80/200 * 100) = 40, tileY = round(90/200 * 100) = 45
-    container!.onmousedown!({ offsetX: 80, offsetY: 90, preventDefault: jest.fn(), stopPropagation: jest.fn() });
+    // Click at (88, 99) with size=220:
+    // tileX = round(88/220 * 100) = 40, tileY = round(99/220 * 100) = 45
+    container!.onmousedown!({ offsetX: 88, offsetY: 99, preventDefault: jest.fn(), stopPropagation: jest.fn() });
     expect(renderer.centerOn).toHaveBeenCalledWith(40, 45);
 
     minimap.destroy();
@@ -389,7 +391,7 @@ describe('MinimapUI', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Screen-space overlay tests (border, resize dots)
+  // Screen-space overlay tests (border)
   // ---------------------------------------------------------------------------
 
   describe('screen-space overlays', () => {
@@ -403,17 +405,17 @@ describe('MinimapUI', () => {
       minimap.destroy();
     });
 
-    it('should draw vertex handle dots (arc calls) as part of diamond border', () => {
+    it('should not draw vertex handle dots (no arc calls)', () => {
       const minimap = new MinimapUI();
       minimap.setRenderer(createMockRenderer());
 
-      // drawDiamondBorder: 4 vertices × 2 arcs (outer ring + inner dot) = 8
-      expect(mockCtx.arc).toHaveBeenCalledTimes(8);
+      // No vertex dots — resize affordance removed
+      expect(mockCtx.arc).not.toHaveBeenCalled();
 
       minimap.destroy();
     });
 
-    it('should have wrapper with exactly 1 child (container only, no pill)', () => {
+    it('should have wrapper with exactly 1 child (container only)', () => {
       const minimap = new MinimapUI();
       minimap.setRenderer(createMockRenderer());
 
@@ -421,6 +423,60 @@ describe('MinimapUI', () => {
       expect(wrapper).toBeDefined();
       expect(wrapper!.children.length).toBe(1);
       expect(wrapper!.children[0].id).toBe('minimap-container');
+
+      minimap.destroy();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Viewport indicator tests
+  // ---------------------------------------------------------------------------
+
+  describe('viewport indicator', () => {
+    it('should draw viewport rectangle via strokeRect', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer());
+
+      // drawViewportIndicator calls fillRect (fill) + strokeRect (outline)
+      // The first fillRect is the canvas clear, then viewport fill, so strokeRect should be called
+      expect(mockCtx.strokeRect).toHaveBeenCalled();
+
+      minimap.destroy();
+    });
+
+    it('should map tile bounds proportionally to minimap pixels', () => {
+      const renderer = createMockRenderer({
+        getVisibleTileBounds: jest.fn(() => ({ minI: 20, maxI: 60, minJ: 25, maxJ: 65 })),
+        getMapDimensions: jest.fn(() => ({ width: 100, height: 100 })),
+      });
+      const minimap = new MinimapUI();
+      minimap.setRenderer(renderer);
+
+      // Default size = 220 (medium), map = 100x100
+      // scale = 220/100 = 2.2
+      // x1 = minJ * 2.2 = 25*2.2 = 55, y1 = minI * 2.2 = 20*2.2 = 44
+      // x2 = maxJ * 2.2 = 65*2.2 = 143, y2 = maxI * 2.2 = 60*2.2 = 132
+      // strokeRect(55, 44, 88, 88)
+      const strokeCalls = mockCtx.strokeRect.mock.calls as number[][];
+      const lastCall = strokeCalls[strokeCalls.length - 1];
+      expect(lastCall[0]).toBeCloseTo(55, 0);   // x
+      expect(lastCall[1]).toBeCloseTo(44, 0);   // y
+      expect(lastCall[2]).toBeCloseTo(88, 0);   // width
+      expect(lastCall[3]).toBeCloseTo(88, 0);   // height
+
+      minimap.destroy();
+    });
+
+    it('should not draw viewport when map dimensions are zero', () => {
+      const renderer = createMockRenderer({
+        getMapDimensions: jest.fn(() => ({ width: 0, height: 0 })),
+      });
+      const minimap = new MinimapUI();
+      minimap.setRenderer(renderer);
+
+      // render() returns early when mapName is valid but dimensions are 0
+      // No strokeRect for viewport (only fillRect for clear may or may not be called)
+      expect(mockCtx.strokeRect).not.toHaveBeenCalled();
 
       minimap.destroy();
     });
@@ -443,16 +499,15 @@ describe('MinimapUI', () => {
       minimap.destroy();
     });
 
-    it('should set wrapper width and height equal to DESKTOP_SIZE=200 (no pill)', () => {
+    it('should set wrapper width and height equal to medium preset=220', () => {
       const minimap = new MinimapUI();
       minimap.setRenderer(createMockRenderer());
 
       const wrapper = allElements.find(el => el.id === 'minimap-wrapper');
       expect(wrapper).toBeDefined();
-      // window.innerWidth=0 → isMobile()=false → DESKTOP_SIZE=200
-      // wrapper height = currentSize (same as diamond — no pill offset)
-      expect(wrapper!.style.cssText).toContain('width: 200px');
-      expect(wrapper!.style.cssText).toContain('height: 200px');
+      // window.innerWidth=0 → isMobile()=false → default SIZE_MAP.medium=220
+      expect(wrapper!.style.cssText).toContain('width: 220px');
+      expect(wrapper!.style.cssText).toContain('height: 220px');
 
       minimap.destroy();
     });
@@ -466,12 +521,76 @@ describe('MinimapUI', () => {
 
       const wrapper = allElements.find(el => el.id === 'minimap-wrapper');
       expect(wrapper).toBeDefined();
-      // MOBILE_SIZE=140, wrapper is square (no pill)
+      // MOBILE_SIZE=140, wrapper is square
       expect(wrapper!.style.cssText).toContain('width: 140px');
       expect(wrapper!.style.cssText).toContain('height: 140px');
 
       minimap.destroy();
       (globalThis as Record<string, unknown>).window = origWindow;
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Preset size tests
+  // ---------------------------------------------------------------------------
+
+  describe('setSize', () => {
+    it('should resize to small preset (160px)', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer());
+
+      minimap.setSize('small');
+
+      const wrapper = allElements.find(el => el.id === 'minimap-wrapper');
+      expect(wrapper!.style.width).toBe('160px');
+      expect(wrapper!.style.height).toBe('160px');
+
+      minimap.destroy();
+    });
+
+    it('should resize to large preset (320px)', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer());
+
+      minimap.setSize('large');
+
+      const wrapper = allElements.find(el => el.id === 'minimap-wrapper');
+      expect(wrapper!.style.width).toBe('320px');
+      expect(wrapper!.style.height).toBe('320px');
+
+      minimap.destroy();
+    });
+
+    it('should ignore setSize on mobile', () => {
+      const origWindow = (globalThis as Record<string, unknown>).window;
+      (globalThis as Record<string, unknown>).window = { innerWidth: 375 };
+
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer());
+
+      minimap.setSize('large');
+
+      const wrapper = allElements.find(el => el.id === 'minimap-wrapper');
+      // Should remain at MOBILE_SIZE=140, not large=320
+      expect(wrapper!.style.cssText).toContain('width: 140px');
+
+      minimap.destroy();
+      (globalThis as Record<string, unknown>).window = origWindow;
+    });
+
+    it('should update canvas dimensions on setSize', () => {
+      const minimap = new MinimapUI();
+      minimap.setRenderer(createMockRenderer());
+
+      minimap.setSize('small');
+
+      // Find the canvas element (3rd created element: body, wrapper, container, canvas)
+      const canvas = allElements.find(el => el.getContext.mock?.calls?.length > 0);
+      expect(canvas).toBeDefined();
+      expect(canvas!.width).toBe(160);
+      expect(canvas!.height).toBe(160);
+
+      minimap.destroy();
     });
   });
 });
