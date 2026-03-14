@@ -292,6 +292,22 @@
       "author": "sickn33",
       "stars": 23561,
       "githubUrl": "https://github.com/sickn33/skills/tree/main/file-uploads"
+    },
+    {
+      "name": "design-style",
+      "skillName": "design-style",
+      "author": "openclaw",
+      "stars": 2790,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills\\design-style\\SKILL.md",
+      "githubUrl": "https://github.com/openclaw/skills/tree/main/skills/benangel65/design-style"
+    },
+    {
+      "name": "web-typography",
+      "skillName": "web-typography",
+      "author": "jeremylongshore",
+      "stars": 1607,
+      "path": "c:\\Users\\Crazz\\Documents\\SPO\\SPO-WebClient\\.claude\\skills\\web-typography\\SKILL.md",
+      "githubUrl": "https://github.com/jeremylongshore/claude-code-plugins-plus-skills/tree/main/plugins/design/wondelai-web-typography/skills/web-typography"
     }
   ]
 }

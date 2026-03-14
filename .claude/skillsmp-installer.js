@@ -97,13 +97,12 @@ function apiRequest(endpoint, params = {}) {
 }
 
 /**
- * Download file from GitHub raw URL
+ * Download file from a raw URL (follows redirects).
  */
 function downloadFile(url, destPath) {
   return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
+    https.get(url, { headers: { 'User-Agent': 'SPO-WebClient-SkillsMP-Installer/1.0.0' } }, (res) => {
       if (res.statusCode === 302 || res.statusCode === 301) {
-        // Follow redirect
         return downloadFile(res.headers.location, destPath).then(resolve).catch(reject);
       }
 
@@ -127,6 +126,61 @@ function downloadFile(url, destPath) {
       reject(err);
     });
   });
+}
+
+/**
+ * Fetch JSON from GitHub Contents API (no SkillsMP auth needed).
+ */
+function fetchGithubJson(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'SPO-WebClient-SkillsMP-Installer/1.0.0' } }, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        return fetchGithubJson(res.headers.location).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) {
+        return reject(new Error(`GitHub API HTTP ${res.statusCode} for ${url}`));
+      }
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch (e) { reject(new Error(`JSON parse failed: ${e.message}`)); }
+      });
+    }).on('error', reject);
+  });
+}
+
+/**
+ * Convert a GitHub tree URL to a GitHub Contents API URL.
+ * e.g. https://github.com/owner/repo/tree/main/path/to/skill
+ *   -> https://api.github.com/repos/owner/repo/contents/path/to/skill?ref=main
+ */
+function githubUrlToApiUrl(githubUrl) {
+  const match = githubUrl.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.*)/);
+  if (!match) throw new Error(`Cannot parse GitHub URL: ${githubUrl}`);
+  const [, owner, repo, branch, filePath] = match;
+  return `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}?ref=${branch}`;
+}
+
+/**
+ * Recursively download all files in a GitHub directory to destDir.
+ */
+async function downloadSkillTree(apiUrl, destDir) {
+  const entries = await fetchGithubJson(apiUrl);
+  if (!Array.isArray(entries)) {
+    throw new Error(`Expected array from GitHub API, got: ${JSON.stringify(entries).slice(0, 200)}`);
+  }
+  fs.mkdirSync(destDir, { recursive: true });
+
+  for (const entry of entries) {
+    const entryDest = path.join(destDir, entry.name);
+    if (entry.type === 'file') {
+      await downloadFile(entry.download_url, entryDest);
+    } else if (entry.type === 'dir') {
+      await downloadSkillTree(entry.url, entryDest);
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
 }
 
 /**
@@ -155,24 +209,14 @@ async function installSkill(skillConfig) {
     console.log(`   ✅ Found: ${skill.name} by ${skill.author} (⭐ ${skill.stars})`);
     console.log(`      URL: ${skill.githubUrl}`);
 
-    // Convert GitHub URL to raw content URL for SKILL.md
-    const rawUrl = skill.githubUrl
-      .replace('github.com', 'raw.githubusercontent.com')
-      .replace('/tree/', '/')
-      + '/SKILL.md';
-
-    // Create skill directory
+    // Use GitHub Contents API to download the full skill directory tree
+    const apiUrl = githubUrlToApiUrl(skill.githubUrl);
     const skillDir = path.join(SKILLS_DIR, skillConfig.name);
-    if (!fs.existsSync(skillDir)) {
-      fs.mkdirSync(skillDir, { recursive: true });
-    }
 
-    const destPath = path.join(skillDir, 'SKILL.md');
+    console.log(`   📥 Downloading full skill tree from GitHub API...`);
+    await downloadSkillTree(apiUrl, skillDir);
 
-    console.log(`   📥 Downloading ${rawUrl}...`);
-    await downloadFile(rawUrl, destPath);
-
-    console.log(`   ✅ Installed to ${destPath}`);
+    console.log(`   ✅ Installed to ${skillDir}`);
 
     return {
       name: skillConfig.name,
