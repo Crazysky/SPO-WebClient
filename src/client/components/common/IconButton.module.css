@@ -98,7 +98,7 @@
   min-width: 18px;
   height: 18px;
   padding: 0 4px;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: var(--font-bold);
   line-height: 18px;
   text-align: center;

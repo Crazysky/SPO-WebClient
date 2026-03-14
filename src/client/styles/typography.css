@@ -5,6 +5,56 @@
 /* Google Fonts are loaded in index.html via <link> for best performance.
    This file defines type-related utility classes. */
 
+/* ---------------------------------------------------------------------------
+ * Shared text pattern classes
+ * Use these instead of re-implementing the same combinations in every module.
+ * --------------------------------------------------------------------------- */
+
+/* Section headers — uppercase caps label above a group of content */
+.text-section-label {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: var(--leading-tight);
+}
+
+/* Key side of a key/value data row */
+.text-data-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-dense);
+}
+
+/* Value side of a key/value data row */
+.text-stat-value {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-dense);
+}
+
+/* Supporting caption — timestamps, metadata, secondary annotations */
+.text-caption {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: var(--leading-tight);
+}
+
+/* Empty / placeholder state — must remain readable (≥4.5:1) */
+.text-empty {
+  font-size: var(--text-sm);
+  color: var(--text-placeholder);
+  text-align: center;
+  line-height: var(--leading-normal);
+}
+
+/* ---------------------------------------------------------------------------
+ * Utility classes
+ * --------------------------------------------------------------------------- */
+
 /* Tabular numbers for financial data alignment */
 .tabular-nums {
   font-variant-numeric: tabular-nums;

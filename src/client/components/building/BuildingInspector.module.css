@@ -138,7 +138,7 @@
 
 .pillIcon {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: var(--font-bold);
   text-transform: uppercase;
   line-height: 1;
@@ -177,7 +177,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--text-disabled);
+  color: var(--text-placeholder);
   font-size: var(--text-sm);
   text-align: center;
   padding: var(--space-8);

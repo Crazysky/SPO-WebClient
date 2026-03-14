@@ -70,7 +70,7 @@
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: var(--font-bold);
   line-height: 1;
   color: white;

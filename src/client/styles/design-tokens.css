@@ -35,8 +35,9 @@
   --text-primary: #F0FDF4;
   --text-secondary: #A7F3D0;
   --text-tertiary: #6EE7B7;
-  --text-muted: #4ADE80;
-  --text-disabled: #2D6B5A;
+  --text-muted: #7BBDA8;      /* de-emphasised labels — was vivid lime, now calm teal */
+  --text-placeholder: #5A8A78; /* empty states / placeholder — readable (~5:1) but subdued */
+  --text-disabled: #2D6B5A;   /* inactive controls only — low contrast by design */
 
   /* ---- Semantic Colors ---- */
   --success: #22C55E;
@@ -55,9 +56,10 @@
 
   /* ---- Typography ---- */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; /* JetBrains Mono loaded via Google Fonts */
 
-  --text-xs: 0.75rem;    /* 12px */
+  --text-2xs: 0.6875rem; /* 11px — ultra-dense UI only (charts, badges, nav labels) */
+  --text-xs: 0.75rem;    /* 12px — minimum for readable text */
   --text-sm: 0.875rem;   /* 14px */
   --text-base: 1rem;     /* 16px */
   --text-lg: 1.125rem;   /* 18px */
@@ -70,6 +72,7 @@
   --font-semibold: 600;
   --font-bold: 700;
 
+  --leading-dense: 1.2;   /* tables, data rows, compact lists */
   --leading-tight: 1.25;
   --leading-normal: 1.5;
   --leading-relaxed: 1.75;
@@ -150,6 +153,9 @@
     --text-3xl: 1.5rem;
     --text-2xl: 1.25rem;
     --text-xl: 1.125rem;
+    --text-sm: 0.8125rem;  /* 13px on mobile */
+    --text-xs: 0.6875rem;  /* 11px on mobile */
+    --text-2xs: 0.625rem;  /* 10px on mobile */
     --topbar-height: 32px;
     --panel-width-desktop: 100vw;
     --panel-width-tablet: 100vw;

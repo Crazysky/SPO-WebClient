@@ -95,7 +95,7 @@
 }
 
 .axisLabel {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   fill: var(--text-disabled);
@@ -149,7 +149,7 @@
   align-items: center;
   justify-content: center;
   height: 80px;
-  color: var(--text-disabled);
+  color: var(--text-placeholder);
   font-size: var(--text-xs);
   font-style: italic;
 }

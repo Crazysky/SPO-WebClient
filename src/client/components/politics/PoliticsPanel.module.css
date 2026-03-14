@@ -19,7 +19,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--text-disabled);
+  color: var(--text-placeholder);
   font-size: var(--text-sm);
   padding: var(--space-8);
   text-align: center;
@@ -272,7 +272,7 @@
 }
 
 .statLabel {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 
@@ -324,7 +324,7 @@
 }
 
 .sliderValue {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -342,10 +342,11 @@
   padding: var(--space-2) var(--space-2);
   text-align: left;
   font-weight: var(--font-semibold);
+  line-height: var(--leading-dense);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   border-bottom: 1px solid var(--glass-border);
   white-space: nowrap;
 }
@@ -354,6 +355,7 @@
   padding: var(--space-2) var(--space-2);
   color: var(--text-primary);
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  line-height: var(--leading-dense);
   font-variant-numeric: tabular-nums;
   vertical-align: middle;
 }
@@ -370,7 +372,7 @@
   border: 1px solid rgba(74, 122, 106, 0.6);
   border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: var(--font-semibold);
   font-family: var(--font-sans);
   cursor: pointer;
@@ -390,7 +392,7 @@
   border: 1px solid rgba(180, 70, 70, 0.5);
   border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: var(--font-semibold);
   font-family: var(--font-sans);
   cursor: pointer;
@@ -444,7 +446,7 @@
 }
 
 .rulerStatLabel {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -471,7 +473,7 @@
   border: 1px solid rgba(212, 168, 83, 0.3);
   border-radius: var(--radius-full);
   color: var(--accent-gold);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--font-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;

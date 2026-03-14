@@ -49,14 +49,14 @@
   position: absolute;
   top: -4px;
   right: -8px;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
 }
 
 .label {
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: var(--font-medium);
   line-height: 1;
 }

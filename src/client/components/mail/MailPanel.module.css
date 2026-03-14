@@ -108,7 +108,7 @@
 }
 
 .msgDate {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   flex-shrink: 0;
 }
@@ -124,7 +124,7 @@
 .empty {
   padding: var(--space-8);
   text-align: center;
-  color: var(--text-disabled);
+  color: var(--text-placeholder);
   font-size: var(--text-sm);
 }
 

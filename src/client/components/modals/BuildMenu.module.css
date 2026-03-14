@@ -406,7 +406,7 @@
 }
 
 .officeBadge {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--accent-gold);
   background: var(--accent-gold-subtle);
   padding: 2px var(--space-2);
