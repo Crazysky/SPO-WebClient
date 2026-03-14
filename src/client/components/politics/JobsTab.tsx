@@ -7,13 +7,15 @@ import { useState, useCallback } from 'react';
 import type { BuildingPropertyValue } from '@/shared/types';
 import { useClient } from '../../context';
 import { useGameStore } from '../../store/game-store';
-import { buildValueMap, getNum, formatCompact, isFacilityOwnerRole } from './capitol-utils';
+import { buildValueMap, getNum, formatCompact, isPresidentRole, isMayorRole } from './capitol-utils';
 import styles from './PoliticsPanel.module.css';
 
 interface JobsTabProps {
   properties: BuildingPropertyValue[];
   buildingX: number;
   buildingY: number;
+  /** True when viewing Capitol (president edits); false for Town Hall (mayor edits). */
+  isCapitol: boolean;
 }
 
 interface JobClass {
@@ -26,9 +28,9 @@ interface JobClass {
   minWage: number;
 }
 
-export function JobsTab({ properties, buildingX, buildingY }: JobsTabProps) {
+export function JobsTab({ properties, buildingX, buildingY, isCapitol }: JobsTabProps) {
   const ownerRole = useGameStore((s) => s.ownerRole);
-  const canEdit = isFacilityOwnerRole(ownerRole);
+  const canEdit = isCapitol ? isPresidentRole(ownerRole) : isMayorRole(ownerRole);
   const valueMap = buildValueMap(properties);
 
   const classes: JobClass[] = [
@@ -39,7 +41,7 @@ export function JobsTab({ properties, buildingX, buildingY }: JobsTabProps) {
       privateVacancies: valueMap.get('hiPrivateWorkDemand') ?? '0',
       avgWage: getNum(valueMap, 'hiSalary'),
       spendingPower: getNum(valueMap, 'hiSalaryValue'),
-      minWage: getNum(valueMap, 'hiActualMinSalary'),
+      minWage: getNum(valueMap, 'hiMinSalary'),
     },
     {
       label: 'Professional',
@@ -48,7 +50,7 @@ export function JobsTab({ properties, buildingX, buildingY }: JobsTabProps) {
       privateVacancies: valueMap.get('midPrivateWorkDemand') ?? '0',
       avgWage: getNum(valueMap, 'midSalary'),
       spendingPower: getNum(valueMap, 'midSalaryValue'),
-      minWage: getNum(valueMap, 'midActualMinSalary'),
+      minWage: getNum(valueMap, 'midMinSalary'),
     },
     {
       label: 'Worker',
@@ -57,7 +59,7 @@ export function JobsTab({ properties, buildingX, buildingY }: JobsTabProps) {
       privateVacancies: valueMap.get('loPrivateWorkDemand') ?? '0',
       avgWage: getNum(valueMap, 'loSalary'),
       spendingPower: getNum(valueMap, 'loSalaryValue'),
-      minWage: getNum(valueMap, 'loActualMinSalary'),
+      minWage: getNum(valueMap, 'loMinSalary'),
     },
   ];
 

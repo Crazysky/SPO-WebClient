@@ -376,6 +376,9 @@ describe('Specialized handler RDO properties', () => {
 
   it('townJobs should have salary properties', () => {
     const rdoNames = TOWN_JOBS_GROUP.properties.map(p => p.rdoName);
+    expect(rdoNames).toContain('hiMinSalary');
+    expect(rdoNames).toContain('midMinSalary');
+    expect(rdoNames).toContain('loMinSalary');
     expect(rdoNames).toContain('hiActualMinSalary');
     expect(rdoNames).toContain('midActualMinSalary');
     expect(rdoNames).toContain('loActualMinSalary');

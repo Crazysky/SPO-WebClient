@@ -778,18 +778,21 @@ export const TOWN_JOBS_GROUP: PropertyGroup = {
     { rdoName: 'hiPrivateWorkDemand', displayName: 'Executive Private Vacancies', type: PropertyType.TEXT },
     { rdoName: 'hiSalary', displayName: 'Executive Average Wage', type: PropertyType.PERCENTAGE },
     { rdoName: 'hiSalaryValue', displayName: 'Executive Spending Power', type: PropertyType.PERCENTAGE },
+    { rdoName: 'hiMinSalary', displayName: 'Executive Minimum Wage', type: PropertyType.NUMBER },
     { rdoName: 'hiActualMinSalary', displayName: 'Executive Minimum Wage', type: PropertyType.SLIDER, editable: true, min: 0, max: 200, step: 1, unit: '%' },
     // Professionals column
     { rdoName: 'midWorkDemand', displayName: 'Professional Vacancies', type: PropertyType.NUMBER },
     { rdoName: 'midPrivateWorkDemand', displayName: 'Professional Private Vacancies', type: PropertyType.TEXT },
     { rdoName: 'midSalary', displayName: 'Professional Average Wage', type: PropertyType.PERCENTAGE },
     { rdoName: 'midSalaryValue', displayName: 'Professional Spending Power', type: PropertyType.PERCENTAGE },
+    { rdoName: 'midMinSalary', displayName: 'Professional Minimum Wage', type: PropertyType.NUMBER },
     { rdoName: 'midActualMinSalary', displayName: 'Professional Minimum Wage', type: PropertyType.SLIDER, editable: true, min: 0, max: 200, step: 1, unit: '%' },
     // Workers column
     { rdoName: 'loWorkDemand', displayName: 'Worker Vacancies', type: PropertyType.NUMBER },
     { rdoName: 'loPrivateWorkDemand', displayName: 'Worker Private Vacancies', type: PropertyType.TEXT },
     { rdoName: 'loSalary', displayName: 'Worker Average Wage', type: PropertyType.PERCENTAGE },
     { rdoName: 'loSalaryValue', displayName: 'Worker Spending Power', type: PropertyType.PERCENTAGE },
+    { rdoName: 'loMinSalary', displayName: 'Worker Minimum Wage', type: PropertyType.NUMBER },
     { rdoName: 'loActualMinSalary', displayName: 'Worker Minimum Wage', type: PropertyType.SLIDER, editable: true, min: 0, max: 200, step: 1, unit: '%' },
   ],
   rdoCommands: {

@@ -66,17 +66,20 @@ const JOBS_DATA: BuildingPropertyValue[] = [
   { name: 'hiPrivateWorkDemand', value: '45' },
   { name: 'hiSalary', value: '72' },
   { name: 'hiSalaryValue', value: '65' },
-  { name: 'hiActualMinSalary', value: '150' },
+  { name: 'hiMinSalary', value: '150' },
+  { name: 'hiActualMinSalary', value: '0' },
   { name: 'midWorkDemand', value: '340' },
   { name: 'midPrivateWorkDemand', value: '120' },
   { name: 'midSalary', value: '58' },
   { name: 'midSalaryValue', value: '50' },
-  { name: 'midActualMinSalary', value: '100' },
+  { name: 'midMinSalary', value: '100' },
+  { name: 'midActualMinSalary', value: '0' },
   { name: 'loWorkDemand', value: '890' },
   { name: 'loPrivateWorkDemand', value: '350' },
   { name: 'loSalary', value: '45' },
   { name: 'loSalaryValue', value: '38' },
-  { name: 'loActualMinSalary', value: '60' },
+  { name: 'loMinSalary', value: '60' },
+  { name: 'loActualMinSalary', value: '0' },
 ];
 
 const RES_DATA: BuildingPropertyValue[] = [
@@ -355,7 +358,23 @@ describe('CapitolPanel', () => {
       });
     });
 
-    it('enables min wage sliders when mayor', () => {
+    it('disables min wage sliders for mayor in Capitol', () => {
+      useGameStore.setState({ ownerRole: 'mayor', isPublicOfficeRole: true });
+      const { container } = renderWithProviders(<BuildingInspector hideHeader />);
+      switchTab('townJobs');
+      const sliders = container.querySelectorAll('input[type="range"]');
+      sliders.forEach((slider) => {
+        expect((slider as HTMLInputElement).disabled).toBe(true);
+      });
+    });
+
+    it('enables min wage sliders for mayor in Town Hall', () => {
+      const townHallTabs: BuildingDetailsTab[] = [
+        makeTab('townGeneral', 'General', 0),
+        makeTab('townJobs', 'Jobs', 30),
+        makeTab('townRes', 'Residentials', 40),
+      ];
+      setupCapitol({ townJobs: JOBS_DATA }, townHallTabs);
       useGameStore.setState({ ownerRole: 'mayor', isPublicOfficeRole: true });
       const { container } = renderWithProviders(<BuildingInspector hideHeader />);
       switchTab('townJobs');

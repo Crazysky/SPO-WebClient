@@ -281,6 +281,7 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
           buildingY={details.y}
           isCandidate={isCandidate}
           holdsOffice={holdsOffice}
+          tabs={details.tabs}
         />
       </div>
     </div>
@@ -296,6 +297,7 @@ function CivicOrGenericTab({
   buildingY,
   isCandidate,
   holdsOffice,
+  tabs,
 }: {
   isCivic: boolean;
   activeGroupId: string;
@@ -304,6 +306,7 @@ function CivicOrGenericTab({
   buildingY: number;
   isCandidate: boolean;
   holdsOffice: boolean;
+  tabs: BuildingDetailsTab[];
 }) {
   if (!isCivic || !CIVIC_TAB_OVERRIDES.has(activeGroupId)) {
     // Synthetic Ratings tab for civic buildings
@@ -318,8 +321,10 @@ function CivicOrGenericTab({
       return <TownsTab properties={properties} buildingX={buildingX} buildingY={buildingY} />;
     case 'ministeries':
       return <MinistriesTab properties={properties} buildingX={buildingX} buildingY={buildingY} />;
-    case 'townJobs':
-      return <JobsTab properties={properties} buildingX={buildingX} buildingY={buildingY} />;
+    case 'townJobs': {
+      const isCapitol = tabs.some(t => t.handlerName === 'capitolGeneral');
+      return <JobsTab properties={properties} buildingX={buildingX} buildingY={buildingY} isCapitol={isCapitol} />;
+    }
     case 'townRes':
       return <ResidentialsTab properties={properties} />;
     case 'votes':
