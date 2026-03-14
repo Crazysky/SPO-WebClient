@@ -1104,6 +1104,12 @@
       return this.loaded && this.atlas !== null && this.manifest !== null;
     }
     /**
+     * Get the atlas manifest (tile coordinates, dimensions, etc.)
+     */
+    getManifest() {
+      return this.manifest;
+    }
+    /**
      * Get the atlas ImageBitmap for drawImage() calls
      */
     getAtlas() {
