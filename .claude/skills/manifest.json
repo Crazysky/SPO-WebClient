@@ -264,6 +264,34 @@
       "author": "AnvinX1",
       "stars": 2,
       "githubUrl": "https://github.com/AnvinX1/Tesserin-pro/tree/main/.specter/skills/api-security-review"
+    },
+    {
+      "name": "cloudflare",
+      "skillName": "cloudflare",
+      "author": "anomalyco",
+      "stars": 120788,
+      "githubUrl": "https://github.com/anomalyco/skills/tree/main/cloudflare"
+    },
+    {
+      "name": "high-perf-browser",
+      "skillName": "high-perf-browser",
+      "author": "wondelai",
+      "stars": 190,
+      "githubUrl": "https://github.com/wondelai/skills/tree/main/high-perf-browser"
+    },
+    {
+      "name": "advanced-caching-strategies",
+      "skillName": "advanced-caching-strategies",
+      "author": "majiayu000",
+      "stars": 113,
+      "githubUrl": "https://github.com/majiayu000/skills/tree/main/advanced-caching-strategies"
+    },
+    {
+      "name": "file-uploads",
+      "skillName": "file-uploads",
+      "author": "sickn33",
+      "stars": 23561,
+      "githubUrl": "https://github.com/sickn33/skills/tree/main/file-uploads"
     }
   ]
 }
