@@ -1104,7 +1104,7 @@ describe('downscaleRGBA2x', () => {
     expect(result.pixels[3]).toBe(255);
   });
 
-  it('should average alpha channel', () => {
+  it('should use max alpha (binary-alpha-safe to prevent seam artifacts)', () => {
     // 2x2 image: 2 opaque + 2 transparent
     const src = Buffer.from([
       255, 0, 0, 255,    // opaque
@@ -1117,8 +1117,8 @@ describe('downscaleRGBA2x', () => {
 
     expect(result.width).toBe(1);
     expect(result.height).toBe(1);
-    // Average alpha = (255 + 0 + 0 + 255 + 2) / 4 = 128
-    expect(result.pixels[3]).toBe(128);
+    // Max alpha = max(255, 0, 0, 255) = 255 — prevents semi-transparent chunk-edge seams
+    expect(result.pixels[3]).toBe(255);
   });
 
   it('should handle odd dimensions by truncating', () => {
