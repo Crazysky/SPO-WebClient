@@ -499,8 +499,8 @@
      * @returns Screen coordinates {x, y} - top center point of the diamond tile
      */
     mapToScreen(i, j, zoomLevel, rotation, origin) {
-      const config = ZOOM_LEVELS[zoomLevel];
-      const u = config.u;
+      const config2 = ZOOM_LEVELS[zoomLevel];
+      const u = config2.u;
       const rows = this.mapHeight;
       const cols = this.mapWidth;
       const rotated = this.rotateMapCoordinates(i, j, rotation);
@@ -522,8 +522,8 @@
      * @returns Map coordinates {x: i, y: j}
      */
     screenToMap(x, y, zoomLevel, rotation, origin) {
-      const config = ZOOM_LEVELS[zoomLevel];
-      const u = config.u;
+      const config2 = ZOOM_LEVELS[zoomLevel];
+      const u = config2.u;
       const rows = this.mapHeight;
       const cols = this.mapWidth;
       const screenX = x + origin.x;
@@ -620,6 +620,45 @@
         default:
           return 0 /* NORTH */;
       }
+    }
+  };
+
+  // src/shared/config.ts
+  var getEnv = (key) => {
+    return typeof process !== "undefined" && process.env ? process.env[key] : void 0;
+  };
+  var config = {
+    /**
+     * Configuration du serveur WebSocket
+     */
+    server: {
+      port: Number(getEnv("PORT")) || 8080
+    },
+    /**
+     * Configuration du protocole RDO
+     */
+    rdo: {
+      // Host du serveur Directory (utiliser 'localhost' pour mock_srv et www.starpeaceonline.com pour la production.)
+      directoryHost: getEnv("RDO_DIR_HOST") || "www.starpeaceonline.com",
+      // Ports standards du protocole
+      ports: {
+        directory: 1111
+      }
+    },
+    /**
+     * Static asset CDN — official Cloudflare R2 CDN for terrain/object assets.
+     * Override with CHUNK_CDN_URL env var if needed (e.g., local dev without CDN: set to '').
+     */
+    cdn: {
+      url: getEnv("CHUNK_CDN_URL") ?? "https://spo.zz.works"
+    },
+    /**
+     * Logging
+     */
+    logging: {
+      // Niveaux: 'debug' | 'info' | 'warn' | 'error'
+      level: getEnv("LOG_LEVEL") || "info",
+      colorize: getEnv("NODE_ENV") !== "production"
     }
   };
 
@@ -859,6 +898,9 @@
      * so no client-side color keying is needed.
      */
     async fetchTexture(paletteIndex) {
+      if (config.cdn.url) {
+        return null;
+      }
       const url = `/api/terrain-texture/${encodeURIComponent(this.terrainType)}/${this.season}/${paletteIndex}`;
       try {
         const response = await fetch(url);
@@ -1072,8 +1114,9 @@
     }
     async _doLoadAtlas() {
       const terrainType = encodeURIComponent(this.terrainType);
-      const atlasUrl = `/api/terrain-atlas/${terrainType}/${this.season}`;
-      const manifestUrl = `/api/terrain-atlas/${terrainType}/${this.season}/manifest`;
+      const cdnUrl = config.cdn.url;
+      const atlasUrl = cdnUrl ? `${cdnUrl}/textures/${terrainType}/${this.season}/atlas.png` : `/api/terrain-atlas/${terrainType}/${this.season}`;
+      const manifestUrl = cdnUrl ? `${cdnUrl}/textures/${terrainType}/${this.season}/atlas.json` : `/api/terrain-atlas/${terrainType}/${this.season}/manifest`;
       try {
         const [atlasResponse, manifestResponse] = await Promise.all([
           fetch(atlasUrl),
@@ -1176,25 +1219,25 @@
   };
   var FLAT_MASK = 192;
   var isOffscreenCanvasSupported = typeof OffscreenCanvas !== "undefined";
-  function calculateChunkCanvasDimensions(chunkSize, config) {
-    const u = config.u;
-    const width = u * (2 * chunkSize - 1) + config.tileWidth;
-    const height = u * chunkSize + config.tileHeight;
+  function calculateChunkCanvasDimensions(chunkSize, config2) {
+    const u = config2.u;
+    const width = u * (2 * chunkSize - 1) + config2.tileWidth;
+    const height = u * chunkSize + config2.tileHeight;
     return { width, height };
   }
-  function getTileScreenPosInChunk(localI, localJ, chunkSize, config) {
-    const u = config.u;
+  function getTileScreenPosInChunk(localI, localJ, chunkSize, config2) {
+    const u = config2.u;
     const x = u * (chunkSize - localI + localJ);
     const y = u / 2 * (chunkSize - localI + (chunkSize - localJ));
     return { x, y };
   }
-  function getChunkScreenPosition(chunkI, chunkJ, chunkSize, config, mapHeight, mapWidth, origin) {
-    const u = config.u;
+  function getChunkScreenPosition(chunkI, chunkJ, chunkSize, config2, mapHeight, mapWidth, origin) {
+    const u = config2.u;
     const baseI = chunkI * chunkSize;
     const baseJ = chunkJ * chunkSize;
     const worldX = u * (mapHeight - baseI + baseJ) - origin.x;
     const worldY = u / 2 * (mapHeight - baseI + (mapWidth - baseJ)) - origin.y;
-    const localOrigin = getTileScreenPosInChunk(0, 0, chunkSize, config);
+    const localOrigin = getTileScreenPosInChunk(0, 0, chunkSize, config2);
     return {
       x: worldX - localOrigin.x,
       y: worldY - localOrigin.y
@@ -1331,8 +1374,8 @@
       const cache = this.caches.get(zoomLevel);
       const key = this.getKey(chunkI, chunkJ);
       if (!cache.has(key)) {
-        const config = ZOOM_LEVELS[zoomLevel];
-        const dims = calculateChunkCanvasDimensions(CHUNK_SIZE, config);
+        const config2 = ZOOM_LEVELS[zoomLevel];
+        const dims = calculateChunkCanvasDimensions(CHUNK_SIZE, config2);
         cache.set(key, {
           canvas: new OffscreenCanvas(dims.width, dims.height),
           lastAccess: ++this.accessCounter,
@@ -1457,7 +1500,8 @@
       if (!entry) return false;
       try {
         const t0 = performance.now();
-        const url = `/api/terrain-chunk/${encodeURIComponent(this.mapName)}/${encodeURIComponent(this.terrainType)}/${this.season}/${zoomLevel}/${chunkI}/${chunkJ}`;
+        const cdnUrl = config.cdn.url;
+        const url = cdnUrl ? `${cdnUrl}/chunks/${encodeURIComponent(this.mapName)}/${encodeURIComponent(this.terrainType)}/${this.season}/z${zoomLevel}/chunk_${chunkI}_${chunkJ}.webp` : `/api/terrain-chunk/${encodeURIComponent(this.mapName)}/${encodeURIComponent(this.terrainType)}/${this.season}/${zoomLevel}/${chunkI}/${chunkJ}`;
         const response = await fetch(url);
         const tFetch = performance.now();
         if (!response.ok) {
@@ -1471,8 +1515,8 @@
         const tBlob = performance.now();
         const bitmap = await createImageBitmap(blob);
         const tBitmap = performance.now();
-        const config = ZOOM_LEVELS[zoomLevel];
-        const dims = calculateChunkCanvasDimensions(CHUNK_SIZE, config);
+        const config2 = ZOOM_LEVELS[zoomLevel];
+        const dims = calculateChunkCanvasDimensions(CHUNK_SIZE, config2);
         const ctx = entry.canvas.getContext("2d");
         if (!ctx) {
           bitmap.close();
@@ -1507,7 +1551,7 @@
       const key = this.getKey(chunkI, chunkJ);
       const entry = cache.get(key);
       if (!entry) return;
-      const config = ZOOM_LEVELS[zoomLevel];
+      const config2 = ZOOM_LEVELS[zoomLevel];
       const ctx = entry.canvas.getContext("2d");
       if (!ctx) return;
       ctx.imageSmoothingEnabled = false;
@@ -1516,8 +1560,8 @@
       const startJ = chunkJ * CHUNK_SIZE;
       const endI = Math.min(startI + CHUNK_SIZE, this.mapHeight);
       const endJ = Math.min(startJ + CHUNK_SIZE, this.mapWidth);
-      const halfWidth = config.tileWidth / 2;
-      const halfHeight = config.tileHeight / 2;
+      const halfWidth = config2.tileWidth / 2;
+      const halfHeight = config2.tileHeight / 2;
       const atlas = this.atlasCache?.isReady() ? this.atlasCache : null;
       if (atlas) {
         const atlasImg = atlas.getAtlas();
@@ -1527,7 +1571,7 @@
             const rect = atlas.getTileRect(textureId);
             const localI = i - startI;
             const localJ = j - startJ;
-            const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
+            const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config2);
             const x = Math.round(screenPos.x);
             const y = Math.round(screenPos.y);
             if (rect) {
@@ -1539,8 +1583,8 @@
                 rect.sh,
                 x - halfWidth,
                 y,
-                config.tileWidth,
-                config.tileHeight
+                config2.tileWidth,
+                config2.tileHeight
               );
             } else {
               const color = getFallbackColor(textureId);
@@ -1548,7 +1592,7 @@
               ctx.beginPath();
               ctx.moveTo(x, y);
               ctx.lineTo(x + halfWidth, y + halfHeight);
-              ctx.lineTo(x, y + config.tileHeight);
+              ctx.lineTo(x, y + config2.tileHeight);
               ctx.lineTo(x - halfWidth, y + halfHeight);
               ctx.closePath();
               ctx.fill();
@@ -1569,7 +1613,7 @@
             const texture = this.textureCache.getTextureSync(textureId);
             const localI = i - startI;
             const localJ = j - startJ;
-            const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config);
+            const screenPos = getTileScreenPosInChunk(localI, localJ, CHUNK_SIZE, config2);
             const x = Math.round(screenPos.x);
             const y = Math.round(screenPos.y);
             if (texture) {
@@ -1577,8 +1621,8 @@
                 texture,
                 x - halfWidth,
                 y,
-                config.tileWidth,
-                config.tileHeight
+                config2.tileWidth,
+                config2.tileHeight
               );
             } else {
               const color = getFallbackColor(textureId);
@@ -1586,7 +1630,7 @@
               ctx.beginPath();
               ctx.moveTo(x, y);
               ctx.lineTo(x + halfWidth, y + halfHeight);
-              ctx.lineTo(x, y + config.tileHeight);
+              ctx.lineTo(x, y + config2.tileHeight);
               ctx.lineTo(x - halfWidth, y + halfHeight);
               ctx.closePath();
               ctx.fill();
@@ -1606,12 +1650,12 @@
     drawChunkToCanvas(ctx, chunkI, chunkJ, zoomLevel, origin) {
       const chunk = this.getChunkSync(chunkI, chunkJ, zoomLevel);
       if (!chunk) return false;
-      const config = ZOOM_LEVELS[zoomLevel];
+      const config2 = ZOOM_LEVELS[zoomLevel];
       const screenPos = getChunkScreenPosition(
         chunkI,
         chunkJ,
         CHUNK_SIZE,
-        config,
+        config2,
         this.mapHeight,
         this.mapWidth,
         origin
@@ -1632,12 +1676,12 @@
       if (!entry || !entry.ready) return false;
       cache.delete(key);
       cache.set(key, entry);
-      const config = ZOOM_LEVELS[zoomLevel];
+      const config2 = ZOOM_LEVELS[zoomLevel];
       const screenPos = getChunkScreenPosition(
         chunkI,
         chunkJ,
         CHUNK_SIZE,
-        config,
+        config2,
         this.mapHeight,
         this.mapWidth,
         origin
@@ -1649,13 +1693,13 @@
      * Get screen position of a chunk for visibility testing
      */
     getChunkScreenBounds(chunkI, chunkJ, zoomLevel, origin) {
-      const config = ZOOM_LEVELS[zoomLevel];
-      const dims = calculateChunkCanvasDimensions(CHUNK_SIZE, config);
+      const config2 = ZOOM_LEVELS[zoomLevel];
+      const dims = calculateChunkCanvasDimensions(CHUNK_SIZE, config2);
       const screenPos = getChunkScreenPosition(
         chunkI,
         chunkJ,
         CHUNK_SIZE,
-        config,
+        config2,
         this.mapHeight,
         this.mapWidth,
         origin
@@ -1977,7 +2021,8 @@
       if (this.terrainPreviewLoading) return;
       this.terrainPreviewLoading = true;
       try {
-        const url = `/api/terrain-preview/${encodeURIComponent(mapName)}/${encodeURIComponent(terrainType)}/${season}`;
+        const cdnUrl = config.cdn.url;
+        const url = cdnUrl ? `${cdnUrl}/chunks/${encodeURIComponent(mapName)}/${encodeURIComponent(terrainType)}/${season}/preview.png` : `/api/terrain-preview/${encodeURIComponent(mapName)}/${encodeURIComponent(terrainType)}/${season}`;
         const response = await fetch(url);
         if (!response.ok) {
           console.log(`[IsometricRenderer] Terrain preview not available (${response.status})`);
@@ -2179,9 +2224,9 @@
      * Flat only — all special tiles are flattened
      */
     renderChunkTilesFallback(chunkI, chunkJ) {
-      const config = ZOOM_LEVELS[this.zoomLevel];
-      const tileWidth = config.tileWidth;
-      const tileHeight = config.tileHeight;
+      const config2 = ZOOM_LEVELS[this.zoomLevel];
+      const tileWidth = config2.tileWidth;
+      const tileHeight = config2.tileHeight;
       const startI = chunkI * CHUNK_SIZE;
       const startJ = chunkJ * CHUNK_SIZE;
       const endI = Math.min(startI + CHUNK_SIZE, this.terrainLoader.getDimensions().height);
@@ -2206,7 +2251,7 @@
           if (screenPos.x < -tileWidth || screenPos.x > this.canvas.width + tileWidth || screenPos.y < -tileHeight || screenPos.y > this.canvas.height + tileHeight) {
             continue;
           }
-          this.drawIsometricTile(Math.round(screenPos.x), Math.round(screenPos.y), config, textureId);
+          this.drawIsometricTile(Math.round(screenPos.x), Math.round(screenPos.y), config2, textureId);
           tilesRendered++;
         }
       }
@@ -2231,9 +2276,9 @@
      * Flat only — all special tiles are flattened
      */
     renderTerrainLayerTiles(bounds) {
-      const config = ZOOM_LEVELS[this.zoomLevel];
-      const tileWidth = config.tileWidth;
-      const tileHeight = config.tileHeight;
+      const config2 = ZOOM_LEVELS[this.zoomLevel];
+      const tileWidth = config2.tileWidth;
+      const tileHeight = config2.tileHeight;
       let tilesRendered = 0;
       for (let i = bounds.minI; i <= bounds.maxI; i++) {
         for (let j = bounds.minJ; j <= bounds.maxJ; j++) {
@@ -2254,7 +2299,7 @@
           if (screenPos.x < -tileWidth || screenPos.x > this.canvas.width + tileWidth || screenPos.y < -tileHeight || screenPos.y > this.canvas.height + tileHeight) {
             continue;
           }
-          this.drawIsometricTile(Math.round(screenPos.x), Math.round(screenPos.y), config, textureId);
+          this.drawIsometricTile(Math.round(screenPos.x), Math.round(screenPos.y), config2, textureId);
           tilesRendered++;
         }
       }
@@ -2266,10 +2311,10 @@
      * When textures are available: Draw the texture
      * When textures are NOT available: Draw a diamond-shaped fallback color
      */
-    drawIsometricTile(screenX, screenY, config, textureId) {
+    drawIsometricTile(screenX, screenY, config2, textureId) {
       const ctx = this.ctx;
-      const halfWidth = config.tileWidth / 2;
-      const halfHeight = config.tileHeight / 2;
+      const halfWidth = config2.tileWidth / 2;
+      const halfHeight = config2.tileHeight / 2;
       let texture = null;
       if (this.useTextures) {
         texture = this.textureCache.getTextureSync(textureId);
@@ -2279,8 +2324,8 @@
           texture,
           screenX - halfWidth,
           screenY,
-          config.tileWidth,
-          config.tileHeight
+          config2.tileWidth,
+          config2.tileHeight
         );
       } else {
         const color = this.textureCache.getFallbackColor(textureId);
@@ -2288,7 +2333,7 @@
         ctx.beginPath();
         ctx.moveTo(screenX, screenY);
         ctx.lineTo(screenX + halfWidth, screenY + halfHeight);
-        ctx.lineTo(screenX, screenY + config.tileHeight);
+        ctx.lineTo(screenX, screenY + config2.tileHeight);
         ctx.lineTo(screenX - halfWidth, screenY + halfHeight);
         ctx.closePath();
         ctx.fill();
@@ -2299,7 +2344,7 @@
      */
     renderDebugInfo(bounds, tilesRendered) {
       const ctx = this.ctx;
-      const config = ZOOM_LEVELS[this.zoomLevel];
+      const config2 = ZOOM_LEVELS[this.zoomLevel];
       const cacheStats = this.textureCache.getStats();
       const chunkStats = this.chunkCache?.getStats();
       ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
@@ -2312,7 +2357,7 @@
         `Map: ${this.mapName} (${this.terrainLoader.getDimensions().width}\xD7${this.terrainLoader.getDimensions().height})`,
         `Terrain: ${this.textureCache.getTerrainType()} | Season: ${SEASON_NAMES[this.season]} ${availableSeasonStr}`,
         `Camera: (${Math.round(this.cameraI)}, ${Math.round(this.cameraJ)})`,
-        `Zoom Level: ${this.zoomLevel} (${config.tileWidth}\xD7${config.tileHeight}px)`,
+        `Zoom Level: ${this.zoomLevel} (${config2.tileWidth}\xD7${config2.tileHeight}px)`,
         `Visible: i[${bounds.minI}..${bounds.maxI}] j[${bounds.minJ}..${bounds.maxJ}]`,
         `Tiles Rendered: ${tilesRendered}`,
         `Textures: ${this.useTextures ? "ON" : "OFF"} | Cache: ${cacheStats.size}/${cacheStats.maxSize} (${(cacheStats.hitRate * 100).toFixed(1)}% hit)`,
@@ -2352,8 +2397,8 @@
         if (!this.isDragging) return;
         const dx = e.clientX - this.lastMouseX;
         const dy = e.clientY - this.lastMouseY;
-        const config = ZOOM_LEVELS[this.zoomLevel];
-        const u = config.u;
+        const config2 = ZOOM_LEVELS[this.zoomLevel];
+        const u = config2.u;
         const a = (dx + 2 * dy) / (2 * u);
         const b = (2 * dy - dx) / (2 * u);
         let deltaI;
