@@ -29,6 +29,7 @@ Browser Client ──WebSocket──> Node.js Gateway ──RDO/TCP──> Game 
 | HTML Parsing | Cheerio (mail body extraction) | 1.1 |
 | Animation | gifuct-js (GIF decoding for vehicle sprites) | 2.1 |
 | Archive | 7zip-min (CAB asset extraction) | 2.1 |
+| CDN | Cloudflare R2 + CDN (static terrain assets) | — |
 
 ## Key Features
 
@@ -90,30 +91,8 @@ npm run test:verbose       # Verbose output
 npm run test:changed       # Test only changed files (bail on first failure)
 npm run test:smoke         # Component smoke tests only (jsdom)
 
-# Cache & Release
-npm run cache:chunks       # Pre-generate terrain chunks (skip asset sync)
-npm run cache:all          # Pre-generate terrain chunks (with asset sync)
+# Release
 npm run release            # Run release script
-```
-
-#### Chunk Cache Parameters
-
-The `cache:all` and `cache:chunks` scripts accept optional flags via `--`:
-
-| Flag | Description |
-|------|-------------|
-| `--skip-sync` | Skip asset sync from update server (used internally by `cache:chunks`) |
-| `--map <name>` | Generate chunks for a specific map only (can be repeated) |
-
-```bash
-# Sync assets + generate chunks for all maps
-npm run cache:all
-
-# Generate chunks for a single map (no sync)
-npm run cache:chunks -- --map Shamba
-
-# Sync + generate chunks for two specific maps
-npm run cache:all -- --map Shamba --map Zorcon
 ```
 
 ### Environment Variables
@@ -122,6 +101,7 @@ npm run cache:all -- --map Shamba --map Zorcon
 |----------|---------|-------------|
 | `PORT` | `8080` | HTTP/WebSocket server port |
 | `RDO_DIR_HOST` | `www.starpeaceonline.com` | RDO directory server hostname |
+| `CHUNK_CDN_URL` | — | CDN URL for static terrain assets (e.g., `https://spo.zz.works`) |
 | `LOG_LEVEL` | `info` | Logging verbosity (`debug`, `info`, `warn`, `error`) |
 | `NODE_ENV` | — | Set to `production` to disable colorized logs |
 
@@ -188,7 +168,7 @@ src/
 │   │   └── touch-handler-2d.ts            # Touch/pointer input
 │   └── ui/                      # Legacy canvas UI (minimap + map navigation)
 ├── server/
-│   ├── server.ts                # HTTP + WebSocket server (16 API endpoints)
+│   ├── server.ts                # HTTP + WebSocket server
 │   ├── spo_session.ts           # RDO session manager (TCP <-> WebSocket)
 │   ├── rdo.ts                   # RDO protocol parser
 │   ├── rdo-helpers.ts           # RDO utility functions
@@ -197,10 +177,6 @@ src/
 │   ├── building-data-service.ts # Building dimensions + data cache
 │   ├── map-data-service.ts      # Map data caching and parsing
 │   ├── map-parsers.ts           # Map file format parsers
-│   ├── terrain-chunk-renderer.ts # Server-side chunk pre-rendering
-│   ├── texture-extractor.ts     # CAB texture extraction
-│   ├── texture-alpha-baker.ts   # Alpha channel compositing
-│   ├── atlas-generator.ts       # Sprite atlas generation
 │   ├── cab-extractor.ts         # CAB archive extraction (7zip)
 │   ├── classes-bin-parser.ts    # Binary class data parser
 │   ├── asp-url-extractor.ts     # ASP URL parsing
@@ -224,9 +200,32 @@ The server runs background services managed by a `ServiceRegistry` with dependen
 |---------|---------|--------------|
 | `update` | Sync game assets from update server | — |
 | `facilities` | Building dimensions cache | update |
-| `textures` | Extract textures from CAB archives | update |
 | `mapData` | Map data caching and parsing | update |
-| `terrainChunks` | Server-side terrain chunk pre-rendering | textures, mapData |
+
+## Static Terrain Assets (CDN)
+
+Terrain chunks, texture atlases, object sprites, and map previews are pre-generated offline and served from **Cloudflare R2 CDN** — the game server no longer generates or serves these assets.
+
+```
+SPO-WebClient-Chunks (standalone Linux tool)
+  sync → extract → generate → upload ──> Cloudflare R2 (spo.zz.works)
+
+SPO-WebClient (this project)
+  Client fetches static assets from CDN  <── https://spo.zz.works/...
+  Server handles only game logic, WebSocket, and dynamic endpoints
+```
+
+| Asset | CDN Path | Description |
+|-------|----------|-------------|
+| Terrain chunks | `/chunks/{map}/{terrain}/{season}/z{zoom}/chunk_{i}_{j}.webp` | Pre-rendered isometric tiles (4 zoom levels) |
+| Terrain atlases | `/textures/{terrain}/{season}/atlas.png` + `.json` | Sprite sheets for terrain rendering |
+| Object atlases | `/objects/{category}-atlas.png` + `.json` | Road, concrete, car sprite sheets |
+| Map previews | `/chunks/{map}/{terrain}/{season}/preview.png` | Low-res map backdrops |
+| Object textures | `/cache/{category}/{name}.png` | Baked road/concrete/car textures |
+
+Set `CHUNK_CDN_URL=https://spo.zz.works` to enable CDN. Without it, the client falls back to local rendering.
+
+See **[SPO-WebClient-Chunks](https://github.com/Crazz-E/SPO-WebClient-Chunks)** for the generation pipeline, R2 setup, and upload tool.
 
 ## RDO Protocol
 
@@ -261,7 +260,7 @@ See [RDO Protocol Architecture](doc/rdo-protocol-architecture.md) and [RDO Typin
 
 ## API Endpoints
 
-The Node.js server exposes REST endpoints for map data, textures, and asset serving:
+The Node.js server exposes REST endpoints for game data and asset serving. Static terrain assets (chunks, atlases, textures, previews) are served from [Cloudflare R2 CDN](https://github.com/Crazz-E/SPO-WebClient-Chunks) when `CHUNK_CDN_URL` is set.
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -269,17 +268,9 @@ The Node.js server exposes REST endpoints for map data, textures, and asset serv
 | `GET /api/road-block-classes` | Road block class definitions |
 | `GET /api/concrete-block-classes` | Concrete block class definitions |
 | `GET /api/car-classes` | Vehicle class definitions |
-| `GET /api/terrain-info/:terrainType` | Terrain type metadata |
-| `GET /api/terrain-atlas/:type/:season` | Terrain atlas PNG sprite sheet |
-| `GET /api/terrain-atlas/:type/:season/manifest` | Terrain atlas JSON manifest |
-| `GET /api/object-atlas/:category` | Road/concrete atlas PNG sprite sheet |
-| `GET /api/object-atlas/:category/manifest` | Road/concrete atlas JSON manifest |
-| `GET /api/terrain-chunk/:map/:type/:season/:zoom/:i/:j` | Pre-rendered terrain chunk PNG |
-| `GET /api/terrain-chunks/:map/:type/:season/manifest` | Chunk availability manifest |
-| `GET /api/terrain-preview/:map/:type/:season` | Terrain preview image |
-| `GET /api/terrain-texture/:type/:season/:id` | Individual terrain texture fallback |
+| `GET /api/terrain-info/:terrainType` | Terrain type metadata (seasons) |
 | `GET /api/research-inventions` | Research invention data |
-| `GET /cache/:category/:filename` | Extracted game object textures |
+| `GET /cache/:category/:filename` | Game object textures (buildings) |
 | `GET /proxy-image?url=<url>` | Image proxy for remote assets |
 
 ## Development Workflow
@@ -309,7 +300,7 @@ npm run release    # Run release script
 ## Testing
 
 - **Framework:** Jest 30 with ts-jest, two projects: `unit` (Node.js env) and `component` (jsdom env)
-- **Stats:** ~130 test suites, all passing
+- **Stats:** ~143 test suites, all passing
 - **Convention:** `module.ts` -> `module.test.ts` in the same directory
 - **Coverage thresholds:** 35% global, 50% for `shared/`, 90% for `shared/building-details/`
 - **Custom matchers:** `toContainRdoCommand()`, `toMatchRdoCallFormat()`, `toMatchRdoSetFormat()`, `toHaveRdoTypePrefix()`
