@@ -10,9 +10,6 @@
 // Ambient declaration for Node.js process (browser-safe: guarded by typeof check)
 declare const process: { env: Record<string, string | undefined> } | undefined;
 
-// Build-time constant injected by Vite (see vite.config.ts define block)
-declare const __CHUNK_CDN_URL__: string;
-
 // Helper pour accéder à process.env de manière sécurisée (browser-safe)
 const getEnv = (key: string): string | undefined => {
   return typeof process !== 'undefined' && process.env ? process.env[key] : undefined;
@@ -40,20 +37,11 @@ export const config = {
   },
 
   /**
-   * Static asset CDN
-   *
-   * When set, the client fetches all static terrain/object assets from this CDN
-   * instead of the local server. Assets include: terrain chunks, atlases, object
-   * atlases, individual textures, terrain previews, and baked object textures.
-   *
-   * When empty, falls back to local server API endpoints.
-   *
-   * Set via CHUNK_CDN_URL environment variable (e.g., 'https://spo.zz.works').
+   * Static asset CDN — official Cloudflare R2 CDN for terrain/object assets.
+   * Override with CHUNK_CDN_URL env var if needed (e.g., local dev without CDN: set to '').
    */
   cdn: {
-    // In browser: Vite injects __CHUNK_CDN_URL__ at build time.
-    // On server: falls back to process.env.
-    url: (typeof __CHUNK_CDN_URL__ !== 'undefined' ? __CHUNK_CDN_URL__ : getEnv('CHUNK_CDN_URL')) || '',
+    url: getEnv('CHUNK_CDN_URL') ?? 'https://spo.zz.works',
   },
 
   /**

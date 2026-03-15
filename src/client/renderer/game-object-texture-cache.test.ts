@@ -14,6 +14,11 @@ jest.mock('gifuct-js', () => ({
   decompressFrames: (...args: unknown[]) => mockDecompressFrames(...args),
 }));
 
+import { config } from '../../shared/config';
+
+// Disable CDN in tests so fetch goes to local mock endpoints
+(config as { cdn: { url: string } }).cdn.url = '';
+
 // Mock fetch
 global.fetch = jest.fn();
 

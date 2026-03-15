@@ -4,6 +4,10 @@
 
 import { TextureAtlasCache, getFallbackColor, AtlasManifest } from './texture-atlas-cache';
 import { Season } from '../../shared/map-config';
+import { config } from '../../shared/config';
+
+// Disable CDN in tests so fetch goes to local mock endpoints
+(config as { cdn: { url: string } }).cdn.url = '';
 
 // Mock fetch
 global.fetch = jest.fn();
