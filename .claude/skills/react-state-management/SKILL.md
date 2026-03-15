@@ -1,6 +1,6 @@
 ---
 name: react-state-management
-description: "TRIGGER: When architecting state flow between stores, components, and the legacy bridge. Covers Zustand, React Query patterns."
+description: Master modern React state management with Redux Toolkit, Zustand, Jotai, and React Query. Use when setting up global state, managing server state, or choosing between state management solutions.
 ---
 
 # React State Management
@@ -428,10 +428,3 @@ const todosSlice = createSlice({
   },
 });
 ```
-
-## Resources
-
-- [Redux Toolkit Documentation](https://redux-toolkit.js.org/)
-- [Zustand GitHub](https://github.com/pmndrs/zustand)
-- [Jotai Documentation](https://jotai.org/)
-- [TanStack Query](https://tanstack.com/query)

@@ -1,545 +1,631 @@
 ---
-name: screen-reader-testing
-description: "TRIGGER: When testing with screen readers (NVDA/VoiceOver). Covers ARIA live regions, focus traps, semantic HTML."
+name: web-accessibility
+description: Implement web accessibility (a11y) standards following WCAG 2.1 guidelines. Use when building accessible UIs, fixing accessibility issues, or ensuring compliance with disability standards. Handles ARIA attributes, keyboard navigation, screen readers, semantic HTML, and accessibility testing.
+metadata:
+  tags: accessibility, a11y, WCAG, ARIA, semantic-HTML, screen-reader
+  platforms: Claude, ChatGPT, Gemini
 ---
 
-# Screen Reader Testing
 
-Practical guide to testing web applications with screen readers for comprehensive accessibility validation.
+# Web Accessibility (A11y)
 
-## When to Use This Skill
 
-- Validating screen reader compatibility
-- Testing ARIA implementations
-- Debugging assistive technology issues
-- Verifying form accessibility
-- Testing dynamic content announcements
-- Ensuring navigation accessibility
+## When to use this skill
 
-## Core Concepts
+- **New UI Component Development**: Designing accessible components
+- **Accessibility Audit**: Identifying and fixing accessibility issues in existing sites
+- **Form Implementation**: Writing screen reader-friendly forms
+- **Modals/Dropdowns**: Focus management and keyboard trap prevention
+- **WCAG Compliance**: Meeting legal requirements or standards
 
-### 1. Major Screen Readers
+## Input Format
 
-| Screen Reader | Platform  | Browser        | Usage |
-| ------------- | --------- | -------------- | ----- |
-| **VoiceOver** | macOS/iOS | Safari         | ~15%  |
-| **NVDA**      | Windows   | Firefox/Chrome | ~31%  |
-| **JAWS**      | Windows   | Chrome/IE      | ~40%  |
-| **TalkBack**  | Android   | Chrome         | ~10%  |
-| **Narrator**  | Windows   | Edge           | ~4%   |
+### Required Information
+- **Framework**: React, Vue, Svelte, Vanilla JS, etc.
+- **Component Type**: Button, Form, Modal, Dropdown, Navigation, etc.
+- **WCAG Level**: A, AA, AAA (default: AA)
 
-### 2. Testing Priority
+### Optional Information
+- **Screen Reader**: NVDA, JAWS, VoiceOver (for testing)
+- **Automated Testing Tool**: axe-core, Pa11y, Lighthouse (default: axe-core)
+- **Browser**: Chrome, Firefox, Safari (default: Chrome)
 
-```
-Minimum Coverage:
-1. NVDA + Firefox (Windows)
-2. VoiceOver + Safari (macOS)
-3. VoiceOver + Safari (iOS)
-
-Comprehensive Coverage:
-+ JAWS + Chrome (Windows)
-+ TalkBack + Chrome (Android)
-+ Narrator + Edge (Windows)
-```
-
-### 3. Screen Reader Modes
-
-| Mode               | Purpose                | When Used         |
-| ------------------ | ---------------------- | ----------------- |
-| **Browse/Virtual** | Read content           | Default reading   |
-| **Focus/Forms**    | Interact with controls | Filling forms     |
-| **Application**    | Custom widgets         | ARIA applications |
-
-## VoiceOver (macOS)
-
-### Setup
+### Input Example
 
 ```
-Enable: System Preferences → Accessibility → VoiceOver
-Toggle: Cmd + F5
-Quick Toggle: Triple-press Touch ID
+Make a React modal component accessible:
+- Framework: React + TypeScript
+- WCAG Level: AA
+- Requirements:
+  - Focus trap (focus stays inside the modal)
+  - Close with ESC key
+  - Close by clicking the background
+  - Title/description read by screen readers
 ```
 
-### Essential Commands
+## Instructions
 
-```
-Navigation:
-VO = Ctrl + Option (VoiceOver modifier)
+### Step 1: Use Semantic HTML
 
-VO + Right Arrow   Next element
-VO + Left Arrow    Previous element
-VO + Shift + Down  Enter group
-VO + Shift + Up    Exit group
+Use meaningful HTML elements to make the structure clear.
 
-Reading:
-VO + A             Read all from cursor
-Ctrl               Stop speaking
-VO + B             Read current paragraph
+**Tasks**:
+- Use semantic tags: `<button>`, `<nav>`, `<main>`, `<header>`, `<footer>`, etc.
+- Avoid overusing `<div>` and `<span>`
+- Use heading hierarchy (`<h1>` ~ `<h6>`) correctly
+- Connect `<label>` with `<input>`
 
-Interaction:
-VO + Space         Activate element
-VO + Shift + M     Open menu
-Tab                Next focusable element
-Shift + Tab        Previous focusable element
-
-Rotor (VO + U):
-Navigate by: Headings, Links, Forms, Landmarks
-Left/Right Arrow   Change rotor category
-Up/Down Arrow      Navigate within category
-Enter              Go to item
-
-Web Specific:
-VO + Cmd + H       Next heading
-VO + Cmd + J       Next form control
-VO + Cmd + L       Next link
-VO + Cmd + T       Next table
-```
-
-### Testing Checklist
-
-```markdown
-## VoiceOver Testing Checklist
-
-### Page Load
-
-- [ ] Page title announced
-- [ ] Main landmark found
-- [ ] Skip link works
-
-### Navigation
-
-- [ ] All headings discoverable via rotor
-- [ ] Heading levels logical (H1 → H2 → H3)
-- [ ] Landmarks properly labeled
-- [ ] Skip links functional
-
-### Links & Buttons
-
-- [ ] Link purpose clear
-- [ ] Button actions described
-- [ ] New window/tab announced
-
-### Forms
-
-- [ ] All labels read with inputs
-- [ ] Required fields announced
-- [ ] Error messages read
-- [ ] Instructions available
-- [ ] Focus moves to errors
-
-### Dynamic Content
-
-- [ ] Alerts announced immediately
-- [ ] Loading states communicated
-- [ ] Content updates announced
-- [ ] Modals trap focus correctly
-
-### Tables
-
-- [ ] Headers associated with cells
-- [ ] Table navigation works
-- [ ] Complex tables have captions
-```
-
-### Common Issues & Fixes
-
+**Example** (❌ Bad vs ✅ Good):
 ```html
-<!-- Issue: Button not announcing purpose -->
-<button><svg>...</svg></button>
-
-<!-- Fix -->
-<button aria-label="Close dialog"><svg aria-hidden="true">...</svg></button>
-
-<!-- Issue: Dynamic content not announced -->
-<div id="results">New results loaded</div>
-
-<!-- Fix -->
-<div id="results" role="status" aria-live="polite">New results loaded</div>
-
-<!-- Issue: Form error not read -->
-<input type="email" />
-<span class="error">Invalid email</span>
-
-<!-- Fix -->
-<input type="email" aria-invalid="true" aria-describedby="email-error" />
-<span id="email-error" role="alert">Invalid email</span>
-```
-
-## NVDA (Windows)
-
-### Setup
-
-```
-Download: nvaccess.org
-Start: Ctrl + Alt + N
-Stop: Insert + Q
-```
-
-### Essential Commands
-
-```
-Navigation:
-Insert = NVDA modifier
-
-Down Arrow         Next line
-Up Arrow           Previous line
-Tab                Next focusable
-Shift + Tab        Previous focusable
-
-Reading:
-NVDA + Down Arrow  Say all
-Ctrl               Stop speech
-NVDA + Up Arrow    Current line
-
-Headings:
-H                  Next heading
-Shift + H          Previous heading
-1-6                Heading level 1-6
-
-Forms:
-F                  Next form field
-B                  Next button
-E                  Next edit field
-X                  Next checkbox
-C                  Next combo box
-
-Links:
-K                  Next link
-U                  Next unvisited link
-V                  Next visited link
-
-Landmarks:
-D                  Next landmark
-Shift + D          Previous landmark
-
-Tables:
-T                  Next table
-Ctrl + Alt + Arrows Navigate cells
-
-Elements List (NVDA + F7):
-Shows all links, headings, form fields, landmarks
-```
-
-### Browse vs Focus Mode
-
-```
-NVDA automatically switches modes:
-- Browse Mode: Arrow keys navigate content
-- Focus Mode: Arrow keys control interactive elements
-
-Manual switch: NVDA + Space
-
-Watch for:
-- "Browse mode" announcement when navigating
-- "Focus mode" when entering form fields
-- Application role forces forms mode
-```
-
-### Testing Script
-
-```markdown
-## NVDA Test Script
-
-### Initial Load
-
-1. Navigate to page
-2. Let page finish loading
-3. Press Insert + Down to read all
-4. Note: Page title, main content identified?
-
-### Landmark Navigation
-
-1. Press D repeatedly
-2. Check: All main areas reachable?
-3. Check: Landmarks properly labeled?
-
-### Heading Navigation
-
-1. Press Insert + F7 → Headings
-2. Check: Logical heading structure?
-3. Press H to navigate headings
-4. Check: All sections discoverable?
-
-### Form Testing
-
-1. Press F to find first form field
-2. Check: Label read?
-3. Fill in invalid data
-4. Submit form
-5. Check: Errors announced?
-6. Check: Focus moved to error?
-
-### Interactive Elements
-
-1. Tab through all interactive elements
-2. Check: Each announces role and state
-3. Activate buttons with Enter/Space
-4. Check: Result announced?
-
-### Dynamic Content
-
-1. Trigger content update
-2. Check: Change announced?
-3. Open modal
-4. Check: Focus trapped?
-5. Close modal
-6. Check: Focus returns?
-```
-
-## JAWS (Windows)
-
-### Essential Commands
-
-```
-Start: Desktop shortcut or Ctrl + Alt + J
-Virtual Cursor: Auto-enabled in browsers
-
-Navigation:
-Arrow keys         Navigate content
-Tab                Next focusable
-Insert + Down      Read all
-Ctrl               Stop speech
-
-Quick Keys:
-H                  Next heading
-T                  Next table
-F                  Next form field
-B                  Next button
-G                  Next graphic
-L                  Next list
-;                  Next landmark
-
-Forms Mode:
-Enter              Enter forms mode
-Numpad +           Exit forms mode
-F5                 List form fields
-
-Lists:
-Insert + F7        Link list
-Insert + F6        Heading list
-Insert + F5        Form field list
-
-Tables:
-Ctrl + Alt + Arrows Table navigation
-```
-
-## TalkBack (Android)
-
-### Setup
-
-```
-Enable: Settings → Accessibility → TalkBack
-Toggle: Hold both volume buttons 3 seconds
-```
-
-### Gestures
-
-```
-Explore: Drag finger across screen
-Next: Swipe right
-Previous: Swipe left
-Activate: Double tap
-Scroll: Two finger swipe
-
-Reading Controls (swipe up then right):
-- Headings
-- Links
-- Controls
-- Characters
-- Words
-- Lines
-- Paragraphs
-```
-
-## Common Test Scenarios
-
-### 1. Modal Dialog
-
-```html
-<!-- Accessible modal structure -->
-<div
-  role="dialog"
-  aria-modal="true"
-  aria-labelledby="dialog-title"
-  aria-describedby="dialog-desc"
->
-  <h2 id="dialog-title">Confirm Delete</h2>
-  <p id="dialog-desc">This action cannot be undone.</p>
-  <button>Cancel</button>
-  <button>Delete</button>
+<!-- ❌ Bad example: using only div and span -->
+<div class="header">
+  <span class="title">My App</span>
+  <div class="nav">
+    <div class="nav-item" onclick="navigate()">Home</div>
+    <div class="nav-item" onclick="navigate()">About</div>
+  </div>
 </div>
+
+<!-- ✅ Good example: semantic HTML -->
+<header>
+  <h1>My App</h1>
+  <nav aria-label="Main navigation">
+    <ul>
+      <li><a href="/">Home</a></li>
+      <li><a href="/about">About</a></li>
+    </ul>
+  </nav>
+</header>
 ```
 
-```javascript
-// Focus management
-function openModal(modal) {
-  // Store last focused element
-  lastFocus = document.activeElement;
+**Form Example**:
+```html
+<!-- ❌ Bad example: no label -->
+<input type="text" placeholder="Enter your name">
 
-  // Move focus to modal
-  modal.querySelector("h2").focus();
+<!-- ✅ Good example: label connected -->
+<label for="name">Name:</label>
+<input type="text" id="name" name="name" required>
 
-  // Trap focus
-  modal.addEventListener("keydown", trapFocus);
+<!-- Or wrap with label -->
+<label>
+  Email:
+  <input type="email" name="email" required>
+</label>
+```
+
+### Step 2: Implement Keyboard Navigation
+
+Ensure all features are usable without a mouse.
+
+**Tasks**:
+- Move focus with Tab and Shift+Tab
+- Activate buttons with Enter/Space
+- Navigate lists/menus with arrow keys
+- Close modals/dropdowns with ESC
+- Use `tabindex` appropriately
+
+**Decision Criteria**:
+- Interactive elements → `tabindex="0"` (focusable)
+- Exclude from focus order → `tabindex="-1"` (programmatic focus only)
+- Do not change focus order → avoid using `tabindex="1+"`
+
+**Example** (React Dropdown):
+```typescript
+import React, { useState, useRef, useEffect } from 'react';
+
+interface DropdownProps {
+  label: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
 }
 
-function closeModal(modal) {
-  // Return focus
-  lastFocus.focus();
-}
+function AccessibleDropdown({ label, options, onChange }: DropdownProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
-function trapFocus(e) {
-  if (e.key === "Tab") {
-    const focusable = modal.querySelectorAll(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    );
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
+  // Keyboard handler
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        if (!isOpen) {
+          setIsOpen(true);
+        } else {
+          setSelectedIndex((prev) => (prev + 1) % options.length);
+        }
+        break;
 
-    if (e.shiftKey && document.activeElement === first) {
-      last.focus();
-      e.preventDefault();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      first.focus();
-      e.preventDefault();
+      case 'ArrowUp':
+        e.preventDefault();
+        if (!isOpen) {
+          setIsOpen(true);
+        } else {
+          setSelectedIndex((prev) => (prev - 1 + options.length) % options.length);
+        }
+        break;
+
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        if (isOpen) {
+          onChange(options[selectedIndex].value);
+          setIsOpen(false);
+          buttonRef.current?.focus();
+        } else {
+          setIsOpen(true);
+        }
+        break;
+
+      case 'Escape':
+        e.preventDefault();
+        setIsOpen(false);
+        buttonRef.current?.focus();
+        break;
     }
-  }
+  };
 
-  if (e.key === "Escape") {
-    closeModal(modal);
-  }
+  return (
+    <div className="dropdown">
+      <button
+        ref={buttonRef}
+        onClick={() => setIsOpen(!isOpen)}
+        onKeyDown={handleKeyDown}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-labelledby="dropdown-label"
+      >
+        {label}
+      </button>
+
+      {isOpen && (
+        <ul
+          ref={listRef}
+          role="listbox"
+          aria-labelledby="dropdown-label"
+          onKeyDown={handleKeyDown}
+          tabIndex={-1}
+        >
+          {options.map((option, index) => (
+            <li
+              key={option.value}
+              role="option"
+              aria-selected={index === selectedIndex}
+              onClick={() => {
+                onChange(option.value);
+                setIsOpen(false);
+              }}
+            >
+              {option.label}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 ```
 
-### 2. Live Regions
+### Step 3: Add ARIA Attributes
 
-```html
-<!-- Status messages (polite) -->
-<div role="status" aria-live="polite" aria-atomic="true">
-  <!-- Content updates will be announced after current speech -->
-</div>
+Provide additional context for screen readers.
 
-<!-- Alerts (assertive) -->
-<div role="alert" aria-live="assertive">
-  <!-- Content updates interrupt current speech -->
-</div>
+**Tasks**:
+- `aria-label`: Define the element's name
+- `aria-labelledby`: Reference another element as a label
+- `aria-describedby`: Provide additional description
+- `aria-live`: Announce dynamic content changes
+- `aria-hidden`: Hide from screen readers
 
-<!-- Progress updates -->
-<div
-  role="progressbar"
-  aria-valuenow="75"
-  aria-valuemin="0"
-  aria-valuemax="100"
-  aria-label="Upload progress"
-></div>
+**Checklist**:
+- [x] All interactive elements have clear labels
+- [x] Button purpose is clear (e.g., "Submit form" not "Click")
+- [x] State change announcements (aria-live)
+- [x] Decorative images use alt="" or aria-hidden="true"
 
-<!-- Log (additions only) -->
-<div role="log" aria-live="polite" aria-relevant="additions">
-  <!-- New messages announced, removals not -->
-</div>
+**Example** (Modal):
+```tsx
+function AccessibleModal({ isOpen, onClose, title, children }) {
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  // Focus trap when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      modalRef.current?.focus();
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+      aria-describedby="modal-description"
+      ref={modalRef}
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          onClose();
+        }
+      }}
+    >
+      <div className="modal-overlay" onClick={onClose} aria-hidden="true" />
+
+      <div className="modal-content">
+        <h2 id="modal-title">{title}</h2>
+        <div id="modal-description">
+          {children}
+        </div>
+
+        <button onClick={onClose} aria-label="Close modal">
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
+    </div>
+  );
+}
 ```
 
-### 3. Tab Interface
-
-```html
-<div role="tablist" aria-label="Product information">
-  <button role="tab" id="tab-1" aria-selected="true" aria-controls="panel-1">
-    Description
-  </button>
-  <button
-    role="tab"
-    id="tab-2"
-    aria-selected="false"
-    aria-controls="panel-2"
-    tabindex="-1"
-  >
-    Reviews
-  </button>
-</div>
-
-<div role="tabpanel" id="panel-1" aria-labelledby="tab-1">
-  Product description content...
-</div>
-
-<div role="tabpanel" id="panel-2" aria-labelledby="tab-2" hidden>
-  Reviews content...
-</div>
+**aria-live Example** (Notifications):
+```tsx
+function Notification({ message, type }: { message: string; type: 'success' | 'error' }) {
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"  // Immediate announcement (error), "polite" announces in turn
+      aria-atomic="true"     // Read the entire content
+      className={`notification notification-${type}`}
+    >
+      {type === 'error' && <span aria-label="Error">⚠️</span>}
+      {type === 'success' && <span aria-label="Success">✅</span>}
+      {message}
+    </div>
+  );
+}
 ```
 
-```javascript
-// Tab keyboard navigation
-tablist.addEventListener("keydown", (e) => {
-  const tabs = [...tablist.querySelectorAll('[role="tab"]')];
-  const index = tabs.indexOf(document.activeElement);
+### Step 4: Color Contrast and Visual Accessibility
 
-  let newIndex;
-  switch (e.key) {
-    case "ArrowRight":
-      newIndex = (index + 1) % tabs.length;
-      break;
-    case "ArrowLeft":
-      newIndex = (index - 1 + tabs.length) % tabs.length;
-      break;
-    case "Home":
-      newIndex = 0;
-      break;
-    case "End":
-      newIndex = tabs.length - 1;
-      break;
-    default:
-      return;
-  }
+Ensure sufficient contrast ratios for users with visual impairments.
 
-  tabs[newIndex].focus();
-  activateTab(tabs[newIndex]);
-  e.preventDefault();
+**Tasks**:
+- WCAG AA: text 4.5:1, large text 3:1
+- WCAG AAA: text 7:1, large text 4.5:1
+- Do not convey information by color alone (use icons, patterns alongside)
+- Clearly indicate focus (outline)
+
+**Example** (CSS):
+```css
+/* ✅ Sufficient contrast (text #000 on #FFF = 21:1) */
+.button {
+  background-color: #0066cc;
+  color: #ffffff;  /* contrast ratio 7.7:1 */
+}
+
+/* ✅ Focus indicator */
+button:focus,
+a:focus {
+  outline: 3px solid #0066cc;
+  outline-offset: 2px;
+}
+
+/* ❌ outline: none is forbidden! */
+button:focus {
+  outline: none;  /* Never use this */
+}
+
+/* ✅ Indicate state with color + icon */
+.error-message {
+  color: #d32f2f;
+  border-left: 4px solid #d32f2f;
+}
+
+.error-message::before {
+  content: '⚠️';
+  margin-right: 8px;
+}
+```
+
+### Step 5: Accessibility Testing
+
+Validate accessibility with automated and manual testing.
+
+**Tasks**:
+- Automated scan with axe DevTools
+- Check Lighthouse Accessibility score
+- Test all features with keyboard only
+- Screen reader testing (NVDA, VoiceOver)
+
+**Example** (Jest + axe-core):
+```typescript
+import { render } from '@testing-library/react';
+import { axe, toHaveNoViolations } from 'jest-axe';
+import AccessibleButton from './AccessibleButton';
+
+expect.extend(toHaveNoViolations);
+
+describe('AccessibleButton', () => {
+  it('should have no accessibility violations', async () => {
+    const { container } = render(
+      <AccessibleButton onClick={() => {}}>
+        Click Me
+      </AccessibleButton>
+    );
+
+    const results = await axe(container);
+    expect(results).toHaveNoViolations();
+  });
+
+  it('should be keyboard accessible', () => {
+    const handleClick = jest.fn();
+    const { getByRole } = render(
+      <AccessibleButton onClick={handleClick}>
+        Click Me
+      </AccessibleButton>
+    );
+
+    const button = getByRole('button');
+
+    // Enter key
+    button.focus();
+    fireEvent.keyDown(button, { key: 'Enter' });
+    expect(handleClick).toHaveBeenCalled();
+
+    // Space key
+    fireEvent.keyDown(button, { key: ' ' });
+    expect(handleClick).toHaveBeenCalledTimes(2);
+  });
 });
 ```
 
-## Debugging Tips
+## Output format
 
-```javascript
-// Log what screen reader sees
-function logAccessibleName(element) {
-  const computed = window.getComputedStyle(element);
-  console.log({
-    role: element.getAttribute("role") || element.tagName,
-    name:
-      element.getAttribute("aria-label") ||
-      element.getAttribute("aria-labelledby") ||
-      element.textContent,
-    state: {
-      expanded: element.getAttribute("aria-expanded"),
-      selected: element.getAttribute("aria-selected"),
-      checked: element.getAttribute("aria-checked"),
-      disabled: element.disabled,
-    },
-    visible: computed.display !== "none" && computed.visibility !== "hidden",
-  });
+### Basic Checklist
+
+```markdown
+## Accessibility Checklist
+
+### Semantic HTML
+- [x] Use semantic HTML tags (`<button>`, `<nav>`, `<main>`, etc.)
+- [x] Heading hierarchy is correct (h1 → h2 → h3)
+- [x] All form labels are connected
+
+### Keyboard Navigation
+- [x] All interactive elements accessible via Tab
+- [x] Buttons activated with Enter/Space
+- [x] Modals/dropdowns closed with ESC
+- [x] Focus indicator is clear (outline)
+
+### ARIA
+- [x] `role` used appropriately
+- [x] `aria-label` or `aria-labelledby` provided
+- [x] `aria-live` used for dynamic content
+- [x] Decorative elements use `aria-hidden="true"`
+
+### Visual
+- [x] Color contrast meets WCAG AA (4.5:1)
+- [x] Information not conveyed by color alone
+- [x] Text size can be adjusted
+- [x] Responsive design
+
+### Testing
+- [x] 0 axe DevTools violations
+- [x] Lighthouse Accessibility score 90+
+- [x] Keyboard test passed
+- [x] Screen reader test completed
+```
+
+## Constraints
+
+### Mandatory Rules (MUST)
+
+1. **Keyboard Accessibility**: All features must be usable without a mouse
+   - Support Tab, Enter, Space, arrow keys, and ESC
+   - Implement focus trap (for modals)
+
+2. **Alternative Text**: All images must have an `alt` attribute
+   - Meaningful images: descriptive alt text
+   - Decorative images: `alt=""` (screen reader ignores)
+
+3. **Clear Labels**: All form inputs must have an associated label
+   - `<label for="...">` or `aria-label`
+   - Do not use placeholder alone as a substitute for a label
+
+### Prohibited Actions (MUST NOT)
+
+1. **Do Not Remove Outline**: Never use `outline: none`
+   - Disastrous for keyboard users
+   - Must provide a custom focus style instead
+
+2. **Do Not Use tabindex > 0**: Avoid changing focus order
+   - Keep DOM order logical
+   - Exception: only when there is a special reason
+
+3. **Do Not Convey Information by Color Alone**: Accompany with icons or text
+   - Consider users with color blindness
+   - e.g., "Click red item" → "Click ⚠️ Error item"
+
+## Examples
+
+### Example 1: Accessible Form
+
+```tsx
+function AccessibleContactForm() {
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
+
+  return (
+    <form onSubmit={handleSubmit} noValidate>
+      <h2 id="form-title">Contact Us</h2>
+      <p id="form-description">Please fill out the form below to get in touch.</p>
+
+      {/* Name */}
+      <div className="form-group">
+        <label htmlFor="name">
+          Name <span aria-label="required">*</span>
+        </label>
+        <input
+          type="text"
+          id="name"
+          name="name"
+          required
+          aria-required="true"
+          aria-invalid={!!errors.name}
+          aria-describedby={errors.name ? 'name-error' : undefined}
+        />
+        {errors.name && (
+          <span id="name-error" role="alert" className="error">
+            {errors.name}
+          </span>
+        )}
+      </div>
+
+      {/* Email */}
+      <div className="form-group">
+        <label htmlFor="email">
+          Email <span aria-label="required">*</span>
+        </label>
+        <input
+          type="email"
+          id="email"
+          name="email"
+          required
+          aria-required="true"
+          aria-invalid={!!errors.email}
+          aria-describedby={errors.email ? 'email-error' : 'email-hint'}
+        />
+        <span id="email-hint" className="hint">
+          We'll never share your email.
+        </span>
+        {errors.email && (
+          <span id="email-error" role="alert" className="error">
+            {errors.email}
+          </span>
+        )}
+      </div>
+
+      {/* Submit button */}
+      <button type="submit" disabled={submitStatus === 'loading'}>
+        {submitStatus === 'loading' ? 'Submitting...' : 'Submit'}
+      </button>
+
+      {/* Success/failure messages */}
+      {submitStatus === 'success' && (
+        <div role="alert" aria-live="polite" className="success">
+          ✅ Form submitted successfully!
+        </div>
+      )}
+
+      {submitStatus === 'error' && (
+        <div role="alert" aria-live="assertive" className="error">
+          ⚠️ An error occurred. Please try again.
+        </div>
+      )}
+    </form>
+  );
 }
 ```
 
-## Best Practices
+### Example 2: Accessible Tab UI
 
-### Do's
+```tsx
+function AccessibleTabs({ tabs }: { tabs: { id: string; label: string; content: React.ReactNode }[] }) {
+  const [activeTab, setActiveTab] = useState(0);
 
-- **Test with actual screen readers** - Not just simulators
-- **Use semantic HTML first** - ARIA is supplemental
-- **Test in browse and focus modes** - Different experiences
-- **Verify focus management** - Especially for SPAs
-- **Test keyboard only first** - Foundation for SR testing
+  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+    switch (e.key) {
+      case 'ArrowRight':
+        e.preventDefault();
+        setActiveTab((index + 1) % tabs.length);
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        setActiveTab((index - 1 + tabs.length) % tabs.length);
+        break;
+      case 'Home':
+        e.preventDefault();
+        setActiveTab(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        setActiveTab(tabs.length - 1);
+        break;
+    }
+  };
 
-### Don'ts
+  return (
+    <div>
+      {/* Tab List */}
+      <div role="tablist" aria-label="Content sections">
+        {tabs.map((tab, index) => (
+          <button
+            key={tab.id}
+            role="tab"
+            id={`tab-${tab.id}`}
+            aria-selected={activeTab === index}
+            aria-controls={`panel-${tab.id}`}
+            tabIndex={activeTab === index ? 0 : -1}
+            onClick={() => setActiveTab(index)}
+            onKeyDown={(e) => handleKeyDown(e, index)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-- **Don't assume one SR is enough** - Test multiple
-- **Don't ignore mobile** - Growing user base
-- **Don't test only happy path** - Test error states
-- **Don't skip dynamic content** - Most common issues
-- **Don't rely on visual testing** - Different experience
+      {/* Tab Panels */}
+      {tabs.map((tab, index) => (
+        <div
+          key={tab.id}
+          role="tabpanel"
+          id={`panel-${tab.id}`}
+          aria-labelledby={`tab-${tab.id}`}
+          hidden={activeTab !== index}
+          tabIndex={0}
+        >
+          {tab.content}
+        </div>
+      ))}
+    </div>
+  );
+}
+```
 
-## Resources
+## Best practices
 
-- [VoiceOver User Guide](https://support.apple.com/guide/voiceover/welcome/mac)
-- [NVDA User Guide](https://www.nvaccess.org/files/nvda/documentation/userGuide.html)
-- [JAWS Documentation](https://support.freedomscientific.com/Products/Blindness/JAWS)
-- [WebAIM Screen Reader Survey](https://webaim.org/projects/screenreadersurvey/)
+1. **Semantic HTML First**: ARIA is a last resort
+   - Using the correct HTML element makes ARIA unnecessary
+   - e.g., `<button>` vs `<div role="button">`
+
+2. **Focus Management**: Manage focus on page transitions in SPAs
+   - Move focus to main content on new page load
+   - Provide skip links ("Skip to main content")
+
+3. **Error Messages**: Clear and helpful error messages
+   - "Invalid input" ❌ → "Email must be in format: example@domain.com" ✅
+
+## References
+
+- [WCAG 2.1 Guidelines](https://www.w3.org/WAI/WCAG21/quickref/)
+- [MDN ARIA](https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA)
+- [WebAIM](https://webaim.org/)
+- [axe DevTools](https://www.deque.com/axe/devtools/)
+- [A11y Project](https://www.a11yproject.com/)
+
+## Metadata
+
+### Version
+- **Current Version**: 1.0.0
+- **Last Updated**: 2025-01-01
+- **Compatible Platforms**: Claude, ChatGPT, Gemini
+
+### Related Skills
+- [ui-component-patterns](../ui-component-patterns/SKILL.md): UI component implementation
+- [responsive-design](../responsive-design/SKILL.md): Responsive design
+
+### Tags
+`#accessibility` `#a11y` `#WCAG` `#ARIA` `#screen-reader` `#keyboard-navigation` `#frontend`

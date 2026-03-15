@@ -10,6 +10,7 @@ const path = require('path');
 
 const API_KEY = 'sk_live_skillsmp_Y-DcREuip4XIpakL7dMNRMVZvQSO81aqE6JI-8LODBg';
 const API_BASE = 'https://skillsmp.com/api/v1';
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
 const SKILLS_DIR = path.join(__dirname, 'skills');
 
 // Required skills for SPO-WebClient
@@ -54,6 +55,19 @@ const REQUIRED_SKILLS = [
   { query: 'ui-ux-pro-max design', name: 'ui-ux-pro-max' },
   { query: 'pwa-expert service worker', name: 'pwa-expert' },
   { query: 'web-accessibility screen reader', name: 'web-accessibility' },
+  // DevOps, infrastructure & patterns - Added 2026-03-16
+  { query: 'deployment-patterns affaan-m', name: 'deployment-patterns' },
+  { query: 'ci-cd github actions', name: 'ci-cd' },
+  { query: 'reviewing-code prefecthq', name: 'reviewing-code' },
+  { query: 'css-modules opentrons', name: 'css-modules' },
+  { query: 'error-handling-patterns', name: 'error-handling-patterns' },
+  { query: 'canvas-api terminalskills', name: 'canvas-api' },
+  { query: 'observability-engineer sickn33', name: 'observability-engineer' },
+  { query: 'docker-expert sickn33', name: 'docker-expert' },
+  { query: 'auth-implementation-patterns sickn33', name: 'auth-implementation-patterns' },
+  { query: 'rate-limiting-implementation', name: 'rate-limiting-implementation' },
+  { query: 'realtime-systems', name: 'realtime-systems' },
+  { query: 'css-modules madappgang', name: 'css-modules-vite' },
 ];
 
 /**
@@ -101,7 +115,9 @@ function apiRequest(endpoint, params = {}) {
  */
 function downloadFile(url, destPath) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'SPO-WebClient-SkillsMP-Installer/1.0.0' } }, (res) => {
+    const hdrs = { 'User-Agent': 'SPO-WebClient-SkillsMP-Installer/1.0.0' };
+    if (GITHUB_TOKEN) hdrs['Authorization'] = `token ${GITHUB_TOKEN}`;
+    https.get(url, { headers: hdrs }, (res) => {
       if (res.statusCode === 302 || res.statusCode === 301) {
         return downloadFile(res.headers.location, destPath).then(resolve).catch(reject);
       }
@@ -133,7 +149,9 @@ function downloadFile(url, destPath) {
  */
 function fetchGithubJson(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'SPO-WebClient-SkillsMP-Installer/1.0.0' } }, (res) => {
+    const hdrs = { 'User-Agent': 'SPO-WebClient-SkillsMP-Installer/1.0.0' };
+    if (GITHUB_TOKEN) hdrs['Authorization'] = `token ${GITHUB_TOKEN}`;
+    https.get(url, { headers: hdrs }, (res) => {
       if (res.statusCode === 301 || res.statusCode === 302) {
         return fetchGithubJson(res.headers.location).then(resolve).catch(reject);
       }
@@ -223,7 +241,7 @@ async function installSkill(skillConfig) {
       skillName: skill.name,
       author: skill.author,
       stars: skill.stars,
-      path: destPath,
+      path: skillDir,
       githubUrl: skill.githubUrl
     };
   } catch (err) {

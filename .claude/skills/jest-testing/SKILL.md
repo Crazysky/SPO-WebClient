@@ -1,319 +1,164 @@
 ---
-name: code-testing
-description: Generate and run unit and integration tests using pytest (Python) or Jest (JavaScript) with fixtures, mocks, and async support. Use for test-driven development, code review validation, coverage verification, and regression testing. Target 80%+ code coverage. Supports pytest markers, Jest snapshots, and CI/CD integration. Triggers on "test", "TDD", "unit test", "integration test", "test coverage", "pytest", "jest".
+name: "tdd-guide"
+description: "Test-driven development skill for writing unit tests, generating test fixtures and mocks, analyzing coverage gaps, and guiding red-green-refactor workflows across Jest, Pytest, JUnit, Vitest, and Mocha. Use when the user asks to write tests, improve test coverage, practice TDD, generate mocks or stubs, or mentions testing frameworks like Jest, pytest, or JUnit. Handles test generation from source code, coverage report parsing (LCOV/JSON/XML), quality scoring, and framework conversion for TypeScript, JavaScript, Python, and Java projects."
+triggers:
+  - generate tests
+  - analyze coverage
+  - TDD workflow
+  - red green refactor
+  - Jest tests
+  - Pytest tests
+  - JUnit tests
+  - coverage report
 ---
 
-# Code Testing
+# TDD Guide
 
-## Purpose
+Test-driven development skill for generating tests, analyzing coverage, and guiding red-green-refactor workflows across Jest, Pytest, JUnit, and Vitest.
 
-Generate and run comprehensive unit and integration tests following TDD principles with proper fixtures, mocking, and coverage measurement.
+---
 
-## When to Use
+## Workflows
 
-- Test-driven development (TDD)
-- Code review validation
-- Coverage verification
-- Regression testing
-- CI/CD pipeline integration
-- Ensuring code quality
+### Generate Tests from Code
 
-## Core Instructions
+1. Provide source code (TypeScript, JavaScript, Python, Java)
+2. Specify target framework (Jest, Pytest, JUnit, Vitest)
+3. Run `test_generator.py` with requirements
+4. Review generated test stubs
+5. **Validation:** Tests compile and cover happy path, error cases, edge cases
 
-### Python Unit Test (pytest)
+### Analyze Coverage Gaps
 
+1. Generate coverage report from test runner (`npm test -- --coverage`)
+2. Run `coverage_analyzer.py` on LCOV/JSON/XML report
+3. Review prioritized gaps (P0/P1/P2)
+4. Generate missing tests for uncovered paths
+5. **Validation:** Coverage meets target threshold (typically 80%+)
+
+### TDD New Feature
+
+1. Write failing test first (RED)
+2. Run `tdd_workflow.py --phase red` to validate
+3. Implement minimal code to pass (GREEN)
+4. Run `tdd_workflow.py --phase green` to validate
+5. Refactor while keeping tests green (REFACTOR)
+6. **Validation:** All tests pass after each cycle
+
+---
+
+## Examples
+
+### Test Generation — Input → Output (Pytest)
+
+**Input source function (`math_utils.py`):**
+```python
+def divide(a: float, b: float) -> float:
+    if b == 0:
+        raise ValueError("Cannot divide by zero")
+    return a / b
+```
+
+**Command:**
+```bash
+python scripts/test_generator.py --input math_utils.py --framework pytest
+```
+
+**Generated test output (`test_math_utils.py`):**
 ```python
 import pytest
-from my_module import calculate_total
+from math_utils import divide
 
-@pytest.fixture
-def sample_data():
-    """Fixture providing test data"""
-    return {
-        "items": [
-            {"price": 10.0, "quantity": 2},
-            {"price": 5.0, "quantity": 3}
-        ]
-    }
+class TestDivide:
+    def test_divide_positive_numbers(self):
+        assert divide(10, 2) == 5.0
 
-def test_calculate_total(sample_data):
-    """Test total calculation"""
-    result = calculate_total(sample_data["items"])
-    assert result == 35.0
+    def test_divide_negative_numerator(self):
+        assert divide(-10, 2) == -5.0
 
-def test_calculate_total_empty():
-    """Test with empty list"""
-    result = calculate_total([])
-    assert result == 0.0
+    def test_divide_float_result(self):
+        assert divide(1, 3) == pytest.approx(0.333, rel=1e-3)
 
-@pytest.mark.asyncio
-async def test_async_function():
-    """Test async operations"""
-    result = await fetch_data()
-    assert result is not None
-    assert "id" in result
+    def test_divide_by_zero_raises_value_error(self):
+        with pytest.raises(ValueError, match="Cannot divide by zero"):
+            divide(10, 0)
+
+    def test_divide_zero_numerator(self):
+        assert divide(0, 5) == 0.0
 ```
 
-### JavaScript Test (Jest)
+---
 
-```javascript
-import { render, screen } from '@testing-library/react';
-import { calculateTotal } from './utils';
-import Component from './Component';
+### Coverage Analysis — Sample P0/P1/P2 Output
 
-describe('calculateTotal', () => {
-  test('calculates total correctly', () => {
-    const items = [
-      { price: 10, quantity: 2 },
-      { price: 5, quantity: 3 }
-    ];
-    expect(calculateTotal(items)).toBe(35);
-  });
-
-  test('handles empty array', () => {
-    expect(calculateTotal([])).toBe(0);
-  });
-});
-
-describe('Component', () => {
-  test('renders correctly', () => {
-    render(<Component />);
-    expect(screen.getByText('Hello')).toBeInTheDocument();
-  });
-
-  test('handles async data', async () => {
-    render(<Component />);
-    const data = await screen.findByTestId('data');
-    expect(data).toHaveTextContent('Loaded');
-  });
-});
-```
-
-### Mocking External Dependencies
-
-**Python (unittest.mock):**
-```python
-from unittest.mock import Mock, patch
-
-@patch('my_module.external_api_call')
-def test_with_mock(mock_api):
-    """Mock external API"""
-    mock_api.return_value = {"status": "success"}
-
-    result = my_function()
-
-    assert result["status"] == "success"
-    mock_api.assert_called_once()
-```
-
-**JavaScript (Jest):**
-```javascript
-jest.mock('./api', () => ({
-  fetchData: jest.fn()
-}));
-
-import { fetchData } from './api';
-
-test('mocks API call', async () => {
-  fetchData.mockResolvedValue({ status: 'success' });
-
-  const result = await myFunction();
-
-  expect(result.status).toBe('success');
-  expect(fetchData).toHaveBeenCalledTimes(1);
-});
-```
-
-## TDD Workflow (Red-Green-Refactor)
-
-### 1. RED: Write Failing Test
-
-```python
-def test_new_feature():
-    """Test for feature that doesn't exist yet"""
-    result = new_feature(input_data)
-    assert result == expected_output
-```
-
-Run test: `pytest` → ❌ FAILS (feature not implemented)
-
-### 2. GREEN: Implement Minimum Code
-
-```python
-def new_feature(input_data):
-    """Minimal implementation to pass test"""
-    return expected_output
-```
-
-Run test: `pytest` → ✅ PASSES
-
-### 3. REFACTOR: Improve Code
-
-```python
-def new_feature(input_data):
-    """Refactored implementation"""
-    # Clean, efficient implementation
-    return process(input_data)
-```
-
-Run test: `pytest` → ✅ STILL PASSES
-
-## Coverage Measurement
-
-### Python (pytest-cov)
-
+**Command:**
 ```bash
-# Run tests with coverage
-pytest tests/ --cov=src --cov-report=html --cov-report=term
-
-# Generate HTML report
-pytest --cov=src --cov-report=html
-open htmlcov/index.html
-
-# Fail if coverage below threshold
-pytest --cov=src --cov-fail-under=80
+python scripts/coverage_analyzer.py --report lcov.info --threshold 80
 ```
 
-### JavaScript (Jest)
+**Sample output:**
+```
+Coverage Report — Overall: 63% (threshold: 80%)
 
-```bash
-# Run tests with coverage
-npm test -- --coverage
+P0 — Critical gaps (uncovered error paths):
+  auth/login.py:42-58   handle_expired_token()       0% covered
+  payments/process.py:91-110  handle_payment_failure()   0% covered
 
-# Coverage thresholds in jest.config.js
-module.exports = {
-  coverageThreshold: {
-    global: {
-      branches: 80,
-      functions: 80,
-      lines: 80,
-      statements: 80
-    }
-  }
-};
+P1 — High-value gaps (core logic branches):
+  users/service.py:77   update_profile() — else branch  0% covered
+  orders/cart.py:134    apply_discount() — zero-qty guard  0% covered
+
+P2 — Low-risk gaps (utility / helper functions):
+  utils/formatting.py:12  format_currency()            0% covered
+
+Recommended: Generate tests for P0 items first to reach 80% threshold.
 ```
 
-## Best Practices
+---
 
-### Structure Tests (AAA Pattern)
+## Key Tools
 
-```python
-def test_user_creation():
-    # ARRANGE: Setup test data
-    user_data = {"name": "John", "email": "john@example.com"}
+| Tool | Purpose | Usage |
+|------|---------|-------|
+| `test_generator.py` | Generate test cases from code/requirements | `python scripts/test_generator.py --input source.py --framework pytest` |
+| `coverage_analyzer.py` | Parse and analyze coverage reports | `python scripts/coverage_analyzer.py --report lcov.info --threshold 80` |
+| `tdd_workflow.py` | Guide red-green-refactor cycles | `python scripts/tdd_workflow.py --phase red --test test_auth.py` |
+| `fixture_generator.py` | Generate test data and mocks | `python scripts/fixture_generator.py --entity User --count 5` |
 
-    # ACT: Execute the function
-    user = create_user(user_data)
+Additional scripts: `framework_adapter.py` (convert between frameworks), `metrics_calculator.py` (quality metrics), `format_detector.py` (detect language/framework), `output_formatter.py` (CLI/desktop/CI output).
 
-    # ASSERT: Verify results
-    assert user.name == "John"
-    assert user.email == "john@example.com"
-    assert user.id is not None
-```
+---
 
-### Use Descriptive Names
+## Input Requirements
 
-```python
-# Good
-def test_calculate_total_with_discount_applied():
-    pass
+**For Test Generation:**
+- Source code (file path or pasted content)
+- Target framework (Jest, Pytest, JUnit, Vitest)
+- Coverage scope (unit, integration, edge cases)
 
-# Bad
-def test_calc():
-    pass
-```
+**For Coverage Analysis:**
+- Coverage report file (LCOV, JSON, or XML format)
+- Optional: Source code for context
+- Optional: Target threshold percentage
 
-### Test Edge Cases
+**For TDD Workflow:**
+- Feature requirements or user story
+- Current phase (RED, GREEN, REFACTOR)
+- Test code and implementation status
 
-```python
-def test_division_by_zero():
-    with pytest.raises(ZeroDivisionError):
-        divide(10, 0)
+---
 
-def test_empty_input():
-    result = process([])
-    assert result == []
+## Limitations
 
-def test_null_input():
-    result = process(None)
-    assert result is None
-```
+| Scope | Details |
+|-------|---------|
+| Unit test focus | Integration and E2E tests require different patterns |
+| Static analysis | Cannot execute tests or measure runtime behavior |
+| Language support | Best for TypeScript, JavaScript, Python, Java |
+| Report formats | LCOV, JSON, XML only; other formats need conversion |
+| Generated tests | Provide scaffolding; require human review for complex logic |
 
-### Use Fixtures for Setup
-
-```python
-@pytest.fixture
-def database():
-    """Setup test database"""
-    db = create_test_db()
-    yield db
-    db.cleanup()
-
-def test_with_db(database):
-    user = database.create_user("test")
-    assert user.name == "test"
-```
-
-## CI/CD Integration
-
-### GitHub Actions
-
-```yaml
-- name: Run tests
-  run: |
-    pytest tests/ --cov=src --cov-report=xml
-
-- name: Upload coverage
-  uses: codecov/codecov-action@v3
-  with:
-    files: ./coverage.xml
-```
-
-### Output Formats
-
-**JUnit XML (for CI):**
-```bash
-pytest --junitxml=test-results.xml
-```
-
-**JSON (for parsing):**
-```bash
-pytest --json-report --json-report-file=report.json
-```
-
-## Performance Testing
-
-```python
-import pytest
-import time
-
-@pytest.mark.benchmark
-def test_performance(benchmark):
-    """Benchmark function performance"""
-    result = benchmark(expensive_function, large_input)
-    assert result is not None
-
-@pytest.mark.timeout(5)
-def test_timeout():
-    """Test must complete within 5 seconds"""
-    result = slow_function()
-    assert result is not None
-```
-
-## Dependencies
-
-**Python:**
-- `pytest` - Test framework
-- `pytest-cov` - Coverage plugin
-- `pytest-asyncio` - Async test support
-- `pytest-mock` - Mocking utilities
-
-**JavaScript:**
-- `jest` - Test framework
-- `@testing-library/react` - React testing
-- `@testing-library/jest-dom` - Custom matchers
-
-## Version
-
-v1.0.0 (2025-10-23)
-
+**When to use other tools:**
+- E2E testing: Playwright, Cypress, Selenium
+- Performance testing: k6, JMeter, Locust
+- Security testing: OWASP ZAP, Burp Suite

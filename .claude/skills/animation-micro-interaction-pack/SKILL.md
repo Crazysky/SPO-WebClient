@@ -1,6 +1,6 @@
 ---
 name: animation-micro-interaction-pack
-description: "TRIGGER: When editing animations.css or adding transitions. Covers entrance/exit, hover, reduced-motion support."
+description: Provides reusable interaction patterns and motion presets that make UI feel polished. Includes hover effects, transitions, entrance animations, gesture feedback, and reduced-motion support. Use when adding "animations", "transitions", "micro-interactions", or "motion design".
 ---
 
 # Animation & Micro-interaction Pack

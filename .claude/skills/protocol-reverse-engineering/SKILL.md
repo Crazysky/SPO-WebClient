@@ -1,6 +1,6 @@
 ---
 name: protocol-reverse-engineering
-description: "TRIGGER: When analyzing RDO wire format, packet captures, or Delphi protocol behavior. Covers packet dissection, network debugging."
+description: Master network protocol reverse engineering including packet analysis, protocol dissection, and custom protocol documentation. Use when analyzing network traffic, understanding proprietary protocols, or debugging network communication.
 ---
 
 # Protocol Reverse Engineering

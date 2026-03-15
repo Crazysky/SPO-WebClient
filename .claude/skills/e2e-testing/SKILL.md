@@ -1,325 +1,80 @@
 ---
-name: e2e-testing
-description: "TRIGGER: When writing E2E tests with Playwright. Covers Page Object Model, selectors, CI/CD stability, flaky test strategies."
+name: e2e-tester
+description: "Write and run Playwright E2E tests for Redpanda Console using testcontainers. Analyzes test failures, adds missing testids, and improves test stability. Use when user requests E2E tests, Playwright tests, integration tests, test failures, missing testids, or mentions 'test workflow', 'browser testing', 'end-to-end', or 'testcontainers'."
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Task, mcp__ide__getDiagnostics, mcp__playwright-test__test_run, mcp__playwright-test__test_list, mcp__playwright-test__test_debug
 ---
 
-# E2E Testing Patterns
+# E2E Testing with Playwright & Testcontainers
 
-Comprehensive Playwright patterns for building stable, fast, and maintainable E2E test suites.
+Write end-to-end tests using Playwright against a full Redpanda Console stack running in Docker containers via testcontainers.
 
-## Test File Organization
+## When to Use This Skill
 
-```
-tests/
-├── e2e/
-│   ├── auth/
-│   │   ├── login.spec.ts
-│   │   ├── logout.spec.ts
-│   │   └── register.spec.ts
-│   ├── features/
-│   │   ├── browse.spec.ts
-│   │   ├── search.spec.ts
-│   │   └── create.spec.ts
-│   └── api/
-│       └── endpoints.spec.ts
-├── fixtures/
-│   ├── auth.ts
-│   └── data.ts
-└── playwright.config.ts
-```
+- Testing 2+ step user journeys (login -> action -> verify)
+- Multi-page workflows
+- Browser automation with Playwright
 
-## Page Object Model (POM)
+**NOT for:** Component unit tests -> use [testing](../testing/SKILL.md)
 
-```typescript
-import { Page, Locator } from '@playwright/test'
+## Critical Rules
 
-export class ItemsPage {
-  readonly page: Page
-  readonly searchInput: Locator
-  readonly itemCards: Locator
-  readonly createButton: Locator
+**ALWAYS:**
+- Run `bun run build` before running E2E tests (frontend assets required)
+- Use `testcontainers` API for container management (never manual `docker` commands in tests)
+- Use `page.getByRole()` and `page.getByLabel()` selectors (avoid CSS selectors)
+- Add `data-testid` attributes when semantic selectors aren't available
+- Use Task tool with MCP Playwright agents to analyze failures
+- Clean up test data using `afterEach` to call cleanup API endpoints
 
-  constructor(page: Page) {
-    this.page = page
-    this.searchInput = page.locator('[data-testid="search-input"]')
-    this.itemCards = page.locator('[data-testid="item-card"]')
-    this.createButton = page.locator('[data-testid="create-btn"]')
-  }
+**NEVER:**
+- Test UI component rendering (use unit/integration tests)
+- Use brittle CSS selectors like `.class-name` or `#id`
+- Use `force:true` on `.click()` or `waitForTimeout`
+- Hard-code wait times (use `waitFor` with conditions)
+- Leave containers running after test failures
+- Commit test screenshots to git
 
-  async goto() {
-    await this.page.goto('/items')
-    await this.page.waitForLoadState('networkidle')
-  }
-
-  async search(query: string) {
-    await this.searchInput.fill(query)
-    await this.page.waitForResponse(resp => resp.url().includes('/api/search'))
-    await this.page.waitForLoadState('networkidle')
-  }
-
-  async getItemCount() {
-    return await this.itemCards.count()
-  }
-}
-```
-
-## Test Structure
-
-```typescript
-import { test, expect } from '@playwright/test'
-import { ItemsPage } from '../../pages/ItemsPage'
-
-test.describe('Item Search', () => {
-  let itemsPage: ItemsPage
-
-  test.beforeEach(async ({ page }) => {
-    itemsPage = new ItemsPage(page)
-    await itemsPage.goto()
-  })
-
-  test('should search by keyword', async ({ page }) => {
-    await itemsPage.search('test')
-
-    const count = await itemsPage.getItemCount()
-    expect(count).toBeGreaterThan(0)
-
-    await expect(itemsPage.itemCards.first()).toContainText(/test/i)
-    await page.screenshot({ path: 'artifacts/search-results.png' })
-  })
-
-  test('should handle no results', async ({ page }) => {
-    await itemsPage.search('xyznonexistent123')
-
-    await expect(page.locator('[data-testid="no-results"]')).toBeVisible()
-    expect(await itemsPage.getItemCount()).toBe(0)
-  })
-})
-```
-
-## Playwright Configuration
-
-```typescript
-import { defineConfig, devices } from '@playwright/test'
-
-export default defineConfig({
-  testDir: './tests/e2e',
-  fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
-  reporter: [
-    ['html', { outputFolder: 'playwright-report' }],
-    ['junit', { outputFile: 'playwright-results.xml' }],
-    ['json', { outputFile: 'playwright-results.json' }]
-  ],
-  use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:3000',
-    trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
-    actionTimeout: 10000,
-    navigationTimeout: 30000,
-  },
-  projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
-    { name: 'mobile-chrome', use: { ...devices['Pixel 5'] } },
-  ],
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120000,
-  },
-})
-```
-
-## Flaky Test Patterns
-
-### Quarantine
-
-```typescript
-test('flaky: complex search', async ({ page }) => {
-  test.fixme(true, 'Flaky - Issue #123')
-  // test code...
-})
-
-test('conditional skip', async ({ page }) => {
-  test.skip(process.env.CI, 'Flaky in CI - Issue #123')
-  // test code...
-})
-```
-
-### Identify Flakiness
+## Commands
 
 ```bash
-npx playwright test tests/search.spec.ts --repeat-each=10
-npx playwright test tests/search.spec.ts --retries=3
+bun run build                # Build frontend (REQUIRED first!)
+bun run e2e-test             # Run OSS E2E tests
+bun run e2e-test-enterprise  # Run Enterprise E2E tests
+bun run e2e-test:ui          # Playwright UI mode (debugging)
+bun run e2e-test tests/topics/create-topic.spec.ts  # Specific file
 ```
 
-### Common Causes & Fixes
+## Test Architecture
 
-**Race conditions:**
-```typescript
-// Bad: assumes element is ready
-await page.click('[data-testid="button"]')
+**OSS Mode (`bun run e2e-test`):** Redpanda + Backend + OwlShop containers
+**Enterprise Mode (`bun run e2e-test-enterprise`):** Same + RBAC, SSO (requires `console-enterprise` repo)
 
-// Good: auto-wait locator
-await page.locator('[data-testid="button"]').click()
-```
+File location: `tests/<feature>/*.spec.ts`
 
-**Network timing:**
-```typescript
-// Bad: arbitrary timeout
-await page.waitForTimeout(5000)
+## Selector Priority
 
-// Good: wait for specific condition
-await page.waitForResponse(resp => resp.url().includes('/api/data'))
-```
+1. `getByRole()` - Best for accessibility
+2. `getByLabel()` - For form inputs
+3. `getByText()` - For content verification
+4. `getByTestId()` - When semantic selectors aren't clear
+5. CSS selectors - Avoid if possible
 
-**Animation timing:**
-```typescript
-// Bad: click during animation
-await page.click('[data-testid="menu-item"]')
+## Test ID Naming
 
-// Good: wait for stability
-await page.locator('[data-testid="menu-item"]').waitFor({ state: 'visible' })
-await page.waitForLoadState('networkidle')
-await page.locator('[data-testid="menu-item"]').click()
-```
+- kebab-case: `data-testid="feature-action-element"`
+- Specific: include feature name + action + element type
+- Dynamic: `data-testid={\`item-delete-\${id}\`}`
 
-## Artifact Management
+## References
 
-### Screenshots
+- [Container Setup](references/container-setup.md) — Testcontainer lifecycle, configs, CI setup
+- [Test Patterns](references/test-patterns.md) — Multi-step workflows, forms, tables, API testing
+- [Failure Analysis](references/failure-analysis.md) — Error patterns, debugging, MCP Playwright agents
 
-```typescript
-await page.screenshot({ path: 'artifacts/after-login.png' })
-await page.screenshot({ path: 'artifacts/full-page.png', fullPage: true })
-await page.locator('[data-testid="chart"]').screenshot({ path: 'artifacts/chart.png' })
-```
+## Output
 
-### Traces
-
-```typescript
-await browser.startTracing(page, {
-  path: 'artifacts/trace.json',
-  screenshots: true,
-  snapshots: true,
-})
-// ... test actions ...
-await browser.stopTracing()
-```
-
-### Video
-
-```typescript
-// In playwright.config.ts
-use: {
-  video: 'retain-on-failure',
-  videosPath: 'artifacts/videos/'
-}
-```
-
-## CI/CD Integration
-
-```yaml
-# .github/workflows/e2e.yml
-name: E2E Tests
-on: [push, pull_request]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm ci
-      - run: npx playwright install --with-deps
-      - run: npx playwright test
-        env:
-          BASE_URL: ${{ vars.STAGING_URL }}
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 30
-```
-
-## Test Report Template
-
-```markdown
-# E2E Test Report
-
-**Date:** YYYY-MM-DD HH:MM
-**Duration:** Xm Ys
-**Status:** PASSING / FAILING
-
-## Summary
-- Total: X | Passed: Y (Z%) | Failed: A | Flaky: B | Skipped: C
-
-## Failed Tests
-
-### test-name
-**File:** `tests/e2e/feature.spec.ts:45`
-**Error:** Expected element to be visible
-**Screenshot:** artifacts/failed.png
-**Recommended Fix:** [description]
-
-## Artifacts
-- HTML Report: playwright-report/index.html
-- Screenshots: artifacts/*.png
-- Videos: artifacts/videos/*.webm
-- Traces: artifacts/*.zip
-```
-
-## Wallet / Web3 Testing
-
-```typescript
-test('wallet connection', async ({ page, context }) => {
-  // Mock wallet provider
-  await context.addInitScript(() => {
-    window.ethereum = {
-      isMetaMask: true,
-      request: async ({ method }) => {
-        if (method === 'eth_requestAccounts')
-          return ['0x1234567890123456789012345678901234567890']
-        if (method === 'eth_chainId') return '0x1'
-      }
-    }
-  })
-
-  await page.goto('/')
-  await page.locator('[data-testid="connect-wallet"]').click()
-  await expect(page.locator('[data-testid="wallet-address"]')).toContainText('0x1234')
-})
-```
-
-## Financial / Critical Flow Testing
-
-```typescript
-test('trade execution', async ({ page }) => {
-  // Skip on production — real money
-  test.skip(process.env.NODE_ENV === 'production', 'Skip on production')
-
-  await page.goto('/markets/test-market')
-  await page.locator('[data-testid="position-yes"]').click()
-  await page.locator('[data-testid="trade-amount"]').fill('1.0')
-
-  // Verify preview
-  const preview = page.locator('[data-testid="trade-preview"]')
-  await expect(preview).toContainText('1.0')
-
-  // Confirm and wait for blockchain
-  await page.locator('[data-testid="confirm-trade"]').click()
-  await page.waitForResponse(
-    resp => resp.url().includes('/api/trade') && resp.status() === 200,
-    { timeout: 30000 }
-  )
-
-  await expect(page.locator('[data-testid="trade-success"]')).toBeVisible()
-})
-```
+After completing work:
+1. Confirm frontend build succeeded
+2. Verify all E2E tests pass
+3. Note any new test IDs added to components
+4. Mention cleanup of test containers

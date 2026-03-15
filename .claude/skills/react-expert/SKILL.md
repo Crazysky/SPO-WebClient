@@ -1,16 +1,24 @@
 ---
 name: react-expert
-description: "TRIGGER: When implementing advanced React patterns — Suspense, concurrent features, Server Components, custom hooks."
-license: MIT
-metadata:
-  author: https://github.com/Jeffallan
-  version: "1.0.0"
-  domain: frontend
-  triggers: React, JSX, hooks, useState, useEffect, useContext, Server Components, React 19, Suspense, TanStack Query, Redux, Zustand, component, frontend
-  role: specialist
-  scope: implementation
-  output-format: code
-  related-skills: fullstack-guardian, playwright-expert, test-master
+description: Use when building React 18+ applications requiring component architecture, hooks patterns, or state management. Invoke for Server Components, performance optimization, Suspense boundaries, React 19 features.
+triggers:
+  - React
+  - JSX
+  - hooks
+  - useState
+  - useEffect
+  - useContext
+  - Server Components
+  - React 19
+  - Suspense
+  - TanStack Query
+  - Redux
+  - Zustand
+  - component
+  - frontend
+role: specialist
+scope: implementation
+output-format: code
 ---
 
 # React Expert
@@ -82,3 +90,9 @@ When implementing React features, provide:
 ## Knowledge Reference
 
 React 19, Server Components, use() hook, Suspense, TypeScript, TanStack Query, Zustand, Redux Toolkit, React Router, React Testing Library, Vitest/Jest, Next.js App Router, accessibility (WCAG)
+
+## Related Skills
+
+- **Fullstack Guardian** - Full-stack feature implementation
+- **Playwright Expert** - E2E testing for React apps
+- **Test Master** - Comprehensive testing strategies

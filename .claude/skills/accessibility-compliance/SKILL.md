@@ -1,6 +1,6 @@
 ---
 name: accessibility-compliance
-description: "TRIGGER: When adding/modifying UI components. Covers WCAG 2.2 AA, ARIA patterns, keyboard navigation, focus management."
+description: Implement WCAG 2.2 compliant interfaces with mobile accessibility, inclusive design patterns, and assistive technology support. Use when auditing accessibility, implementing ARIA patterns, building for screen readers, or ensuring inclusive user experiences.
 ---
 
 # Accessibility Compliance
@@ -410,11 +410,3 @@ const CONTRAST_REQUIREMENTS = {
 - **Automated**: axe DevTools, WAVE, Lighthouse
 - **Manual**: VoiceOver (macOS/iOS), NVDA/JAWS (Windows), TalkBack (Android)
 - **Simulators**: NoCoffee (vision), Silktide (various disabilities)
-
-## Resources
-
-- [WCAG 2.2 Guidelines](https://www.w3.org/WAI/WCAG22/quickref/)
-- [WAI-ARIA Authoring Practices](https://www.w3.org/WAI/ARIA/apg/)
-- [A11y Project Checklist](https://www.a11yproject.com/checklist/)
-- [Inclusive Components](https://inclusive-components.design/)
-- [Deque University](https://dequeuniversity.com/)
