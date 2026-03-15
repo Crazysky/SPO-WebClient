@@ -415,7 +415,8 @@ function setSecurityHeaders(res: http.ServerResponse): void {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'");
+  const cdnOrigin = config.cdn.url ? ` ${config.cdn.url}` : '';
+  res.setHeader('Content-Security-Policy', `default-src 'self'; connect-src 'self' ws: wss:${cdnOrigin}; img-src 'self' data: blob:${cdnOrigin}; style-src 'self' 'unsafe-inline'; script-src 'self'`);
   if (process.env.ENABLE_HSTS === 'true') {
     res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
   }

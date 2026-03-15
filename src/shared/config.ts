@@ -10,6 +10,9 @@
 // Ambient declaration for Node.js process (browser-safe: guarded by typeof check)
 declare const process: { env: Record<string, string | undefined> } | undefined;
 
+// Build-time constant injected by Vite (see vite.config.ts define block)
+declare const __CHUNK_CDN_URL__: string;
+
 // Helper pour accéder à process.env de manière sécurisée (browser-safe)
 const getEnv = (key: string): string | undefined => {
   return typeof process !== 'undefined' && process.env ? process.env[key] : undefined;
@@ -48,7 +51,9 @@ export const config = {
    * Set via CHUNK_CDN_URL environment variable (e.g., 'https://spo.zz.works').
    */
   cdn: {
-    url: getEnv('CHUNK_CDN_URL') || '',
+    // In browser: Vite injects __CHUNK_CDN_URL__ at build time.
+    // On server: falls back to process.env.
+    url: (typeof __CHUNK_CDN_URL__ !== 'undefined' ? __CHUNK_CDN_URL__ : getEnv('CHUNK_CDN_URL')) || '',
   },
 
   /**

@@ -12,6 +12,7 @@ export default defineConfig({
     __BUILD_DATE__: JSON.stringify(new Date().toISOString().slice(0, 10)),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString().slice(11, 19)),
     __BUILD_NUMBER__: JSON.stringify(Math.floor(Date.now() / 1000).toString(36)),
+    __CHUNK_CDN_URL__: JSON.stringify(process.env.CHUNK_CDN_URL || ''),
   },
   root: '.',
   publicDir: false, // Don't copy public/ into build output
