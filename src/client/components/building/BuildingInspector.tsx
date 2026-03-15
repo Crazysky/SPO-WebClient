@@ -25,8 +25,10 @@ import { InspectorTabs } from './InspectorTabs';
 import { PropertyGroup } from './PropertyGroup';
 import { TownsTab } from '../politics/TownsTab';
 import { MinistriesTab } from '../politics/MinistriesTab';
-import { EconomyTab } from '../politics/EconomyTab';
-import { ElectionsTab } from '../politics/ElectionsTab';
+import { JobsTab } from '../politics/JobsTab';
+import { ResidentialsTab } from '../politics/ResidentialsTab';
+import { VotesTab } from '../politics/VotesTab';
+import { RatingsTab } from '../politics/RatingsTab';
 import { buildValueMap, getNum } from '../politics/capitol-utils';
 import styles from './BuildingInspector.module.css';
 
@@ -38,16 +40,17 @@ const CIVIC_TAB_OVERRIDES = new Set([
   'capitolTowns',
   'ministeries',
   'townJobs',
+  'townRes',
   'votes',
 ]);
 
-/** Server-sent tabs hidden from the pill bar (consumed by merged components). */
-const HIDDEN_CIVIC_TABS = new Set(['townRes']);
-
-/** Client-side tab label overrides for semantic clarity. */
-const CIVIC_TAB_LABELS: Record<string, string> = {
-  'townJobs': 'Economy',
-  'votes': 'Elections',
+/** Synthetic Ratings tab injected for civic buildings. */
+const RATINGS_TAB: BuildingDetailsTab = {
+  id: 'ratings',
+  name: 'Ratings',
+  icon: '★',
+  order: 90,
+  handlerName: 'ratings',
 };
 
 interface BuildingInspectorProps {
@@ -71,13 +74,11 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
   const username = useGameStore((s) => s.username);
   const holdsOffice = useGameStore((s) => s.isPublicOfficeRole);
 
-  // For civic buildings, hide merged tabs and relabel for semantic clarity
+  // For civic buildings, append the synthetic Ratings tab
   const tabs = useMemo(() => {
     if (!details) return [];
     if (!isCivic) return details.tabs;
-    return details.tabs
-      .filter((t) => !HIDDEN_CIVIC_TABS.has(t.id))
-      .map((t) => CIVIC_TAB_LABELS[t.id] ? { ...t, name: CIVIC_TAB_LABELS[t.id] } : t);
+    return [...details.tabs, RATINGS_TAB];
   }, [details, isCivic]);
 
   // Derive campaign state (needed for Ratings tab)
@@ -94,16 +95,6 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
     valueMap.get(`Candidate${i}`) ?? ''
   ).some((name) => name.toLowerCase() === (username ?? '').toLowerCase());
   const isCandidate = isCandidateFromPolitics || isCandidateFromVotes;
-
-  // Fetch politics data (ratings, campaigns) when a civic building is opened
-  // townName may be empty for Capitol buildings — still fetch (server uses coords)
-  const politicsTownName = usePoliticsStore((s) => s.townName);
-  useEffect(() => {
-    if (isCivic && details) {
-      client.onRequestPoliticsData(politicsTownName, details.x, details.y);
-    }
-  }, [isCivic, details?.x, details?.y, politicsTownName, client]);
-
   const handleRefresh = useCallback(() => {
     if (details) client.onRefreshBuilding(details.x, details.y);
   }, [details?.x, details?.y, client]);
@@ -210,7 +201,7 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
 
       {/* Header (hidden when inside modal — modal provides its own title) */}
       {!hideHeader && (
-        <div className={`${styles.header} ${styles.stagger0} ${isOwner ? styles.ownerBorder : styles.rivalBorder}`}>
+        <div className={`${styles.header} ${styles.stagger0}`}>
           <div className={styles.nameRow}>
             {isRenaming ? (
               <>
@@ -291,7 +282,6 @@ export function BuildingInspector({ hideHeader }: BuildingInspectorProps = {}) {
           isCandidate={isCandidate}
           holdsOffice={holdsOffice}
           tabs={details.tabs}
-          details={details}
         />
       </div>
     </div>
@@ -308,7 +298,6 @@ function CivicOrGenericTab({
   isCandidate,
   holdsOffice,
   tabs,
-  details,
 }: {
   isCivic: boolean;
   activeGroupId: string;
@@ -318,9 +307,12 @@ function CivicOrGenericTab({
   isCandidate: boolean;
   holdsOffice: boolean;
   tabs: BuildingDetailsTab[];
-  details: { groups: Record<string, BuildingPropertyValue[]> };
 }) {
   if (!isCivic || !CIVIC_TAB_OVERRIDES.has(activeGroupId)) {
+    // Synthetic Ratings tab for civic buildings
+    if (isCivic && activeGroupId === 'ratings') {
+      return <RatingsTab buildingX={buildingX} buildingY={buildingY} isCandidate={isCandidate} holdsOffice={holdsOffice} />;
+    }
     return <PropertyGroup properties={properties} buildingX={buildingX} buildingY={buildingY} />;
   }
 
@@ -331,11 +323,12 @@ function CivicOrGenericTab({
       return <MinistriesTab properties={properties} buildingX={buildingX} buildingY={buildingY} />;
     case 'townJobs': {
       const isCapitol = tabs.some(t => t.handlerName === 'capitolGeneral');
-      const resProperties = details.groups['townRes'] ?? [];
-      return <EconomyTab jobProperties={properties} resProperties={resProperties} buildingX={buildingX} buildingY={buildingY} isCapitol={isCapitol} />;
+      return <JobsTab properties={properties} buildingX={buildingX} buildingY={buildingY} isCapitol={isCapitol} />;
     }
+    case 'townRes':
+      return <ResidentialsTab properties={properties} />;
     case 'votes':
-      return <ElectionsTab voteProperties={properties} buildingX={buildingX} buildingY={buildingY} isCandidate={isCandidate} holdsOffice={holdsOffice} />;
+      return <VotesTab properties={properties} buildingX={buildingX} buildingY={buildingY} />;
     default:
       return <PropertyGroup properties={properties} buildingX={buildingX} buildingY={buildingY} />;
   }

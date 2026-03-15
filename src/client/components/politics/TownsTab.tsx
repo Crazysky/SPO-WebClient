@@ -22,6 +22,7 @@ export function TownsTab({ properties, buildingX, buildingY }: TownsTabProps) {
   const isPresident = isPresidentRole(ownerRole);
 
   const valueMap = buildValueMap(properties);
+  const ruler = valueMap.get('ActualRuler') ?? '';
   const townCount = getNum(valueMap, 'TownCount');
 
   const rows = Array.from({ length: townCount }, (_, i) => ({
@@ -52,6 +53,9 @@ export function TownsTab({ properties, buildingX, buildingY }: TownsTabProps) {
 
   return (
     <div className={styles.section}>
+      {ruler && (
+        <div className={styles.sectionTitle}>President: {ruler}</div>
+      )}
       <table className={styles.dataTable}>
         <thead>
           <tr>
@@ -59,7 +63,6 @@ export function TownsTab({ properties, buildingX, buildingY }: TownsTabProps) {
             <th>Pop.</th>
             <th>QOL</th>
             <th>Commerce</th>
-            <th>Wealth</th>
             <th>Tax</th>
             <th>QoS</th>
             <th>Mayor</th>
@@ -73,7 +76,6 @@ export function TownsTab({ properties, buildingX, buildingY }: TownsTabProps) {
               <td>{formatCompact(row.population)}</td>
               <td>{row.qol}%</td>
               <td>{row.commerce}%</td>
-              <td>{formatCompact(row.wealth)}</td>
               <td>
                 <TaxSlider
                   value={row.tax}
