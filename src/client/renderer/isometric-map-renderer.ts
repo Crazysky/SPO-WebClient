@@ -445,6 +445,11 @@ export class IsometricMapRenderer {
   // Per-building visual effects: upgrade flash/scale-pop and demolition shrink/fade
   private buildingEffects: Map<string, { type: 'upgrade' | 'demolish'; startTime: number; building: MapBuilding }> = new Map();
 
+  /** Portal facilities (6031) are non-interactive map decorations. */
+  private static isPortal(building: MapBuilding): boolean {
+    return building.visualClass === '6031';
+  }
+
   // Road drawing
   private roadDrawingMode: boolean = false;
   private roadDrawingState: RoadDrawingState = {
@@ -1177,14 +1182,14 @@ export class IsometricMapRenderer {
       // Upgrades: same position, different visualClass
       for (const [key, newB] of newByKey) {
         const prev = prevByKey.get(key);
-        if (prev && prev.visualClass !== newB.visualClass) {
+        if (prev && prev.visualClass !== newB.visualClass && !IsometricMapRenderer.isPortal(newB)) {
           this.buildingEffects.set(key, { type: 'upgrade', startTime: now, building: newB });
         }
       }
 
       // Demolitions: building present before but gone now
       for (const [key, prevB] of prevByKey) {
-        if (!newByKey.has(key) && this.buildingEffects.get(key)?.type !== 'demolish') {
+        if (!newByKey.has(key) && !IsometricMapRenderer.isPortal(prevB) && this.buildingEffects.get(key)?.type !== 'demolish') {
           this.buildingEffects.set(key, { type: 'demolish', startTime: now, building: prevB });
         }
       }
@@ -4929,7 +4934,7 @@ export class IsometricMapRenderer {
       } else {
         // Check building click
         const building = this.getBuildingAt(mapPos.j, mapPos.i);
-        if (building && this.onBuildingClick) {
+        if (building && !IsometricMapRenderer.isPortal(building) && this.onBuildingClick) {
           this.onBuildingClick(building.x, building.y, building.visualClass);
         } else if (!building && this.onEmptyMapClick) {
           this.onEmptyMapClick();
@@ -4988,8 +4993,9 @@ export class IsometricMapRenderer {
       this.placementPreview.j = mapPos.j;
     }
 
-    // Update hover state
-    this.hoveredBuilding = this.getBuildingAt(mapPos.j, mapPos.i);
+    // Update hover state (Portal facilities are non-interactive)
+    const candidate = this.getBuildingAt(mapPos.j, mapPos.i);
+    this.hoveredBuilding = (candidate && IsometricMapRenderer.isPortal(candidate)) ? null : candidate;
     this.updateCursor();
 
     this.requestRender();
